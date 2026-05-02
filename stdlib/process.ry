@@ -1,0 +1,509 @@
+/**
+ * Standard Library - Process Module
+ *
+ * Provides process management and system command execution.
+ * Enables spawning child processes and executing system commands.
+ *
+ * @author Ruyi Team
+ * @date 2026-05-02
+ */
+
+// ============================================================
+// Process Class
+// ============================================================
+
+/**
+ * Process class for system process management and command execution.
+ * Provides capabilities to spawn processes and execute system commands.
+ */
+class Process {
+    /**
+     * The PID of the process (platform-specific).
+     */
+    let pid: int;
+
+    /**
+     * The command that started this process.
+     */
+    let command: string;
+
+    /**
+     * Current working directory of the process.
+     */
+    let cwd: string;
+
+    /**
+     * Environment variables for the process.
+     */
+    let env: Map<string, string>;
+
+    /**
+     * Exit code of the process (null if still running).
+     */
+    let exitCode: int?;
+
+    /**
+     * Whether the process has exited.
+     */
+    let isRunning: bool;
+
+    /**
+     * Creates a new Process instance.
+     * @param command The command to execute
+     * @param options Additional process options
+     */
+    static fn create(command: string, options: ProcessOptions? = null): Process {
+        let opts = options != null ? options : ProcessOptions.default();
+        let proc = __process_create(command, opts.cwd, opts.env, opts.shell);
+        proc.cwd = opts.cwd != null ? opts.cwd : "";
+        proc.env = opts.env != null ? opts.env : Map.new();
+        proc.isRunning = true;
+        proc.exitCode = null;
+        return proc;
+    }
+
+    /**
+     * Executes a command synchronously and returns the result.
+     * @param command Command string to execute
+     * @return Result containing stdout, stderr, and exit code
+     */
+    static fn exec(command: string): ProcessResult {
+        return __process_exec(command);
+    }
+
+    /**
+     * Executes a command synchronously with options.
+     * @param command Command string to execute
+     * @param options Execution options
+     * @return Result containing stdout, stderr, and exit code
+     */
+    static fn execWith(command: string, options: ExecOptions): ProcessResult {
+        return __process_exec_with(command, options.cwd, options.env, options.shell);
+    }
+
+    /**
+     * Spawns a child process.
+     * @param command Command to spawn
+     * @param args Arguments for the command
+     * @return New Process instance
+     */
+    static fn spawn(command: string, args: Array<string>? = null): Process {
+        let fullCommand = command;
+        if args != null && args.length() > 0 {
+            fullCommand = command + " " + args.join(" ");
+        }
+        return Process.create(fullCommand);
+    }
+
+    /**
+     * Spawns a child process with options.
+     * @param command Command to spawn
+     * @param args Arguments for the command
+     * @param options Process options
+     * @return New Process instance
+     */
+    static fn spawnWith(command: string, args: Array<string>?, options: ProcessOptions): Process {
+        let fullCommand = command;
+        if args != null && args.length() > 0 {
+            fullCommand = command + " " + args.join(" ");
+        }
+        return Process.create(fullCommand, options);
+    }
+
+    /**
+     * Waits for the process to complete.
+     * @return Exit code of the process
+     */
+    fn wait(): int {
+        if isRunning {
+            let code = __process_wait(self);
+            self.exitCode = code;
+            self.isRunning = false;
+            return code;
+        }
+        return self.exitCode != null ? self.exitCode : 0;
+    }
+
+    /**
+     * Waits for the process to complete (async version).
+     * @return Future resolving to exit code
+     */
+    async fn waitAsync(): Future<int> {
+        return __process_wait_async(self);
+    }
+
+    /**
+     * Kills the process.
+     * @param signal Signal to send (default: SIGTERM)
+     */
+    fn kill(signal: int = 15): void {
+        __process_kill(self, signal);
+    }
+
+    /**
+     * Sends input to the process's stdin.
+     * @param input String to send to stdin
+     */
+    fn writeInput(input: string): void {
+        __process_write_input(self, input);
+    }
+
+    /**
+     * Closes the process's stdin.
+     */
+    fn closeInput(): void {
+        __process_close_input(self);
+    }
+
+    /**
+     * Reads output from stdout.
+     * @return Output string, or null if no output available
+     */
+    fn readOutput(): string? {
+        return __process_read_output(self);
+    }
+
+    /**
+     * Reads error output from stderr.
+     * @return Error string, or null if no error output available
+     */
+    fn readError(): string? {
+        return __process_read_error(self);
+    }
+
+    /**
+     * Returns a string representation of the process.
+     * @return Process info string
+     */
+    fn toString(): string {
+        return "Process(pid: " + this.pid + ", command: " + this.command + ")";
+    }
+}
+
+// ============================================================
+// Process Options
+// ============================================================
+
+/**
+ * Options for process creation.
+ */
+class ProcessOptions {
+    /**
+     * Current working directory for the process.
+     */
+    let cwd: string? = null;
+
+    /**
+     * Environment variables for the process.
+     */
+    let env: Map<string, string>? = null;
+
+    /**
+     * Whether to use the system shell.
+     */
+    let shell: bool = true;
+
+    /**
+     * Creates default process options.
+     * @return New ProcessOptions instance
+     */
+    static fn default(): ProcessOptions {
+        return ProcessOptions();
+    }
+
+    /**
+     * Sets the working directory.
+     * @param path Working directory path
+     * @return This options object for chaining
+     */
+    fn withCwd(path: string): ProcessOptions {
+        this.cwd = path;
+        return this;
+    }
+
+    /**
+     * Sets environment variables.
+     * @param env Environment variable map
+     * @return This options object for chaining
+     */
+    fn withEnv(env: Map<string, string>): ProcessOptions {
+        this.env = env;
+        return this;
+    }
+
+    /**
+     * Sets whether to use the shell.
+     * @param useShell Whether to use shell
+     * @return This options object for chaining
+     */
+    fn withShell(useShell: bool): ProcessOptions {
+        this.shell = useShell;
+        return this;
+    }
+}
+
+// ============================================================
+// Execution Options
+// ============================================================
+
+/**
+ * Options for exec operations.
+ */
+class ExecOptions {
+    /**
+     * Current working directory.
+     */
+    let cwd: string? = null;
+
+    /**
+     * Environment variables.
+     */
+    let env: Map<string, string>? = null;
+
+    /**
+     * Whether to use shell.
+     */
+    let shell: bool = true;
+
+    /**
+     * Timeout in milliseconds.
+     */
+    let timeout: int? = null;
+
+    /**
+     * Creates default exec options.
+     * @return New ExecOptions instance
+     */
+    static fn default(): ExecOptions {
+        return ExecOptions();
+    }
+
+    /**
+     * Sets working directory.
+     * @param path Working directory
+     * @return This options object for chaining
+     */
+    fn withCwd(path: string): ExecOptions {
+        this.cwd = path;
+        return this;
+    }
+
+    /**
+     * Sets environment variables.
+     * @param env Environment map
+     * @return This options object for chaining
+     */
+    fn withEnv(env: Map<string, string>): ExecOptions {
+        this.env = env;
+        return this;
+    }
+
+    /**
+     * Sets shell usage.
+     * @param useShell Whether to use shell
+     * @return This options object for chaining
+     */
+    fn withShell(useShell: bool): ExecOptions {
+        this.shell = useShell;
+        return this;
+    }
+
+    /**
+     * Sets timeout.
+     * @param ms Timeout in milliseconds
+     * @return This options object for chaining
+     */
+    fn withTimeout(ms: int): ExecOptions {
+        this.timeout = ms;
+        return this;
+    }
+}
+
+// ============================================================
+// Process Result
+// ============================================================
+
+/**
+ * Result of a process execution.
+ */
+class ProcessResult {
+    /**
+     * Standard output of the process.
+     */
+    let stdout: string;
+
+    /**
+     * Standard error of the process.
+     */
+    let stderr: string;
+
+    /**
+     * Exit code of the process.
+     */
+    let exitCode: int;
+
+    /**
+     * Whether the process was successful (exit code 0).
+     */
+    let success: bool;
+
+    /**
+     * Creates a new ProcessResult.
+     * @param stdout Standard output
+     * @param stderr Standard error
+     * @param exitCode Exit code
+     */
+    static fn create(stdout: string, stderr: string, exitCode: int): ProcessResult {
+        let result = ProcessResult();
+        result.stdout = stdout;
+        result.stderr = stderr;
+        result.exitCode = exitCode;
+        result.success = exitCode == 0;
+        return result;
+    }
+
+    /**
+     * Throws an exception if the process failed.
+     */
+    fn ensureSuccess(): void {
+        if this.success == false {
+            throw new ProcessException(
+                "Process exited with code " + this.exitCode + ": " + this.stderr
+            );
+        }
+    }
+}
+
+// ============================================================
+// Process Exception
+// ============================================================
+
+/**
+ * Exception thrown when a process operation fails.
+ */
+class ProcessException {
+    /**
+     * The error message.
+     */
+    let message: string;
+
+    /**
+     * The process that caused this exception, if applicable.
+     */
+    let process: Process?;
+
+    /**
+     * Creates a new ProcessException.
+     * @param message Error message
+     * @param process Optional associated process
+     */
+    static fn create(message: string, process: Process? = null): ProcessException {
+        let ex = ProcessException();
+        ex.message = message;
+        ex.process = process;
+        return ex;
+    }
+
+    /**
+     * Returns the error message.
+     * @return Error message string
+     */
+    fn getMessage(): string {
+        return this.message;
+    }
+}
+
+// ============================================================
+// Signal Constants
+// ============================================================
+
+/**
+ * Signal constants for process termination.
+ */
+class Signal {
+    static let HUP: int = 1;    // Hangup
+    static let INT: int = 2;    // Interrupt (Ctrl+C)
+    static let QUIT: int = 3;   // Quit (Ctrl+\)
+    static let KILL: int = 9;   // Kill (cannot be caught)
+    static let TERM: int = 15;   // Termination (default)
+    static let USR1: int = 10;  // User-defined signal 1
+    static let USR2: int = 12;  // User-defined signal 2
+}
+
+// ============================================================
+// Environment Functions
+// ============================================================
+
+/**
+ * Gets an environment variable value.
+ * @param name Variable name
+ * @return Value or null if not set
+ */
+fn getEnv(name: string): string? {
+    return __process_get_env(name);
+}
+
+/**
+ * Sets an environment variable.
+ * @param name Variable name
+ * @param value Variable value
+ */
+fn setEnv(name: string, value: string): void {
+    __process_set_env(name, value);
+}
+
+/**
+ * Gets all environment variables.
+ * @return Map of environment variable names to values
+ */
+fn getAllEnv(): Map<string, string> {
+    return __process_get_all_env();
+}
+
+/**
+ * Gets the current process ID.
+ * @return Process ID
+ */
+fn getPID(): int {
+    return __process_get_pid();
+}
+
+/**
+ * Gets the parent process ID.
+ * @return Parent process ID
+ */
+fn getPPID(): int {
+    return __process_get_ppid();
+}
+
+/**
+ * Gets the current system platform.
+ * @return "linux", "macos", "windows", or "unknown"
+ */
+fn getPlatform(): string {
+    return __process_get_platform();
+}
+
+/**
+ * Gets the number of CPU cores available.
+ * @return Number of CPU cores
+ */
+fn getCPUCount(): int {
+    return __process_get_cpu_count();
+}
+
+/**
+ * Gets the total system memory in bytes.
+ * @return Total memory in bytes
+ */
+fn getTotalMemory(): int {
+    return __process_get_total_memory();
+}
+
+/**
+ * Gets the free system memory in bytes.
+ * @return Free memory in bytes
+ */
+fn getFreeMemory(): int {
+    return __process_get_free_memory();
+}

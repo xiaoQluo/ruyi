@@ -1,0 +1,15 @@
+fn greet(name: string): string {
+    return "Hello, " + name + "!";
+}
+
+fn add(a: int, b: int): int {
+    return a + b;
+}
+
+fn square(x: int): int {
+    return x * x;
+}
+
+print(greet("World"));
+print(add(5, 3));
+print(square(7));

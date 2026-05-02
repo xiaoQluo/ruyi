@@ -1,0 +1,175 @@
+/**
+ * Ruyi Standard Library - Option Type
+ *
+ * Provides the Option enum for handling potentially missing values.
+ * This is the idiomatic way to handle null/undefined in Ruyi.
+ *
+ * @author Ruyi Team
+ * @date 2026-05-02
+ */
+
+/**
+ * Option enum representing either a value (Some) or nothing (None).
+ * Use this instead of null to represent the absence of a value.
+ */
+enum Option<T> {
+    Some(T),
+    None
+}
+
+/**
+ * Checks if the option contains a value.
+ * @return True if this is a Some variant
+ */
+fn isSome<T>(self: Option<T>): bool {
+    match self {
+        Some(_) => return true,
+        None => return false
+    }
+}
+
+/**
+ * Checks if the option is empty.
+ * @return True if this is a None variant
+ */
+fn isNone<T>(self: Option<T>): bool {
+    return not self.isSome();
+}
+
+/**
+ * Returns the contained value, or panics if None.
+ * Use unwrapOr or unwrapOrElse as safe alternatives.
+ * @return The contained value
+ */
+fn unwrap<T>(self: Option<T>): T {
+    match self {
+        Some(value) => return value,
+        None => throw RuntimeError("Called unwrap() on None")
+    }
+}
+
+/**
+ * Returns the contained value or a provided default.
+ * @param default The default value to return if None
+ * @return The contained value or default
+ */
+fn unwrapOr<T>(self: Option<T>, default: T): T {
+    match self {
+        Some(value) => return value,
+        None => return default
+    }
+}
+
+/**
+ * Returns the contained value or computes one from a closure.
+ * @param f The function to compute default value
+ * @return The contained value or computed default
+ */
+fn unwrapOrElse<T>(self: Option<T>, f: fn(): T): T {
+    match self {
+        Some(value) => return value,
+        None => return f()
+    }
+}
+
+/**
+ * Maps the contained value using the provided function.
+ * If None, returns None.
+ * @param f The transformation function
+ * @return Option containing transformed value or None
+ */
+fn map<T, U>(self: Option<T>, f: fn(T): U): Option<U> {
+    match self {
+        Some(value) => return Some(f(value)),
+        None => return None
+    }
+}
+
+/**
+ * Chains computations that may fail.
+ * If self is Some, passes the value to the function and returns its result.
+ * If self is None, returns None.
+ * @param f The function to chain
+ * @return Result of the function or None
+ */
+fn andThen<T, U>(self: Option<T>, f: fn(T): Option<U>): Option<U> {
+    match self {
+        Some(value) => return f(value),
+        None => return None
+    }
+}
+
+/**
+ * Returns true if this is Some and the predicate returns true.
+ * @param pred The predicate function
+ * @return True if Some and predicate is true
+ */
+fn filter<T>(self: Option<T>, pred: fn(T): bool): Option<T> {
+    match self {
+        Some(value) => {
+            if pred(value) {
+                return Some(value);
+            }
+            return None;
+        },
+        None => return None
+    }
+}
+
+/**
+ * Returns the contained value or None if present.
+ * Flattens nested Options.
+ * @return The inner Option or None
+ */
+fn flatten<T>(self: Option<Option<T>>): Option<T> {
+    match self {
+        Some(inner) => return inner,
+        None => return None
+    }
+}
+
+/**
+ * Converts to a Result, mapping None to Err.
+ * @param err The error value for None case
+ * @return Ok with value or Err with error
+ */
+fn okOr<T, E>(self: Option<T>, err: E): Result<T, E> {
+    match self {
+        Some(value) => return Ok(value),
+        None => return Err(err)
+    }
+}
+
+/**
+ * Converts to a Result, mapping None to computed error.
+ * @param f Function to compute error value
+ * @return Ok with value or Err with computed error
+ */
+fn okOrElse<T, E>(self: Option<T>, f: fn(): E): Result<T, E> {
+    match self {
+        Some(value) => return Ok(value),
+        None => return Err(f())
+    }
+}
+
+/**
+ * Iterates over the contained value or does nothing.
+ * @param f The function to apply to the value
+ */
+fn forEach<T>(self: Option<T>, f: fn(T): void): void {
+    match self {
+        Some(value) => f(value),
+        None => {}
+    }
+}
+
+/**
+ * Returns the contained value as a string.
+ * @return "Some(value)" or "None"
+ */
+fn toString<T>(self: Option<T>): string {
+    match self {
+        Some(value) => return "Some(" + value.toString() + ")",
+        None => return "None"
+    }
+}

@@ -1,0 +1,4 @@
+warn-by-default = true
+clones = true
+copycollisions = true
+operationwise = true

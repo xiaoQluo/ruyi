@@ -1,0 +1,6 @@
+Name: Alice
+Age: 30
+Has email: false
+Size: 3
+After delete - Size: 2
+Age after delete: null

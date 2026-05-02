@@ -1,0 +1,13 @@
+async fn task1(): int { return 10; }
+async fn task2(): int { return 20; }
+async fn task3(): int { return 30; }
+
+async fn runAll(): int {
+    let results = [];
+    results.push(task1());
+    results.push(task2());
+    results.push(task3());
+    return results[0] + results[1] + results[2];
+}
+
+print(runAll());

@@ -1,0 +1,10 @@
+let s = "Hello, World!";
+
+print("Length: " + s.length());
+print("Contains 'World': " + s.contains("World"));
+print("Starts with 'Hello': " + s.startsWith("Hello"));
+print("Ends with '!': " + s.endsWith("!"));
+print("Index of 'o': " + s.indexOf("o"));
+print("To upper: " + s.toUpperCase());
+print("To lower: " + s.toLowerCase());
+print("Trimmed: '" + "  spaces  ".trim() + "'");

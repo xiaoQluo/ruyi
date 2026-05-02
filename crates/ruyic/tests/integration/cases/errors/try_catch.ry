@@ -1,0 +1,11 @@
+try {
+    let x = 10;
+    if x > 5 {
+        throw Error("x is too large!");
+    }
+    print("After throw");
+} catch (e) {
+    print("Caught error: " + e.message);
+}
+
+print("Execution continues after catch");

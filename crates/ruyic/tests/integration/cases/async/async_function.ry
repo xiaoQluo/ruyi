@@ -1,0 +1,6 @@
+async fn fetch(): int {
+    return 42;
+}
+
+let result = fetch();
+print(result);

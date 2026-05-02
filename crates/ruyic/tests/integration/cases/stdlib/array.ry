@@ -1,0 +1,22 @@
+let arr = [];
+arr.push(1);
+arr.push(2);
+arr.push(3);
+
+print("Length: " + arr.length());
+
+print("First: " + arr[0]);
+print("Last: " + arr[arr.length() - 1]);
+
+let popped = arr.pop();
+print("Popped: " + popped);
+print("New length: " + arr.length());
+
+arr.push(4);
+arr.push(5);
+
+let sum = 0;
+for let i = 0; i < arr.length(); i = i + 1 {
+    sum = sum + arr[i];
+}
+print("Sum: " + sum);

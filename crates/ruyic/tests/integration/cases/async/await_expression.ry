@@ -1,0 +1,8 @@
+async fn getValue(): int {
+    return 10;
+}
+
+async fn main(): int {
+    let x = await getValue();
+    return x + 5;
+}

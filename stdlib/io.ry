@@ -1,0 +1,192 @@
+/**
+ * Standard Library - IO Module
+ *
+ * Provides input/output operations for console and file system access.
+ * All file operations support async/await patterns.
+ *
+ * @author Ruyi Team
+ * @date 2026-05-02
+ */
+
+// ============================================================
+// Console Output
+// ============================================================
+
+/**
+ * Prints a value to stdout without a trailing newline.
+ * @param value The value to print (int, float, bool, or string)
+ */
+fn print(value: dynamic): void {
+    __io_print(value);
+}
+
+/**
+ * Prints a value to stdout with a trailing newline.
+ * @param value The value to print (int, float, bool, or string)
+ */
+fn println(value: dynamic): void {
+    __io_print(value);
+    __io_print("\n");
+}
+
+// ============================================================
+// Console Input
+// ============================================================
+
+/**
+ * Reads a single line from stdin.
+ * Blocks until a complete line is available.
+ * @return The line read, or null on end of input
+ */
+fn readLine(): string? {
+    return __io_read_line();
+}
+
+// ============================================================
+// File Operations
+// ============================================================
+
+/**
+ * File class for file system operations.
+ * Supports both synchronous and asynchronous access patterns.
+ */
+class File {
+    /**
+     * Reads entire file contents as a string.
+     * @param path Path to the file
+     * @return File contents as string
+     */
+    static fn readText(path: string): string {
+        return __io_file_read_text(path);
+    }
+
+    /**
+     * Reads entire file contents as a string (async version).
+     * @param path Path to the file
+     * @return Future resolving to file contents
+     */
+    static async fn readTextAsync(path: string): Future<string> {
+        return __io_file_read_text_async(path);
+    }
+
+    /**
+     * Writes string content to a file.
+     * @param path Path to the file
+     * @param content Content to write
+     */
+    static fn writeText(path: string, content: string): void {
+        __io_file_write_text(path, content);
+    }
+
+    /**
+     * Writes string content to a file (async version).
+     * @param path Path to the file
+     * @param content Content to write
+     * @return Future that completes when write is done
+     */
+    static async fn writeTextAsync(path: string, content: string): Future<void> {
+        return __io_file_write_text_async(path, content);
+    }
+
+    /**
+     * Reads file contents as array of lines.
+     * @param path Path to the file
+     * @return Array of lines (without newline characters)
+     */
+    static fn readLines(path: string): Array<string> {
+        return __io_file_read_lines(path);
+    }
+
+    /**
+     * Reads file contents as array of lines (async version).
+     * @param path Path to the file
+     * @return Future resolving to array of lines
+     */
+    static async fn readLinesAsync(path: string): Future<Array<string>> {
+        return __io_file_read_lines_async(path);
+    }
+
+    /**
+     * Writes lines to a file.
+     * @param path Path to the file
+     * @param lines Array of lines to write
+     */
+    static fn writeLines(path: string, lines: Array<string>): void {
+        let content = lines.join("\n");
+        __io_file_write_text(path, content);
+    }
+
+    /**
+     * Writes lines to a file (async version).
+     * @param path Path to the file
+     * @param lines Array of lines to write
+     * @return Future that completes when write is done
+     */
+    static async fn writeLinesAsync(path: string, lines: Array<string>): Future<void> {
+        let content = lines.join("\n");
+        return __io_file_write_text_async(path, content);
+    }
+
+    /**
+     * Checks if a file or directory exists.
+     * @param path Path to check
+     * @return true if path exists, false otherwise
+     */
+    static fn exists(path: string): bool {
+        return __io_file_exists(path);
+    }
+
+    /**
+     * Checks if path is a directory.
+     * @param path Path to check
+     * @return true if path is a directory
+     */
+    static fn isDirectory(path: string): bool {
+        return __io_is_directory(path);
+    }
+
+    /**
+     * Checks if path is a file.
+     * @param path Path to check
+     * @return true if path is a file
+     */
+    static fn isFile(path: string): bool {
+        return __io_is_file(path);
+    }
+
+    /**
+     * Deletes a file.
+     * @param path Path to the file
+     */
+    static fn delete(path: string): void {
+        __io_file_delete(path);
+    }
+
+    /**
+     * Deletes a file (async version).
+     * @param path Path to the file
+     * @return Future that completes when deletion is done
+     */
+    static async fn deleteAsync(path: string): Future<void> {
+        return __io_file_delete_async(path);
+    }
+
+    /**
+     * Creates a directory.
+     * @param path Path to the directory
+     * @param recursive If true, creates parent directories as needed
+     */
+    static fn mkdir(path: string, recursive: bool = false): void {
+        __io_mkdir(path, recursive);
+    }
+
+    /**
+     * Creates a directory (async version).
+     * @param path Path to the directory
+     * @param recursive If true, creates parent directories as needed
+     * @return Future that completes when directory is created
+     */
+    static async fn mkdirAsync(path: string, recursive: bool = false): Future<void> {
+        return __io_mkdir_async(path, recursive);
+    }
+}

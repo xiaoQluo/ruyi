@@ -1,0 +1,622 @@
+/**
+ * Expression code generation for Ruyi.
+ *
+ * Lowers Ruyi AST expressions to LLVM IR instructions.
+ *
+ * @author Ruyi Team
+ * @date 2026-05-01
+ */
+
+use inkwell::values::BasicValueEnum;
+use inkwell::IntPredicate;
+use inkwell::FloatPredicate;
+
+use crate::parser::ast::{BinaryOp, Expr, UnaryOp};
+use crate::typechecker::types::Type;
+use super::types::ruyi_type_to_llvm;
+use super::generator::CodegenContext;
+
+/// Result of compiling an expression.
+pub struct ExprResult<'ctx> {
+    pub value: BasicValueEnum<'ctx>,
+    pub ty: Type,
+}
+
+impl<'ctx> ExprResult<'ctx> {
+    pub fn new(value: BasicValueEnum<'ctx>, ty: Type) -> Self {
+        Self { value, ty }
+    }
+}
+
+/// Compile an expression into LLVM IR.
+pub fn compile_expr<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    expr: &Expr,
+) -> Result<ExprResult<'ctx>, String> {
+    match expr {
+        Expr::IntLiteral(n) => compile_int_literal(ctx, *n),
+        Expr::FloatLiteral(n) => compile_float_literal(ctx, *n),
+        Expr::BooleanLiteral(b) => compile_bool_literal(ctx, *b),
+        Expr::StringLiteral(s) => compile_string_literal(ctx, s),
+        Expr::NullLiteral => compile_null_literal(ctx),
+        Expr::Identifier(name) => compile_identifier(ctx, name),
+        Expr::Binary { op, left, right } => compile_binary(ctx, op, left, right),
+        Expr::Unary { op, operand } => compile_unary(ctx, op, operand),
+        Expr::Call { callee, args } => compile_call(ctx, callee, args),
+        Expr::Assignment { left, op, right } => compile_assignment(ctx, left, op, right),
+        Expr::Conditional { condition, then_branch, else_branch } => {
+            compile_conditional(ctx, condition, then_branch, else_branch)
+        }
+        Expr::Grouping(inner) => compile_expr(ctx, inner),
+        Expr::Await(inner) => super::async_codegen::compile_await(ctx, inner),
+        _ => Err(format!("Unsupported expression: {:?}", expr)),
+    }
+}
+
+fn compile_int_literal<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    n: i64,
+) -> Result<ExprResult<'ctx>, String> {
+    let val = ctx.context.i64_type().const_int(n as u64, true);
+    Ok(ExprResult::new(BasicValueEnum::IntValue(val), Type::Int))
+}
+
+fn compile_float_literal<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    n: f64,
+) -> Result<ExprResult<'ctx>, String> {
+    let val = ctx.context.f64_type().const_float(n);
+    Ok(ExprResult::new(BasicValueEnum::FloatValue(val), Type::Float))
+}
+
+fn compile_bool_literal<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    b: bool,
+) -> Result<ExprResult<'ctx>, String> {
+    let val = ctx.context.bool_type().const_int(b as u64, false);
+    Ok(ExprResult::new(BasicValueEnum::IntValue(val), Type::Bool))
+}
+
+fn compile_string_literal<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    s: &str,
+) -> Result<ExprResult<'ctx>, String> {
+    let global = ctx.builder.build_global_string_ptr(s, "str_lit");
+    Ok(ExprResult::new(
+        BasicValueEnum::PointerValue(global.as_pointer_value()),
+        Type::String,
+    ))
+}
+
+fn compile_null_literal<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+) -> Result<ExprResult<'ctx>, String> {
+    let null_ptr = ctx.context.i8_type().ptr_type(Default::default()).const_null();
+    Ok(ExprResult::new(BasicValueEnum::PointerValue(null_ptr), Type::Null))
+}
+
+fn compile_identifier<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    name: &str,
+) -> Result<ExprResult<'ctx>, String> {
+    match ctx.variables.get(name) {
+        Some((ptr, ty)) => {
+            let val = ctx.builder.build_load(*ptr, name);
+            Ok(ExprResult::new(val, ty.clone()))
+        }
+        None => {
+            // Check if it's a function
+            if let Some(func) = ctx.module.get_function(name) {
+                Ok(ExprResult::new(
+                    BasicValueEnum::PointerValue(func.as_global_value().as_pointer_value()),
+                    Type::Function {
+                        params: vec![],
+                        return_type: Box::new(Type::Dynamic),
+                    },
+                ))
+            } else {
+                Err(format!("Undefined variable: {}", name))
+            }
+        }
+    }
+}
+
+fn compile_binary<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    op: &BinaryOp,
+    left: &Expr,
+    right: &Expr,
+) -> Result<ExprResult<'ctx>, String> {
+    let left_result = compile_expr(ctx, left)?;
+    let right_result = compile_expr(ctx, right)?;
+
+    match op {
+        BinaryOp::Plus => compile_add(ctx, &left_result, &right_result),
+        BinaryOp::Minus => compile_sub(ctx, &left_result, &right_result),
+        BinaryOp::Star => compile_mul(ctx, &left_result, &right_result),
+        BinaryOp::Slash => compile_div(ctx, &left_result, &right_result),
+        BinaryOp::Percent => compile_rem(ctx, &left_result, &right_result),
+        BinaryOp::StrictEquals | BinaryOp::Equals => compile_eq(ctx, &left_result, &right_result),
+        BinaryOp::StrictNotEquals | BinaryOp::NotEquals => compile_ne(ctx, &left_result, &right_result),
+        BinaryOp::Less => compile_lt(ctx, &left_result, &right_result),
+        BinaryOp::Greater => compile_gt(ctx, &left_result, &right_result),
+        BinaryOp::LessEq => compile_le(ctx, &left_result, &right_result),
+        BinaryOp::GreaterEq => compile_ge(ctx, &left_result, &right_result),
+        BinaryOp::And => compile_and(ctx, &left_result, &right_result),
+        BinaryOp::Or => compile_or(ctx, &left_result, &right_result),
+        BinaryOp::Amp => compile_bitwise_and(ctx, &left_result, &right_result),
+        BinaryOp::Pipe => compile_bitwise_or(ctx, &left_result, &right_result),
+        BinaryOp::Caret => compile_bitwise_xor(ctx, &left_result, &right_result),
+        BinaryOp::Shl => compile_shl(ctx, &left_result, &right_result),
+        BinaryOp::Shr => compile_shr(ctx, &left_result, &right_result),
+        _ => Err(format!("Unsupported binary operator: {:?}", op)),
+    }
+}
+
+fn compile_add<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    left: &ExprResult<'ctx>,
+    right: &ExprResult<'ctx>,
+) -> Result<ExprResult<'ctx>, String> {
+    match (&left.value, &right.value) {
+        (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+            let res = ctx.builder.build_int_add(*l, *r, "add");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
+        }
+        (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
+            let res = ctx.builder.build_float_add(*l, *r, "fadd");
+            Ok(ExprResult::new(BasicValueEnum::FloatValue(res), Type::Float))
+        }
+        (BasicValueEnum::IntValue(l), BasicValueEnum::FloatValue(r)) => {
+            let l_f = ctx.builder.build_signed_int_to_float(*l, ctx.context.f64_type(), "itof");
+            let res = ctx.builder.build_float_add(l_f, *r, "fadd");
+            Ok(ExprResult::new(BasicValueEnum::FloatValue(res), Type::Float))
+        }
+        (BasicValueEnum::FloatValue(l), BasicValueEnum::IntValue(r)) => {
+            let r_f = ctx.builder.build_signed_int_to_float(*r, ctx.context.f64_type(), "itof");
+            let res = ctx.builder.build_float_add(*l, r_f, "fadd");
+            Ok(ExprResult::new(BasicValueEnum::FloatValue(res), Type::Float))
+        }
+        _ => Err("Invalid operands for +".to_string()),
+    }
+}
+
+fn compile_sub<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    left: &ExprResult<'ctx>,
+    right: &ExprResult<'ctx>,
+) -> Result<ExprResult<'ctx>, String> {
+    match (&left.value, &right.value) {
+        (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+            let res = ctx.builder.build_int_sub(*l, *r, "sub");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
+        }
+        (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
+            let res = ctx.builder.build_float_sub(*l, *r, "fsub");
+            Ok(ExprResult::new(BasicValueEnum::FloatValue(res), Type::Float))
+        }
+        _ => Err("Invalid operands for -".to_string()),
+    }
+}
+
+fn compile_mul<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    left: &ExprResult<'ctx>,
+    right: &ExprResult<'ctx>,
+) -> Result<ExprResult<'ctx>, String> {
+    match (&left.value, &right.value) {
+        (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+            let res = ctx.builder.build_int_mul(*l, *r, "mul");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
+        }
+        (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
+            let res = ctx.builder.build_float_mul(*l, *r, "fmul");
+            Ok(ExprResult::new(BasicValueEnum::FloatValue(res), Type::Float))
+        }
+        _ => Err("Invalid operands for *".to_string()),
+    }
+}
+
+fn compile_div<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    left: &ExprResult<'ctx>,
+    right: &ExprResult<'ctx>,
+) -> Result<ExprResult<'ctx>, String> {
+    match (&left.value, &right.value) {
+        (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+            let res = ctx.builder.build_int_signed_div(*l, *r, "sdiv");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
+        }
+        (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
+            let res = ctx.builder.build_float_div(*l, *r, "fdiv");
+            Ok(ExprResult::new(BasicValueEnum::FloatValue(res), Type::Float))
+        }
+        _ => Err("Invalid operands for /".to_string()),
+    }
+}
+
+fn compile_rem<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    left: &ExprResult<'ctx>,
+    right: &ExprResult<'ctx>,
+) -> Result<ExprResult<'ctx>, String> {
+    match (&left.value, &right.value) {
+        (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+            let res = ctx.builder.build_int_signed_rem(*l, *r, "srem");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
+        }
+        _ => Err("Invalid operands for %".to_string()),
+    }
+}
+
+fn compile_eq<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    left: &ExprResult<'ctx>,
+    right: &ExprResult<'ctx>,
+) -> Result<ExprResult<'ctx>, String> {
+    match (&left.value, &right.value) {
+        (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+            let res = ctx.builder.build_int_compare(IntPredicate::EQ, *l, *r, "eq");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
+        (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
+            let res = ctx.builder.build_float_compare(FloatPredicate::OEQ, *l, *r, "feq");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
+        _ => Err("Invalid operands for ===".to_string()),
+    }
+}
+
+fn compile_ne<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    left: &ExprResult<'ctx>,
+    right: &ExprResult<'ctx>,
+) -> Result<ExprResult<'ctx>, String> {
+    match (&left.value, &right.value) {
+        (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+            let res = ctx.builder.build_int_compare(IntPredicate::NE, *l, *r, "ne");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
+        (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
+            let res = ctx.builder.build_float_compare(FloatPredicate::ONE, *l, *r, "fne");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
+        _ => Err("Invalid operands for !==".to_string()),
+    }
+}
+
+fn compile_lt<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    left: &ExprResult<'ctx>,
+    right: &ExprResult<'ctx>,
+) -> Result<ExprResult<'ctx>, String> {
+    match (&left.value, &right.value) {
+        (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+            let res = ctx.builder.build_int_compare(IntPredicate::SLT, *l, *r, "lt");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
+        (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
+            let res = ctx.builder.build_float_compare(FloatPredicate::OLT, *l, *r, "flt");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
+        _ => Err("Invalid operands for <".to_string()),
+    }
+}
+
+fn compile_gt<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    left: &ExprResult<'ctx>,
+    right: &ExprResult<'ctx>,
+) -> Result<ExprResult<'ctx>, String> {
+    match (&left.value, &right.value) {
+        (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+            let res = ctx.builder.build_int_compare(IntPredicate::SGT, *l, *r, "gt");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
+        (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
+            let res = ctx.builder.build_float_compare(FloatPredicate::OGT, *l, *r, "fgt");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
+        _ => Err("Invalid operands for >".to_string()),
+    }
+}
+
+fn compile_le<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    left: &ExprResult<'ctx>,
+    right: &ExprResult<'ctx>,
+) -> Result<ExprResult<'ctx>, String> {
+    match (&left.value, &right.value) {
+        (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+            let res = ctx.builder.build_int_compare(IntPredicate::SLE, *l, *r, "le");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
+        (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
+            let res = ctx.builder.build_float_compare(FloatPredicate::OLE, *l, *r, "fle");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
+        _ => Err("Invalid operands for <=".to_string()),
+    }
+}
+
+fn compile_ge<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    left: &ExprResult<'ctx>,
+    right: &ExprResult<'ctx>,
+) -> Result<ExprResult<'ctx>, String> {
+    match (&left.value, &right.value) {
+        (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+            let res = ctx.builder.build_int_compare(IntPredicate::SGE, *l, *r, "ge");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
+        (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
+            let res = ctx.builder.build_float_compare(FloatPredicate::OGE, *l, *r, "fge");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
+        _ => Err("Invalid operands for >=".to_string()),
+    }
+}
+
+fn compile_and<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    left: &ExprResult<'ctx>,
+    right: &ExprResult<'ctx>,
+) -> Result<ExprResult<'ctx>, String> {
+    match (&left.value, &right.value) {
+        (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+            let res = ctx.builder.build_and(*l, *r, "and");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
+        _ => Err("Invalid operands for &&".to_string()),
+    }
+}
+
+fn compile_or<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    left: &ExprResult<'ctx>,
+    right: &ExprResult<'ctx>,
+) -> Result<ExprResult<'ctx>, String> {
+    match (&left.value, &right.value) {
+        (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+            let res = ctx.builder.build_or(*l, *r, "or");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
+        _ => Err("Invalid operands for ||".to_string()),
+    }
+}
+
+fn compile_bitwise_and<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    left: &ExprResult<'ctx>,
+    right: &ExprResult<'ctx>,
+) -> Result<ExprResult<'ctx>, String> {
+    match (&left.value, &right.value) {
+        (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+            let res = ctx.builder.build_and(*l, *r, "band");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
+        }
+        _ => Err("Invalid operands for &".to_string()),
+    }
+}
+
+fn compile_bitwise_or<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    left: &ExprResult<'ctx>,
+    right: &ExprResult<'ctx>,
+) -> Result<ExprResult<'ctx>, String> {
+    match (&left.value, &right.value) {
+        (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+            let res = ctx.builder.build_or(*l, *r, "bor");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
+        }
+        _ => Err("Invalid operands for |".to_string()),
+    }
+}
+
+fn compile_bitwise_xor<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    left: &ExprResult<'ctx>,
+    right: &ExprResult<'ctx>,
+) -> Result<ExprResult<'ctx>, String> {
+    match (&left.value, &right.value) {
+        (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+            let res = ctx.builder.build_xor(*l, *r, "bxor");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
+        }
+        _ => Err("Invalid operands for ^".to_string()),
+    }
+}
+
+fn compile_shl<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    left: &ExprResult<'ctx>,
+    right: &ExprResult<'ctx>,
+) -> Result<ExprResult<'ctx>, String> {
+    match (&left.value, &right.value) {
+        (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+            let res = ctx.builder.build_left_shift(*l, *r, "shl");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
+        }
+        _ => Err("Invalid operands for <<".to_string()),
+    }
+}
+
+fn compile_shr<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    left: &ExprResult<'ctx>,
+    right: &ExprResult<'ctx>,
+) -> Result<ExprResult<'ctx>, String> {
+    match (&left.value, &right.value) {
+        (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+            let res = ctx.builder.build_right_shift(*l, *r, true, "shr");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
+        }
+        _ => Err("Invalid operands for >>".to_string()),
+    }
+}
+
+fn compile_unary<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    op: &UnaryOp,
+    operand: &Expr,
+) -> Result<ExprResult<'ctx>, String> {
+    let operand_result = compile_expr(ctx, operand)?;
+
+    match op {
+        UnaryOp::Minus => match operand_result.value {
+            BasicValueEnum::IntValue(v) => {
+                let zero = ctx.context.i64_type().const_int(0, false);
+                let res = ctx.builder.build_int_sub(zero, v, "neg");
+                Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
+            }
+            BasicValueEnum::FloatValue(v) => {
+                let zero = ctx.context.f64_type().const_float(0.0);
+                let res = ctx.builder.build_float_sub(zero, v, "fneg");
+                Ok(ExprResult::new(BasicValueEnum::FloatValue(res), Type::Float))
+            }
+            _ => Err("Invalid operand for unary -".to_string()),
+        },
+        UnaryOp::Not => match operand_result.value {
+            BasicValueEnum::IntValue(v) => {
+                let one = ctx.context.bool_type().const_int(1, false);
+                let res = ctx.builder.build_xor(v, one, "not");
+                Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+            }
+            _ => Err("Invalid operand for !".to_string()),
+        },
+        UnaryOp::Tilde => match operand_result.value {
+            BasicValueEnum::IntValue(v) => {
+                let minus_one = ctx.context.i64_type().const_int(u64::MAX, true);
+                let res = ctx.builder.build_xor(v, minus_one, "bitnot");
+                Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
+            }
+            _ => Err("Invalid operand for ~".to_string()),
+        },
+        _ => Err(format!("Unsupported unary operator: {:?}", op)),
+    }
+}
+
+fn compile_call<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    callee: &Expr,
+    args: &[crate::parser::ast::Argument],
+) -> Result<ExprResult<'ctx>, String> {
+    let name = match callee {
+        Expr::Identifier(n) => n.clone(),
+        _ => return Err("Indirect calls not yet supported".to_string()),
+    };
+
+    // Handle built-in print function
+    if name == "print" {
+        if args.len() == 1 {
+            match &args[0] {
+                crate::parser::ast::Argument::Expr(e) => {
+                    let result = compile_expr(ctx, e)?;
+                    super::builtins::build_print(&ctx.builder, &ctx.module, result.value);
+                    return Ok(ExprResult::new(
+                        BasicValueEnum::IntValue(ctx.context.i64_type().const_int(0, false)),
+                        Type::Void,
+                    ));
+                }
+                _ => return Err("Invalid print argument".to_string()),
+            }
+        } else {
+            return Err("print expects exactly 1 argument".to_string());
+        }
+    }
+
+    let func = ctx.module.get_function(&name)
+        .ok_or_else(|| format!("Function not found: {}", name))?;
+
+    let mut arg_values = Vec::new();
+    for arg in args {
+        match arg {
+            crate::parser::ast::Argument::Expr(e) => {
+                let result = compile_expr(ctx, e)?;
+                arg_values.push(result.value.into());
+            }
+            _ => return Err("Spread arguments not yet supported".to_string()),
+        }
+    }
+
+    let call_site = ctx.builder.build_call(func, &arg_values, "call");
+    let value = call_site.try_as_basic_value().left();
+
+    let ret_ty = Type::Dynamic;
+    match value {
+        Some(v) => Ok(ExprResult::new(v, ret_ty)),
+        None => Ok(ExprResult::new(
+            BasicValueEnum::IntValue(ctx.context.i64_type().const_int(0, false)),
+            Type::Void,
+        )),
+    }
+}
+
+fn compile_assignment<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    left: &Expr,
+    op: &crate::parser::ast::AssignOp,
+    right: &Expr,
+) -> Result<ExprResult<'ctx>, String> {
+    let name = match left {
+        Expr::Identifier(n) => n.clone(),
+        _ => return Err("Complex assignments not yet supported".to_string()),
+    };
+
+    let right_result = compile_expr(ctx, right)?;
+
+    match op {
+        crate::parser::ast::AssignOp::Assign => {
+            if let Some((ptr, _)) = ctx.variables.get(&name) {
+                ctx.builder.build_store(*ptr, right_result.value);
+                Ok(right_result)
+            } else {
+                Err(format!("Undefined variable: {}", name))
+            }
+        }
+        _ => Err(format!("Compound assignment not yet supported: {:?}", op)),
+    }
+}
+
+fn compile_conditional<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    condition: &Expr,
+    then_branch: &Expr,
+    else_branch: &Expr,
+) -> Result<ExprResult<'ctx>, String> {
+    let cond_result = compile_expr(ctx, condition)?;
+    let cond_val = match cond_result.value {
+        BasicValueEnum::IntValue(v) => v,
+        _ => return Err("Condition must be boolean".to_string()),
+    };
+
+    let func = ctx.current_function.ok_or("No current function")?;
+
+    let then_bb = ctx.context.append_basic_block(func, "then");
+    let else_bb = ctx.context.append_basic_block(func, "else");
+    let merge_bb = ctx.context.append_basic_block(func, "merge");
+
+    ctx.builder.build_conditional_branch(cond_val, then_bb, else_bb);
+
+    // Then branch
+    ctx.builder.position_at_end(then_bb);
+    let then_result = compile_expr(ctx, then_branch)?;
+    ctx.builder.build_unconditional_branch(merge_bb);
+    let then_bb_end = ctx.builder.get_insert_block().unwrap();
+
+    // Else branch
+    ctx.builder.position_at_end(else_bb);
+    let else_result = compile_expr(ctx, else_branch)?;
+    ctx.builder.build_unconditional_branch(merge_bb);
+    let else_bb_end = ctx.builder.get_insert_block().unwrap();
+
+    // Merge
+    ctx.builder.position_at_end(merge_bb);
+
+    let phi_ty = ruyi_type_to_llvm(ctx.context, &then_result.ty);
+    let phi = ctx.builder.build_phi(phi_ty, "cond_phi");
+    phi.add_incoming(&[(&then_result.value, then_bb_end), (&else_result.value, else_bb_end)]);
+
+    let result_ty = then_result.ty.least_upper_bound(&else_result.ty);
+    Ok(ExprResult::new(phi.as_basic_value(), result_ty))
+}

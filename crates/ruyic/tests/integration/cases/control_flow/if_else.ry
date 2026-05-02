@@ -1,0 +1,27 @@
+let x = 10;
+let y = 5;
+
+if x > y {
+    print("x is greater than y");
+}
+
+if x == 10 {
+    print("x equals 10");
+} else {
+    print("x does not equal 10");
+}
+
+if y > x {
+    print("y is greater than x");
+} else if y == x {
+    print("y equals x");
+} else {
+    print("y is less than x");
+}
+
+let is_even = x % 2 == 0;
+if is_even {
+    print("x is even");
+} else {
+    print("x is odd");
+}

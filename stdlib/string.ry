@@ -1,0 +1,312 @@
+/**
+ * Standard Library - String Module
+ *
+ * Provides utility functions and methods for string manipulation.
+ * All methods support chaining through fluent API patterns.
+ *
+ * @author Ruyi Team
+ * @date 2026-05-02
+ */
+
+// ============================================================
+// String Instance Methods
+// ============================================================
+
+/**
+ * Splits a string by a separator.
+ * @param separator The separator to split on
+ * @return Array of string segments
+ */
+fn split(separator: string): Array<string> {
+    return __string_split(self, separator);
+}
+
+/**
+ * Joins array elements into a string with separator.
+ * @param array Array of values to join
+ * @param separator Separator string (default: "")
+ * @return Joined string
+ */
+fn join(array: Array<dynamic>, separator: string = ""): string {
+    return __string_join(array, separator);
+}
+
+/**
+ * Checks if string starts with the given prefix.
+ * @param prefix The prefix to check
+ * @return true if string starts with prefix
+ */
+fn startsWith(prefix: string): bool {
+    return __string_starts_with(self, prefix);
+}
+
+/**
+ * Checks if string ends with the given suffix.
+ * @param suffix The suffix to check
+ * @return true if string ends with suffix
+ */
+fn endsWith(suffix: string): bool {
+    return __string_ends_with(self, suffix);
+}
+
+/**
+ * Checks if string contains a substring.
+ * @param substring The substring to search for
+ * @return true if substring is found
+ */
+fn contains(substring: string): bool {
+    return __string_contains(self, substring);
+}
+
+/**
+ * Finds the index of a substring in the string.
+ * @param substring The substring to search for
+ * @return Index if found, null otherwise
+ */
+fn indexOf(substring: string): int? {
+    return __string_index_of(self, substring);
+}
+
+/**
+ * Finds the last index of a substring in the string.
+ * @param substring The substring to search for
+ * @return Last index if found, null otherwise
+ */
+fn lastIndexOf(substring: string): int? {
+    return __string_last_index_of(self, substring);
+}
+
+/**
+ * Returns the substring from start index to end.
+ * @param start Start index (inclusive)
+ * @param end End index (exclusive, optional)
+ * @return Substring
+ */
+fn substring(start: int, end: int? = null): string {
+    if end == null {
+        return __string_substring(self, start, __string_length(self));
+    }
+    return __string_substring(self, start, end);
+}
+
+/**
+ * Replaces occurrences of a substring with new value.
+ * @param old Substring to replace
+ * @param new Replacement string
+ * @return New string with replacements
+ */
+fn replace(old: string, new: string): string {
+    return __string_replace(self, old, new);
+}
+
+/**
+ * Replaces all occurrences of a substring with new value.
+ * @param old Substring to replace
+ * @param new Replacement string
+ * @return New string with all replacements
+ */
+fn replaceAll(old: string, new: string): string {
+    return __string_replace_all(self, old, new);
+}
+
+/**
+ * Pads the start of the string to reach the target length.
+ * @param length Target length
+ * @param padString Padding string (default: " ")
+ * @return Padded string
+ */
+fn padStart(length: int, padString: string = " "): string {
+    return __string_pad_start(self, length, padString);
+}
+
+/**
+ * Pads the end of the string to reach the target length.
+ * @param length Target length
+ * @param padString Padding string (default: " ")
+ * @return Padded string
+ */
+fn padEnd(length: int, padString: string = " "): string {
+    return __string_pad_end(self, length, padString);
+}
+
+/**
+ * Repeats the string the specified number of times.
+ * @param count Number of repetitions
+ * @return Repeated string
+ */
+fn repeat(count: int): string {
+    return __string_repeat(self, count);
+}
+
+/**
+ * Reverses the string.
+ * @return Reversed string
+ */
+fn reverse(): string {
+    return __string_reverse(self);
+}
+
+/**
+ * Converts to uppercase.
+ * @return Uppercase string
+ */
+fn toUpperCase(): string {
+    return __string_to_upper_case(self);
+}
+
+/**
+ * Converts to lowercase.
+ * @return Lowercase string
+ */
+fn toLowerCase(): string {
+    return __string_to_lower_case(self);
+}
+
+/**
+ * Returns the length of the string.
+ * @return Number of characters
+ */
+fn length(): int {
+    return __string_length(self);
+}
+
+/**
+ * Trims whitespace from both ends.
+ * @return Trimmed string
+ */
+fn trim(): string {
+    return __string_trim(self);
+}
+
+/**
+ * Trims whitespace from the start.
+ * @return Trimmed string
+ */
+fn trimStart(): string {
+    return __string_trim_start(self);
+}
+
+/**
+ * Trims whitespace from the end.
+ * @return Trimmed string
+ */
+fn trimEnd(): string {
+    return __string_trim_end(self);
+}
+
+/**
+ * Returns a section of the string.
+ * @param start Start index
+ * @param length Number of characters (optional)
+ * @return Substring
+ */
+fn slice(start: int, length: int? = null): string {
+    if length == null {
+        return __string_slice(self, start, __string_length(self));
+    }
+    return __string_slice(self, start, start + length);
+}
+
+/**
+ * Checks if string matches a pattern.
+ * @param pattern Regex pattern
+ * @return true if matches
+ */
+fn matches(pattern: string): bool {
+    return __string_matches(self, pattern);
+}
+
+/**
+ * Checks if string is empty.
+ * @return true if string has no characters
+ */
+fn isEmpty(): bool {
+    return __string_length(self) == 0;
+}
+
+/**
+ * Returns char at index.
+ * @param index Position
+ * @return Character at index, or null if out of bounds
+ */
+fn charAt(index: int): string? {
+    if index < 0 || index >= __string_length(self) {
+        return null;
+    }
+    return __string_substring(self, index, index + 1);
+}
+
+// ============================================================
+// Static String Functions
+// ============================================================
+
+/**
+ * Creates a string from character code.
+ * @param code Unicode code point
+ * @return Single character string
+ */
+fn fromCharCode(code: int): string {
+    return __string_from_char_code(code);
+}
+
+/**
+ * Creates a string from an array of character codes.
+ * @param codes Array of Unicode code points
+ * @return String constructed from codes
+ */
+fn fromCharCodes(codes: Array<int>): string {
+    return __string_from_char_codes(codes);
+}
+
+/**
+ * Creates a string by concatenating all arguments.
+ * @param args Values to concatenate
+ * @return Concatenated string
+ */
+fn concat(args: ...string): string {
+    let result = "";
+    for arg in args {
+        result = result + arg;
+    }
+    return result;
+}
+
+/**
+ * Formats a template string with values.
+ * Template uses {0}, {1}, etc. for positional placeholders.
+ * @param template Template string
+ * @param values Values to substitute
+ * @return Formatted string
+ */
+fn template(template: string, values: Array<dynamic>): string {
+    let result = template;
+    let i = 0;
+    while i < values.length() {
+        let placeholder = "{" + i + "}";
+        let value = values[i];
+        result = result.replace(placeholder, value.toString());
+        i = i + 1;
+    }
+    return result;
+}
+
+// ============================================================
+// Template Literal Processing
+// ============================================================
+
+/**
+ * Processes template literal expressions.
+ * Used internally for ${...} substitutions.
+ * @param parts Template parts array
+ * @param context Evaluation context
+ * @return Processed string
+ */
+fn processTemplate(parts: Array<dynamic>, context: dynamic): string {
+    let result = "";
+    for part in parts {
+        if part.isEmpty() == false {
+            result = result + part.toString();
+        }
+    }
+    return result;
+}

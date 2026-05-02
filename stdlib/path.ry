@@ -1,0 +1,262 @@
+/**
+ * Standard Library - Path Module
+ *
+ * Provides utilities for path manipulation and file system path operations.
+ * Works with both absolute and relative paths across platforms.
+ *
+ * @author Ruyi Team
+ * @date 2026-05-02
+ */
+
+// ============================================================
+// Path Class
+// ============================================================
+
+/**
+ * Path class for file system path operations.
+ * Provides static methods for path manipulation and analysis.
+ */
+class Path {
+    /**
+     * Joins multiple path segments together.
+     * Automatically handles separators between segments.
+     * @param paths Path segments to join
+     * @return Joined path string
+     */
+    static fn join(paths: ...string): string {
+        return __path_join(paths);
+    }
+
+    /**
+     * Joins multiple path segments together (async version).
+     * @param paths Path segments to join
+     * @return Future resolving to joined path
+     */
+    static async fn joinAsync(paths: ...string): Future<string> {
+        return __path_join_async(paths);
+    }
+
+    /**
+     * Returns the base name of a path (last component).
+     * Example: "/home/user/file.txt" -> "file.txt"
+     * @param path Path string
+     * @return Base name (filename)
+     */
+    static fn basename(path: string): string {
+        return __path_basename(path);
+    }
+
+    /**
+     * Returns the base name without extension.
+     * Example: "/home/user/file.txt" -> "file"
+     * @param path Path string
+     * @return Base name without extension
+     */
+    static fn basenameNoExt(path: string): string {
+        let base = __path_basename(path);
+        let lastDot = base.lastIndexOf(".");
+        if lastDot == null {
+            return base;
+        }
+        return base.substring(0, lastDot);
+    }
+
+    /**
+     * Returns the directory name of a path.
+     * Example: "/home/user/file.txt" -> "/home/user"
+     * @param path Path string
+     * @return Directory path
+     */
+    static fn dirname(path: string): string {
+        return __path_dirname(path);
+    }
+
+    /**
+     * Returns the file extension of a path.
+     * Example: "/home/user/file.txt" -> ".txt"
+     * @param path Path string
+     * @return Extension including the dot, or empty string
+     */
+    static fn extname(path: string): string {
+        return __path_extname(path);
+    }
+
+    /**
+     * Checks if a path is absolute.
+     * Absolute paths start from root (Unix: /, Windows: C:\).
+     * @param path Path string
+     * @return true if path is absolute
+     */
+    static fn isAbsolute(path: string): bool {
+        return __path_is_absolute(path);
+    }
+
+    /**
+     * Checks if a path is relative.
+     * @param path Path string
+     * @return true if path is relative (not absolute)
+     */
+    static fn isRelative(path: string): bool {
+        return __path_is_absolute(path) == false;
+    }
+
+    /**
+     * Resolves a relative path against a base directory.
+     * @param base Base directory path
+     * @param relative Relative path
+     * @return Resolved absolute path
+     */
+    static fn resolve(base: string, relative: string): string {
+        if __path_is_absolute(relative) {
+            return relative;
+        }
+        return __path_join(base, relative);
+    }
+
+    /**
+     * Normalizes a path, resolving ".." and "." components.
+     * @param path Path to normalize
+     * @return Normalized path
+     */
+    static fn normalize(path: string): string {
+        return __path_normalize(path);
+    }
+
+    /**
+     * Returns the path with its extension removed.
+     * @param path Path string
+     * @return Path without extension
+     */
+    static fn withoutExt(path: string): string {
+        let ext = __path_extname(path);
+        if ext.isEmpty() {
+            return path;
+        }
+        return path.substring(0, path.length() - ext.length());
+    }
+
+    /**
+     * Changes the extension of a path.
+     * @param path Path string
+     * @param newExt New extension (with or without dot)
+     * @return Path with new extension
+     */
+    static fn changeExt(path: string, newExt: string): string {
+        let withoutExt = Path.withoutExt(path);
+        if newExt.startsWith(".") == false {
+            newExt = "." + newExt;
+        }
+        return withoutExt + newExt;
+    }
+
+    /**
+     * Compares two paths lexicographically.
+     * @param path1 First path
+     * @param path2 Second path
+     * @return -1 if path1 < path2, 0 if equal, 1 if path1 > path2
+     */
+    static fn compare(path1: string, path2: string): int {
+        if path1 < path2 {
+            return -1;
+        }
+        if path1 == path2 {
+            return 0;
+        }
+        return 1;
+    }
+
+    /**
+     * Checks if two paths are equal.
+     * @param path1 First path
+     * @param path2 Second path
+     * @return true if paths are equal
+     */
+    static fn equals(path1: string, path2: string): bool {
+        let n1 = __path_normalize(path1);
+        let n2 = __path_normalize(path2);
+        return n1 == n2;
+    }
+
+    /**
+     * Lists the parent directories of a path.
+     * @param path Path string
+     * @return Array of parent paths from closest to farthest
+     */
+    static fn parents(path: string): Array<string> {
+        let parents: Array<string> = [];
+        let current = __path_normalize(path);
+
+        loop {
+            let parent = __path_dirname(current);
+            if parent == current {
+                break;
+            }
+            parents.push(parent);
+            current = parent;
+        }
+
+        return parents;
+    }
+
+    /**
+     * Checks if a path is a child of another path.
+     * @param parent Parent path
+     * @param child Child path
+     * @return true if child is under parent
+     */
+    static fn isChildOf(parent: string, child: string): bool {
+        let normParent = __path_normalize(parent);
+        let normChild = __path_normalize(child);
+        return normChild.startsWith(normParent + __path_separator());
+    }
+
+    /**
+     * Gets the relative path from one location to another.
+     * @param from Source path
+     * @param to Destination path
+     * @return Relative path from -> to
+     */
+    static fn relative(from: string, to: string): string {
+        return __path_relative(from, to);
+    }
+
+    /**
+     * Returns the platform-specific path separator.
+     * @return "/" on Unix, "\\" on Windows
+     */
+    static fn separator(): string {
+        return __path_separator();
+    }
+}
+
+// ============================================================
+// Path Extension Helpers
+// ============================================================
+
+/**
+ * Checks if a path has a specific extension.
+ * @param path Path to check
+ * @param ext Extension to check for
+ * @return true if path ends with the extension
+ */
+fn hasExt(path: string, ext: string): bool {
+    if ext.startsWith(".") == false {
+        ext = "." + ext;
+    }
+    return path.endsWith(ext);
+}
+
+/**
+ * Gets all extensions from a filename.
+ * Example: "file.tar.gz" -> ".tar.gz"
+ * @param path Path string
+ * @return All extensions including dots
+ */
+fn getExts(path: string): string {
+    let base = Path.basename(path);
+    let dotIndex = base.indexOf(".");
+    if dotIndex == null {
+        return "";
+    }
+    return base.substring(dotIndex);
+}

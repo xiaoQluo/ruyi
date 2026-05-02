@@ -1,0 +1,17 @@
+let name = "Ruyi";
+let version = 1;
+let pi = 3.14;
+let is_awesome = true;
+
+print("Name: " + name);
+print("Version: " + version);
+print("Pi: " + pi);
+print("Is awesome: " + is_awesome);
+
+let mutable_var = 42;
+print("Mutable before: " + mutable_var);
+mutable_var = 100;
+print("Mutable after: " + mutable_var);
+
+const CONSTANT = 999;
+print("Constant: " + CONSTANT);

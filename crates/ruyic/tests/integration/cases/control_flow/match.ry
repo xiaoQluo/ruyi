@@ -1,0 +1,26 @@
+let value = 2;
+
+match value {
+    1 => print("one"),
+    2 => print("two"),
+    3 => print("three"),
+    _ => print("other"),
+}
+
+let name = "Alice";
+
+match name {
+    "Bob" => print("Hello Bob!"),
+    "Alice" => print("Hello Alice!"),
+    _ => print("Hello stranger!"),
+}
+
+let score = 85;
+
+match score {
+    100 => print("Perfect!"),
+    90 => print("Excellent!"),
+    80 => print("Good!"),
+    70 => print("Fair!"),
+    _ => print("Keep trying!"),
+}

@@ -1,0 +1,15 @@
+fn identity<T>(value: T): T {
+    return value;
+}
+
+print(identity(42));
+print(identity("hello"));
+print(identity(3.14));
+print(identity(true));
+
+fn first<T, U>(a: T, b: U): T {
+    return a;
+}
+
+print(first(1, "two"));
+print(first("first", 2.0));

@@ -1,0 +1,26 @@
+[package]
+name = "ruyic"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bin]]
+name = "ruyic"
+path = "src/main.rs"
+
+[lib]
+name = "ruyic"
+path = "src/lib.rs"
+
+[dependencies]
+ruyi_runtime = { path = "../ruyi_runtime", default-features = false }
+inkwell.workspace = true
+clap.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+log.workspace = true
+env_logger.workspace = true

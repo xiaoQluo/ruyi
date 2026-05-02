@@ -1,0 +1,27 @@
+// Async/Await example for Ruyi
+async fn delay(ms: int): void {
+  // Simulate some async work
+  let start = 0;
+  for (let i = 0; i < ms * 1000; i = i + 1) {
+    start = start + 1;
+  }
+}
+
+async fn computeSquare(n: int): int {
+  await delay(10);
+  return n * n;
+}
+
+async fn main() {
+  println("Starting async computations...");
+
+  let result1 = await computeSquare(5);
+  let result2 = await computeSquare(10);
+  let result3 = await computeSquare(15);
+
+  println("5^2 = " + result1);
+  println("10^2 = " + result2);
+  println("15^2 = " + result3);
+
+  println("All async computations complete!");
+}

@@ -1,0 +1,35 @@
+# Build results
+/target
+**/target/
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Rust
+*.rlib
+*.bin
+
+# LLVM
+*.bc
+*.ll
+
+# Klang output
+*.klc
+*.klir
+
+# AI work dirs
+.sisyphus/
+
+# Compiled binaries (root level)
+hello
+hello_world_test
+invalid_syntax.ry

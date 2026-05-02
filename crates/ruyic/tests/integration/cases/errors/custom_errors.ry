@@ -1,0 +1,29 @@
+class ValidationError {
+    message: string,
+    field: string,
+}
+
+fn validateAge(age: int) {
+    if age < 0 {
+        throw ValidationError { message: "Age cannot be negative", field: "age" };
+    }
+    if age > 150 {
+        throw ValidationError { message: "Age is unrealistic", field: "age" };
+    }
+}
+
+try {
+    validateAge(-5);
+    print("Validation passed");
+} catch (e: ValidationError) {
+    print("Validation failed: " + e.message);
+}
+
+try {
+    validateAge(200);
+    print("Validation passed");
+} catch (e: ValidationError) {
+    print("Validation failed: " + e.message);
+}
+
+print("All done");

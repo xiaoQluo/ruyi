@@ -1,0 +1,13 @@
+let nullableInt: int? = null;
+print(nullableInt == null);
+
+nullableInt = 42;
+print(nullableInt != null);
+print(nullableInt);
+
+let safeValue = nullableInt ?? 0;
+print(safeValue);
+
+nullableInt = null;
+let fallbackValue = nullableInt ?? 99;
+print(fallbackValue);

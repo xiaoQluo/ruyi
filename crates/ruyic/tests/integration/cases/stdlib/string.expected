@@ -1,0 +1,8 @@
+Length: 13
+Contains 'World': true
+Starts with 'Hello': true
+Ends with '!': true
+Index of 'o': 4
+To upper: HELLO, WORLD!
+To lower: hello, world!
+Trimmed: 'spaces'

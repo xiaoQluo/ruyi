@@ -1,0 +1,16 @@
+// Simple generics test
+fn identity<T>(x: T): T {
+  return x;
+}
+
+fn main() {
+  let a = identity(42);
+  print("identity(42) = ");
+  print(a);
+  print("\n");
+
+  let b = identity("hello");
+  print("identity(\"hello\") = ");
+  print(b);
+  print("\n");
+}

@@ -1,0 +1,12 @@
+async fn delay(ms: int): int {
+    return ms;
+}
+
+async fn main(): int {
+    let a = await delay(10);
+    let b = await delay(20);
+    let c = await delay(30);
+    return a + b + c;
+}
+
+print(main());

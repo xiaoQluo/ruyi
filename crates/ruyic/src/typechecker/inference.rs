@@ -1,0 +1,1358 @@
+/**
+ * Type inference for the Ruyi gradual type system.
+ *
+ * Implements bidirectional type inference (spec Section 8.2):
+ * - Synthesize mode: determine the type of an expression
+ * - Check mode: verify an expression has an expected type
+ * - Local inference for let bindings and function returns
+ *
+ * @author Ruyi Team
+ * @date 2026-05-01
+ */
+
+use crate::parser::ast::{
+    ArrayElement, ArrowBody, BinaryOp, Declaration, Expr, MemberProperty, ModuleItem,
+    ObjectProperty, Pattern, PropertyName, Statement, UnaryOp,
+};
+use crate::typechecker::constraints::ConstraintSolver;
+use crate::typechecker::diagnostics::{DiagnosticBag, DiagnosticKind};
+use crate::typechecker::environment::TypeEnvironment;
+use crate::typechecker::generics::{
+    MonomorphizationTracker,
+    make_generic_class_def, make_generic_trait_def,
+};
+use crate::typechecker::types::{ObjectField, Type};
+
+/// Result of type inference on a program.
+#[derive(Debug)]
+pub struct InferenceResult {
+    pub typed_env: TypeEnvironment,
+    pub diagnostics: DiagnosticBag,
+    pub tracker: MonomorphizationTracker,
+}
+
+/// Bidirectional type inference engine.
+///
+/// Walks the AST in synthesize mode to determine types of expressions,
+/// and in check mode to verify expressions against expected types.
+/// Unannotated variables default to `dyn`; annotated variables use
+/// static checking per the gradual typing model.
+///
+/// Also tracks generic definitions and their monomorphized specializations
+/// per spec Sections 5 and 10.
+pub struct TypeInference {
+    env: TypeEnvironment,
+    diagnostics: DiagnosticBag,
+    #[allow(dead_code)]
+    solver: ConstraintSolver,
+    return_type_stack: Vec<Type>,
+    tracker: MonomorphizationTracker,
+}
+
+impl TypeInference {
+    pub fn new() -> Self {
+        let mut env = TypeEnvironment::new();
+        env.declare_let(
+            "print",
+            Type::Function {
+                params: vec![Type::Dynamic],
+                return_type: Box::new(Type::Void),
+            },
+        );
+        Self {
+            env,
+            diagnostics: DiagnosticBag::new(),
+            solver: ConstraintSolver::new(),
+            return_type_stack: Vec::new(),
+            tracker: MonomorphizationTracker::new(),
+        }
+    }
+
+    pub fn infer_program(mut self, program: &crate::parser::ast::Program) -> InferenceResult {
+        for item in &program.items {
+            self.infer_module_item(item);
+        }
+        InferenceResult {
+            typed_env: self.env,
+            diagnostics: self.diagnostics,
+            tracker: self.tracker,
+        }
+    }
+
+    fn infer_module_item(&mut self, item: &ModuleItem) {
+        match item {
+            ModuleItem::Import(_) | ModuleItem::Export(_) => {
+                // Imports/exports don't need type inference in this phase
+            }
+            ModuleItem::Statement(stmt) => {
+                self.infer_statement(stmt);
+            }
+            ModuleItem::Declaration(decl) => {
+                self.infer_declaration(decl);
+            }
+        }
+    }
+
+    fn infer_declaration(&mut self, decl: &Declaration) -> Type {
+        match decl {
+            Declaration::Let(bindings) | Declaration::Const(bindings) => {
+                let mutable = matches!(decl, Declaration::Let(_));
+                for binding in bindings {
+                    let ty = if let Some(init) = &binding.init {
+                        let init_ty = self.synthesize(init);
+                        if let Some(annotation) = &binding.ty {
+                            let expected = Type::from_annotation(annotation);
+                            self.check(init, &expected);
+                            expected
+                        } else {
+                            init_ty
+                        }
+                    } else if let Some(annotation) = &binding.ty {
+                        Type::from_annotation(annotation)
+                    } else {
+                        Type::Dynamic
+                    };
+                    if mutable {
+                        self.env.declare_let(&pattern_name(&binding.pattern), ty);
+                    } else {
+                        self.env.declare_const(&pattern_name(&binding.pattern), ty);
+                    }
+                }
+                Type::Void
+            }
+            Declaration::Function {
+                name,
+                type_params: _,
+                params,
+                return_type,
+                body,
+                is_async,
+            } => {
+                let param_types: Vec<Type> = params
+                    .iter()
+                    .map(|p| {
+                        p.ty.as_ref()
+                            .map(Type::from_annotation)
+                            .unwrap_or(Type::Dynamic)
+                    })
+                    .collect();
+                let ret_type = return_type
+                    .as_ref()
+                    .map(Type::from_annotation)
+                    .unwrap_or_else(|| self.infer_return_type(body));
+
+                let fn_ret_type = if *is_async {
+                    Type::Future(Box::new(ret_type.clone()))
+                } else {
+                    ret_type.clone()
+                };
+
+                let fn_type = Type::Function {
+                    params: param_types.clone(),
+                    return_type: Box::new(fn_ret_type.clone()),
+                };
+
+                self.env.declare_let(name, fn_type.clone());
+
+                // Type check the function body
+                self.env.push_scope();
+                for (param, ty) in params.iter().zip(param_types.iter()) {
+                    self.env.declare_param(&pattern_name(&param.pattern), ty.clone());
+                }
+                self.return_type_stack.push(ret_type.clone());
+                for stmt in body {
+                    self.infer_statement(stmt);
+                }
+                self.return_type_stack.pop();
+                self.env.pop_scope();
+
+                fn_type
+            }
+            Declaration::Class {
+                name,
+                type_params,
+                extends: _,
+                body,
+                ..
+            } => {
+                if !type_params.is_empty() {
+                    let generic_def = make_generic_class_def(name, type_params, &mut self.tracker);
+                    self.tracker.register_generic(generic_def);
+                }
+                let class_type = Type::Named(name.clone());
+                self.env.declare_let(name, class_type.clone());
+
+                self.env.push_scope();
+                for element in body {
+                    self.infer_class_element(element);
+                }
+                self.env.pop_scope();
+
+                class_type
+            }
+            Declaration::Trait {
+                name,
+                type_params,
+                body: _,
+            } => {
+                if !type_params.is_empty() {
+                    let generic_def = make_generic_trait_def(name, type_params, &mut self.tracker);
+                    self.tracker.register_generic(generic_def);
+                }
+                let trait_type = Type::Trait(name.clone());
+                self.env.declare_let(name, trait_type.clone());
+                trait_type
+            }
+            Declaration::Impl {
+                type_params: _,
+                trait_name,
+                trait_args: _,
+                for_type,
+                body,
+            } => {
+                let impl_type = Type::from_annotation(for_type);
+                self.env.push_scope();
+                for element in body {
+                    self.infer_class_element(element);
+                }
+                self.env.pop_scope();
+                self.env.declare_let(&format!("impl_{}_for_{}", trait_name, impl_type), impl_type.clone());
+                impl_type
+            }
+            Declaration::TypeAlias { name, type_params: _, ty } => {
+                let alias_type = Type::from_annotation(ty);
+                self.env.declare_let(name, alias_type.clone());
+                alias_type
+            }
+            Declaration::Macro { name, rules: _ } => {
+                self.env.declare_let(name, Type::Dynamic);
+                Type::Dynamic
+            }
+        }
+    }
+
+    fn infer_class_element(&mut self, element: &crate::parser::ast::ClassElement) {
+        match element {
+            crate::parser::ast::ClassElement::Method {
+                name: prop_name,
+                type_params: _,
+                params,
+                return_type,
+                body,
+                is_async,
+                is_static: _,
+                is_getter: _,
+                is_setter: _,
+            } => {
+                let method_name = property_name_str(prop_name);
+                let param_types: Vec<Type> = params
+                    .iter()
+                    .map(|p| {
+                        p.ty.as_ref()
+                            .map(Type::from_annotation)
+                            .unwrap_or(Type::Dynamic)
+                    })
+                    .collect();
+                let ret_type = return_type
+                    .as_ref()
+                    .map(Type::from_annotation)
+                    .unwrap_or_else(|| self.infer_return_type(body));
+
+                let fn_ret_type = if *is_async {
+                    Type::Future(Box::new(ret_type.clone()))
+                } else {
+                    ret_type.clone()
+                };
+
+                let method_type = Type::Function {
+                    params: param_types,
+                    return_type: Box::new(fn_ret_type),
+                };
+                self.env.declare_let(&method_name, method_type);
+            }
+            crate::parser::ast::ClassElement::Field {
+                name: prop_name,
+                ty,
+                init,
+                is_static: _,
+            } => {
+                let field_name = property_name_str(prop_name);
+                let field_type = if let Some(annotation) = ty {
+                    Type::from_annotation(annotation)
+                } else if let Some(init_expr) = init {
+                    self.synthesize(init_expr)
+                } else {
+                    Type::Dynamic
+                };
+                self.env.declare_let(&field_name, field_type);
+            }
+            crate::parser::ast::ClassElement::Empty => {}
+        }
+    }
+
+    fn infer_statement(&mut self, stmt: &Statement) -> Type {
+        match stmt {
+            Statement::Expression(expr) => self.synthesize(expr),
+            Statement::Return(expr) => {
+                let ret_ty = expr
+                    .as_ref()
+                    .map(|e| self.synthesize(e))
+                    .unwrap_or(Type::Null);
+                if let Some(expected) = self.return_type_stack.last() {
+                    if !ret_ty.is_consistent_with(expected) {
+                        self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
+                            expected: expected.clone(),
+                            found: ret_ty,
+                        });
+                    }
+                }
+                Type::Never
+            }
+            Statement::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                let cond_ty = self.synthesize(condition);
+                if !cond_ty.is_consistent_with(&Type::Bool) && !cond_ty.is_dynamic() {
+                    self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
+                        expected: Type::Bool,
+                        found: cond_ty,
+                    });
+                }
+
+                self.env.push_scope();
+                self.narrow_for_condition(condition, true);
+                let then_ty = self.infer_statement(then_branch);
+                self.env.pop_scope();
+
+                let else_ty = if let Some(else_stmt) = else_branch {
+                    self.env.push_scope();
+                    self.narrow_for_condition(condition, false);
+                    let ty = self.infer_statement(else_stmt);
+                    self.env.pop_scope();
+                    ty
+                } else {
+                    Type::Void
+                };
+
+                then_ty.least_upper_bound(&else_ty)
+            }
+            Statement::IfLet {
+                pattern,
+                value,
+                then_branch,
+                else_branch,
+            } => {
+                let val_ty = self.synthesize(value);
+                self.env.push_scope();
+                self.bind_pattern_type(pattern, &val_ty);
+                let then_ty = self.infer_statement(then_branch);
+                self.env.pop_scope();
+
+                let else_ty = if let Some(else_stmt) = else_branch {
+                    self.env.push_scope();
+                    let ty = self.infer_statement(else_stmt);
+                    self.env.pop_scope();
+                    ty
+                } else {
+                    Type::Void
+                };
+
+                then_ty.least_upper_bound(&else_ty)
+            }
+            Statement::While { condition, body } => {
+                let cond_ty = self.synthesize(condition);
+                if !cond_ty.is_consistent_with(&Type::Bool) && !cond_ty.is_dynamic() {
+                    self.diagnostics.add_warning(DiagnosticKind::TypeMismatch {
+                        expected: Type::Bool,
+                        found: cond_ty,
+                    });
+                }
+                self.env.push_scope();
+                self.infer_statement(body);
+                self.env.pop_scope();
+                Type::Void
+            }
+            Statement::WhileLet { pattern, value, body } => {
+                let val_ty = self.synthesize(value);
+                self.env.push_scope();
+                self.bind_pattern_type(pattern, &val_ty);
+                self.infer_statement(body);
+                self.env.pop_scope();
+                Type::Void
+            }
+            Statement::For {
+                init,
+                condition,
+                update,
+                body,
+            } => {
+                self.env.push_scope();
+                if let Some(for_init) = init {
+                    match for_init {
+                        crate::parser::ast::ForInit::VarDecl(decl) => {
+                            self.infer_declaration(decl);
+                        }
+                        crate::parser::ast::ForInit::Expr(expr) => {
+                            self.synthesize(expr);
+                        }
+                    }
+                }
+                if let Some(cond) = condition {
+                    self.synthesize(cond);
+                }
+                if let Some(upd) = update {
+                    self.synthesize(upd);
+                }
+                self.infer_statement(body);
+                self.env.pop_scope();
+                Type::Void
+            }
+            Statement::ForIn { variable, iterable, body } => {
+                let iter_ty = self.synthesize(iterable);
+                self.env.push_scope();
+                self.env.declare_let(variable, Type::Dynamic);
+                self.infer_statement(body);
+                self.env.pop_scope();
+                let _ = iter_ty;
+                Type::Void
+            }
+            Statement::ForOf {
+                variable,
+                iterable,
+                body,
+                is_async: _,
+            } => {
+                let iter_ty = self.synthesize(iterable);
+                let elem_type = match &iter_ty {
+                    Type::Array(elem) => *elem.clone(),
+                    Type::Dynamic => Type::Dynamic,
+                    _ => Type::Dynamic,
+                };
+                self.env.push_scope();
+                self.env.declare_let(variable, elem_type);
+                self.infer_statement(body);
+                self.env.pop_scope();
+                Type::Void
+            }
+            Statement::Throw(expr) => {
+                let ty = self.synthesize(expr);
+                let _ = ty;
+                Type::Never
+            }
+            Statement::Try {
+                body,
+                catch,
+                finally,
+            } => {
+                self.env.push_scope();
+                for stmt in body {
+                    self.infer_statement(stmt);
+                }
+                self.env.pop_scope();
+
+                if let Some(catch_clause) = catch {
+                    self.env.push_scope();
+                    if let Some(pattern) = &catch_clause.pattern {
+                        let catch_type = catch_clause
+                            .ty
+                            .as_ref()
+                            .map(Type::from_annotation)
+                            .unwrap_or(Type::Dynamic);
+                        self.bind_pattern_type(pattern, &catch_type);
+                    }
+                    for stmt in &catch_clause.body {
+                        self.infer_statement(stmt);
+                    }
+                    self.env.pop_scope();
+                }
+
+                if let Some(finally_stmts) = finally {
+                    self.env.push_scope();
+                    for stmt in finally_stmts {
+                        self.infer_statement(stmt);
+                    }
+                    self.env.pop_scope();
+                }
+
+                Type::Void
+            }
+            Statement::Match { value, arms } => {
+                let match_ty = self.synthesize(value);
+
+                // Analyze patterns for exhaustiveness and redundancy
+                let arm_refs: Vec<(&Pattern, &Type)> = arms.iter()
+                    .map(|arm| (&arm.pattern, &match_ty))
+                    .collect();
+                let analysis = crate::typechecker::patterns::analyze_patterns(&arm_refs);
+
+                // Report non-exhaustive match
+                if !analysis.is_exhaustive {
+                    self.diagnostics.add_error(DiagnosticKind::NonExhaustiveMatch {
+                        scrutinee_type: match_ty.clone(),
+                        missing: analysis.missing_cases.clone(),
+                    });
+                }
+
+                // Report redundant pattern
+                if let Some(redundant_idx) = analysis.redundant_arm {
+                    self.diagnostics.add_warning(DiagnosticKind::RedundantPattern {
+                        arm: redundant_idx,
+                    });
+                }
+
+                let mut result_types = Vec::new();
+                for arm in arms {
+                    self.env.push_scope();
+                    self.bind_pattern_type(&arm.pattern, &match_ty);
+                    let mut arm_type = Type::Void;
+                    for stmt in &arm.body {
+                        arm_type = self.infer_statement(stmt);
+                    }
+                    self.env.pop_scope();
+                    result_types.push(arm_type);
+                }
+                result_types
+                    .into_iter()
+                    .fold(Type::Void, |acc, ty| acc.least_upper_bound(&ty))
+            }
+            Statement::Block(stmts) => {
+                self.env.push_scope();
+                let mut last_ty = Type::Void;
+                for stmt in stmts {
+                    last_ty = self.infer_statement(stmt);
+                }
+                self.env.pop_scope();
+                last_ty
+            }
+            Statement::Break(_) | Statement::Continue(_) => Type::Never,
+            Statement::Declaration(decl) => self.infer_declaration(decl),
+            Statement::Empty => Type::Void,
+        }
+    }
+
+    /// Synthesize mode: determine the type of an expression.
+    pub fn synthesize(&mut self, expr: &Expr) -> Type {
+        match expr {
+            Expr::IntLiteral(_) => Type::Int,
+            Expr::FloatLiteral(_) => Type::Float,
+            Expr::StringLiteral(_) => Type::String,
+            Expr::BigIntLiteral(_) => Type::BigInt,
+            Expr::BooleanLiteral(_) => Type::Bool,
+            Expr::NullLiteral => Type::Null,
+            Expr::Identifier(name) => self
+                .env
+                .lookup(name)
+                .cloned()
+                .unwrap_or_else(|| {
+                    self.diagnostics.add_error(DiagnosticKind::UnknownVariable {
+                        name: name.clone(),
+                    });
+                    Type::Error
+                }),
+            Expr::This | Expr::Super | Expr::SelfExpr => Type::Dynamic,
+            Expr::TemplateLiteral(parts) => {
+                for part in parts {
+                    if let crate::parser::ast::TemplatePart::Expr(e) = part {
+                        self.synthesize(e);
+                    }
+                }
+                Type::String
+            }
+            Expr::ArrayLiteral(elements) => {
+                if elements.is_empty() {
+                    return Type::Array(Box::new(Type::Dynamic));
+                }
+                let mut elem_type = Type::Never;
+                for elem in elements {
+                    let ty = match elem {
+                        ArrayElement::Expr(e) => self.synthesize(e),
+                        ArrayElement::Spread(e) => {
+                            let spread_ty = self.synthesize(e);
+                            match spread_ty {
+                                Type::Array(inner) => *inner,
+                                _ => Type::Dynamic,
+                            }
+                        }
+                        ArrayElement::Elision => Type::Dynamic,
+                    };
+                    elem_type = elem_type.least_upper_bound(&ty);
+                }
+                Type::Array(Box::new(elem_type))
+            }
+            Expr::ObjectLiteral(props) => {
+                let fields: Vec<ObjectField> = props
+                    .iter()
+                    .map(|prop| match prop {
+                        ObjectProperty::Property { key, value } => ObjectField {
+                            name: property_name_str(key),
+                            ty: self.synthesize(value),
+                            optional: false,
+                        },
+                        ObjectProperty::Shorthand(name) => {
+                            let ty = self.env.lookup(name).cloned().unwrap_or(Type::Dynamic);
+                            ObjectField {
+                                name: name.clone(),
+                                ty,
+                                optional: false,
+                            }
+                        }
+                        ObjectProperty::Spread(_) => ObjectField {
+                            name: "...".into(),
+                            ty: Type::Dynamic,
+                            optional: false,
+                        },
+                        ObjectProperty::ComputedProperty { key, value } => ObjectField {
+                            name: format!("[{}]", self.synthesize(key)),
+                            ty: self.synthesize(value),
+                            optional: false,
+                        },
+                    })
+                    .collect();
+                Type::Object(fields)
+            }
+            Expr::Binary { op, left, right } => {
+                let left_ty = self.synthesize(left);
+                let right_ty = self.synthesize(right);
+                self.synthesize_binary(op, left_ty, right_ty)
+            }
+            Expr::Unary { op, operand } => {
+                let operand_ty = self.synthesize(operand);
+                self.synthesize_unary(op, operand_ty)
+            }
+            Expr::Call { callee, args } => {
+                let callee_ty = self.synthesize(callee);
+                let arg_types: Vec<Type> = args
+                    .iter()
+                    .map(|arg| match arg {
+                        crate::parser::ast::Argument::Expr(e) => self.synthesize(e),
+                        crate::parser::ast::Argument::Spread(e) => {
+                            let ty = self.synthesize(e);
+                            match ty {
+                                Type::Array(inner) => *inner,
+                                _ => Type::Dynamic,
+                            }
+                        }
+                    })
+                    .collect();
+
+                // Check if callee is a generic function and try to specialize
+                if let Expr::Identifier(name) = callee.as_ref() {
+                    if self.tracker.is_generic(name) {
+                        if let Some(inferred_args) = self.tracker.infer_type_args(name, &arg_types, &mut self.diagnostics) {
+                            if let Some(spec) = self.tracker.specialize(name, inferred_args, &mut self.diagnostics) {
+                                return spec.specialized_type;
+                            }
+                        }
+                    }
+                }
+
+                match callee_ty {
+                    Type::Function { params, return_type } => {
+                        if arg_types.len() != params.len() {
+                            self.diagnostics.add_error(DiagnosticKind::ArgumentCount {
+                                expected: params.len(),
+                                found: arg_types.len(),
+                            });
+                        }
+                        for (i, (arg, param)) in arg_types.iter().zip(params.iter()).enumerate() {
+                            if !arg.is_consistent_with(param) {
+                                self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
+                                    expected: param.clone(),
+                                    found: arg.clone(),
+                                });
+                                let _ = i;
+                            }
+                        }
+                        *return_type
+                    }
+                    Type::Dynamic => Type::Dynamic,
+                    Type::Error => Type::Error,
+                    _ => {
+                        self.diagnostics.add_error(DiagnosticKind::NotCallable { ty: callee_ty.clone() });
+                        Type::Error
+                    }
+                }
+            }
+            Expr::Member {
+                object,
+                property,
+                optional,
+            } => {
+                let obj_ty = self.synthesize(object);
+                let prop_name = match property {
+                    MemberProperty::Ident(name) => name.clone(),
+                    MemberProperty::Expr(e) => format!("[{}]", self.synthesize(e)),
+                };
+                self.synthesize_member_access(&obj_ty, &prop_name, *optional)
+            }
+            Expr::OptionalCall { callee, args } => {
+                let callee_ty = self.synthesize(callee);
+                let _ = args;
+                match callee_ty {
+                    Type::Nullable(inner) => {
+                        let result = match *inner {
+                            Type::Function { return_type, .. } => *return_type,
+                            _ => Type::Dynamic,
+                        };
+                        result.make_nullable()
+                    }
+                    Type::Function { return_type, .. } => *return_type,
+                    Type::Dynamic => Type::Dynamic,
+                    _ => Type::Dynamic,
+                }
+            }
+            Expr::Conditional {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                let cond_ty = self.synthesize(condition);
+                if !cond_ty.is_consistent_with(&Type::Bool) && !cond_ty.is_dynamic() {
+                    self.diagnostics.add_warning(DiagnosticKind::TypeMismatch {
+                        expected: Type::Bool,
+                        found: cond_ty,
+                    });
+                }
+                let then_ty = self.synthesize(then_branch);
+                let else_ty = self.synthesize(else_branch);
+                then_ty.least_upper_bound(&else_ty)
+            }
+            Expr::Assignment { left, op: _, right } => {
+                let right_ty = self.synthesize(right);
+                match left.as_ref() {
+                    Expr::Identifier(name) => {
+                        if let Some(existing_ty) = self.env.lookup(name).cloned() {
+                            if !right_ty.is_consistent_with(&existing_ty) {
+                                self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
+                                    expected: existing_ty,
+                                    found: right_ty.clone(),
+                                });
+                            }
+                            if !self.env.update(name, right_ty.clone()) {
+                                self.diagnostics.add_error(DiagnosticKind::ImmutableAssign {
+                                    name: name.clone(),
+                                });
+                            }
+                        } else {
+                            self.diagnostics.add_error(DiagnosticKind::UnknownVariable {
+                                name: name.clone(),
+                            });
+                        }
+                    }
+                    Expr::Member { object, property, optional: _ } => {
+                        let _ = self.synthesize(object);
+                        let _ = property;
+                    }
+                    _ => {
+                        self.synthesize(left);
+                    }
+                }
+                right_ty
+            }
+            Expr::ArrowFunction {
+                params,
+                return_type,
+                body,
+                is_async,
+            } => {
+                let param_types: Vec<Type> = params
+                    .iter()
+                    .map(|p| {
+                        p.ty.as_ref()
+                            .map(Type::from_annotation)
+                            .unwrap_or(Type::Dynamic)
+                    })
+                    .collect();
+
+                self.env.push_scope();
+                for (param, ty) in params.iter().zip(param_types.iter()) {
+                    self.env.declare_param(&pattern_name(&param.pattern), ty.clone());
+                }
+
+                let ret_type = return_type
+                    .as_ref()
+                    .map(Type::from_annotation)
+                    .unwrap_or_else(|| match body {
+                        ArrowBody::Expr(e) => self.synthesize_expr_fresh(e),
+                        ArrowBody::Block(stmts) => self.infer_block_return_type(stmts),
+                    });
+
+                self.env.pop_scope();
+
+                let fn_ret_type = if *is_async {
+                    Type::Future(Box::new(ret_type))
+                } else {
+                    ret_type
+                };
+
+                Type::Function {
+                    params: param_types,
+                    return_type: Box::new(fn_ret_type),
+                }
+            }
+            Expr::Await(inner) => {
+                let inner_ty = self.synthesize(inner);
+                match inner_ty {
+                    Type::Future(inner) => *inner,
+                    Type::Generic { base, args } if base == "Future" && args.len() == 1 => {
+                        args[0].clone()
+                    }
+                    Type::Dynamic => Type::Dynamic,
+                    _ => {
+                        self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
+                            expected: Type::Future(Box::new(Type::Dynamic)),
+                            found: inner_ty.clone(),
+                        });
+                        Type::Error
+                    }
+                }
+            }
+            Expr::Sequence(exprs) => {
+                let mut last_ty = Type::Void;
+                for e in exprs {
+                    last_ty = self.synthesize(e);
+                }
+                last_ty
+            }
+            Expr::Function {
+                name: _,
+                type_params: _,
+                params,
+                return_type,
+                body,
+                is_async,
+            } => {
+                let param_types: Vec<Type> = params
+                    .iter()
+                    .map(|p| {
+                        p.ty.as_ref()
+                            .map(Type::from_annotation)
+                            .unwrap_or(Type::Dynamic)
+                    })
+                    .collect();
+                let ret_type = return_type
+                    .as_ref()
+                    .map(Type::from_annotation)
+                    .unwrap_or_else(|| self.infer_return_type(body));
+
+                let fn_ret_type = if *is_async {
+                    Type::Future(Box::new(ret_type))
+                } else {
+                    ret_type
+                };
+
+                Type::Function {
+                    params: param_types,
+                    return_type: Box::new(fn_ret_type),
+                }
+            }
+            Expr::Class { .. } => Type::Dynamic,
+            Expr::New { callee, args: _ } => {
+                let callee_ty = self.synthesize(callee);
+                match callee_ty {
+                    Type::Named(name) => Type::Named(name),
+                    Type::Generic { base, .. } => Type::Named(base),
+                    _ => Type::Dynamic,
+                }
+            }
+            Expr::Match { value, arms } => {
+                let match_ty = self.synthesize(value);
+                let mut result_types = Vec::new();
+                for arm in arms {
+                    self.env.push_scope();
+                    self.bind_pattern_type(&arm.pattern, &match_ty);
+                    let arm_type = self.synthesize_expr_fresh(
+                        &Expr::Block(arm.body.clone()),
+                    );
+                    self.env.pop_scope();
+                    result_types.push(arm_type);
+                }
+                result_types
+                    .into_iter()
+                    .fold(Type::Dynamic, |acc, ty| acc.least_upper_bound(&ty))
+            }
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                let _ = self.synthesize(condition);
+                let then_ty = self.synthesize(then_branch);
+                let else_ty = else_branch
+                    .as_ref()
+                    .map(|e| self.synthesize(e))
+                    .unwrap_or(Type::Void);
+                then_ty.least_upper_bound(&else_ty)
+            }
+            Expr::Grouping(inner) => self.synthesize(inner),
+            Expr::Block(stmts) => self.infer_block_return_type(stmts),
+        }
+    }
+
+    /// Check mode: verify an expression has an expected type.
+    pub fn check(&mut self, expr: &Expr, expected: &Type) -> Type {
+        let synthesized = self.synthesize(expr);
+
+        if expected.is_dynamic() {
+            self.diagnostics.add_warning(DiagnosticKind::DynCast {
+                from: synthesized.clone(),
+                to: expected.clone(),
+            });
+            return expected.clone();
+        }
+
+        if !synthesized.is_consistent_with(expected) {
+            self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
+                expected: expected.clone(),
+                found: synthesized.clone(),
+            });
+        }
+
+        synthesized
+    }
+
+    fn synthesize_binary(&mut self, op: &BinaryOp, left_ty: Type, right_ty: Type) -> Type {
+        match op {
+            // Arithmetic: int + int = int, int + float = float, otherwise dyn
+            BinaryOp::Plus
+            | BinaryOp::Minus
+            | BinaryOp::Star
+            | BinaryOp::Percent
+            | BinaryOp::Power => {
+                if left_ty == Type::Int && right_ty == Type::Int {
+                    Type::Int
+                } else if left_ty == Type::String || right_ty == Type::String {
+                    if matches!(op, BinaryOp::Plus) {
+                        Type::String
+                    } else {
+                        Type::Dynamic
+                    }
+                } else if (left_ty == Type::Int || left_ty == Type::Float)
+                    && (right_ty == Type::Int || right_ty == Type::Float)
+                {
+                    Type::Float
+                } else if left_ty.is_dynamic() || right_ty.is_dynamic() {
+                    Type::Dynamic
+                } else {
+                    self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
+                        expected: Type::Float,
+                        found: left_ty,
+                    });
+                    Type::Error
+                }
+            }
+            BinaryOp::Slash => {
+                if left_ty == Type::Int && right_ty == Type::Int {
+                    Type::Int
+                } else if (left_ty == Type::Int || left_ty == Type::Float)
+                    && (right_ty == Type::Int || right_ty == Type::Float)
+                {
+                    Type::Float
+                } else if left_ty.is_dynamic() || right_ty.is_dynamic() {
+                    Type::Dynamic
+                } else {
+                    Type::Error
+                }
+            }
+            // Comparison: always bool
+            BinaryOp::StrictEquals
+            | BinaryOp::StrictNotEquals
+            | BinaryOp::Less
+            | BinaryOp::Greater
+            | BinaryOp::LessEq
+            | BinaryOp::GreaterEq => Type::Bool,
+            // Equality with coercion (deprecated in Ruyi, but handled)
+            BinaryOp::Equals | BinaryOp::NotEquals => Type::Bool,
+            // Logical: bool
+            BinaryOp::And | BinaryOp::Or => {
+                left_ty.least_upper_bound(&right_ty)
+            }
+            // Nullish coalescing
+            BinaryOp::Nullish => {
+                let non_null = left_ty.non_null();
+                non_null.least_upper_bound(&right_ty)
+            }
+            // Bitwise: int
+            BinaryOp::Amp | BinaryOp::Pipe | BinaryOp::Caret
+            | BinaryOp::Shl | BinaryOp::Shr | BinaryOp::UShr => {
+                if left_ty == Type::Int && right_ty == Type::Int {
+                    Type::Int
+                } else if left_ty.is_dynamic() || right_ty.is_dynamic() {
+                    Type::Dynamic
+                } else {
+                    Type::Error
+                }
+            }
+            // Instanceof, in
+            BinaryOp::In | BinaryOp::Instanceof => Type::Bool,
+        }
+    }
+
+    fn synthesize_unary(&mut self, op: &UnaryOp, operand_ty: Type) -> Type {
+        match op {
+            UnaryOp::Not => Type::Bool,
+            UnaryOp::Minus => match operand_ty {
+                Type::Int => Type::Int,
+                Type::Float => Type::Float,
+                Type::Dynamic => Type::Dynamic,
+                _ => {
+                    self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
+                        expected: Type::Float,
+                        found: operand_ty,
+                    });
+                    Type::Error
+                }
+            },
+            UnaryOp::Plus => match operand_ty {
+                Type::Int => Type::Int,
+                Type::Float => Type::Float,
+                Type::Dynamic => Type::Dynamic,
+                _ => Type::Error,
+            },
+            UnaryOp::Tilde => match operand_ty {
+                Type::Int => Type::Int,
+                Type::Dynamic => Type::Dynamic,
+                _ => Type::Error,
+            },
+            UnaryOp::PreIncrement | UnaryOp::PreDecrement => match operand_ty {
+                Type::Int => Type::Int,
+                Type::Float => Type::Float,
+                Type::Dynamic => Type::Dynamic,
+                _ => Type::Error,
+            },
+            UnaryOp::Typeof => Type::String,
+            UnaryOp::Void => Type::Void,
+            UnaryOp::Delete => Type::Bool,
+            UnaryOp::Await => match operand_ty {
+                Type::Future(inner) => *inner,
+                Type::Dynamic => Type::Dynamic,
+                _ => {
+                    self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
+                        expected: Type::Future(Box::new(Type::Dynamic)),
+                        found: operand_ty.clone(),
+                    });
+                    Type::Error
+                }
+            },
+        }
+    }
+
+    fn synthesize_member_access(&mut self, obj_ty: &Type, prop_name: &str, optional: bool) -> Type {
+        // Check for unsafe nullable access (non-optional member access on nullable type)
+        if !optional && obj_ty.is_nullable() && !obj_ty.is_dynamic() {
+            self.diagnostics.add_error(DiagnosticKind::UnsafeNullableAccess {
+                ty: obj_ty.clone(),
+            });
+        }
+
+        let result = match obj_ty {
+            Type::Object(fields) => fields
+                .iter()
+                .find(|f| f.name == prop_name)
+                .map(|f| f.ty.clone())
+                .unwrap_or(Type::Dynamic),
+            Type::Named(_) | Type::Generic { .. } => Type::Dynamic,
+            Type::Dynamic => Type::Dynamic,
+            Type::Error => Type::Error,
+            _ => {
+                self.diagnostics.add_warning(DiagnosticKind::NotIndexable {
+                    ty: obj_ty.clone(),
+                });
+                Type::Dynamic
+            }
+        };
+
+        if optional {
+            result.make_nullable()
+        } else {
+            result
+        }
+    }
+
+    /// Narrows types based on a condition expression.
+    fn narrow_for_condition(&mut self, condition: &Expr, true_branch: bool) {
+        match condition {
+            Expr::Binary { op, left, right } => {
+                match op {
+                    BinaryOp::StrictEquals | BinaryOp::Equals => {
+                        if true_branch {
+                            // x === null narrows x to null in true branch
+                            if let Expr::NullLiteral = right.as_ref() {
+                                if let Expr::Identifier(name) = left.as_ref() {
+                                    self.env.narrow(name, Type::Null);
+                                }
+                            }
+                            if let Expr::NullLiteral = left.as_ref() {
+                                if let Expr::Identifier(name) = right.as_ref() {
+                                    self.env.narrow(name, Type::Null);
+                                }
+                            }
+                        }
+                    }
+                    BinaryOp::StrictNotEquals | BinaryOp::NotEquals => {
+                        if true_branch {
+                            // x !== null narrows x to non-null in true branch
+                            if let Expr::NullLiteral = right.as_ref() {
+                                if let Expr::Identifier(name) = left.as_ref() {
+                                    if let Some(ty) = self.env.lookup(name).cloned() {
+                                        self.env.narrow(name, ty.non_null());
+                                    }
+                                }
+                            }
+                            if let Expr::NullLiteral = left.as_ref() {
+                                if let Expr::Identifier(name) = right.as_ref() {
+                                    if let Some(ty) = self.env.lookup(name).cloned() {
+                                        self.env.narrow(name, ty.non_null());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Expr::Unary { op, operand } => {
+                if matches!(op, UnaryOp::Not) && !true_branch {
+                    // !expr in false branch => narrow for expr being true
+                    self.narrow_for_condition(operand, true);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn bind_pattern_type(&mut self, pattern: &Pattern, ty: &Type) {
+        match pattern {
+            Pattern::Identifier(name) => {
+                self.env.declare_let(name, ty.clone());
+            }
+            Pattern::Wildcard => {}
+            Pattern::Literal(_) => {}
+            Pattern::Object(fields) => {
+                if let Type::Object(obj_fields) = ty {
+                    for field in fields {
+                        match field {
+                            crate::parser::ast::ObjectPatternField::Property { key, pattern: inner } => {
+                                let field_ty = obj_fields
+                                    .iter()
+                                    .find(|f| f.name == *key)
+                                    .map(|f| f.ty.clone())
+                                    .unwrap_or(Type::Dynamic);
+                                self.bind_pattern_type(inner, &field_ty);
+                            }
+                            crate::parser::ast::ObjectPatternField::Shorthand(name) => {
+                                let field_ty = obj_fields
+                                    .iter()
+                                    .find(|f| f.name == *name)
+                                    .map(|f| f.ty.clone())
+                                    .unwrap_or(Type::Dynamic);
+                                self.env.declare_let(name, field_ty);
+                            }
+                            crate::parser::ast::ObjectPatternField::Rest(_) => {}
+                        }
+                    }
+                }
+            }
+            Pattern::Array(elements) => {
+                if let Type::Array(elem_ty) = ty {
+                    for (i, elem) in elements.iter().enumerate() {
+                        match elem {
+                            crate::parser::ast::ArrayPatternElement::Pattern(p) => {
+                                self.bind_pattern_type(p, elem_ty);
+                            }
+                            crate::parser::ast::ArrayPatternElement::Rest(p) => {
+                                self.bind_pattern_type(p, &Type::Array(elem_ty.clone()));
+                            }
+                            crate::parser::ast::ArrayPatternElement::Elision => {}
+                        }
+                        let _ = i;
+                    }
+                }
+            }
+            Pattern::Rest(name) => {
+                self.env.declare_let(name, ty.clone());
+            }
+            Pattern::As(inner, _alias) => {
+                self.bind_pattern_type(inner, ty);
+            }
+            Pattern::Or(patterns) => {
+                if let Some(first) = patterns.first() {
+                    self.bind_pattern_type(first, ty);
+                }
+            }
+        }
+    }
+
+    fn infer_return_type(&mut self, body: &[Statement]) -> Type {
+        let mut return_types = Vec::new();
+        self.collect_return_types(body, &mut return_types);
+        if return_types.is_empty() {
+            Type::Void
+        } else {
+            return_types.into_iter().fold(Type::Never, |acc, ty| acc.least_upper_bound(&ty))
+        }
+    }
+
+    fn collect_return_types(&mut self, stmts: &[Statement], return_types: &mut Vec<Type>) {
+        for stmt in stmts {
+            match stmt {
+                Statement::Return(expr) => {
+                    let ty = expr
+                        .as_ref()
+                        .map(|e| self.synthesize(e))
+                        .unwrap_or(Type::Null);
+                    return_types.push(ty);
+                }
+                Statement::If { then_branch, else_branch, .. } => {
+                    self.collect_return_types_from_stmt(then_branch, return_types);
+                    if let Some(else_stmt) = else_branch {
+                        self.collect_return_types_from_stmt(else_stmt, return_types);
+                    }
+                }
+                Statement::Block(inner_stmts) => {
+                    self.collect_return_types(inner_stmts, return_types);
+                }
+                Statement::Match { arms, .. } => {
+                    for arm in arms {
+                        self.collect_return_types(&arm.body, return_types);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn collect_return_types_from_stmt(&mut self, stmt: &Statement, return_types: &mut Vec<Type>) {
+        match stmt {
+            Statement::Block(stmts) => self.collect_return_types(stmts, return_types),
+            Statement::Return(expr) => {
+                let ty = expr
+                    .as_ref()
+                    .map(|e| self.synthesize(e))
+                    .unwrap_or(Type::Null);
+                return_types.push(ty);
+            }
+            _ => {}
+        }
+    }
+
+    fn infer_block_return_type(&mut self, stmts: &[Statement]) -> Type {
+        let mut last_ty = Type::Void;
+        for stmt in stmts {
+            last_ty = self.infer_statement(stmt);
+        }
+        last_ty
+    }
+
+    fn synthesize_expr_fresh(&mut self, expr: &Expr) -> Type {
+        self.synthesize(expr)
+    }
+}
+
+/// Extracts the variable name from a pattern (for declaration purposes).
+fn pattern_name(pattern: &Pattern) -> String {
+    match pattern {
+        Pattern::Identifier(name) => name.clone(),
+        Pattern::Wildcard => "_".into(),
+        _ => "pattern".into(),
+    }
+}
+
+/// Extracts a string from a PropertyName.
+fn property_name_str(name: &PropertyName) -> String {
+    match name {
+        PropertyName::Ident(s) => s.clone(),
+        PropertyName::String(s) => s.clone(),
+        PropertyName::Number(n) => format!("{}", n),
+        PropertyName::Computed(_) => "[computed]".into(),
+    }
+}
+
+impl Default for TypeInference {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::Parser;
+
+    fn infer_type(source: &str) -> Type {
+        let mut parser = Parser::new(source).expect("lexer should not fail");
+        let program = parser.parse().expect("parse should succeed");
+        let inference = TypeInference::new();
+        let result = inference.infer_program(&program);
+        // Return the type of the first declaration's variable
+        result.typed_env.lookup("x").cloned().unwrap_or(Type::Dynamic)
+    }
+
+    #[test]
+    fn test_infer_int_literal() {
+        let ty = infer_type("let x = 42;");
+        assert_eq!(ty, Type::Int);
+    }
+
+    #[test]
+    fn test_infer_float_literal() {
+        let ty = infer_type("let x = 3.14;");
+        assert_eq!(ty, Type::Float);
+    }
+
+    #[test]
+    fn test_infer_string_literal() {
+        let ty = infer_type("let x = \"hello\";");
+        assert_eq!(ty, Type::String);
+    }
+
+    #[test]
+    fn test_infer_bool_literal() {
+        let ty = infer_type("let x = true;");
+        assert_eq!(ty, Type::Bool);
+    }
+
+    #[test]
+    fn test_infer_null_literal() {
+        let ty = infer_type("let x = null;");
+        assert_eq!(ty, Type::Null);
+    }
+
+    #[test]
+    fn test_infer_typed_annotation() {
+        let ty = infer_type("let x: int = 42;");
+        assert_eq!(ty, Type::Int);
+    }
+
+    #[test]
+    fn test_infer_dyn_default() {
+        let ty = infer_type("let x;");
+        assert_eq!(ty, Type::Dynamic);
+    }
+
+    #[test]
+    fn test_infer_addition() {
+        let ty = infer_type("let x = 1 + 2;");
+        assert_eq!(ty, Type::Int);
+    }
+
+    #[test]
+    fn test_infer_int_float_addition() {
+        let ty = infer_type("let x = 1 + 2.0;");
+        assert_eq!(ty, Type::Float);
+    }
+
+    #[test]
+    fn test_infer_string_concat() {
+        let ty = infer_type("let x = \"hello\" + \" world\";");
+        assert_eq!(ty, Type::String);
+    }
+
+    #[test]
+    fn test_infer_comparison() {
+        let ty = infer_type("let x = 1 === 2;");
+        assert_eq!(ty, Type::Bool);
+    }
+}

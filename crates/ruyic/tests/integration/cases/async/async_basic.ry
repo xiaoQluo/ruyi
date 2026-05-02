@@ -1,0 +1,10 @@
+async fn greet(): string {
+    return "Hello";
+}
+
+async fn farewell(): string {
+    return "Goodbye";
+}
+
+let result = greet();
+print(result);

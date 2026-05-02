@@ -1,0 +1,13 @@
+let m = {};
+m.set("name", "Alice");
+m.set("age", 30);
+m.set("city", "NYC");
+
+print("Name: " + m.get("name"));
+print("Age: " + m.get("age"));
+print("Has email: " + m.has("email"));
+print("Size: " + m.size());
+
+m.delete("age");
+print("After delete - Size: " + m.size());
+print("Age after delete: " + m.get("age"));

@@ -1,0 +1,19 @@
+// Fibonacci example for Ruyi
+fn fib(n: int): int {
+  if (n <= 1) {
+    return n;
+  }
+  return fib(n - 1) + fib(n - 2);
+}
+
+fn main() {
+  let i = 0;
+  while (i < 10) {
+    print("fib(");
+    print(i);
+    print(") = ");
+    print(fib(i));
+    print("\n");
+    i = i + 1;
+  }
+}

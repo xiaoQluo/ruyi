@@ -1,0 +1,40 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/ruyic",
+    "crates/ruyi_runtime",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Ruyi Team"]
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+# LLVM binding via inkwell (supports LLVM 14-18)
+inkwell = { version = "0.2", features = ["llvm14-0"] }
+
+# CLI argument parsing
+clap = { version = "4.4", features = ["derive", "cargo"] }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Benchmarking
+criterion = "0.5"
+
+# Dependencies for both crates
+[profile.dev]
+opt-level = 0
+debug = true
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

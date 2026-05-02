@@ -1,0 +1,230 @@
+/**
+ * Ruyi Standard Library - Error Types
+ *
+ * Provides a hierarchy of error types for error handling.
+ *
+ * @author Ruyi Team
+ * @date 2026-05-02
+ */
+
+/**
+ * Base error class for all Ruyi errors.
+ * Provides a message and optional cause chain.
+ */
+class Error {
+    let message: string;
+    let mut cause: Option<Error>;
+
+    /**
+     * Creates a new Error with a message.
+     * @param message The error message
+     */
+    constructor(message: string) {
+        this.message = message;
+        this.cause = None;
+    }
+
+    /**
+     * Returns the error message.
+     * @return The message
+     */
+    fn getMessage(self): string {
+        return self.message;
+    }
+
+    /**
+     * Returns the cause of this error, if any.
+     * @return The cause error or None
+     */
+    fn getCause(self): Option<Error> {
+        return self.cause;
+    }
+
+    /**
+     * Sets the cause of this error.
+     * @param error The cause
+     */
+    fn setCause(self, error: Error): void {
+        this.cause = Some(error);
+    }
+
+    /**
+     * Returns a string representation of the error.
+     * @return The error as string
+     */
+    fn toString(self): string {
+        match self.cause {
+            Some(c) => return this.message + " (caused by: " + c.toString() + ")",
+            None => return this.message
+        }
+    }
+}
+
+/**
+ * Error for type-related issues.
+ * Thrown when a type check fails or type conversion is invalid.
+ */
+class TypeError(message: string) extends Error(message) {
+    /**
+     * Creates a new TypeError with a message.
+     * @param message The error message
+     */
+    constructor(message: string) {
+        super(message);
+    }
+}
+
+/**
+ * Error for runtime issues.
+ * Thrown when an operation cannot be performed at runtime.
+ */
+class RuntimeError(message: string) extends Error(message) {
+    /**
+     * Creates a new RuntimeError with a message.
+     * @param message The error message
+     */
+    constructor(message: string) {
+        super(message);
+    }
+}
+
+/**
+ * Error for index out of bounds issues.
+ * Thrown when accessing an invalid index in a collection.
+ */
+class RangeError(message: string) extends Error(message) {
+    /**
+     * Creates a new RangeError with a message.
+     * @param message The error message
+     */
+    constructor(message: string) {
+        super(message);
+    }
+}
+
+/**
+ * Error for assertion failures.
+ * Thrown when an assertion check fails.
+ */
+class AssertionError(message: string) extends Error(message) {
+    /**
+     * Creates a new AssertionError with a message.
+     * @param message The error message
+     */
+    constructor(message: string) {
+        super(message);
+    }
+}
+
+/**
+ * Error for invalid argument values.
+ * Thrown when a function receives an invalid argument.
+ */
+class ArgumentError(message: string) extends Error(message) {
+    /**
+     * Creates a new ArgumentError with a message.
+     * @param message The error message
+     */
+    constructor(message: string) {
+        super(message);
+    }
+}
+
+/**
+ * Error for null or undefined values.
+ * Thrown when a null value is encountered where a value is required.
+ */
+class NullError(message: string) extends Error(message) {
+    /**
+     * Creates a new NullError with a message.
+     * @param message The error message
+     */
+    constructor(message: string) {
+        super(message);
+    }
+}
+
+/**
+ * Error for division by zero and similar arithmetic issues.
+ * Thrown when an arithmetic operation produces an invalid result.
+ */
+class ArithmeticError(message: string) extends Error(message) {
+    /**
+     * Creates a new ArithmeticError with a message.
+     * @param message The error message
+     */
+    constructor(message: string) {
+        super(message);
+    }
+}
+
+/**
+ * Error for iterator-related issues.
+ * Thrown when iterating over an exhausted or invalid iterator.
+ */
+class IteratorError(message: string) extends Error(message) {
+    /**
+     * Creates a new IteratorError with a message.
+     * @param message The error message
+     */
+    constructor(message: string) {
+        super(message);
+    }
+}
+
+/**
+ * Error for parse errors.
+ * Thrown when parsing input fails.
+ */
+class ParseError(message: string) extends Error(message) {
+    /**
+     * Creates a new ParseError with a message.
+     * @param message The error message
+     */
+    constructor(message: string) {
+        super(message);
+    }
+}
+
+/**
+ * Checks if a value is an Error instance.
+ * @param value The value to check
+ * @return True if value is an Error
+ */
+fn isError(value: dynamic): bool {
+    return __builtin_is_instance(value, "Error");
+}
+
+/**
+ * Asserts that a condition is true, throwing AssertionError if not.
+ * @param condition The condition to check
+ * @param message The error message if assertion fails
+ */
+fn assert(condition: bool, message: string): void {
+    if not condition {
+        throw AssertionError(message);
+    }
+}
+
+/**
+ * Asserts that a value is not null, throwing NullError if it is.
+ * @param value The value to check
+ * @param message The error message if null
+ */
+fn assertNotNull<T>(value: T, message: string): void {
+    if value == null {
+        throw NullError(message);
+    }
+}
+
+/**
+ * Creates a new error with a cause chain.
+ * @param message The error message
+ * @param cause The underlying cause
+ * @return The new error with cause set
+ */
+fn errorWithCause(message: string, cause: Error): Error {
+    let err = Error(message);
+    err.setCause(cause);
+    return err;
+}

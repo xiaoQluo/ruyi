@@ -1,0 +1,17 @@
+fn createCounter(start: int): fn(): int {
+    let count = start;
+    fn counter(): int {
+        count = count + 1;
+        return count;
+    }
+    return counter;
+}
+
+let counter1 = createCounter(0);
+print(counter1());
+print(counter1());
+print(counter1());
+
+let counter2 = createCounter(100);
+print(counter2());
+print(counter2());

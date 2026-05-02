@@ -1,0 +1,9 @@
+let x: int = 42;
+let name: string = "Alice";
+let is_valid: bool = true;
+let pi: float = 3.14159;
+
+print(x);
+print(name);
+print(is_valid);
+print(pi);

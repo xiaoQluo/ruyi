@@ -1,0 +1,15 @@
+let a = 100;
+let b = "inferred";
+let c = 3.14;
+let d = true;
+
+print(a);
+print(b);
+print(c);
+print(d);
+
+let e = a + 50;
+print(e);
+
+let f = b + " test";
+print(f);
