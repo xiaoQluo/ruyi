@@ -43,6 +43,10 @@ pub struct CodegenContext<'ctx, 'm> {
     pub variables: HashMap<String, (inkwell::values::PointerValue<'ctx>, Type)>,
     pub current_function: Option<FunctionValue<'ctx>>,
     pub loop_stack: Vec<(inkwell::basic_block::BasicBlock<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)>,
+    /// Maps class name to ordered list of (field_name, field_type).
+    pub class_fields: HashMap<String, Vec<(String, Type)>>,
+    /// Stack of active exception landing-pad blocks for nested try regions.
+    pub exception_stack: Vec<inkwell::basic_block::BasicBlock<'ctx>>,
 }
 
 impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
@@ -54,6 +58,8 @@ impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
             variables: HashMap::new(),
             current_function: None,
             loop_stack: Vec::new(),
+            class_fields: HashMap::new(),
+            exception_stack: Vec::new(),
         }
     }
 }

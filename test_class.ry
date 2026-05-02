@@ -1,0 +1,15 @@
+class Point {
+    x: float;
+    y: float;
+
+    fn init(v: float) {
+        self.x = v;
+        self.y = v;
+    }
+
+    fn getX(self): float {
+        return self.x;
+    }
+}
+
+print(Point.init(3.0).getX());

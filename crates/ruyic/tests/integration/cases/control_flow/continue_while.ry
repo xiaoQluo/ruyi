@@ -1,0 +1,15 @@
+fn main() {
+    let mut count = 0;
+    let mut result = 0;
+
+    while (count < 10) {
+        count = count + 1;
+        if (count == 5) {
+            continue;
+        }
+        result = result + count;
+    }
+
+    print("count=" + count);
+    print("result=" + result);
+}

@@ -10,7 +10,8 @@ pub use alloc::{
     ruyi_alloc, ruyi_dealloc, ruyi_realloc,
 };
 pub use builtins::{
-    ruyi_array_alloc, ruyi_bigint_from_str, ruyi_member_access, ruyi_object_alloc,
+    ruyi_array_alloc, ruyi_array_get, ruyi_array_length, ruyi_array_pop, ruyi_array_push,
+    ruyi_array_set, ruyi_bigint_from_str, ruyi_member_access, ruyi_object_alloc,
     ruyi_string_concat,
 };
 pub use arc::{

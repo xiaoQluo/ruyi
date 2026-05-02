@@ -9,7 +9,7 @@
 
 use inkwell::values::BasicValueEnum;
 
-use crate::parser::ast::{Binding, Declaration, Pattern};
+use crate::parser::ast::{Binding, Declaration, Pattern, ClassElement, PropertyName};
 use crate::typechecker::types::Type;
 use super::expr::compile_expr;
 use super::generator::CodegenContext;
@@ -163,10 +163,83 @@ fn compile_function<'ctx>(
 }
 
 fn compile_class<'ctx>(
-    _ctx: &mut CodegenContext<'ctx, '_>,
-    _name: &str,
-    _body: &[crate::parser::ast::ClassElement],
+    ctx: &mut CodegenContext<'ctx, '_>,
+    name: &str,
+    body: &[ClassElement],
 ) -> Result<(), String> {
+    let mut fields: Vec<(String, Type)> = Vec::new();
+    let mut methods: Vec<&ClassElement> = Vec::new();
+
+    for element in body {
+        match element {
+            ClassElement::Field {
+                name: prop_name,
+                ty,
+                is_static: false,
+                ..
+            } => {
+                let field_name = match prop_name {
+                    PropertyName::Ident(n) => n.clone(),
+                    _ => continue,
+                };
+                let field_ty = ty
+                    .as_ref()
+                    .map(Type::from_annotation)
+                    .unwrap_or(Type::Dynamic);
+                fields.push((field_name, field_ty));
+            }
+            ClassElement::Method { is_static: false, .. } => {
+                methods.push(element);
+            }
+            _ => {}
+        }
+    }
+
+    ctx.class_fields.insert(name.to_string(), fields);
+
+    for element in methods {
+        if let ClassElement::Method {
+            name: prop_name,
+            params,
+            return_type,
+            body: method_body,
+            is_async,
+            ..
+        } = element
+        {
+            let method_name = match prop_name {
+                PropertyName::Ident(n) => format!("{}_{}", name, n),
+                _ => continue,
+            };
+
+            let mut method_params = vec![crate::parser::ast::Param {
+                pattern: Pattern::Identifier("self".to_string()),
+                ty: Some(crate::parser::ast::TypeAnnotation::Identifier(name.to_string())),
+                init: None,
+                is_rest: false,
+            }];
+            method_params.extend(params.iter().cloned());
+
+            if *is_async {
+                super::async_codegen::compile_async_function(
+                    ctx,
+                    &method_name,
+                    &method_params,
+                    return_type.as_ref(),
+                    method_body,
+                )?;
+            } else {
+                compile_function(
+                    ctx,
+                    &method_name,
+                    &method_params,
+                    return_type.as_ref(),
+                    method_body,
+                )?;
+            }
+        }
+    }
+
     Ok(())
 }
 

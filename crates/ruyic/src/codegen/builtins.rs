@@ -21,6 +21,11 @@ pub fn declare_builtins<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     declare_ruyi_end_catch(context, module);
     declare_ruyi_string_concat(context, module);
     declare_ruyi_array_alloc(context, module);
+    declare_ruyi_array_length(context, module);
+    declare_ruyi_array_get(context, module);
+    declare_ruyi_array_set(context, module);
+    declare_ruyi_array_push(context, module);
+    declare_ruyi_array_pop(context, module);
     declare_ruyi_object_alloc(context, module);
     declare_ruyi_bigint_from_str(context, module);
     declare_ruyi_member_access(context, module);
@@ -96,6 +101,41 @@ fn declare_ruyi_member_access<'ctx>(context: &'ctx Context, module: &Module<'ctx
     let i8_ptr = context.i8_type().ptr_type(Default::default());
     let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i64_ty.into()], false);
     module.add_function("ruyi_member_access", fn_type, None);
+}
+
+fn declare_ruyi_array_length<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i64_ty = context.i64_type();
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = i64_ty.fn_type(&[i8_ptr.into()], false);
+    module.add_function("ruyi_array_length", fn_type, None);
+}
+
+fn declare_ruyi_array_get<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i64_ty = context.i64_type();
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i64_ty.into()], false);
+    module.add_function("ruyi_array_get", fn_type, None);
+}
+
+fn declare_ruyi_array_set<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i64_ty = context.i64_type();
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let void_ty = context.void_type();
+    let fn_type = void_ty.fn_type(&[i8_ptr.into(), i64_ty.into(), i8_ptr.into()], false);
+    module.add_function("ruyi_array_set", fn_type, None);
+}
+
+fn declare_ruyi_array_push<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i64_ty = context.i64_type();
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+    module.add_function("ruyi_array_push", fn_type, None);
+}
+
+fn declare_ruyi_array_pop<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
+    module.add_function("ruyi_array_pop", fn_type, None);
 }
 
 /// Build a call to the built-in `print` function.
@@ -213,4 +253,78 @@ pub fn build_member_access<'ctx>(
         .try_as_basic_value()
         .left()
         .unwrap()
+}
+
+/// Build a call to `ruyi_array_length`.
+pub fn build_array_length<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    arr: inkwell::values::PointerValue<'ctx>,
+) -> inkwell::values::IntValue<'ctx> {
+    let fn_val = module.get_function("ruyi_array_length").expect("ruyi_array_length not declared");
+    builder
+        .build_call(fn_val, &[arr.into()], "array_length")
+        .try_as_basic_value()
+        .left()
+        .unwrap()
+        .into_int_value()
+}
+
+/// Build a call to `ruyi_array_get`.
+pub fn build_array_get<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    arr: inkwell::values::PointerValue<'ctx>,
+    index: inkwell::values::IntValue<'ctx>,
+) -> inkwell::values::PointerValue<'ctx> {
+    let fn_val = module.get_function("ruyi_array_get").expect("ruyi_array_get not declared");
+    builder
+        .build_call(fn_val, &[arr.into(), index.into()], "array_get")
+        .try_as_basic_value()
+        .left()
+        .unwrap()
+        .into_pointer_value()
+}
+
+/// Build a call to `ruyi_array_set`.
+pub fn build_array_set<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    arr: inkwell::values::PointerValue<'ctx>,
+    index: inkwell::values::IntValue<'ctx>,
+    value: inkwell::values::PointerValue<'ctx>,
+) {
+    let fn_val = module.get_function("ruyi_array_set").expect("ruyi_array_set not declared");
+    builder.build_call(fn_val, &[arr.into(), index.into(), value.into()], "array_set");
+}
+
+/// Build a call to `ruyi_array_push`.
+pub fn build_array_push<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    arr: inkwell::values::PointerValue<'ctx>,
+    value: inkwell::values::PointerValue<'ctx>,
+) -> inkwell::values::PointerValue<'ctx> {
+    let fn_val = module.get_function("ruyi_array_push").expect("ruyi_array_push not declared");
+    builder
+        .build_call(fn_val, &[arr.into(), value.into()], "array_push")
+        .try_as_basic_value()
+        .left()
+        .unwrap()
+        .into_pointer_value()
+}
+
+/// Build a call to `ruyi_array_pop`.
+pub fn build_array_pop<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    arr: inkwell::values::PointerValue<'ctx>,
+) -> inkwell::values::PointerValue<'ctx> {
+    let fn_val = module.get_function("ruyi_array_pop").expect("ruyi_array_pop not declared");
+    builder
+        .build_call(fn_val, &[arr.into()], "array_pop")
+        .try_as_basic_value()
+        .left()
+        .unwrap()
+        .into_pointer_value()
 }

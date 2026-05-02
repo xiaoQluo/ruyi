@@ -161,6 +161,116 @@ pub extern "C" fn ruyi_member_access(obj: *mut i8, offset: i64) -> *mut i8 {
     }
 }
 
+/// Get the length of a Ruyi array.
+///
+/// Returns 0 if `arr` is null.
+#[no_mangle]
+pub extern "C" fn ruyi_array_length(arr: *mut i8) -> i64 {
+    unsafe {
+        if arr.is_null() {
+            return 0;
+        }
+        *(arr as *mut i64)
+    }
+}
+
+/// Get an element from a Ruyi array by index.
+///
+/// Returns null if `arr` is null, `index` is out of bounds, or negative.
+#[no_mangle]
+pub extern "C" fn ruyi_array_get(arr: *mut i8, index: i64) -> *mut i8 {
+    unsafe {
+        if arr.is_null() || index < 0 {
+            return std::ptr::null_mut();
+        }
+        let len = *(arr as *mut i64);
+        if index >= len {
+            return std::ptr::null_mut();
+        }
+        let data = arr.add(std::mem::size_of::<i64>() * 2) as *mut *mut i8;
+        *data.add(index as usize)
+    }
+}
+
+/// Set an element in a Ruyi array by index.
+///
+/// Does nothing if `arr` is null or `index` is out of bounds.
+#[no_mangle]
+pub extern "C" fn ruyi_array_set(arr: *mut i8, index: i64, value: *mut i8) {
+    unsafe {
+        if arr.is_null() || index < 0 {
+            return;
+        }
+        let len = *(arr as *mut i64);
+        if index >= len {
+            return;
+        }
+        let data = arr.add(std::mem::size_of::<i64>() * 2) as *mut *mut i8;
+        *data.add(index as usize) = value;
+    }
+}
+
+/// Push an element onto the end of a Ruyi array.
+///
+/// Reallocates the array if capacity is exceeded. Returns the (possibly
+/// reallocated) array pointer, or null on allocation failure.
+#[no_mangle]
+pub extern "C" fn ruyi_array_push(arr: *mut i8, value: *mut i8) -> *mut i8 {
+    unsafe {
+        if arr.is_null() {
+            return std::ptr::null_mut();
+        }
+        let len_ptr = arr as *mut i64;
+        let cap_ptr = arr.add(std::mem::size_of::<i64>()) as *mut i64;
+        let len = *len_ptr;
+        let cap = *cap_ptr;
+
+        if len >= cap {
+            let new_cap = if cap == 0 { 4 } else { cap * 2 };
+            let header_size = std::mem::size_of::<i64>() * 2;
+            let old_size = header_size + cap as usize * std::mem::size_of::<*mut i8>();
+            let new_size = header_size + new_cap as usize * std::mem::size_of::<*mut i8>();
+            let old_layout = Layout::from_size_align(old_size, std::mem::align_of::<i64>()).unwrap();
+
+            let new_ptr = std::alloc::realloc(arr as *mut u8, old_layout, new_size);
+            if new_ptr.is_null() {
+                return std::ptr::null_mut();
+            }
+            let new_arr = new_ptr as *mut i8;
+            *(new_arr.add(std::mem::size_of::<i64>()) as *mut i64) = new_cap;
+            let data = new_arr.add(header_size) as *mut *mut i8;
+            *data.add(len as usize) = value;
+            *(new_arr as *mut i64) = len + 1;
+            return new_arr;
+        }
+
+        let data = arr.add(std::mem::size_of::<i64>() * 2) as *mut *mut i8;
+        *data.add(len as usize) = value;
+        *len_ptr = len + 1;
+        arr
+    }
+}
+
+/// Pop the last element from a Ruyi array.
+///
+/// Returns null if `arr` is null or empty.
+#[no_mangle]
+pub extern "C" fn ruyi_array_pop(arr: *mut i8) -> *mut i8 {
+    unsafe {
+        if arr.is_null() {
+            return std::ptr::null_mut();
+        }
+        let len_ptr = arr as *mut i64;
+        let len = *len_ptr;
+        if len <= 0 {
+            return std::ptr::null_mut();
+        }
+        *len_ptr = len - 1;
+        let data = arr.add(std::mem::size_of::<i64>() * 2) as *mut *mut i8;
+        *data.add((len - 1) as usize)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -585,6 +585,14 @@ impl Parser {
                 self.advance();
                 Ok(PropertyName::Ident(n))
             }
+            Some(Token::New) => {
+                self.advance();
+                Ok(PropertyName::Ident("new".to_string()))
+            }
+            Some(Token::SelfKw) => {
+                self.advance();
+                Ok(PropertyName::Ident("self".to_string()))
+            }
             Some(Token::String(s)) => {
                 let s = s.clone();
                 self.advance();
@@ -733,13 +741,15 @@ impl Parser {
         }
 
         let init = if self.check(&Token::SemiColon) {
+            self.advance();
             None
         } else if self.check(&Token::Let) || self.check(&Token::Const) {
             Some(ForInit::VarDecl(self.parse_declaration()?))
         } else {
-            Some(ForInit::Expr(Box::new(self.parse_expression()?)))
+            let expr = self.parse_expression()?;
+            self.expect(Token::SemiColon)?;
+            Some(ForInit::Expr(Box::new(expr)))
         };
-        self.expect(Token::SemiColon)?;
         let condition = if self.check(&Token::SemiColon) {
             None
         } else {
@@ -968,6 +978,14 @@ impl Parser {
                         let n = name.clone();
                         self.advance();
                         MemberProperty::Ident(n)
+                    }
+                    Some(Token::New) => {
+                        self.advance();
+                        MemberProperty::Ident("new".to_string())
+                    }
+                    Some(Token::SelfKw) => {
+                        self.advance();
+                        MemberProperty::Ident("self".to_string())
                     }
                     _ => return Err(self.error("expected identifier after '.'")),
                 };
@@ -1559,6 +1577,9 @@ impl Parser {
         }
         if let Some(lit) = self.try_parse_literal_pattern()? {
             return Ok(lit);
+        }
+        if self.match_token(&Token::SelfKw) {
+            return Ok(Pattern::Identifier("self".to_string()));
         }
         let name = self.expect_ident()?;
         if self.match_token(&Token::As) {

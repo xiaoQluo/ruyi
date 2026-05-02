@@ -1,6 +1,6 @@
 let value = 2;
 
-match value {
+match (value) {
     1 => print("one"),
     2 => print("two"),
     3 => print("three"),
@@ -9,7 +9,7 @@ match value {
 
 let name = "Alice";
 
-match name {
+match (name) {
     "Bob" => print("Hello Bob!"),
     "Alice" => print("Hello Alice!"),
     _ => print("Hello stranger!"),
@@ -17,10 +17,36 @@ match name {
 
 let score = 85;
 
-match score {
+match (score) {
     100 => print("Perfect!"),
     90 => print("Excellent!"),
     80 => print("Good!"),
     70 => print("Fair!"),
     _ => print("Keep trying!"),
+}
+
+let x = 5;
+match (x) {
+    n if (n > 0) => print("positive"),
+    n if (n < 0) => print("negative"),
+    _ => print("zero"),
+}
+
+let y = -3;
+match (y) {
+    n if (n > 0) => print("positive"),
+    n if (n < 0) => print("negative"),
+    _ => print("zero"),
+}
+
+let z = 0;
+match (z) {
+    n if (n > 0) => print("positive"),
+    n if (n < 0) => print("negative"),
+    _ => print("zero"),
+}
+
+let opt = 42;
+match (opt) {
+    v => print("got value"),
 }
