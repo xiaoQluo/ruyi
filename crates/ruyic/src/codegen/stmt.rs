@@ -368,11 +368,19 @@ fn compile_try<'ctx>(
         let cbb = catch_body_bb.unwrap();
         ctx.builder.position_at_end(cbb);
 
+        let exc_loaded = ctx.builder.build_load(exc_ptr_alloca, "exc_loaded");
+        let begin_catch_fn = ctx.module.get_function("ruyi_begin_catch")
+            .ok_or("ruyi_begin_catch not declared")?;
+        let exc_obj = ctx.builder.build_call(
+            begin_catch_fn,
+            &[exc_loaded.into_pointer_value().into()],
+            "exc_obj",
+        ).try_as_basic_value().left().unwrap().into_pointer_value();
+
         if let Some(ref pattern) = c.pattern {
             if let crate::parser::ast::Pattern::Identifier(name) = pattern {
-                let exc_loaded = ctx.builder.build_load(exc_ptr_alloca, "exc_loaded");
                 let var_ptr = ctx.builder.build_alloca(i8_ptr, name);
-                ctx.builder.build_store(var_ptr, exc_loaded);
+                ctx.builder.build_store(var_ptr, exc_obj);
                 ctx.variables.insert(name.clone(), (var_ptr, Type::Named("Error".to_string())));
             }
         }
@@ -380,6 +388,10 @@ fn compile_try<'ctx>(
         for stmt in &c.body {
             compile_stmt(ctx, stmt)?;
         }
+
+        let end_catch_fn = ctx.module.get_function("ruyi_end_catch")
+            .ok_or("ruyi_end_catch not declared")?;
+        ctx.builder.build_call(end_catch_fn, &[], "end_catch");
 
         ctx.builder.build_store(exc_ptr_alloca, i8_ptr.const_null());
 

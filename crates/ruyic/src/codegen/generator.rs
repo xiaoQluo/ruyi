@@ -218,7 +218,8 @@ impl<'ctx> CodeGenerator<'ctx> {
         cmd.arg(&temp_obj)
             .arg("-o")
             .arg(path)
-            .arg("-lm");
+            .arg("-lm")
+            .arg("-lc++");
         if runtime_lib.exists() {
             cmd.arg(&runtime_lib);
         }
