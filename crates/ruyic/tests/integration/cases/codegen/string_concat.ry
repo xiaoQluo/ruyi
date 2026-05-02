@@ -1,0 +1,5 @@
+print("hello" + " world");
+print("count: " + 42);
+print(7 + " days");
+print("pi: " + 3.14);
+print(2.71 + " approx");

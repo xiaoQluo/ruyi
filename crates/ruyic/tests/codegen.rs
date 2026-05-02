@@ -174,6 +174,18 @@ fn codegen_arithmetic_divide() {
 #[ignore]
 fn codegen_string_concat() {
     assert_output(r#"print("hello" + " " + "world");"#, "hello world");
+    assert_output(r#"print("count: " + 42);"#, "count: 42");
+    assert_output(r#"print(7 + " days");"#, "7 days");
+    assert_output(r#"print("pi: " + 3.14);"#, "pi: 3.14");
+    assert_output(r#"print(2.71 + " approx");"#, "2.71 approx");
+}
+
+#[test]
+#[ignore]
+fn codegen_template_literal() {
+    assert_output(r#"let name = "world"; print("Hello ${name}");"#, "Hello world");
+    assert_output(r#"let a = 1; let b = 2; print("${a} + ${b} = ${a + b}");"#, "1 + 2 = 3");
+    assert_output(r#"let empty = ""; print("val: ${empty}");"#, "val: ");
 }
 
 #[test]
@@ -304,6 +316,31 @@ fn codegen_fixture_if_statement() {
 
     let source_path = cases_dir.join("if_statement.ry");
     let expected_path = cases_dir.join("if_statement.expected");
+
+    if !source_path.exists() {
+        eprintln!("Skipping: {} not found", source_path.display());
+        return;
+    }
+
+    let source = fs::read_to_string(&source_path).expect("failed to read source");
+    let expected = fs::read_to_string(&expected_path)
+        .map(|s| s.replace("\r\n", "\n").trim().to_string())
+        .unwrap_or_default();
+
+    assert_output(&source, &expected);
+}
+
+#[test]
+#[ignore]
+fn codegen_fixture_member_access() {
+    let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("integration")
+        .join("cases")
+        .join("codegen");
+
+    let source_path = cases_dir.join("member_access.ry");
+    let expected_path = cases_dir.join("member_access.expected");
 
     if !source_path.exists() {
         eprintln!("Skipping: {} not found", source_path.display());

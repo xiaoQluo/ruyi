@@ -7,14 +7,14 @@
  * @date 2026-05-01
  */
 
-use inkwell::types::BasicType;
+use inkwell::types::{BasicType, BasicTypeEnum};
 use inkwell::values::BasicValueEnum;
 use inkwell::IntPredicate;
 use inkwell::FloatPredicate;
 
-use crate::parser::ast::{ArrayElement, BinaryOp, Expr, MatchArm, Pattern, Statement, UnaryOp, MemberProperty, Argument};
-use crate::typechecker::types::Type;
-use super::builtins::build_bigint_from_str;
+use crate::parser::ast::{ArrayElement, BinaryOp, Expr, MatchArm, Pattern, Statement, TemplatePart, UnaryOp, MemberProperty, Argument, ObjectProperty, PropertyName};
+use crate::typechecker::types::{Type, ObjectField};
+use super::builtins::{build_bigint_from_str, build_int_to_string, build_float_to_string};
 use super::types::ruyi_type_to_llvm;
 use super::generator::CodegenContext;
 
@@ -46,6 +46,7 @@ pub fn compile_expr<'ctx>(
         Expr::Binary { op, left, right } => compile_binary(ctx, op, left, right),
         Expr::Unary { op, operand } => compile_unary(ctx, op, operand),
         Expr::Call { callee, args } => compile_call(ctx, callee, args),
+        Expr::OptionalCall { .. } => Err("optional call not yet supported in codegen".to_string()),
         Expr::Assignment { left, op, right } => compile_assignment(ctx, left, op, right),
         Expr::Conditional { condition, then_branch, else_branch } => {
             compile_conditional(ctx, condition, then_branch, else_branch)
@@ -55,6 +56,8 @@ pub fn compile_expr<'ctx>(
         Expr::SelfExpr => compile_self(ctx),
         Expr::Member { object, property, .. } => compile_member(ctx, object, property),
         Expr::New { callee, args } => compile_new(ctx, callee, args),
+        Expr::TemplateLiteral(parts) => compile_template_literal(ctx, parts),
+        Expr::ObjectLiteral(props) => compile_object_literal(ctx, props),
         Expr::ArrayLiteral(_elements) => Err("array literal not yet supported in codegen".to_string()),
         Expr::Match { .. } => Err("match expression not yet supported in codegen".to_string()),
         Expr::Block(_) => Err("block expression not yet supported in codegen".to_string()),
@@ -114,11 +117,154 @@ fn compile_array_literal<'ctx>(
     Err("Array literals are not yet supported in codegen".to_string())
 }
 
+/// Compile a template literal expression into a chain of string concatenations.
+///
+/// `Hello ${name}` becomes `"Hello " + name`
+/// `${a} + ${b} = ${a+b}` becomes `a + (" + " + (b + " = " + (a + b + "")))`
+///
+/// Each template part is compiled and concatenated left-to-right.
+fn compile_template_literal<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    parts: &[TemplatePart],
+) -> Result<ExprResult<'ctx>, String> {
+    // Empty template: `` → empty string
+    if parts.is_empty() {
+        let empty = ctx.builder.build_global_string_ptr("", "empty_template");
+        return Ok(ExprResult::new(
+            BasicValueEnum::PointerValue(empty.as_pointer_value()),
+            Type::String,
+        ));
+    }
+
+    // Start with first part
+    let mut result = compile_template_part(ctx, &parts[0])?;
+
+    // Chain concatenations with remaining parts
+    for part in &parts[1..] {
+        let part_result = compile_template_part(ctx, part)?;
+        let concatenated = super::builtins::build_string_concat(
+            &ctx.builder,
+            ctx.module,
+            result.value,
+            part_result.value,
+        );
+        result = ExprResult::new(concatenated, Type::String);
+    }
+
+    Ok(result)
+}
+
+/// Compile a single template part to a string value.
+fn compile_template_part<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    part: &TemplatePart,
+) -> Result<ExprResult<'ctx>, String> {
+    match part {
+        TemplatePart::String(s) => compile_string_literal(ctx, s),
+        TemplatePart::Expr(expr) => {
+            let expr_result = compile_expr(ctx, expr)?;
+            // Convert the expression result to string
+            match expr_result.value {
+                BasicValueEnum::PointerValue(ptr) => {
+                    // Already a string pointer
+                    Ok(ExprResult::new(BasicValueEnum::PointerValue(ptr), Type::String))
+                }
+                BasicValueEnum::IntValue(v) => {
+                    let str_val = build_int_to_string(&ctx.builder, ctx.module, v);
+                    Ok(ExprResult::new(str_val, Type::String))
+                }
+                BasicValueEnum::FloatValue(v) => {
+                    let str_val = build_float_to_string(&ctx.builder, ctx.module, v);
+                    Ok(ExprResult::new(str_val, Type::String))
+                }
+                _ => Err("Cannot convert type to string in template literal".to_string()),
+            }
+        }
+    }
+}
+
 fn compile_null_literal<'ctx>(
     ctx: &CodegenContext<'ctx, '_>,
 ) -> Result<ExprResult<'ctx>, String> {
     let null_ptr = ctx.context.i8_type().ptr_type(Default::default()).const_null();
     Ok(ExprResult::new(BasicValueEnum::PointerValue(null_ptr), Type::Null))
+}
+
+fn compile_object_literal<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    properties: &[ObjectProperty],
+) -> Result<ExprResult<'ctx>, String> {
+    let mut fields: Vec<(String, ExprResult<'ctx>)> = Vec::new();
+
+    for prop in properties {
+        match prop {
+            ObjectProperty::Property { key, value } => {
+                let key_name = match key {
+                    PropertyName::Ident(s) => s.clone(),
+                    PropertyName::String(s) => s.clone(),
+                    PropertyName::Number(n) => format!("{}", n),
+                    PropertyName::Computed(_) => {
+                        return Err("Computed property names not yet supported in codegen".to_string());
+                    }
+                };
+                let value_result = compile_expr(ctx, value)?;
+                fields.push((key_name, value_result));
+            }
+            ObjectProperty::Shorthand(name) => {
+                match ctx.variables.get(name) {
+                    Some((ptr, ty)) => {
+                        let val = ctx.builder.build_load(*ptr, name);
+                        fields.push((name.clone(), ExprResult::new(val, ty.clone())));
+                    }
+                    None => return Err(format!("Undefined variable in object shorthand: {}", name)),
+                }
+            }
+            ObjectProperty::Spread(_) => {
+                return Err("Object spread not yet supported in codegen".to_string());
+            }
+            ObjectProperty::ComputedProperty { .. } => {
+                return Err("Computed property names not yet supported in codegen".to_string());
+            }
+        }
+    }
+
+    let field_count = fields.len() as i64;
+    let field_count_val = ctx.context.i64_type().const_int(field_count as u64, false);
+    let obj_ptr = super::builtins::build_object_alloc(&ctx.builder, &ctx.module, field_count_val);
+
+    for (idx, (field_name, field_result)) in fields.iter().enumerate() {
+        let offset = ctx.context.i64_type().const_int((8 + idx * 8) as u64, false);
+        let field_addr = unsafe {
+            ctx.builder.build_gep(
+                obj_ptr,
+                &[offset],
+                &format!("obj_field_{}_addr", field_name),
+            )
+        };
+
+        let llvm_ty = ruyi_type_to_llvm(ctx.context, &field_result.ty);
+        let typed_ptr = ctx.builder.build_bitcast(
+            field_addr,
+            llvm_ty.ptr_type(Default::default()),
+            &format!("obj_field_{}_ptr", field_name),
+        ).into_pointer_value();
+
+        ctx.builder.build_store(typed_ptr, field_result.value);
+    }
+
+    let object_fields: Vec<ObjectField> = fields
+        .into_iter()
+        .map(|(name, result)| ObjectField {
+            name,
+            ty: result.ty,
+            optional: false,
+        })
+        .collect();
+
+    Ok(ExprResult::new(
+        BasicValueEnum::PointerValue(obj_ptr),
+        Type::Object(object_fields),
+    ))
 }
 
 fn compile_identifier<'ctx>(
@@ -184,30 +330,93 @@ fn compile_add<'ctx>(
     left: &ExprResult<'ctx>,
     right: &ExprResult<'ctx>,
 ) -> Result<ExprResult<'ctx>, String> {
-    match (&left.value, &right.value) {
-        (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
-            let res = ctx.builder.build_int_add(*l, *r, "add");
-            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
-        }
-        (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
-            let res = ctx.builder.build_float_add(*l, *r, "fadd");
-            Ok(ExprResult::new(BasicValueEnum::FloatValue(res), Type::Float))
-        }
-        (BasicValueEnum::IntValue(l), BasicValueEnum::FloatValue(r)) => {
-            let l_f = ctx.builder.build_signed_int_to_float(*l, ctx.context.f64_type(), "itof");
-            let res = ctx.builder.build_float_add(l_f, *r, "fadd");
-            Ok(ExprResult::new(BasicValueEnum::FloatValue(res), Type::Float))
-        }
-        (BasicValueEnum::FloatValue(l), BasicValueEnum::IntValue(r)) => {
-            let r_f = ctx.builder.build_signed_int_to_float(*r, ctx.context.f64_type(), "itof");
-            let res = ctx.builder.build_float_add(*l, r_f, "fadd");
-            Ok(ExprResult::new(BasicValueEnum::FloatValue(res), Type::Float))
-        }
-        (BasicValueEnum::PointerValue(l), BasicValueEnum::PointerValue(r)) => {
-            let res = super::builtins::build_string_concat(&ctx.builder, &ctx.module, BasicValueEnum::PointerValue(*l), BasicValueEnum::PointerValue(*r));
+    match (&left.ty, &right.ty) {
+        (Type::String, Type::String) => {
+            let res = super::builtins::build_string_concat(
+                &ctx.builder,
+                &ctx.module,
+                left.value,
+                right.value,
+            );
             Ok(ExprResult::new(res, Type::String))
         }
-        _ => Err("Invalid operands for +".to_string()),
+        (Type::String, Type::Int) => {
+            let num_str = super::builtins::build_int_to_string(
+                &ctx.builder,
+                &ctx.module,
+                right.value.into_int_value(),
+            );
+            let res = super::builtins::build_string_concat(
+                &ctx.builder,
+                &ctx.module,
+                left.value,
+                num_str,
+            );
+            Ok(ExprResult::new(res, Type::String))
+        }
+        (Type::Int, Type::String) => {
+            let num_str = super::builtins::build_int_to_string(
+                &ctx.builder,
+                &ctx.module,
+                left.value.into_int_value(),
+            );
+            let res = super::builtins::build_string_concat(
+                &ctx.builder,
+                &ctx.module,
+                num_str,
+                right.value,
+            );
+            Ok(ExprResult::new(res, Type::String))
+        }
+        (Type::String, Type::Float) => {
+            let num_str = super::builtins::build_float_to_string(
+                &ctx.builder,
+                &ctx.module,
+                right.value.into_float_value(),
+            );
+            let res = super::builtins::build_string_concat(
+                &ctx.builder,
+                &ctx.module,
+                left.value,
+                num_str,
+            );
+            Ok(ExprResult::new(res, Type::String))
+        }
+        (Type::Float, Type::String) => {
+            let num_str = super::builtins::build_float_to_string(
+                &ctx.builder,
+                &ctx.module,
+                left.value.into_float_value(),
+            );
+            let res = super::builtins::build_string_concat(
+                &ctx.builder,
+                &ctx.module,
+                num_str,
+                right.value,
+            );
+            Ok(ExprResult::new(res, Type::String))
+        }
+        _ => match (&left.value, &right.value) {
+            (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+                let res = ctx.builder.build_int_add(*l, *r, "add");
+                Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
+            }
+            (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
+                let res = ctx.builder.build_float_add(*l, *r, "fadd");
+                Ok(ExprResult::new(BasicValueEnum::FloatValue(res), Type::Float))
+            }
+            (BasicValueEnum::IntValue(l), BasicValueEnum::FloatValue(r)) => {
+                let l_f = ctx.builder.build_signed_int_to_float(*l, ctx.context.f64_type(), "itof");
+                let res = ctx.builder.build_float_add(l_f, *r, "fadd");
+                Ok(ExprResult::new(BasicValueEnum::FloatValue(res), Type::Float))
+            }
+            (BasicValueEnum::FloatValue(l), BasicValueEnum::IntValue(r)) => {
+                let r_f = ctx.builder.build_signed_int_to_float(*r, ctx.context.f64_type(), "itof");
+                let res = ctx.builder.build_float_add(*l, r_f, "fadd");
+                Ok(ExprResult::new(BasicValueEnum::FloatValue(res), Type::Float))
+            }
+            _ => Err("Invalid operands for +".to_string()),
+        },
     }
 }
 
@@ -543,13 +752,14 @@ fn get_class_name_from_expr<'ctx>(
     object: &Expr,
     obj_ty: &Type,
 ) -> Result<String, String> {
-    match obj_ty {
+    let base_ty = obj_ty.unwrap_nullable();
+    match base_ty {
         Type::Named(name) => Ok(name.clone()),
         _ => {
             if let Expr::Identifier(name) = object {
                 if name == "self" {
                     if let Some((_, ty)) = ctx.variables.get("self") {
-                        match ty {
+                        match ty.unwrap_nullable() {
                             Type::Named(n) => Ok(n.clone()),
                             _ => Err("self is not a class instance".to_string()),
                         }
@@ -575,15 +785,22 @@ fn compile_member<'ctx>(
 
     match property {
         MemberProperty::Ident(field_name) => {
-            let class_name = get_class_name_from_expr(ctx, object, &obj_result.ty)?;
-
-            let fields = ctx.class_fields.get(&class_name)
-                .ok_or_else(|| format!("Class not found: {}", class_name))?;
+            let fields: Vec<(String, Type)> = match &obj_result.ty {
+                Type::Named(class_name) => {
+                    ctx.class_fields.get(class_name)
+                        .ok_or_else(|| format!("Class not found: {}", class_name))?
+                        .clone()
+                }
+                Type::Object(obj_fields) => {
+                    obj_fields.iter().map(|f| (f.name.clone(), f.ty.clone())).collect()
+                }
+                _ => return Err(format!("Member access on non-object type: {:?}", obj_result.ty)),
+            };
 
             let (field_idx, field_ty) = fields.iter().enumerate()
                 .find(|(_, (name, _))| name == field_name)
                 .map(|(idx, (_, ty))| (idx, ty.clone()))
-                .ok_or_else(|| format!("Field {} not found in class {}", field_name, class_name))?;
+                .ok_or_else(|| format!("Field {} not found in object", field_name))?;
 
             let obj_ptr = obj_result.value.into_pointer_value();
             let offset = ctx.context.i64_type().const_int((8 + field_idx * 8) as u64, false);
@@ -619,6 +836,219 @@ fn compile_member<'ctx>(
             Ok(ExprResult::new(val, elem_ty))
         }
     }
+}
+
+fn compile_direct_field_access<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    obj_result: &ExprResult<'ctx>,
+    field_idx: usize,
+    field_ty: &Type,
+    field_name: &str,
+) -> Result<ExprResult<'ctx>, String> {
+    let obj_ptr = obj_result.value.into_pointer_value();
+    let offset = ctx.context.i64_type().const_int((8 + field_idx * 8) as u64, false);
+    let field_addr = unsafe {
+        ctx.builder.build_gep(
+            obj_ptr,
+            &[offset],
+            &format!("field_{}_addr", field_name),
+        )
+    };
+
+    let llvm_ty = ruyi_type_to_llvm(ctx.context, field_ty);
+    let typed_ptr = ctx.builder.build_bitcast(
+        field_addr,
+        llvm_ty.ptr_type(Default::default()),
+        &format!("field_{}_ptr", field_name),
+    ).into_pointer_value();
+
+    let val = ctx.builder.build_load(typed_ptr, &format!("field_{}", field_name));
+    Ok(ExprResult::new(val, field_ty.clone()))
+}
+
+fn compile_optional_field_access<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    obj_result: &ExprResult<'ctx>,
+    field_idx: usize,
+    field_ty: &Type,
+    field_name: &str,
+) -> Result<ExprResult<'ctx>, String> {
+    let obj_ptr = match obj_result.value {
+        BasicValueEnum::PointerValue(p) => p,
+        _ => return Err("Optional chaining requires an object reference".to_string()),
+    };
+
+    let func = ctx.current_function.ok_or("No current function")?;
+    let null_bb = ctx.context.append_basic_block(func, "opt_null");
+    let access_bb = ctx.context.append_basic_block(func, "opt_access");
+    let merge_bb = ctx.context.append_basic_block(func, "opt_merge");
+
+    let null_ptr = obj_ptr.get_type().const_null();
+    let is_null = ctx.builder.build_int_compare(
+        IntPredicate::EQ,
+        obj_ptr,
+        null_ptr,
+        "is_null",
+    );
+    ctx.builder.build_conditional_branch(is_null, null_bb, access_bb);
+
+    ctx.builder.position_at_end(null_bb);
+    let null_val = build_null_value(ctx, field_ty);
+    ctx.builder.build_unconditional_branch(merge_bb);
+    let null_bb_end = ctx.builder.get_insert_block().unwrap();
+
+    ctx.builder.position_at_end(access_bb);
+    let access_result = compile_direct_field_access(ctx, obj_result, field_idx, field_ty, field_name)?;
+    ctx.builder.build_unconditional_branch(merge_bb);
+    let access_bb_end = ctx.builder.get_insert_block().unwrap();
+
+    ctx.builder.position_at_end(merge_bb);
+    let phi_ty = ruyi_type_to_llvm(ctx.context, field_ty);
+    let phi = ctx.builder.build_phi(phi_ty, "opt_phi");
+    phi.add_incoming(&[(&null_val, null_bb_end), (&access_result.value, access_bb_end)]);
+
+    let result_ty = field_ty.clone().make_nullable();
+    Ok(ExprResult::new(phi.as_basic_value(), result_ty))
+}
+
+fn compile_direct_array_access<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    obj_result: &ExprResult<'ctx>,
+    index_expr: &Expr,
+) -> Result<ExprResult<'ctx>, String> {
+    let elem_ty = get_array_elem_type(obj_result.ty.unwrap_nullable());
+    let index_result = compile_expr(ctx, index_expr)?;
+    let array_ptr = obj_result.value.into_pointer_value();
+    let index_val = match index_result.value {
+        BasicValueEnum::IntValue(v) => v,
+        _ => return Err("Array index must be an integer".to_string()),
+    };
+
+    let elem_ptr = super::builtins::build_array_get(&ctx.builder, &ctx.module, array_ptr, index_val);
+    let val = unbox_value(ctx, elem_ptr, &elem_ty);
+    Ok(ExprResult::new(val, elem_ty))
+}
+
+fn compile_optional_array_access<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    obj_result: &ExprResult<'ctx>,
+    index_expr: &Expr,
+) -> Result<ExprResult<'ctx>, String> {
+    let elem_ty = get_array_elem_type(obj_result.ty.unwrap_nullable());
+    let array_ptr = match obj_result.value {
+        BasicValueEnum::PointerValue(p) => p,
+        _ => return Err("Optional chaining requires an array reference".to_string()),
+    };
+
+    let func = ctx.current_function.ok_or("No current function")?;
+    let null_bb = ctx.context.append_basic_block(func, "opt_null");
+    let access_bb = ctx.context.append_basic_block(func, "opt_access");
+    let merge_bb = ctx.context.append_basic_block(func, "opt_merge");
+
+    let null_ptr = array_ptr.get_type().const_null();
+    let is_null = ctx.builder.build_int_compare(
+        IntPredicate::EQ,
+        array_ptr,
+        null_ptr,
+        "is_null",
+    );
+    ctx.builder.build_conditional_branch(is_null, null_bb, access_bb);
+
+    ctx.builder.position_at_end(null_bb);
+    let null_val = build_null_value(ctx, &elem_ty);
+    ctx.builder.build_unconditional_branch(merge_bb);
+    let null_bb_end = ctx.builder.get_insert_block().unwrap();
+
+    ctx.builder.position_at_end(access_bb);
+    let index_result = compile_expr(ctx, index_expr)?;
+    let index_val = match index_result.value {
+        BasicValueEnum::IntValue(v) => v,
+        _ => return Err("Array index must be an integer".to_string()),
+    };
+    let elem_ptr = super::builtins::build_array_get(&ctx.builder, &ctx.module, array_ptr, index_val);
+    let access_val = unbox_value(ctx, elem_ptr, &elem_ty);
+    ctx.builder.build_unconditional_branch(merge_bb);
+    let access_bb_end = ctx.builder.get_insert_block().unwrap();
+
+    ctx.builder.position_at_end(merge_bb);
+    let phi_ty = ruyi_type_to_llvm(ctx.context, &elem_ty);
+    let phi = ctx.builder.build_phi(phi_ty, "opt_phi");
+    phi.add_incoming(&[(&null_val, null_bb_end), (&access_val, access_bb_end)]);
+
+    let result_ty = elem_ty.make_nullable();
+    Ok(ExprResult::new(phi.as_basic_value(), result_ty))
+}
+
+fn build_null_value<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    ty: &Type,
+) -> BasicValueEnum<'ctx> {
+    match ruyi_type_to_llvm(ctx.context, ty) {
+        BasicTypeEnum::IntType(t) => BasicValueEnum::IntValue(t.const_int(0, false)),
+        BasicTypeEnum::FloatType(t) => BasicValueEnum::FloatValue(t.const_float(0.0)),
+        BasicTypeEnum::PointerType(t) => BasicValueEnum::PointerValue(t.const_null()),
+        BasicTypeEnum::StructType(t) => BasicValueEnum::StructValue(t.const_zero()),
+        BasicTypeEnum::ArrayType(t) => BasicValueEnum::ArrayValue(t.const_zero()),
+        BasicTypeEnum::VectorType(t) => BasicValueEnum::VectorValue(t.const_zero()),
+    }
+}
+
+fn build_null_value_for_basic_ty<'ctx>(
+    basic_ty: BasicTypeEnum<'ctx>,
+) -> BasicValueEnum<'ctx> {
+    match basic_ty {
+        BasicTypeEnum::IntType(t) => BasicValueEnum::IntValue(t.const_int(0, false)),
+        BasicTypeEnum::FloatType(t) => BasicValueEnum::FloatValue(t.const_float(0.0)),
+        BasicTypeEnum::PointerType(t) => BasicValueEnum::PointerValue(t.const_null()),
+        BasicTypeEnum::StructType(t) => BasicValueEnum::StructValue(t.const_zero()),
+        BasicTypeEnum::ArrayType(t) => BasicValueEnum::ArrayValue(t.const_zero()),
+        BasicTypeEnum::VectorType(t) => BasicValueEnum::VectorValue(t.const_zero()),
+    }
+}
+
+fn compile_optional_call<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    callee: &Expr,
+    args: &[crate::parser::ast::Argument],
+) -> Result<ExprResult<'ctx>, String> {
+    let callee_result = compile_expr(ctx, callee)?;
+
+    let callee_ptr = match callee_result.value {
+        BasicValueEnum::PointerValue(p) => p,
+        _ => return Err("Optional call requires a callable reference".to_string()),
+    };
+
+    let func = ctx.current_function.ok_or("No current function")?;
+    let null_bb = ctx.context.append_basic_block(func, "opt_call_null");
+    let call_bb = ctx.context.append_basic_block(func, "opt_call_call");
+    let merge_bb = ctx.context.append_basic_block(func, "opt_call_merge");
+
+    let null_ptr = callee_ptr.get_type().const_null();
+    let is_null = ctx.builder.build_int_compare(
+        IntPredicate::EQ,
+        callee_ptr,
+        null_ptr,
+        "opt_call_is_null",
+    );
+    ctx.builder.build_conditional_branch(is_null, null_bb, call_bb);
+
+    ctx.builder.position_at_end(null_bb);
+    let null_val = build_null_value(ctx, &Type::Null);
+    ctx.builder.build_unconditional_branch(merge_bb);
+    let null_bb_end = ctx.builder.get_insert_block().unwrap();
+
+    ctx.builder.position_at_end(call_bb);
+    let call_result = compile_call(ctx, callee, args)?;
+    ctx.builder.build_unconditional_branch(merge_bb);
+    let call_bb_end = ctx.builder.get_insert_block().unwrap();
+
+    ctx.builder.position_at_end(merge_bb);
+    let phi_ty = ruyi_type_to_llvm(ctx.context, &call_result.ty);
+    let phi = ctx.builder.build_phi(phi_ty, "opt_call_phi");
+    phi.add_incoming(&[(&null_val, null_bb_end), (&call_result.value, call_bb_end)]);
+
+    let result_ty = call_result.ty.make_nullable();
+    Ok(ExprResult::new(phi.as_basic_value(), result_ty))
 }
 
 fn compile_new<'ctx>(
@@ -928,15 +1358,23 @@ fn compile_assignment<'ctx>(
                 }
                 Expr::Member { object, property: MemberProperty::Ident(field_name), .. } => {
                     let obj_result = compile_expr(ctx, object)?;
-                    let class_name = get_class_name_from_expr(ctx, object, &obj_result.ty)?;
 
-                    let fields = ctx.class_fields.get(&class_name)
-                        .ok_or_else(|| format!("Class not found: {}", class_name))?;
+                    let fields: Vec<(String, Type)> = match &obj_result.ty {
+                        Type::Named(class_name) => {
+                            ctx.class_fields.get(class_name)
+                                .ok_or_else(|| format!("Class not found: {}", class_name))?
+                                .clone()
+                        }
+                        Type::Object(obj_fields) => {
+                            obj_fields.iter().map(|f| (f.name.clone(), f.ty.clone())).collect()
+                        }
+                        _ => return Err(format!("Assignment on non-object type: {:?}", obj_result.ty)),
+                    };
 
                     let (field_idx, field_ty) = fields.iter().enumerate()
                         .find(|(_, (name, _))| name == field_name)
                         .map(|(idx, (_, ty))| (idx, ty.clone()))
-                        .ok_or_else(|| format!("Field {} not found in class {}", field_name, class_name))?;
+                        .ok_or_else(|| format!("Field {} not found in object", field_name))?;
 
                     let obj_ptr = obj_result.value.into_pointer_value();
                     let offset = ctx.context.i64_type().const_int((8 + field_idx * 8) as u64, false);

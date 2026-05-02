@@ -14,6 +14,44 @@
 use std::alloc::{alloc, Layout};
 use std::ffi::CStr;
 
+/// Convert an i64 to a newly allocated null-terminated string.
+///
+/// The caller is responsible for freeing the returned pointer.
+#[no_mangle]
+pub extern "C" fn ruyi_int_to_string(n: i64) -> *mut i8 {
+    let s = format!("{}", n);
+    let bytes = s.into_bytes();
+    unsafe {
+        let layout = Layout::from_size_align(bytes.len() + 1, 1).unwrap();
+        let out = alloc(layout) as *mut i8;
+        if out.is_null() {
+            return std::ptr::null_mut();
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out as *mut u8, bytes.len());
+        *out.add(bytes.len()) = 0;
+        out
+    }
+}
+
+/// Convert an f64 to a newly allocated null-terminated string.
+///
+/// The caller is responsible for freeing the returned pointer.
+#[no_mangle]
+pub extern "C" fn ruyi_float_to_string(n: f64) -> *mut i8 {
+    let s = format!("{}", n);
+    let bytes = s.into_bytes();
+    unsafe {
+        let layout = Layout::from_size_align(bytes.len() + 1, 1).unwrap();
+        let out = alloc(layout) as *mut i8;
+        if out.is_null() {
+            return std::ptr::null_mut();
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out as *mut u8, bytes.len());
+        *out.add(bytes.len()) = 0;
+        out
+    }
+}
+
 /// Concatenate two null-terminated C strings.
 ///
 /// Returns a newly allocated null-terminated string containing `lhs`
@@ -271,6 +309,50 @@ pub extern "C" fn ruyi_array_pop(arr: *mut i8) -> *mut i8 {
     }
 }
 
+/// C-compatible wrapper for `ruyi_throw`.
+///
+/// Uses the C++ exception ABI (`__cxa_throw`) so that LLVM landing pads
+/// with `__gxx_personality_v0` can catch the exception.
+#[no_mangle]
+pub extern "C-unwind" fn ruyi_throw(exception: *mut crate::exception::types::ExceptionObject) -> ! {
+    extern "C" {
+        fn __cxa_allocate_exception(thrown_size: usize) -> *mut libc::c_void;
+        fn __cxa_throw(
+            thrown_exception: *mut libc::c_void,
+            tinfo: *mut libc::c_void,
+            dest: *mut libc::c_void,
+        );
+    }
+    unsafe {
+        let obj = __cxa_allocate_exception(std::mem::size_of::<crate::exception::types::ExceptionObject>());
+        std::ptr::copy_nonoverlapping(
+            exception as *const _,
+            obj as *mut crate::exception::types::ExceptionObject,
+            1,
+        );
+        __cxa_throw(obj, std::ptr::null_mut(), std::ptr::null_mut());
+        std::hint::unreachable_unchecked()
+    }
+}
+
+/// C-compatible wrapper for `ruyi_begin_catch`.
+#[no_mangle]
+pub extern "C" fn ruyi_begin_catch(exception_ptr: *mut u8) -> *mut crate::exception::types::ExceptionObject {
+    unsafe { crate::exception::runtime::ruyi_begin_catch(exception_ptr) }
+}
+
+/// C-compatible wrapper for `ruyi_end_catch`.
+#[no_mangle]
+pub extern "C" fn ruyi_end_catch() {
+    crate::exception::runtime::ruyi_end_catch()
+}
+
+/// C-compatible wrapper for `ruyi_finally`.
+#[no_mangle]
+pub extern "C" fn ruyi_finally(pending_exception: *mut crate::exception::types::ExceptionObject) -> *mut crate::exception::types::ExceptionObject {
+    unsafe { crate::exception::runtime::ruyi_finally(pending_exception) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -418,6 +500,39 @@ mod tests {
             )
             .unwrap();
             dealloc(obj as *mut u8, layout);
+        }
+    }
+
+    #[test]
+    fn test_ruyi_int_to_string() {
+        unsafe {
+            let result = ruyi_int_to_string(42);
+            assert!(!result.is_null());
+            let cstr = CStr::from_ptr(result);
+            assert_eq!(cstr.to_str().unwrap(), "42");
+            dealloc(result as *mut u8, Layout::from_size_align(3, 1).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_ruyi_int_to_string_negative() {
+        unsafe {
+            let result = ruyi_int_to_string(-123);
+            assert!(!result.is_null());
+            let cstr = CStr::from_ptr(result);
+            assert_eq!(cstr.to_str().unwrap(), "-123");
+            dealloc(result as *mut u8, Layout::from_size_align(5, 1).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_ruyi_float_to_string() {
+        unsafe {
+            let result = ruyi_float_to_string(3.14);
+            assert!(!result.is_null());
+            let cstr = CStr::from_ptr(result);
+            assert_eq!(cstr.to_str().unwrap(), "3.14");
+            dealloc(result as *mut u8, Layout::from_size_align(5, 1).unwrap());
         }
     }
 }

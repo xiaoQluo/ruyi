@@ -20,6 +20,8 @@ pub fn declare_builtins<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     declare_ruyi_begin_catch(context, module);
     declare_ruyi_end_catch(context, module);
     declare_ruyi_string_concat(context, module);
+    declare_ruyi_int_to_string(context, module);
+    declare_ruyi_float_to_string(context, module);
     declare_ruyi_array_alloc(context, module);
     declare_ruyi_array_length(context, module);
     declare_ruyi_array_get(context, module);
@@ -74,6 +76,20 @@ fn declare_ruyi_string_concat<'ctx>(context: &'ctx Context, module: &Module<'ctx
     let i8_ptr = context.i8_type().ptr_type(Default::default());
     let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
     module.add_function("ruyi_string_concat", fn_type, None);
+}
+
+fn declare_ruyi_int_to_string<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i64_ty = context.i64_type();
+    let fn_type = i8_ptr.fn_type(&[i64_ty.into()], false);
+    module.add_function("ruyi_int_to_string", fn_type, None);
+}
+
+fn declare_ruyi_float_to_string<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let f64_ty = context.f64_type();
+    let fn_type = i8_ptr.fn_type(&[f64_ty.into()], false);
+    module.add_function("ruyi_float_to_string", fn_type, None);
 }
 
 fn declare_ruyi_array_alloc<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
@@ -191,6 +207,34 @@ pub fn build_string_concat<'ctx>(
     let concat_fn = module.get_function("ruyi_string_concat").expect("ruyi_string_concat not declared");
     builder
         .build_call(concat_fn, &[lhs.into(), rhs.into()], "string_concat")
+        .try_as_basic_value()
+        .left()
+        .unwrap()
+}
+
+/// Build a call to `ruyi_int_to_string`.
+pub fn build_int_to_string<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    val: inkwell::values::IntValue<'ctx>,
+) -> BasicValueEnum<'ctx> {
+    let fn_val = module.get_function("ruyi_int_to_string").expect("ruyi_int_to_string not declared");
+    builder
+        .build_call(fn_val, &[val.into()], "int_to_string")
+        .try_as_basic_value()
+        .left()
+        .unwrap()
+}
+
+/// Build a call to `ruyi_float_to_string`.
+pub fn build_float_to_string<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    val: inkwell::values::FloatValue<'ctx>,
+) -> BasicValueEnum<'ctx> {
+    let fn_val = module.get_function("ruyi_float_to_string").expect("ruyi_float_to_string not declared");
+    builder
+        .build_call(fn_val, &[val.into()], "float_to_string")
         .try_as_basic_value()
         .left()
         .unwrap()

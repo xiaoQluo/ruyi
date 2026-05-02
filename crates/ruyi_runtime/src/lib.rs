@@ -11,8 +11,8 @@ pub use alloc::{
 };
 pub use builtins::{
     ruyi_array_alloc, ruyi_array_get, ruyi_array_length, ruyi_array_pop, ruyi_array_push,
-    ruyi_array_set, ruyi_bigint_from_str, ruyi_member_access, ruyi_object_alloc,
-    ruyi_string_concat,
+    ruyi_array_set, ruyi_bigint_from_str, ruyi_float_to_string, ruyi_int_to_string,
+    ruyi_member_access, ruyi_object_alloc, ruyi_string_concat,
 };
 pub use arc::{
     ruyi_arc_alloc, ruyi_arc_retain, ruyi_arc_release, ruyi_arc_ref_count,

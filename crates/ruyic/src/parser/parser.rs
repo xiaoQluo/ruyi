@@ -1675,7 +1675,6 @@ impl Parser {
 
 fn infix_binding_power(op: &Token) -> Option<(u8, u8)> {
     match op {
-        Token::Comma => Some((10, 11)),
         Token::Assign | Token::PlusAssign | Token::MinusAssign | Token::StarAssign
         | Token::SlashAssign | Token::PercentAssign | Token::PowerAssign | Token::AmpAssign
         | Token::PipeAssign | Token::CaretAssign | Token::ShlAssign | Token::ShrAssign

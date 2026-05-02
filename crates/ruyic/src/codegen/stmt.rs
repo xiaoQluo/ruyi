@@ -373,7 +373,7 @@ fn compile_try<'ctx>(
                 let exc_loaded = ctx.builder.build_load(exc_ptr_alloca, "exc_loaded");
                 let var_ptr = ctx.builder.build_alloca(i8_ptr, name);
                 ctx.builder.build_store(var_ptr, exc_loaded);
-                ctx.variables.insert(name.clone(), (var_ptr, Type::String));
+                ctx.variables.insert(name.clone(), (var_ptr, Type::Named("Error".to_string())));
             }
         }
 

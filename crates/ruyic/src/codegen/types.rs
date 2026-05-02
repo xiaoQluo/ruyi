@@ -12,6 +12,7 @@
  * | null   | *i8 (null)          |
  * | void   | void                |
  * | dyn    | { i64, i8* }        |
+ * | dyn T  | { i8*, i8* }        |
  * | never  | void (poison)       |
  *
  * @author Ruyi Team
@@ -42,7 +43,16 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: &Type) -> BasicTypeEn
         Type::Named(_) => BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default())),
         Type::Generic { .. } => BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default())),
         Type::TypeVar(_) => BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default())),
-        Type::Trait(_) => BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default())),
+        Type::Trait(_) => {
+            let trait_obj_type = context.struct_type(
+                &[
+                    context.i8_type().ptr_type(Default::default()).into(),
+                    context.i8_type().ptr_type(Default::default()).into(),
+                ],
+                false,
+            );
+            BasicTypeEnum::StructType(trait_obj_type)
+        }
         Type::Future(_) => BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default())),
         Type::Dynamic => {
             let dyn_type = context.struct_type(
