@@ -19,6 +19,11 @@ pub fn declare_builtins<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     declare_ruyi_throw(context, module);
     declare_ruyi_begin_catch(context, module);
     declare_ruyi_end_catch(context, module);
+    declare_ruyi_string_concat(context, module);
+    declare_ruyi_array_alloc(context, module);
+    declare_ruyi_object_alloc(context, module);
+    declare_ruyi_bigint_from_str(context, module);
+    declare_ruyi_member_access(context, module);
 }
 
 fn declare_printf<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
@@ -58,6 +63,39 @@ fn declare_ruyi_end_catch<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     let void_ty = context.void_type();
     let fn_type = void_ty.fn_type(&[], false);
     module.add_function("ruyi_end_catch", fn_type, None);
+}
+
+fn declare_ruyi_string_concat<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+    module.add_function("ruyi_string_concat", fn_type, None);
+}
+
+fn declare_ruyi_array_alloc<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i64_ty = context.i64_type();
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = i8_ptr.fn_type(&[i64_ty.into()], false);
+    module.add_function("ruyi_array_alloc", fn_type, None);
+}
+
+fn declare_ruyi_object_alloc<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i64_ty = context.i64_type();
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = i8_ptr.fn_type(&[i64_ty.into()], false);
+    module.add_function("ruyi_object_alloc", fn_type, None);
+}
+
+fn declare_ruyi_bigint_from_str<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
+    module.add_function("ruyi_bigint_from_str", fn_type, None);
+}
+
+fn declare_ruyi_member_access<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i64_ty = context.i64_type();
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i64_ty.into()], false);
+    module.add_function("ruyi_member_access", fn_type, None);
 }
 
 /// Build a call to the built-in `print` function.
@@ -101,4 +139,78 @@ pub fn build_gc_alloc<'ctx>(
         .left()
         .unwrap()
         .into_pointer_value()
+}
+
+/// Build a call to `ruyi_string_concat`.
+pub fn build_string_concat<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    lhs: BasicValueEnum<'ctx>,
+    rhs: BasicValueEnum<'ctx>,
+) -> BasicValueEnum<'ctx> {
+    let concat_fn = module.get_function("ruyi_string_concat").expect("ruyi_string_concat not declared");
+    builder
+        .build_call(concat_fn, &[lhs.into(), rhs.into()], "string_concat")
+        .try_as_basic_value()
+        .left()
+        .unwrap()
+}
+
+/// Build a call to `ruyi_array_alloc`.
+pub fn build_array_alloc<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    size: inkwell::values::IntValue<'ctx>,
+) -> inkwell::values::PointerValue<'ctx> {
+    let alloc_fn = module.get_function("ruyi_array_alloc").expect("ruyi_array_alloc not declared");
+    builder
+        .build_call(alloc_fn, &[size.into()], "array_alloc")
+        .try_as_basic_value()
+        .left()
+        .unwrap()
+        .into_pointer_value()
+}
+
+/// Build a call to `ruyi_object_alloc`.
+pub fn build_object_alloc<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    size: inkwell::values::IntValue<'ctx>,
+) -> inkwell::values::PointerValue<'ctx> {
+    let alloc_fn = module.get_function("ruyi_object_alloc").expect("ruyi_object_alloc not declared");
+    builder
+        .build_call(alloc_fn, &[size.into()], "object_alloc")
+        .try_as_basic_value()
+        .left()
+        .unwrap()
+        .into_pointer_value()
+}
+
+/// Build a call to `ruyi_bigint_from_str`.
+pub fn build_bigint_from_str<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    str_ptr: BasicValueEnum<'ctx>,
+) -> BasicValueEnum<'ctx> {
+    let conv_fn = module.get_function("ruyi_bigint_from_str").expect("ruyi_bigint_from_str not declared");
+    builder
+        .build_call(conv_fn, &[str_ptr.into()], "bigint_from_str")
+        .try_as_basic_value()
+        .left()
+        .unwrap()
+}
+
+/// Build a call to `ruyi_member_access`.
+pub fn build_member_access<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    obj: BasicValueEnum<'ctx>,
+    offset: inkwell::values::IntValue<'ctx>,
+) -> BasicValueEnum<'ctx> {
+    let access_fn = module.get_function("ruyi_member_access").expect("ruyi_member_access not declared");
+    builder
+        .build_call(access_fn, &[obj.into(), offset.into()], "member_access")
+        .try_as_basic_value()
+        .left()
+        .unwrap()
 }

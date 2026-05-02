@@ -1,12 +1,17 @@
 pub mod alloc;
 pub mod arc;
 pub mod async_runtime;
+pub mod builtins;
 pub mod exception;
 pub mod gc;
 
 pub use alloc::{
     allocate, deallocate, reallocate, Heap, MemoryStrategy, TypeInfo, GcObjectHeader,
     ruyi_alloc, ruyi_dealloc, ruyi_realloc,
+};
+pub use builtins::{
+    ruyi_array_alloc, ruyi_bigint_from_str, ruyi_member_access, ruyi_object_alloc,
+    ruyi_string_concat,
 };
 pub use arc::{
     ruyi_arc_alloc, ruyi_arc_retain, ruyi_arc_release, ruyi_arc_ref_count,

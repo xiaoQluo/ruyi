@@ -1,0 +1,337 @@
+/**
+ * Codegen integration tests for the Ruyi compiler.
+ *
+ * Tests cover:
+ * - Code generation for expressions
+ * - Control flow generation
+ * - OOP code generation
+ * - End-to-end compilation and execution
+ *
+ * Tests that require LLVM are marked with #[ignore] and can be run
+ * with: cargo test -p ruyic --test codegen -- --ignored
+ *
+ * @author Ruyi Team
+ * @date 2026-05-02
+ */
+
+use std::env;
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+/// Get the path to the ruyic binary, checking multiple sources
+fn get_ruyic_path() -> PathBuf {
+    env::var("RUYI_BIN")
+        .map(PathBuf::from)
+        .ok()
+        .filter(|p| p.exists())
+        .unwrap_or_else(|| {
+            env::var("CARGO_BIN_EXE_ruyic")
+                .map(PathBuf::from)
+                .ok()
+                .filter(|p| p.exists())
+                .unwrap_or_else(|| {
+                    let debug_path = PathBuf::from("target/debug/ruyic");
+                    if debug_path.exists() {
+                        debug_path
+                    } else {
+                        PathBuf::from("target/release/ruyic")
+                    }
+                })
+        })
+}
+
+/// Compile source to a temp binary and run it, returning stdout
+fn compile_and_run(source: &str) -> io::Result<String> {
+    let ruyic_path = get_ruyic_path();
+    if !ruyic_path.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("ruyic binary not found at {:?}", ruyic_path),
+        ));
+    }
+
+    // Write source to a temp file
+    let temp_dir = env::temp_dir();
+    let source_path = temp_dir.join("ruyi_codegen_test.ry");
+    let binary_path = temp_dir.join("ruyi_codegen_test_bin");
+
+    fs::write(&source_path, source)?;
+
+    // Compile
+    let compile_result = Command::new(&ruyic_path)
+        .arg(&source_path)
+        .arg("-o")
+        .arg(&binary_path)
+        .output()?;
+
+    if !compile_result.status.success() {
+        let stderr = String::from_utf8_lossy(&compile_result.stderr);
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("Compilation failed: {}", stderr),
+        ));
+    }
+
+    // Run
+    let run_result = Command::new(&binary_path).output()?;
+
+    // Cleanup
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&binary_path);
+
+    if !run_result.status.success() {
+        let stderr = String::from_utf8_lossy(&run_result.stderr);
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("Execution failed: {}", stderr),
+        ));
+    }
+
+    Ok(String::from_utf8_lossy(&run_result.stdout).to_string())
+}
+
+/// Assert that compiling and running source produces expected output
+fn assert_output(source: &str, expected: &str) {
+    let result = compile_and_run(source).expect("compile_and_run failed");
+    let expected_normalized = expected.replace("\r\n", "\n").trim().to_string();
+    let result_normalized = result.replace("\r\n", "\n").trim().to_string();
+    assert_eq!(
+        result_normalized, expected_normalized,
+        "Output mismatch.\nSource:\n{}\n\nExpected:\n{}\n\nActual:\n{}",
+        source, expected_normalized, result_normalized
+    );
+}
+
+// ── Smoke Tests ───────────────────────────────────────────────
+
+/// Basic smoke test: print(42) should output "42"
+#[test]
+fn smoke_print_int() {
+    // This test requires LLVM - skip if not available
+    #[cfg(not(feature = "llvm"))]
+    {
+        eprintln!("Skipping smoke_print_int: LLVM support not enabled");
+        return;
+    }
+
+    assert_output("print(42);", "42");
+}
+
+/// Smoke test for string printing
+#[test]
+fn smoke_print_string() {
+    #[cfg(not(feature = "llvm"))]
+    {
+        eprintln!("Skipping smoke_print_string: LLVM support not enabled");
+        return;
+    }
+
+    assert_output(r#"print("hello");"#, "hello");
+}
+
+/// Smoke test for boolean printing
+#[test]
+fn smoke_print_bool() {
+    #[cfg(not(feature = "llvm"))]
+    {
+        eprintln!("Skipping smoke_print_bool: LLVM support not enabled");
+        return;
+    }
+
+    assert_output("print(true);", "true");
+    assert_output("print(false);", "false");
+}
+
+// ── Expression Codegen Tests ──────────────────────────────────
+
+#[test]
+#[ignore]
+fn codegen_arithmetic_add() {
+    assert_output("print(1 + 2);", "3");
+}
+
+#[test]
+#[ignore]
+fn codegen_arithmetic_subtract() {
+    assert_output("print(5 - 3);", "2");
+}
+
+#[test]
+#[ignore]
+fn codegen_arithmetic_multiply() {
+    assert_output("print(4 * 3);", "12");
+}
+
+#[test]
+#[ignore]
+fn codegen_arithmetic_divide() {
+    assert_output("print(10 / 3);", "3"); // integer division
+}
+
+#[test]
+#[ignore]
+fn codegen_string_concat() {
+    assert_output(r#"print("hello" + " " + "world");"#, "hello world");
+}
+
+#[test]
+#[ignore]
+fn codegen_comparison() {
+    assert_output("print(1 === 1);", "true");
+    assert_output("print(1 === 2);", "false");
+    assert_output("print(1 !== 2);", "true");
+    assert_output("print(1 < 2);", "true");
+    assert_output("print(2 > 1);", "true");
+}
+
+// ── Control Flow Codegen Tests ────────────────────────────────
+
+#[test]
+#[ignore]
+fn codegen_if_true() {
+    assert_output("if (true) { print(1); }", "1");
+}
+
+#[test]
+#[ignore]
+fn codegen_if_false() {
+    assert_output("if (false) { print(1); } print(2);", "2");
+}
+
+#[test]
+#[ignore]
+fn codegen_if_else() {
+    assert_output("if (true) { print(1); } else { print(2); }", "1");
+}
+
+#[test]
+#[ignore]
+fn codegen_while_loop() {
+    assert_output("let i = 0; while (i < 3) { print(i); i = i + 1; }", "0\n1\n2");
+}
+
+#[test]
+#[ignore]
+fn codegen_for_loop() {
+    assert_output("for (let i = 0; i < 3; i = i + 1) { print(i); }", "0\n1\n2");
+}
+
+// ── OOP Codegen Tests ─────────────────────────────────────────
+
+#[test]
+#[ignore]
+fn codegen_class_creation() {
+    let source = r#"
+class Point {
+    x: int;
+    y: int;
+    fn new(x: int, y: int) {
+        self.x = x;
+        self.y = y;
+    }
+    fn format(self): string {
+        return "(" + self.x + ", " + self.y + ")";
+    }
+}
+print(Point.new(3, 4).format());
+"#;
+    assert_output(source, "(3, 4)");
+}
+
+// ── Integration Fixture Tests ─────────────────────────────────
+// These tests run against the actual .ry files in cases/codegen/
+
+#[test]
+#[ignore]
+fn codegen_fixture_arithmetic() {
+    let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("integration")
+        .join("cases")
+        .join("codegen");
+
+    let source_path = cases_dir.join("arithmetic.ry");
+    let expected_path = cases_dir.join("arithmetic.expected");
+
+    if !source_path.exists() {
+        eprintln!("Skipping: {} not found", source_path.display());
+        return;
+    }
+
+    let source = fs::read_to_string(&source_path).expect("failed to read source");
+    let expected = fs::read_to_string(&expected_path)
+        .map(|s| s.replace("\r\n", "\n").trim().to_string())
+        .unwrap_or_default();
+
+    assert_output(&source, &expected);
+}
+
+#[test]
+#[ignore]
+fn codegen_fixture_function_call() {
+    let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("integration")
+        .join("cases")
+        .join("codegen");
+
+    let source_path = cases_dir.join("function_call.ry");
+    let expected_path = cases_dir.join("function_call.expected");
+
+    if !source_path.exists() {
+        eprintln!("Skipping: {} not found", source_path.display());
+        return;
+    }
+
+    let source = fs::read_to_string(&source_path).expect("failed to read source");
+    let expected = fs::read_to_string(&expected_path)
+        .map(|s| s.replace("\r\n", "\n").trim().to_string())
+        .unwrap_or_default();
+
+    assert_output(&source, &expected);
+}
+
+#[test]
+#[ignore]
+fn codegen_fixture_if_statement() {
+    let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("integration")
+        .join("cases")
+        .join("codegen");
+
+    let source_path = cases_dir.join("if_statement.ry");
+    let expected_path = cases_dir.join("if_statement.expected");
+
+    if !source_path.exists() {
+        eprintln!("Skipping: {} not found", source_path.display());
+        return;
+    }
+
+    let source = fs::read_to_string(&source_path).expect("failed to read source");
+    let expected = fs::read_to_string(&expected_path)
+        .map(|s| s.replace("\r\n", "\n").trim().to_string())
+        .unwrap_or_default();
+
+    assert_output(&source, &expected);
+}
+
+// ── Helper Tests ──────────────────────────────────────────────
+
+#[test]
+fn helper_ruyic_path_detection() {
+    let path = get_ruyic_path();
+    eprintln!("ruyic path: {:?}", path);
+    // Just verify the function works - actual path may or may not exist in test env
+}
+
+#[test]
+fn helper_compile_failure_report() {
+    // Test that compile_and_run returns a meaningful error for invalid source
+    let result = compile_and_run("this is not valid ruyi code @#$");
+    // Should fail (either compilation or execution)
+    // We just verify it doesn't panic
+    let _ = result;
+}

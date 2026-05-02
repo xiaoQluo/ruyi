@@ -118,6 +118,38 @@ impl<'ctx> LlvmTypes<'ctx> {
             false,
         )
     }
+
+    /// Get the LLVM type for a Ruyi object (class instance).
+    /// Struct layout: [type_tag: i64, field_count: i64, field_storage: i8*]
+    pub fn ruyi_object_type(&self, field_count: u32) -> StructType<'ctx> {
+        self.context.struct_type(
+            &[
+                self.context.i64_type().into(),  // type_tag (gc vtable pointer)
+                self.context.i64_type().into(),  // field_count
+                self.context.i8_type().ptr_type(Default::default()).into(),  // field storage (opaque)
+            ],
+            false,
+        )
+    }
+
+    /// Get the LLVM type for a Ruyi array.
+    /// Struct layout: [length: i64, capacity: i64, elements: i8*]
+    pub fn ruyi_array_type(&self) -> StructType<'ctx> {
+        self.context.struct_type(
+            &[
+                self.context.i64_type().into(),  // length
+                self.context.i64_type().into(),  // capacity
+                self.context.i8_type().ptr_type(Default::default()).into(),  // element storage
+            ],
+            false,
+        )
+    }
+
+    /// Get the LLVM type for a Ruyi bigint (arbitrary precision).
+    /// Currently modeled as a pointer to opaque bigint data.
+    pub fn ruyi_bigint_type(&self) -> PointerType<'ctx> {
+        self.context.i8_type().ptr_type(Default::default())
+    }
 }
 
 #[cfg(test)]
