@@ -339,30 +339,33 @@ fn compile_try<'ctx>(
     }
 
     ctx.builder.position_at_end(catch_lpad_bb);
-    let lpad_gen = ruyi_runtime::LandingPadGenerator::new(ctx.context, ctx.module, &ctx.builder);
-    let type_ids: Vec<u64> = if catch.is_some() {
-        vec![ruyi_runtime::builtin_type_ids::ANY]
-    } else {
-        vec![]
-    };
-    let lpad_val = lpad_gen.build_landing_pad(&type_ids, finally.is_some(), "lpad");
+    let personality_ty = i32_ty.fn_type(&[], false);
+    let personality = ctx.module.get_function("__gxx_personality_v0")
+        .unwrap_or_else(|| ctx.module.add_function("__gxx_personality_v0", personality_ty, None));
+
+    let null_clause = BasicValueEnum::PointerValue(i8_ptr.const_null());
+    let lpad_val = ctx.builder.build_landing_pad(
+        lpad_ty,
+        personality,
+        &[null_clause],
+        finally.is_some(),
+        "lpad",
+    );
     ctx.builder.build_store(lpad_alloca, lpad_val);
 
-    let exc_ptr = lpad_gen.extract_exception_ptr(lpad_val);
+    let exc_ptr = ctx.builder
+        .build_extract_value(lpad_val.into_struct_value(), 0, "exc.ptr")
+        .unwrap()
+        .into_pointer_value();
     ctx.builder.build_store(exc_ptr_alloca, exc_ptr);
 
-    let catch_handlers: Vec<(u64, inkwell::basic_block::BasicBlock<'ctx>)> = if catch.is_some() {
-        vec![(ruyi_runtime::builtin_type_ids::ANY, catch_body_bb.unwrap())]
+    if catch.is_some() {
+        ctx.builder.build_unconditional_branch(catch_body_bb.unwrap());
+    } else if let Some(fb) = finally_bb {
+        ctx.builder.build_unconditional_branch(fb);
     } else {
-        vec![]
-    };
-
-    lpad_gen.build_catch_dispatch(
-        lpad_val,
-        &catch_handlers,
-        finally_bb,
-        resume_bb,
-    );
+        ctx.builder.build_unconditional_branch(resume_bb);
+    }
 
     if let Some(ref c) = catch {
         let cbb = catch_body_bb.unwrap();
@@ -443,7 +446,16 @@ fn compile_throw<'ctx>(
 
     let throw_fn = ctx.module.get_function("ruyi_throw")
         .ok_or("ruyi_throw not declared")?;
-    ctx.builder.build_call(throw_fn, &[exc_ptr.into()], "throw");
-    ctx.builder.build_unreachable();
+
+    if let Some(catch_bb) = ctx.exception_stack.last().copied() {
+        let func = ctx.current_function.ok_or("No current function")?;
+        let unreachable_bb = ctx.context.append_basic_block(func, "throw_unreachable");
+        ctx.builder.build_invoke(throw_fn, &[exc_ptr.into()], unreachable_bb, catch_bb, "throw");
+        ctx.builder.position_at_end(unreachable_bb);
+        ctx.builder.build_unreachable();
+    } else {
+        ctx.builder.build_call(throw_fn, &[exc_ptr.into()], "throw");
+        ctx.builder.build_unreachable();
+    }
     Ok(())
 }

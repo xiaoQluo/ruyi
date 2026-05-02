@@ -58,7 +58,7 @@ pub fn compile_expr<'ctx>(
         Expr::New { callee, args } => compile_new(ctx, callee, args),
         Expr::TemplateLiteral(parts) => compile_template_literal(ctx, parts),
         Expr::ObjectLiteral(props) => compile_object_literal(ctx, props),
-        Expr::ArrayLiteral(_elements) => Err("array literal not yet supported in codegen".to_string()),
+        Expr::ArrayLiteral(elements) => compile_array_literal(ctx, elements),
         Expr::Match { .. } => Err("match expression not yet supported in codegen".to_string()),
         Expr::Block(_) => Err("block expression not yet supported in codegen".to_string()),
         _ => Err(format!("Unsupported expression: {:?}", expr)),
@@ -111,10 +111,41 @@ fn compile_bigint_literal<'ctx>(
 }
 
 fn compile_array_literal<'ctx>(
-    _ctx: &mut CodegenContext<'ctx, '_>,
-    _elements: &[crate::parser::ast::ArrayElement],
+    ctx: &mut CodegenContext<'ctx, '_>,
+    elements: &[crate::parser::ast::ArrayElement],
 ) -> Result<ExprResult<'ctx>, String> {
-    Err("Array literals are not yet supported in codegen".to_string())
+    let mut exprs: Vec<&Expr> = Vec::new();
+    for elem in elements {
+        match elem {
+            ArrayElement::Expr(e) => exprs.push(e),
+            ArrayElement::Spread(_) | ArrayElement::Elision => {}
+        }
+    }
+
+    let count = exprs.len() as i64;
+    let count_val = ctx.context.i64_type().const_int(count as u64, false);
+    let arr_ptr = super::builtins::build_array_alloc(&ctx.builder, &ctx.module, count_val);
+
+    for (idx, expr) in exprs.iter().enumerate() {
+        let result = compile_expr(ctx, expr)?;
+        let index_val = ctx.context.i64_type().const_int(idx as u64, false);
+        let value_ptr = if result.value.is_pointer_value() {
+            result.value.into_pointer_value()
+        } else {
+            let llvm_ty = ruyi_type_to_llvm(ctx.context, &result.ty);
+            let alloca = ctx.builder.build_alloca(llvm_ty, "arr_elem");
+            ctx.builder.build_store(alloca, result.value);
+            alloca
+        };
+        let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
+        let void_ptr = ctx.builder.build_bitcast(value_ptr, i8_ptr, "arr_elem_void").into_pointer_value();
+        super::builtins::build_array_set(&ctx.builder, &ctx.module, arr_ptr, index_val, void_ptr);
+    }
+
+    Ok(ExprResult::new(
+        BasicValueEnum::PointerValue(arr_ptr),
+        Type::Array(Box::new(Type::Dynamic)),
+    ))
 }
 
 /// Compile a template literal expression into a chain of string concatenations.
