@@ -26,9 +26,9 @@ Ruyi 移除了 JavaScript 中有问题的特性，同时保留了熟悉的语法
 ### 前置要求
 
 - **Rust**（2021 edition）
-- **LLVM 14–18**（完整构建必需）
-  - macOS: `brew install llvm@17` 然后设置 `LLVM_SYS_170_PREFIX`
-  - Linux: 通过包管理器安装（如 `apt install llvm-17-dev`）
+- **LLVM 14**（完整构建必需）
+  - macOS: `brew install llvm@14` 然后设置 `LLVM_SYS_140_PREFIX`
+  - Linux: 通过包管理器安装（如 `apt install llvm-14-dev`）
 
 ### 从源码构建
 

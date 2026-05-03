@@ -1,5 +1,6 @@
 pub mod alloc;
 pub mod arc;
+pub mod async_exports;
 pub mod async_runtime;
 pub mod c_exports;
 pub mod exception;
