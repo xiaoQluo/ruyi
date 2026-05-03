@@ -49,6 +49,32 @@ pub fn compile_expr<'ctx>(
         }
         Expr::Grouping(inner) => compile_expr(ctx, inner),
         Expr::Await(inner) => super::async_codegen::compile_await(ctx, inner),
+        Expr::Function { name, type_params, params, return_type, body, is_async } => {
+            if let Some(func_name) = name {
+                let decl = crate::parser::ast::Declaration::Function {
+                    name: func_name.clone(),
+                    type_params: type_params.clone(),
+                    params: params.clone(),
+                    return_type: return_type.clone(),
+                    body: body.clone(),
+                    is_async: *is_async,
+                };
+                super::decl::compile_declaration(ctx, &decl)?;
+                if let Some(func) = ctx.module.get_function(func_name) {
+                    Ok(ExprResult::new(
+                        BasicValueEnum::PointerValue(func.as_global_value().as_pointer_value()),
+                        Type::Function {
+                            params: vec![],
+                            return_type: Box::new(Type::Dynamic),
+                        },
+                    ))
+                } else {
+                    Err(format!("Function not found after compilation: {}", func_name))
+                }
+            } else {
+                Err("Anonymous functions not yet supported".to_string())
+            }
+        }
         Expr::ArrayLiteral(elements) => compile_array_literal(ctx, elements),
         Expr::ObjectLiteral(properties) => compile_object_literal(ctx, properties),
         Expr::New { callee, args } => compile_new(ctx, callee, args),
@@ -525,6 +551,30 @@ fn compile_call<'ctx>(
             }
         } else {
             return Err("print expects exactly 1 argument".to_string());
+        }
+    }
+
+    // Handle built-in spawn function
+    if name == "spawn" {
+        if args.len() == 1 {
+            match &args[0] {
+                crate::parser::ast::Argument::Expr(e) => {
+                    let result = compile_expr(ctx, e)?;
+                    let future_ptr = result.value.into_pointer_value();
+                    let task_handle = super::builtins::build_ruyi_spawn(
+                        &ctx.builder,
+                        &ctx.module,
+                        future_ptr,
+                    );
+                    return Ok(ExprResult::new(
+                        BasicValueEnum::PointerValue(task_handle),
+                        Type::Dynamic,
+                    ));
+                }
+                _ => return Err("Invalid spawn argument".to_string()),
+            }
+        } else {
+            return Err("spawn expects exactly 1 argument".to_string());
         }
     }
 

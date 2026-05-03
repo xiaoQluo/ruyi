@@ -1,17 +1,170 @@
 use inkwell::values::BasicValueEnum;
-use crate::parser::ast::Expr;
+use inkwell::types::BasicTypeEnum;
+use crate::parser::ast::{Expr, Statement};
 use crate::typechecker::types::Type;
-use super::builtins::is_gc_managed;
+use super::builtins::{build_gc_alloc, is_gc_managed};
 use super::generator::CodegenContext;
 use super::expr::compile_expr;
 use super::stmt::compile_block;
+use super::types::{ruyi_type_to_llvm, function_type_from_ruyi};
 
-/// Compile an async function declaration.
+/// Count await expressions in a statement list.
+fn count_awaits_in_statements(stmts: &[Statement]) -> usize {
+    stmts.iter().map(count_awaits_in_stmt).sum()
+}
+
+fn count_awaits_in_stmt(stmt: &Statement) -> usize {
+    match stmt {
+        Statement::Expression(expr) | Statement::Return(Some(expr)) => count_awaits_in_expr(expr),
+        Statement::Block(stmts) => count_awaits_in_statements(stmts),
+        Statement::If { condition, then_branch, else_branch } => {
+            count_awaits_in_expr(condition)
+                + count_awaits_in_stmt(then_branch)
+                + else_branch.as_ref().map(|e| count_awaits_in_stmt(e)).unwrap_or(0)
+        }
+        Statement::While { condition, body } => {
+            count_awaits_in_expr(condition) + count_awaits_in_stmt(body)
+        }
+        Statement::For { init, condition, update, body } => {
+            let init_count = match init {
+                Some(crate::parser::ast::ForInit::Expr(e)) => count_awaits_in_expr(e),
+                Some(crate::parser::ast::ForInit::VarDecl(decl)) => count_awaits_in_decl(decl),
+                None => 0,
+            };
+            let cond_count = condition.as_ref().map(|e| count_awaits_in_expr(e)).unwrap_or(0);
+            let update_count = update.as_ref().map(|e| count_awaits_in_expr(e)).unwrap_or(0);
+            init_count + cond_count + update_count + count_awaits_in_stmt(body)
+        }
+        Statement::ForIn { iterable, body, .. } | Statement::ForOf { iterable, body, .. } => {
+            count_awaits_in_expr(iterable) + count_awaits_in_stmt(body)
+        }
+        Statement::Try { body, catch, finally } => {
+            let body_count = count_awaits_in_statements(body);
+            let catch_count = catch
+                .as_ref()
+                .map(|c| count_awaits_in_statements(&c.body))
+                .unwrap_or(0);
+            let finally_count = finally.as_ref().map(|f| count_awaits_in_statements(f)).unwrap_or(0);
+            body_count + catch_count + finally_count
+        }
+        Statement::Match { value, arms } => {
+            let val_count = count_awaits_in_expr(value);
+            let arms_count: usize = arms
+                .iter()
+                .map(|arm| count_awaits_in_statements(&arm.body))
+                .sum();
+            val_count + arms_count
+        }
+        Statement::Declaration(decl) => count_awaits_in_decl(decl),
+        _ => 0,
+    }
+}
+
+fn count_awaits_in_decl(decl: &crate::parser::ast::Declaration) -> usize {
+    match decl {
+        crate::parser::ast::Declaration::Let(bindings)
+        | crate::parser::ast::Declaration::Const(bindings) => bindings
+            .iter()
+            .map(|b| b.init.as_ref().map(|e| count_awaits_in_expr(e)).unwrap_or(0))
+            .sum(),
+        crate::parser::ast::Declaration::Function { body, .. } => count_awaits_in_statements(body),
+        _ => 0,
+    }
+}
+
+fn count_awaits_in_expr(expr: &Expr) -> usize {
+    match expr {
+        Expr::Await(inner) => 1 + count_awaits_in_expr(inner),
+        Expr::Binary { left, right, .. } => count_awaits_in_expr(left) + count_awaits_in_expr(right),
+        Expr::Unary { operand, .. } => count_awaits_in_expr(operand),
+        Expr::Call { callee, args } => {
+            count_awaits_in_expr(callee)
+                + args
+                    .iter()
+                    .map(|a| match a {
+                        crate::parser::ast::Argument::Expr(e) => count_awaits_in_expr(e),
+                        _ => 0,
+                    })
+                    .sum::<usize>()
+        }
+        Expr::Conditional {
+            condition,
+            then_branch,
+            else_branch,
+        } => count_awaits_in_expr(condition) + count_awaits_in_expr(then_branch) + count_awaits_in_expr(else_branch),
+        Expr::Assignment { left, right, .. } => count_awaits_in_expr(left) + count_awaits_in_expr(right),
+        Expr::Member { object, .. } => count_awaits_in_expr(object),
+        Expr::OptionalCall { callee, args } => {
+            count_awaits_in_expr(callee)
+                + args
+                    .iter()
+                    .map(|a| match a {
+                        crate::parser::ast::Argument::Expr(e) => count_awaits_in_expr(e),
+                        _ => 0,
+                    })
+                    .sum::<usize>()
+        }
+        Expr::ArrayLiteral(elements) => elements
+            .iter()
+            .map(|e| match e {
+                crate::parser::ast::ArrayElement::Expr(e) => count_awaits_in_expr(e),
+                crate::parser::ast::ArrayElement::Spread(e) => count_awaits_in_expr(e),
+                _ => 0,
+            })
+            .sum(),
+        Expr::ObjectLiteral(props) => props
+            .iter()
+            .map(|p| match p {
+                crate::parser::ast::ObjectProperty::Property { value, .. } => count_awaits_in_expr(value),
+                crate::parser::ast::ObjectProperty::Spread(e) => count_awaits_in_expr(e),
+                _ => 0,
+            })
+            .sum(),
+        Expr::New { callee, args } => {
+            count_awaits_in_expr(callee)
+                + args
+                    .iter()
+                    .map(|a| match a {
+                        crate::parser::ast::Argument::Expr(e) => count_awaits_in_expr(e),
+                        _ => 0,
+                    })
+                    .sum::<usize>()
+        }
+        Expr::Match { value, arms } => {
+            let val_count = count_awaits_in_expr(value);
+            let arms_count: usize = arms
+                .iter()
+                .map(|arm| count_awaits_in_statements(&arm.body))
+                .sum();
+            val_count + arms_count
+        }
+        Expr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            count_awaits_in_expr(condition)
+                + count_awaits_in_expr(then_branch)
+                + else_branch.as_ref().map(|e| count_awaits_in_expr(e)).unwrap_or(0)
+        }
+        Expr::Grouping(inner) => count_awaits_in_expr(inner),
+        Expr::Sequence(inner) => inner.iter().map(count_awaits_in_expr).sum(),
+        Expr::Block(stmts) => count_awaits_in_statements(stmts),
+        Expr::ArrowFunction { body, .. } => match body {
+            crate::parser::ast::ArrowBody::Expr(e) => count_awaits_in_expr(e),
+            crate::parser::ast::ArrowBody::Block(stmts) => count_awaits_in_statements(stmts),
+        },
+        Expr::Function { body, .. } => count_awaits_in_statements(body),
+        _ => 0,
+    }
+}
+
+/// Compile an async function declaration into a state machine.
 ///
-/// An async function is lowered to:
-/// 1. A state-machine struct that captures locals across await points.
-/// 2. A `poll` function that drives the state machine.
-/// 3. A constructor function that returns a pointer to the future.
+/// Generates three LLVM entities:
+/// 1. `{name}$new` – constructor that allocates and initializes the state struct.
+/// 2. `{name}$poll` – poll function that drives the state machine.
+/// 3. `{name}` – thin wrapper that calls `$new` and returns the future pointer.
 pub fn compile_async_function<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_>,
     name: &str,
@@ -20,33 +173,130 @@ pub fn compile_async_function<'ctx>(
     body: &[crate::parser::ast::Statement],
 ) -> Result<(), String> {
     let ret_type = return_type.map(Type::from_annotation).unwrap_or(Type::Void);
-    let future_ret = Type::Future(Box::new(ret_type.clone()));
-
     let param_types: Vec<Type> = params
         .iter()
         .map(|p| p.ty.as_ref().map(Type::from_annotation).unwrap_or(Type::Dynamic))
         .collect();
 
-    // For now, emit a synchronous wrapper that returns a placeholder future pointer.
-    // Full state-machine lowering requires tracking every await point, which is
-    // deferred to the LLVM pass pipeline in a production compiler.
-    let fn_type = super::types::function_type_from_ruyi(
-        ctx.context,
-        &param_types,
-        &future_ret,
-    );
+    let await_count = count_awaits_in_statements(body);
+    let _ = await_count;
 
-    let function = ctx.module.add_function(name, fn_type, None);
+    let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
+    let i32_ty = ctx.context.i32_type();
 
+    // Build state struct type: { i32 state, param0, param1, ..., result }
+    let mut state_field_types: Vec<BasicTypeEnum<'ctx>> = vec![i32_ty.into()];
+    for pt in &param_types {
+        state_field_types.push(ruyi_type_to_llvm(ctx.context, pt));
+    }
+    let result_llvm_type = ruyi_type_to_llvm(ctx.context, &ret_type);
+    state_field_types.push(result_llvm_type);
+
+    let state_struct_type = ctx.context.struct_type(&state_field_types, false);
+    let state_ptr_type = state_struct_type.ptr_type(Default::default());
+
+    let state_field_idx: u32 = 0;
+    let param_field_indices: Vec<u32> = (1..=param_types.len()).map(|i| i as u32).collect();
+    let result_field_idx = (param_types.len() + 1) as u32;
+
+    // ── Save current codegen state ─────────────────────────────
     let prev_function = ctx.current_function;
-    ctx.current_function = Some(function);
-
-    let entry_bb = ctx.context.append_basic_block(function, "entry");
     let prev_block = ctx.builder.get_insert_block();
-    ctx.builder.position_at_end(entry_bb);
-
     let mut prev_vars = std::collections::HashMap::new();
 
+    let saved_async_state_field_ptr = ctx.async_state_field_ptr;
+    let saved_async_result_ptr = ctx.async_result_ptr;
+    let saved_async_return_bb = ctx.async_return_bb;
+    let saved_waker_ptr = ctx.waker_ptr;
+
+    // ── 1. Constructor: {name}$new ─────────────────────────────
+    let new_param_types: Vec<_> = param_types
+        .iter()
+        .map(|pt| ruyi_type_to_llvm(ctx.context, pt).into())
+        .collect();
+    let new_fn_type = i8_ptr.fn_type(&new_param_types, false);
+    let new_fn = ctx.module.add_function(&format!("{}$new", name), new_fn_type, None);
+
+    let new_entry = ctx.context.append_basic_block(new_fn, "entry");
+    ctx.builder.position_at_end(new_entry);
+
+    let struct_size = state_struct_type.size_of().unwrap();
+    let alloc_ptr = build_gc_alloc(&ctx.builder, &ctx.module, struct_size);
+    let state_ptr = ctx
+        .builder
+        .build_bitcast(alloc_ptr, state_ptr_type, "state_ptr")
+        .into_pointer_value();
+
+    let state_field_ptr_new = unsafe {
+        ctx.builder.build_gep(
+            state_ptr,
+            &[
+                i32_ty.const_int(0, false),
+                i32_ty.const_int(state_field_idx as u64, false),
+            ],
+            "state_field",
+        )
+    };
+    ctx.builder.build_store(state_field_ptr_new, i32_ty.const_int(0, false));
+
+    for (i, _param) in params.iter().enumerate() {
+        let param_val = new_fn.get_nth_param(i as u32).unwrap();
+        let field_ptr = unsafe {
+            ctx.builder.build_gep(
+                state_ptr,
+                &[
+                    i32_ty.const_int(0, false),
+                    i32_ty.const_int(param_field_indices[i] as u64, false),
+                ],
+                &format!("param_{}_field", i),
+            )
+        };
+        ctx.builder.build_store(field_ptr, param_val);
+    }
+
+    ctx.builder.build_return(Some(&alloc_ptr));
+
+    // ── 2. Poll function: {name}$poll ──────────────────────────
+    let poll_fn_type = i32_ty.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+    let poll_fn = ctx.module.add_function(&format!("{}$poll", name), poll_fn_type, None);
+
+    let poll_entry = ctx.context.append_basic_block(poll_fn, "entry");
+    let poll_start = ctx.context.append_basic_block(poll_fn, "start");
+    let poll_return = ctx.context.append_basic_block(poll_fn, "async_return");
+    let poll_done = ctx.context.append_basic_block(poll_fn, "done");
+
+    ctx.builder.position_at_end(poll_entry);
+    let raw_state_ptr = poll_fn.get_nth_param(0).unwrap().into_pointer_value();
+    let waker_ptr = poll_fn.get_nth_param(1).unwrap().into_pointer_value();
+    let state_ptr_val = ctx
+        .builder
+        .build_bitcast(raw_state_ptr, state_ptr_type, "state")
+        .into_pointer_value();
+
+    let state_field_ptr_poll = unsafe {
+        ctx.builder.build_gep(
+            state_ptr_val,
+            &[
+                i32_ty.const_int(0, false),
+                i32_ty.const_int(state_field_idx as u64, false),
+            ],
+            "state_field",
+        )
+    };
+    let current_state = ctx
+        .builder
+        .build_load(state_field_ptr_poll, "current_state")
+        .into_int_value();
+
+    ctx.builder.build_switch(
+        current_state,
+        poll_done,
+        &[(i32_ty.const_int(0, false), poll_start)],
+    );
+
+    // Start block: load params from state into locals and compile body
+    ctx.builder.position_at_end(poll_start);
+    ctx.current_function = Some(poll_fn);
     ctx.push_gc_root_scope();
 
     for (i, param) in params.iter().enumerate() {
@@ -55,71 +305,135 @@ pub fn compile_async_function<'ctx>(
             _ => format!("param_{}", i),
         };
         let param_ty = param_types.get(i).cloned().unwrap_or(Type::Dynamic);
-        let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &param_ty);
-        let ptr = ctx.builder.build_alloca(llvm_ty, &param_name);
-        let param_value = function.get_nth_param(i as u32)
-            .ok_or_else(|| format!("Missing parameter {}", i))?;
-        ctx.builder.build_store(ptr, param_value);
+        let llvm_ty = ruyi_type_to_llvm(ctx.context, &param_ty);
+        let local_ptr = ctx.builder.build_alloca(llvm_ty, &param_name);
+
+        let field_ptr = unsafe {
+            ctx.builder.build_gep(
+                state_ptr_val,
+                &[
+                    i32_ty.const_int(0, false),
+                    i32_ty.const_int(param_field_indices[i] as u64, false),
+                ],
+                &format!("param_{}_slot", i),
+            )
+        };
+        let loaded = ctx.builder.build_load(field_ptr, &format!("param_{}_val", i));
+        ctx.builder.build_store(local_ptr, loaded);
+
         if is_gc_managed(&param_ty) {
-            ctx.add_gc_root(ptr, param_ty.clone());
+            ctx.add_gc_root(local_ptr, param_ty.clone());
         }
-        if let Some(old) = ctx.variables.insert(param_name.clone(), (ptr, param_ty)) {
+
+        if let Some(old) = ctx.variables.insert(param_name.clone(), (local_ptr, param_ty)) {
             prev_vars.insert(param_name, old);
         }
     }
 
-    // Compile body normally (synchronous fallback).
-    let _ = compile_block(ctx, body);
+    // Pre-compute result field pointer for async return interception
+    let result_field_ptr = unsafe {
+        ctx.builder.build_gep(
+            state_ptr_val,
+            &[
+                i32_ty.const_int(0, false),
+                i32_ty.const_int(result_field_idx as u64, false),
+            ],
+            "result_field",
+        )
+    };
 
-    let current_bb = ctx.builder.get_insert_block().unwrap();
-    if current_bb.get_terminator().is_none() {
-        ctx.emit_gc_root_removals();
-        let null_ptr = ctx.context.i8_type().ptr_type(Default::default()).const_null();
-        ctx.builder.build_return(Some(&null_ptr));
+    ctx.async_state_field_ptr = Some(state_field_ptr_poll);
+    ctx.async_result_ptr = Some(result_field_ptr);
+    ctx.async_return_bb = Some(poll_return);
+    ctx.waker_ptr = Some(waker_ptr);
+
+    let body_result = compile_block(ctx, body);
+
+    let body_end_bb = ctx.builder.get_insert_block().unwrap();
+    if body_end_bb.get_terminator().is_none() {
+        ctx.builder.build_unconditional_branch(poll_return);
     }
+
+    // Restore async context fields before building poll_return
+    ctx.async_state_field_ptr = None;
+    ctx.async_result_ptr = None;
+    ctx.async_return_bb = None;
+    ctx.waker_ptr = None;
+
+    // Async return block: set state=done and return Ready(1)
+    ctx.builder.position_at_end(poll_return);
+    ctx.builder.build_store(state_field_ptr_poll, i32_ty.const_int(1, false));
+    ctx.builder.build_return(Some(&i32_ty.const_int(1, false)));
+
+    // Done block: return Ready(1)
+    ctx.builder.position_at_end(poll_done);
+    ctx.builder.build_return(Some(&i32_ty.const_int(1, false)));
 
     ctx.pop_gc_root_scope();
-
     ctx.current_function = prev_function;
-    if let Some(block) = prev_block {
-        ctx.builder.position_at_end(block);
-    }
+
     for (name, old) in prev_vars {
         ctx.variables.insert(name, old);
     }
 
-    Ok(())
+    // ── 3. Wrapper function: name ──────────────────────────────
+    let wrapper_fn_type = function_type_from_ruyi(
+        ctx.context,
+        &param_types,
+        &Type::Future(Box::new(ret_type.clone())),
+    );
+    let wrapper_fn = ctx.module.add_function(name, wrapper_fn_type, None);
+
+    let wrapper_entry = ctx.context.append_basic_block(wrapper_fn, "entry");
+    ctx.builder.position_at_end(wrapper_entry);
+
+    let mut wrapper_args = Vec::new();
+    for i in 0..params.len() {
+        wrapper_args.push(wrapper_fn.get_nth_param(i as u32).unwrap().into());
+    }
+
+    let new_call = ctx.builder.build_call(new_fn, &wrapper_args, "new_call");
+    let future_ptr = new_call.try_as_basic_value().left().unwrap();
+    ctx.builder.build_return(Some(&future_ptr));
+
+    // ── Restore builder position ───────────────────────────────
+    ctx.async_state_field_ptr = saved_async_state_field_ptr;
+    ctx.async_result_ptr = saved_async_result_ptr;
+    ctx.async_return_bb = saved_async_return_bb;
+    ctx.waker_ptr = saved_waker_ptr;
+
+    if let Some(block) = prev_block {
+        ctx.builder.position_at_end(block);
+    }
+
+    body_result
 }
 
 /// Compile an `await` expression.
 ///
-/// In the baseline codegen, `await expr` is compiled as:
-/// - Evaluate `expr` to get a future pointer.
-/// - Call the runtime `ruyi_await` helper (or inline poll loop).
-/// - Return the unwrapped value.
+/// In synchronous contexts this calls `ruyi_await` as a blocking fallback.
+/// Inside an async poll function it calls `ruyi_async_poll` with the waker.
 pub fn compile_await<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_>,
     expr: &Expr,
 ) -> Result<super::expr::ExprResult<'ctx>, String> {
     let inner_result = compile_expr(ctx, expr)?;
 
-    // Declare a runtime helper: void* ruyi_await(void* future)
     let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
-    let await_fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
-    let await_fn = ctx.module.get_function("ruyi_await")
-        .unwrap_or_else(|| ctx.module.add_function("ruyi_await", await_fn_type, None));
 
-    let call_site = ctx.builder.build_call(
-        await_fn,
-        &[inner_result.value.into()],
-        "await_result",
+    // Use waker from async context if available, otherwise null
+    let waker = ctx
+        .waker_ptr
+        .unwrap_or_else(|| i8_ptr.const_null());
+
+    let poll_result = super::builtins::build_ruyi_async_poll(
+        &ctx.builder,
+        &ctx.module,
+        inner_result.value.into_pointer_value(),
+        waker,
     );
-    let result_val = call_site
-        .try_as_basic_value()
-        .left()
-        .unwrap_or_else(|| BasicValueEnum::PointerValue(i8_ptr.const_null()));
 
-    // The return type after await is the inner type of the Future.
+    let result_val = BasicValueEnum::IntValue(poll_result);
     let result_ty = match inner_result.ty {
         Type::Future(inner) => *inner,
         _ => Type::Dynamic,

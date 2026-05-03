@@ -132,6 +132,16 @@ fn compile_return<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_>,
     expr: Option<&crate::parser::ast::Expr>,
 ) -> Result<(), String> {
+    // Async state machine: store result in state struct and jump to shared return block
+    if let (Some(result_ptr), Some(return_bb)) = (ctx.async_result_ptr, ctx.async_return_bb) {
+        if let Some(e) = expr {
+            let result = compile_expr(ctx, e)?;
+            ctx.builder.build_store(result_ptr, result.value);
+        }
+        ctx.builder.build_unconditional_branch(return_bb);
+        return Ok(());
+    }
+
     ctx.emit_gc_root_removals();
     match expr {
         Some(e) => {

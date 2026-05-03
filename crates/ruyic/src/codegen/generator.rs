@@ -44,6 +44,14 @@ pub struct CodegenContext<'ctx, 'm> {
     pub current_function: Option<FunctionValue<'ctx>>,
     pub loop_stack: Vec<(inkwell::basic_block::BasicBlock<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)>,
     pub gc_roots: Vec<Vec<(inkwell::values::PointerValue<'ctx>, Type)>>,
+    /// Async state machine support: pointer to the state struct's state field (i32*)
+    pub async_state_field_ptr: Option<inkwell::values::PointerValue<'ctx>>,
+    /// Async state machine support: pointer to the state struct's result field
+    pub async_result_ptr: Option<inkwell::values::PointerValue<'ctx>>,
+    /// Async state machine support: basic block to jump to instead of returning
+    pub async_return_bb: Option<inkwell::basic_block::BasicBlock<'ctx>>,
+    /// Async state machine support: waker pointer for await expressions
+    pub waker_ptr: Option<inkwell::values::PointerValue<'ctx>>,
 }
 
 impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
@@ -56,6 +64,10 @@ impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
             current_function: None,
             loop_stack: Vec::new(),
             gc_roots: Vec::new(),
+            async_state_field_ptr: None,
+            async_result_ptr: None,
+            async_return_bb: None,
+            waker_ptr: None,
         }
     }
 

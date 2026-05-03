@@ -177,7 +177,8 @@ impl Parser {
             Some(Token::Export) => self.parse_export().map(ModuleItem::Export),
             Some(Token::Let) | Some(Token::Const) | Some(Token::Fn)
             | Some(Token::Class) | Some(Token::Trait) | Some(Token::Impl)
-            | Some(Token::Type) | Some(Token::Macro) | Some(Token::At) => {
+            | Some(Token::Type) | Some(Token::Macro) | Some(Token::At)
+            | Some(Token::Async) => {
                 self.parse_declaration().map(ModuleItem::Declaration)
             }
             _ => self.parse_statement().map(ModuleItem::Statement),
@@ -306,7 +307,7 @@ impl Parser {
         match self.current_token() {
             Some(Token::Let) => self.parse_let_declaration(),
             Some(Token::Const) => self.parse_const_declaration(),
-            Some(Token::Fn) => self.parse_fn_declaration(),
+            Some(Token::Fn) | Some(Token::Async) => self.parse_fn_declaration(),
             Some(Token::Class) | Some(Token::At) => self.parse_class_declaration(),
             Some(Token::Trait) => self.parse_trait_declaration(),
             Some(Token::Impl) => self.parse_impl_declaration(),

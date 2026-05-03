@@ -22,6 +22,10 @@ pub fn declare_builtins<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     declare_ruyi_throw(context, module);
     declare_ruyi_begin_catch(context, module);
     declare_ruyi_end_catch(context, module);
+    declare_ruyi_async_poll(context, module);
+    declare_ruyi_spawn(context, module);
+    declare_ruyi_wake_task(context, module);
+    declare_ruyi_run_scheduler(context, module);
 }
 
 fn declare_printf<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
@@ -162,6 +166,67 @@ pub fn build_gc_write_barrier<'ctx>(
         .get_function("ruyi_gc_write_barrier")
         .expect("ruyi_gc_write_barrier not declared");
     builder.build_call(fn_val, &[parent.into(), field.into()], "gc_write_barrier");
+}
+
+fn declare_ruyi_async_poll<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i32_ty = context.i32_type();
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = i32_ty.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+    module.add_function("ruyi_async_poll", fn_type, None);
+}
+
+fn declare_ruyi_spawn<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
+    module.add_function("ruyi_spawn", fn_type, None);
+}
+
+fn declare_ruyi_wake_task<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let void_ty = context.void_type();
+    let fn_type = void_ty.fn_type(&[i8_ptr.into()], false);
+    module.add_function("ruyi_wake_task", fn_type, None);
+}
+
+fn declare_ruyi_run_scheduler<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let void_ty = context.void_type();
+    let fn_type = void_ty.fn_type(&[], false);
+    module.add_function("ruyi_run_scheduler", fn_type, None);
+}
+
+/// Build a call to `ruyi_async_poll`.
+pub fn build_ruyi_async_poll<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    future: inkwell::values::PointerValue<'ctx>,
+    waker: inkwell::values::PointerValue<'ctx>,
+) -> inkwell::values::IntValue<'ctx> {
+    let fn_val = module
+        .get_function("ruyi_async_poll")
+        .expect("ruyi_async_poll not declared");
+    builder
+        .build_call(fn_val, &[future.into(), waker.into()], "async_poll")
+        .try_as_basic_value()
+        .left()
+        .unwrap()
+        .into_int_value()
+}
+
+/// Build a call to `ruyi_spawn`.
+pub fn build_ruyi_spawn<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    future: inkwell::values::PointerValue<'ctx>,
+) -> inkwell::values::PointerValue<'ctx> {
+    let fn_val = module
+        .get_function("ruyi_spawn")
+        .expect("ruyi_spawn not declared");
+    builder
+        .build_call(fn_val, &[future.into()], "spawn")
+        .try_as_basic_value()
+        .left()
+        .unwrap()
+        .into_pointer_value()
 }
 
 /// Returns `true` if a Ruyi type is managed by the GC (heap allocated).
