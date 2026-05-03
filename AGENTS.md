@@ -122,6 +122,6 @@ ruyic examples/hello.ry --check       # Type-check only
 - **After completing a version release**: Update the roadmap status in `docs/roadmap.md` (and `docs/roadmap-zh.md`) to reflect completed tasks and current progress.
 - **After completing version development with new features**: Create example `.ry` files in `examples/` demonstrating the new features, then compile and run them to verify:
   ```bash
-  ruyic examples/new_feature.ry -o new_feature && ./new_feature
+  ruyic examples/new_feature.ry -o examples/target/new_feature && examples/target/new_feature
   ```
   If compilation fails, fix the issue before considering the feature complete.
