@@ -732,7 +732,6 @@ fn test_check_class_declaration() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
 fn test_check_trait_declaration() {
     let result = check_program("trait Printable { fn format(self): string; }");
     assert_no_errors(&result);
@@ -751,7 +750,6 @@ fn test_check_while_statement() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
 fn test_check_for_statement() {
     let result = check_program("for (let i = 0; i < 10; i = i + 1) { }");
     assert!(result.diagnostics.len() <= 3);
@@ -789,7 +787,6 @@ fn test_check_string_literal() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
 fn test_check_array_literal() {
     let result = check_program("let x = [1, 2, 3];");
     assert!(
@@ -1146,7 +1143,6 @@ fn test_normal_fields_no_diagnostic() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
 fn test_check_trait_with_method() {
     let result = check_program("trait Printable { fn format(self): string; }");
     assert_no_errors(&result);
@@ -1376,7 +1372,6 @@ fn test_check_catch_untyped() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
 fn test_check_for_with_init() {
     let result = check_program("for (let i = 0; i < 10; i = i + 1) { }");
     assert!(result.diagnostics.len() <= 3);
@@ -1565,7 +1560,6 @@ fn test_check_generic_type_annotation() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
 fn test_check_object_type_annotation() {
     let result = check_program("let p: { x: float, y: float } = { x: 0.0, y: 0.0 };");
     assert_no_errors(&result);
@@ -1578,7 +1572,6 @@ fn test_check_dyn_type_annotation() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
 fn test_check_void_type_annotation() {
     let result = check_program("fn foo(): void { }");
     assert_no_errors(&result);
