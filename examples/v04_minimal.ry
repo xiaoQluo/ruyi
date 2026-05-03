@@ -1,0 +1,24 @@
+trait Printable {
+  fn format(self): string;
+}
+
+class Point {
+  x: float;
+  y: float;
+
+  fn new(x: float, y: float) {
+    self.x = x;
+    self.y = y;
+  }
+}
+
+impl Printable for Point {
+  fn format(self): string {
+    return "(" + self.x + ", " + self.y + ")";
+  }
+}
+
+fn main() {
+  let p = Point.new(3.0, 4.0);
+  print(p.format());
+}
