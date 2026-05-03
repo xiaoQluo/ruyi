@@ -35,6 +35,13 @@ use super::monomorph::{MonomorphizationContext, MonomorphizedFunction};
 use super::stmt::compile_block;
 use super::types::{ruyi_type_to_llvm, function_type_from_ruyi};
 
+pub struct TryContext<'ctx> {
+    pub exception_ptr: inkwell::values::PointerValue<'ctx>,
+    pub catch_bb: Option<inkwell::basic_block::BasicBlock<'ctx>>,
+    pub finally_bb: Option<inkwell::basic_block::BasicBlock<'ctx>>,
+    pub merge_bb: inkwell::basic_block::BasicBlock<'ctx>,
+}
+
 /// Context for code generation, holding LLVM constructs and variable mappings.
 pub struct CodegenContext<'ctx, 'm> {
     pub context: &'ctx Context,
@@ -52,6 +59,7 @@ pub struct CodegenContext<'ctx, 'm> {
     pub async_return_bb: Option<inkwell::basic_block::BasicBlock<'ctx>>,
     /// Async state machine support: waker pointer for await expressions
     pub waker_ptr: Option<inkwell::values::PointerValue<'ctx>>,
+    pub try_stack: Vec<TryContext<'ctx>>,
 }
 
 impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
@@ -68,6 +76,7 @@ impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
             async_result_ptr: None,
             async_return_bb: None,
             waker_ptr: None,
+            try_stack: Vec::new(),
         }
     }
 

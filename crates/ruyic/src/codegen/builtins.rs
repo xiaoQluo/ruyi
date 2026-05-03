@@ -20,6 +20,9 @@ pub fn declare_builtins<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     declare_gc_remove_root(context, module);
     declare_gc_write_barrier(context, module);
     declare_ruyi_throw(context, module);
+    declare_ruyi_get_pending_exception(context, module);
+    declare_ruyi_clear_pending_exception(context, module);
+    declare_ruyi_str_concat(context, module);
     declare_ruyi_begin_catch(context, module);
     declare_ruyi_end_catch(context, module);
     declare_ruyi_async_poll(context, module);
@@ -74,6 +77,49 @@ fn declare_ruyi_throw<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     let i8_ptr = context.i8_type().ptr_type(Default::default());
     let fn_type = void_ty.fn_type(&[i8_ptr.into()], false);
     module.add_function("ruyi_throw", fn_type, None);
+}
+
+fn declare_ruyi_get_pending_exception<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = i8_ptr.fn_type(&[], false);
+    module.add_function("ruyi_get_pending_exception", fn_type, None);
+}
+
+fn declare_ruyi_clear_pending_exception<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let void_ty = context.void_type();
+    let fn_type = void_ty.fn_type(&[], false);
+    module.add_function("ruyi_clear_pending_exception", fn_type, None);
+}
+
+fn declare_ruyi_str_concat<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+    module.add_function("ruyi_str_concat", fn_type, None);
+}
+
+pub fn build_ruyi_get_pending_exception<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+) -> inkwell::values::PointerValue<'ctx> {
+    let fn_val = module
+        .get_function("ruyi_get_pending_exception")
+        .expect("ruyi_get_pending_exception not declared");
+    builder
+        .build_call(fn_val, &[], "get_pending_exc")
+        .try_as_basic_value()
+        .left()
+        .unwrap()
+        .into_pointer_value()
+}
+
+pub fn build_ruyi_clear_pending_exception<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+) {
+    let fn_val = module
+        .get_function("ruyi_clear_pending_exception")
+        .expect("ruyi_clear_pending_exception not declared");
+    builder.build_call(fn_val, &[], "clear_pending_exc");
 }
 
 fn declare_ruyi_begin_catch<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {

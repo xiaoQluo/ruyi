@@ -247,7 +247,7 @@ impl Driver {
 
     fn ensure_runtime_built() -> Result<(), CompileError> {
         let status = std::process::Command::new("cargo")
-            .args(["build", "-p", "ruyi_runtime", "--lib"])
+            .args(["build", "-p", "ruyi_runtime", "--lib", "--no-default-features"])
             .status()
             .map_err(|e| CompileError::Io(format!("Failed to build runtime: {}", e)))?;
 

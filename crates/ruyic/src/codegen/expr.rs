@@ -187,6 +187,17 @@ fn compile_add<'ctx>(
     left: &ExprResult<'ctx>,
     right: &ExprResult<'ctx>,
 ) -> Result<ExprResult<'ctx>, String> {
+    if left.ty == Type::String && right.ty == Type::String {
+        let l = left.value.into_pointer_value();
+        let r = right.value.into_pointer_value();
+        let concat_fn = ctx.module.get_function("ruyi_str_concat").expect("ruyi_str_concat not declared");
+        let res = ctx.builder.build_call(concat_fn, &[l.into(), r.into()], "str_concat")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_pointer_value();
+        return Ok(ExprResult::new(BasicValueEnum::PointerValue(res), Type::String));
+    }
     match (&left.value, &right.value) {
         (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
             let res = ctx.builder.build_int_add(*l, *r, "add");
