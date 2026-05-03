@@ -1,6 +1,7 @@
 use inkwell::values::BasicValueEnum;
 use crate::parser::ast::Expr;
 use crate::typechecker::types::Type;
+use super::builtins::is_gc_managed;
 use super::generator::CodegenContext;
 use super::expr::compile_expr;
 use super::stmt::compile_block;
@@ -46,6 +47,8 @@ pub fn compile_async_function<'ctx>(
 
     let mut prev_vars = std::collections::HashMap::new();
 
+    ctx.push_gc_root_scope();
+
     for (i, param) in params.iter().enumerate() {
         let param_name = match &param.pattern {
             crate::parser::ast::Pattern::Identifier(n) => n.clone(),
@@ -57,6 +60,9 @@ pub fn compile_async_function<'ctx>(
         let param_value = function.get_nth_param(i as u32)
             .ok_or_else(|| format!("Missing parameter {}", i))?;
         ctx.builder.build_store(ptr, param_value);
+        if is_gc_managed(&param_ty) {
+            ctx.add_gc_root(ptr, param_ty.clone());
+        }
         if let Some(old) = ctx.variables.insert(param_name.clone(), (ptr, param_ty)) {
             prev_vars.insert(param_name, old);
         }
@@ -67,9 +73,12 @@ pub fn compile_async_function<'ctx>(
 
     let current_bb = ctx.builder.get_insert_block().unwrap();
     if current_bb.get_terminator().is_none() {
+        ctx.emit_gc_root_removals();
         let null_ptr = ctx.context.i8_type().ptr_type(Default::default()).const_null();
         ctx.builder.build_return(Some(&null_ptr));
     }
+
+    ctx.pop_gc_root_scope();
 
     ctx.current_function = prev_function;
     if let Some(block) = prev_block {

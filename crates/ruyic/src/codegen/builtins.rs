@@ -16,6 +16,9 @@ pub fn declare_builtins<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     declare_printf(context, module);
     declare_gc_alloc(context, module);
     declare_gc_collect(context, module);
+    declare_gc_add_root(context, module);
+    declare_gc_remove_root(context, module);
+    declare_gc_write_barrier(context, module);
     declare_ruyi_throw(context, module);
     declare_ruyi_begin_catch(context, module);
     declare_ruyi_end_catch(context, module);
@@ -39,6 +42,27 @@ fn declare_gc_collect<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     let void_ty = context.void_type();
     let fn_type = void_ty.fn_type(&[], false);
     module.add_function("ruyi_gc_collect", fn_type, None);
+}
+
+fn declare_gc_add_root<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let void_ty = context.void_type();
+    let fn_type = void_ty.fn_type(&[i8_ptr.into()], false);
+    module.add_function("ruyi_gc_add_root", fn_type, None);
+}
+
+fn declare_gc_remove_root<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let void_ty = context.void_type();
+    let fn_type = void_ty.fn_type(&[i8_ptr.into()], false);
+    module.add_function("ruyi_gc_remove_root", fn_type, None);
+}
+
+fn declare_gc_write_barrier<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let void_ty = context.void_type();
+    let fn_type = void_ty.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+    module.add_function("ruyi_gc_write_barrier", fn_type, None);
 }
 
 fn declare_ruyi_throw<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
@@ -101,4 +125,51 @@ pub fn build_gc_alloc<'ctx>(
         .left()
         .unwrap()
         .into_pointer_value()
+}
+
+/// Build a call to `ruyi_gc_add_root`.
+pub fn build_gc_add_root<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    ptr: inkwell::values::PointerValue<'ctx>,
+) {
+    let fn_val = module
+        .get_function("ruyi_gc_add_root")
+        .expect("ruyi_gc_add_root not declared");
+    builder.build_call(fn_val, &[ptr.into()], "gc_add_root");
+}
+
+/// Build a call to `ruyi_gc_remove_root`.
+pub fn build_gc_remove_root<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    ptr: inkwell::values::PointerValue<'ctx>,
+) {
+    let fn_val = module
+        .get_function("ruyi_gc_remove_root")
+        .expect("ruyi_gc_remove_root not declared");
+    builder.build_call(fn_val, &[ptr.into()], "gc_remove_root");
+}
+
+/// Build a call to `ruyi_gc_write_barrier`.
+pub fn build_gc_write_barrier<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    parent: inkwell::values::PointerValue<'ctx>,
+    field: inkwell::values::PointerValue<'ctx>,
+) {
+    let fn_val = module
+        .get_function("ruyi_gc_write_barrier")
+        .expect("ruyi_gc_write_barrier not declared");
+    builder.build_call(fn_val, &[parent.into(), field.into()], "gc_write_barrier");
+}
+
+/// Returns `true` if a Ruyi type is managed by the GC (heap allocated).
+pub fn is_gc_managed(ty: &crate::typechecker::types::Type) -> bool {
+    use crate::typechecker::types::Type;
+    match ty {
+        Type::Int | Type::Float | Type::Bool | Type::Null | Type::Void | Type::Never | Type::Error => false,
+        Type::Nullable(inner) => is_gc_managed(inner),
+        _ => true,
+    }
 }

@@ -7,7 +7,7 @@
  * @date 2026-05-01
  */
 
-use inkwell::values::BasicValueEnum;
+use inkwell::values::{BasicValue, BasicValueEnum};
 use inkwell::IntPredicate;
 use inkwell::FloatPredicate;
 
@@ -49,6 +49,9 @@ pub fn compile_expr<'ctx>(
         }
         Expr::Grouping(inner) => compile_expr(ctx, inner),
         Expr::Await(inner) => super::async_codegen::compile_await(ctx, inner),
+        Expr::ArrayLiteral(elements) => compile_array_literal(ctx, elements),
+        Expr::ObjectLiteral(properties) => compile_object_literal(ctx, properties),
+        Expr::New { callee, args } => compile_new(ctx, callee, args),
         _ => Err(format!("Unsupported expression: {:?}", expr)),
     }
 }
@@ -619,4 +622,160 @@ fn compile_conditional<'ctx>(
 
     let result_ty = then_result.ty.least_upper_bound(&else_result.ty);
     Ok(ExprResult::new(phi.as_basic_value(), result_ty))
+}
+
+fn compile_array_literal<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    elements: &[crate::parser::ast::ArrayElement],
+) -> Result<ExprResult<'ctx>, String> {
+    let len = elements.len() as u64;
+    let total_size = ctx.context.i64_type().const_int(len * 8 + 8, false);
+    let ptr = super::builtins::build_gc_alloc(&ctx.builder, &ctx.module, total_size);
+
+    for (i, elem) in elements.iter().enumerate() {
+        match elem {
+            crate::parser::ast::ArrayElement::Expr(e) => {
+                let val = compile_expr(ctx, e)?;
+                let offset = ctx.context.i32_type().const_int((8 + i * 8) as u64, false);
+                let elem_ptr = unsafe {
+                    ctx.builder.build_gep(
+                        ptr,
+                        &[offset],
+                        "elem_ptr",
+                    )
+                };
+                let i64_ptr = ctx
+                    .builder
+                    .build_bitcast(
+                        elem_ptr,
+                        ctx.context.i64_type().ptr_type(Default::default()),
+                        "elem_i64_ptr",
+                    )
+                    .into_pointer_value();
+
+                let stored_val = match val.value {
+                    BasicValueEnum::IntValue(v) => v.as_basic_value_enum(),
+                    BasicValueEnum::FloatValue(v) => ctx
+                        .builder
+                        .build_bitcast(v, ctx.context.i64_type(), "f_to_i")
+                        .as_basic_value_enum(),
+                    BasicValueEnum::PointerValue(v) => v.as_basic_value_enum(),
+                    _ => val.value,
+                };
+                ctx.builder.build_store(i64_ptr, stored_val);
+
+                if super::builtins::is_gc_managed(&val.ty) {
+                    if let BasicValueEnum::PointerValue(pv) = val.value {
+                        super::builtins::build_gc_write_barrier(
+                            &ctx.builder,
+                            &ctx.module,
+                            ptr,
+                            pv,
+                        );
+                    }
+                }
+            }
+            _ => return Err("Unsupported array element".to_string()),
+        }
+    }
+
+    Ok(ExprResult::new(
+        BasicValueEnum::PointerValue(ptr),
+        Type::Array(Box::new(Type::Dynamic)),
+    ))
+}
+
+fn compile_object_literal<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    properties: &[crate::parser::ast::ObjectProperty],
+) -> Result<ExprResult<'ctx>, String> {
+    let len = properties.len() as u64;
+    let total_size = ctx.context.i64_type().const_int(len * 8, false);
+    let ptr = super::builtins::build_gc_alloc(&ctx.builder, &ctx.module, total_size);
+
+    for (i, prop) in properties.iter().enumerate() {
+        match prop {
+            crate::parser::ast::ObjectProperty::Property { value, .. } => {
+                let val = compile_expr(ctx, value)?;
+                let offset = ctx.context.i32_type().const_int((i * 8) as u64, false);
+                let field_ptr = unsafe {
+                    ctx.builder.build_gep(
+                        ptr,
+                        &[offset],
+                        "field_ptr",
+                    )
+                };
+                let i64_ptr = ctx
+                    .builder
+                    .build_bitcast(
+                        field_ptr,
+                        ctx.context.i64_type().ptr_type(Default::default()),
+                        "field_i64_ptr",
+                    )
+                    .into_pointer_value();
+
+                let stored_val = match val.value {
+                    BasicValueEnum::IntValue(v) => v.as_basic_value_enum(),
+                    BasicValueEnum::FloatValue(v) => ctx
+                        .builder
+                        .build_bitcast(v, ctx.context.i64_type(), "f_to_i")
+                        .as_basic_value_enum(),
+                    BasicValueEnum::PointerValue(v) => v.as_basic_value_enum(),
+                    _ => val.value,
+                };
+                ctx.builder.build_store(i64_ptr, stored_val);
+
+                if super::builtins::is_gc_managed(&val.ty) {
+                    if let BasicValueEnum::PointerValue(pv) = val.value {
+                        super::builtins::build_gc_write_barrier(
+                            &ctx.builder,
+                            &ctx.module,
+                            ptr,
+                            pv,
+                        );
+                    }
+                }
+            }
+            _ => return Err("Unsupported object property".to_string()),
+        }
+    }
+
+    Ok(ExprResult::new(
+        BasicValueEnum::PointerValue(ptr),
+        Type::Object(vec![]),
+    ))
+}
+
+fn compile_new<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    callee: &crate::parser::ast::Expr,
+    args: &[crate::parser::ast::Argument],
+) -> Result<ExprResult<'ctx>, String> {
+    let class_name = match callee {
+        crate::parser::ast::Expr::Identifier(name) => name.clone(),
+        _ => return Err("Complex new expressions not yet supported".to_string()),
+    };
+
+    let total_size = ctx.context.i64_type().const_int(64, false);
+    let ptr = super::builtins::build_gc_alloc(&ctx.builder, &ctx.module, total_size);
+
+    let ctor_name = format!("{}_new", class_name);
+    if let Some(ctor) = ctx.module.get_function(&ctor_name) {
+        let mut arg_values = vec![ptr.into()];
+        for arg in args {
+            match arg {
+                crate::parser::ast::Argument::Expr(e) => {
+                    let result = compile_expr(ctx, e)?;
+                    arg_values.push(result.value.into());
+                }
+                _ => return Err("Spread arguments not yet supported".to_string()),
+            }
+        }
+        ctx.builder.build_call(ctor, &arg_values, "ctor_call");
+    }
+
+    Ok(ExprResult::new(
+        BasicValueEnum::PointerValue(ptr),
+        Type::Named(class_name),
+    ))
 }

@@ -132,6 +132,7 @@ fn compile_return<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_>,
     expr: Option<&crate::parser::ast::Expr>,
 ) -> Result<(), String> {
+    ctx.emit_gc_root_removals();
     match expr {
         Some(e) => {
             let result = compile_expr(ctx, e)?;

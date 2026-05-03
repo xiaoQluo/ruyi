@@ -11,6 +11,7 @@ use inkwell::values::BasicValueEnum;
 
 use crate::parser::ast::{Binding, Declaration, Pattern};
 use crate::typechecker::types::Type;
+use super::builtins::is_gc_managed;
 use super::expr::compile_expr;
 use super::generator::CodegenContext;
 use super::stmt::compile_block;
@@ -84,6 +85,10 @@ fn compile_binding<'ctx>(
         ctx.builder.build_store(ptr, init_result.value);
     }
 
+    if is_gc_managed(&ty) {
+        ctx.add_gc_root(ptr, ty.clone());
+    }
+
     ctx.variables.insert(name, (ptr, ty));
     Ok(())
 }
@@ -122,6 +127,8 @@ fn compile_function<'ctx>(
     // Save previous variables and create new scope
     let mut prev_vars = std::collections::HashMap::new();
 
+    ctx.push_gc_root_scope();
+
     // Allocate parameters
     for (i, param) in params.iter().enumerate() {
         let param_name = match &param.pattern {
@@ -137,6 +144,10 @@ fn compile_function<'ctx>(
             .ok_or_else(|| format!("Missing parameter {}", i))?;
         ctx.builder.build_store(ptr, param_value);
 
+        if is_gc_managed(&param_ty) {
+            ctx.add_gc_root(ptr, param_ty.clone());
+        }
+
         if let Some(old) = ctx.variables.insert(param_name.clone(), (ptr, param_ty)) {
             prev_vars.insert(param_name, old);
         }
@@ -148,6 +159,7 @@ fn compile_function<'ctx>(
     // Ensure the function has a terminator
     let current_bb = ctx.builder.get_insert_block().unwrap();
     if current_bb.get_terminator().is_none() {
+        ctx.emit_gc_root_removals();
         if ret_type == Type::Void {
             ctx.builder.build_return(None);
         } else {
@@ -160,6 +172,8 @@ fn compile_function<'ctx>(
             ctx.builder.build_return(Some(&default_val));
         }
     }
+
+    ctx.pop_gc_root_scope();
 
     // Restore previous state
     ctx.current_function = prev_function;

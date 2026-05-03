@@ -43,6 +43,7 @@ pub struct CodegenContext<'ctx, 'm> {
     pub variables: HashMap<String, (inkwell::values::PointerValue<'ctx>, Type)>,
     pub current_function: Option<FunctionValue<'ctx>>,
     pub loop_stack: Vec<(inkwell::basic_block::BasicBlock<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)>,
+    pub gc_roots: Vec<Vec<(inkwell::values::PointerValue<'ctx>, Type)>>,
 }
 
 impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
@@ -54,6 +55,42 @@ impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
             variables: HashMap::new(),
             current_function: None,
             loop_stack: Vec::new(),
+            gc_roots: Vec::new(),
+        }
+    }
+
+    /// Push a new GC root scope for a function.
+    pub fn push_gc_root_scope(&mut self) {
+        self.gc_roots.push(Vec::new());
+    }
+
+    /// Emit `ruyi_gc_remove_root` calls for every root in the current scope.
+    pub fn emit_gc_root_removals(&self) {
+        if let Some(roots) = self.gc_roots.last() {
+            for (ptr, _) in roots {
+                let loaded = self
+                    .builder
+                    .build_load(*ptr, "root_val")
+                    .into_pointer_value();
+                super::builtins::build_gc_remove_root(&self.builder, &self.module, loaded);
+            }
+        }
+    }
+
+    /// Pop the current GC root scope.
+    pub fn pop_gc_root_scope(&mut self) {
+        self.gc_roots.pop();
+    }
+
+    /// Register a local variable as a GC root and emit `ruyi_gc_add_root`.
+    pub fn add_gc_root(&mut self, ptr: inkwell::values::PointerValue<'ctx>, ty: Type) {
+        if let Some(scope) = self.gc_roots.last_mut() {
+            scope.push((ptr, ty.clone()));
+            let loaded = self
+                .builder
+                .build_load(ptr, "root_val")
+                .into_pointer_value();
+            super::builtins::build_gc_add_root(&self.builder, &self.module, loaded);
         }
     }
 }
@@ -240,6 +277,8 @@ fn compile_monomorphized_function<'ctx>(
 
     // Allocate parameters
     let mut prev_vars = std::collections::HashMap::new();
+    ctx.push_gc_root_scope();
+
     for (i, param_ty) in mono_func.param_types.iter().enumerate() {
         let param_name = format!("arg_{}", i);
         let llvm_ty = ruyi_type_to_llvm(ctx.context, param_ty);
@@ -247,6 +286,10 @@ fn compile_monomorphized_function<'ctx>(
 
         if let Some(param_value) = function.get_nth_param(i as u32) {
             ctx.builder.build_store(ptr, param_value);
+        }
+
+        if super::builtins::is_gc_managed(param_ty) {
+            ctx.add_gc_root(ptr, param_ty.clone());
         }
 
         if let Some(old) = ctx.variables.insert(param_name.clone(), (ptr, param_ty.clone())) {
@@ -258,6 +301,7 @@ fn compile_monomorphized_function<'ctx>(
     let current_bb = ctx.builder.get_insert_block().unwrap();
     if current_bb.get_terminator().is_none() {
         use inkwell::values::BasicValueEnum;
+        ctx.emit_gc_root_removals();
         match &mono_func.return_type {
             Type::Void | Type::Never => {
                 ctx.builder.build_return(None);
@@ -280,6 +324,8 @@ fn compile_monomorphized_function<'ctx>(
             }
         }
     }
+
+    ctx.pop_gc_root_scope();
 
     // Restore previous state
     ctx.current_function = prev_function;
