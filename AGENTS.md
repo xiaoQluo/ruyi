@@ -71,8 +71,8 @@ ruyic examples/hello.ry --check       # Type-check only
 
 ## Setup Requirements
 
-- **LLVM 14-18 is required** for the full build (inkwell binding). Without it, `cargo build` fails on `llvm-sys`.
-  - macOS: `brew install llvm@17` then set `LLVM_SYS_170_PREFIX`
+- **LLVM 14 is required** for the full build (inkwell binding). Without it, `cargo build` fails on `llvm-sys`.
+  - macOS: `brew install llvm@14` then set `LLVM_SYS_140_PREFIX`
   - Runtime-only development: `--no-default-features` on `ruyi_runtime` skips inkwell
 - Rust 2021 edition, workspace resolver = "2"
 
