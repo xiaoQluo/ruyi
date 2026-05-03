@@ -59,7 +59,7 @@ impl TraitRegistry {
 
     /// Register a trait declaration.
     pub fn register_trait(&mut self, decl: &Declaration) {
-        if let Declaration::Trait { name, type_params, body } = decl {
+        if let Declaration::Trait { name, type_params, supertraits, body } = decl {
             let mut methods = HashMap::new();
             let mut is_marker = true;
 
@@ -101,7 +101,7 @@ impl TraitRegistry {
                     name: name.clone(),
                     type_params: type_params.clone(),
                     methods,
-                    supertraits: Vec::new(),
+                    supertraits: supertraits.clone(),
                     is_marker,
                 },
             );
@@ -215,6 +215,75 @@ impl TraitRegistry {
     /// Get method signatures for a trait.
     pub fn trait_methods(&self, trait_name: &str) -> Option<&HashMap<String, TraitMethod>> {
         self.traits.get(trait_name).map(|t| &t.methods)
+    }
+
+    /// Validate supertrait hierarchies for circular dependencies.
+    pub fn validate_supertraits(&self, diagnostics: &mut DiagnosticBag) {
+        for (name, info) in &self.traits {
+            for super_name in &info.supertraits {
+                // Check super trait exists
+                if !self.traits.contains_key(super_name) {
+                    diagnostics.add_error(DiagnosticKind::Other {
+                        message: format!(
+                            "Trait '{}' extends unknown trait '{}'",
+                            name, super_name
+                        ),
+                    });
+                }
+                // Check for circular: A extends B, B extends A
+                if let Some(super_info) = self.traits.get(super_name) {
+                    if super_info.supertraits.contains(name) {
+                        diagnostics.add_error(DiagnosticKind::Other {
+                            message: format!(
+                                "Circular supertrait: '{}' extends '{}' which extends '{}'",
+                                name, super_name, name
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    /// Collect all methods from the full supertrait chain (transitive closure).
+    pub fn collect_all_super_methods(&self, trait_name: &str) -> HashMap<String, TraitMethod> {
+        let mut all = HashMap::new();
+        if let Some(info) = self.traits.get(trait_name) {
+            for super_name in &info.supertraits {
+                if let Some(super_info) = self.traits.get(super_name) {
+                    for (mname, method) in &super_info.methods {
+                        all.entry(mname.clone()).or_insert_with(|| method.clone());
+                    }
+                    let transitive = self.collect_all_super_methods(super_name);
+                    for (mname, method) in transitive {
+                        all.entry(mname).or_insert(method);
+                    }
+                }
+            }
+        }
+        all
+    }
+
+    /// Resolve a method call on a concrete type through its trait impls.
+    pub fn resolve_impl_method(
+        &self,
+        type_name: &str,
+        method_name: &str,
+    ) -> Option<(&str, &TraitMethod)> {
+        for ((impl_type, _trait_name), _impl_idx) in &self.type_trait_impls {
+            if impl_type == type_name {
+                if let Some(trait_info) = self.traits.get(_trait_name) {
+                    if let Some(method) = trait_info.methods.get(method_name) {
+                        return Some((_trait_name.as_str(), method));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    pub fn has_method(&self, type_name: &str, method_name: &str) -> bool {
+        self.resolve_impl_method(type_name, method_name).is_some()
     }
 }
 

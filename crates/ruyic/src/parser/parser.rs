@@ -395,13 +395,22 @@ impl Parser {
         self.expect(Token::Trait)?;
         let name = self.expect_ident()?;
         let type_params = self.parse_type_params()?;
+        let supertraits = if self.match_token(&Token::Extends) {
+            let mut traits = vec![self.expect_ident()?];
+            while self.match_token(&Token::Comma) {
+                traits.push(self.expect_ident()?);
+            }
+            traits
+        } else {
+            Vec::new()
+        };
         self.expect(Token::LBrace)?;
         let mut body = Vec::new();
         while !self.check(&Token::RBrace) && !self.is_at_end() {
             body.push(self.parse_trait_element()?);
         }
         self.expect(Token::RBrace)?;
-        Ok(Declaration::Trait { name, type_params, body })
+        Ok(Declaration::Trait { name, type_params, supertraits, body })
     }
 
     fn parse_impl_declaration(&mut self) -> Result<Declaration, ParseError> {
@@ -1402,6 +1411,14 @@ impl Parser {
 
     fn parse_primary_type(&mut self) -> Result<TypeAnnotation, ParseError> {
         match self.current_token() {
+            Some(Token::Void) => {
+                self.advance();
+                Ok(TypeAnnotation::Identifier("void".to_string()))
+            }
+            Some(Token::Null) => {
+                self.advance();
+                Ok(TypeAnnotation::Identifier("null".to_string()))
+            }
             Some(Token::Dyn) => {
                 self.advance();
                 let inner = self.parse_type()?;

@@ -19,8 +19,9 @@ use crate::typechecker::diagnostics::{DiagnosticBag, DiagnosticKind};
 use crate::typechecker::environment::TypeEnvironment;
 use crate::typechecker::generics::{
     MonomorphizationTracker,
-    make_generic_class_def, make_generic_trait_def,
+    make_generic_class_def, make_generic_function_def, make_generic_trait_def,
 };
+use crate::typechecker::traits::TraitRegistry;
 use crate::typechecker::types::{ObjectField, Type};
 
 /// Result of type inference on a program.
@@ -47,10 +48,11 @@ pub struct TypeInference {
     solver: ConstraintSolver,
     return_type_stack: Vec<Type>,
     tracker: MonomorphizationTracker,
+    trait_registry: TraitRegistry,
 }
 
 impl TypeInference {
-    pub fn new() -> Self {
+    pub fn new(trait_registry: TraitRegistry) -> Self {
         let mut env = TypeEnvironment::new();
         env.declare_let(
             "print",
@@ -79,6 +81,7 @@ impl TypeInference {
             solver: ConstraintSolver::new(),
             return_type_stack: Vec::new(),
             tracker: MonomorphizationTracker::new(),
+            trait_registry,
         }
     }
 
@@ -136,7 +139,7 @@ impl TypeInference {
             }
             Declaration::Function {
                 name,
-                type_params: _,
+                type_params,
                 params,
                 return_type,
                 body,
@@ -165,6 +168,11 @@ impl TypeInference {
                     params: param_types.clone(),
                     return_type: Box::new(fn_ret_type.clone()),
                 };
+
+                if !type_params.is_empty() {
+                    let generic_def = make_generic_function_def(name, type_params, &param_types, &ret_type, &mut self.tracker);
+                    self.tracker.register_generic(generic_def);
+                }
 
                 self.env.declare_let(name, fn_type.clone());
 
@@ -207,6 +215,7 @@ impl TypeInference {
             Declaration::Trait {
                 name,
                 type_params,
+                supertraits: _,
                 body: _,
             } => {
                 if !type_params.is_empty() {
@@ -1053,6 +1062,46 @@ impl TypeInference {
         }
     }
 
+    fn substitute_self_type(&self, ty: &Type, self_type: &Type) -> Type {
+        match ty {
+            Type::Named(name) if name == "Self" || name == "self" => self_type.clone(),
+            Type::Nullable(inner) => {
+                Type::Nullable(Box::new(self.substitute_self_type(inner, self_type)))
+            }
+            Type::Function { params, return_type } => Type::Function {
+                params: params
+                    .iter()
+                    .map(|p| self.substitute_self_type(p, self_type))
+                    .collect(),
+                return_type: Box::new(self.substitute_self_type(return_type, self_type)),
+            },
+            Type::Array(inner) => {
+                Type::Array(Box::new(self.substitute_self_type(inner, self_type)))
+            }
+            Type::Future(inner) => {
+                Type::Future(Box::new(self.substitute_self_type(inner, self_type)))
+            }
+            Type::Object(fields) => Type::Object(
+                fields
+                    .iter()
+                    .map(|f| ObjectField {
+                        name: f.name.clone(),
+                        ty: self.substitute_self_type(&f.ty, self_type),
+                        optional: f.optional,
+                    })
+                    .collect(),
+            ),
+            Type::Generic { base, args } => Type::Generic {
+                base: base.clone(),
+                args: args
+                    .iter()
+                    .map(|a| self.substitute_self_type(a, self_type))
+                    .collect(),
+            },
+            other => other.clone(),
+        }
+    }
+
     fn synthesize_member_access(&mut self, obj_ty: &Type, prop_name: &str, optional: bool) -> Type {
         // Check for unsafe nullable access (non-optional member access on nullable type)
         if !optional && obj_ty.is_nullable() && !obj_ty.is_dynamic() {
@@ -1067,7 +1116,29 @@ impl TypeInference {
                 .find(|f| f.name == prop_name)
                 .map(|f| f.ty.clone())
                 .unwrap_or(Type::Dynamic),
-            Type::Named(_) | Type::Generic { .. } => Type::Dynamic,
+            Type::Named(ref type_name) => {
+                if let Some((_trait_name, method)) =
+                    self.trait_registry.resolve_impl_method(type_name, prop_name)
+                {
+                    let ret_ty =
+                        self.substitute_self_type(&method.return_type, obj_ty);
+                    let param_types: Vec<Type> = if method.param_types.len() >= 1 {
+                        method.param_types[1..]
+                            .iter()
+                            .map(|p| self.substitute_self_type(p, obj_ty))
+                            .collect()
+                    } else {
+                        vec![]
+                    };
+                    Type::Function {
+                        params: param_types,
+                        return_type: Box::new(ret_ty),
+                    }
+                } else {
+                    Type::Dynamic
+                }
+            }
+            Type::Generic { .. } => Type::Dynamic,
             Type::Dynamic => Type::Dynamic,
             Type::Error => Type::Error,
             _ => {
@@ -1286,7 +1357,7 @@ fn property_name_str(name: &PropertyName) -> String {
 
 impl Default for TypeInference {
     fn default() -> Self {
-        Self::new()
+        Self::new(TraitRegistry::new())
     }
 }
 
@@ -1298,7 +1369,7 @@ mod tests {
     fn infer_type(source: &str) -> Type {
         let mut parser = Parser::new(source).expect("lexer should not fail");
         let program = parser.parse().expect("parse should succeed");
-        let inference = TypeInference::new();
+        let inference = TypeInference::new(TraitRegistry::new());
         let result = inference.infer_program(&program);
         // Return the type of the first declaration's variable
         result.typed_env.lookup("x").cloned().unwrap_or(Type::Dynamic)

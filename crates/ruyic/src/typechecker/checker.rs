@@ -53,13 +53,16 @@ impl TypeChecker {
 
     /// Type checks a parsed program and returns the result.
     pub fn check(&mut self, program: &Program) -> TypeCheckResult {
-        let inference = TypeInference::new();
-        let InferenceResult { typed_env, diagnostics: infer_diagnostics, tracker } =
+        let registry = build_trait_registry(program);
+        let inference = TypeInference::new(registry.clone());
+        let InferenceResult { typed_env, diagnostics: infer_diagnostics, mut tracker } =
             inference.infer_program(program);
 
-        let registry = build_trait_registry(program);
+        tracker.set_trait_registry(registry.clone());
+
         let mut trait_diagnostics = DiagnosticBag::new();
         registry.validate_impls(&mut trait_diagnostics);
+        registry.validate_supertraits(&mut trait_diagnostics);
 
         let has_errors = infer_diagnostics.has_errors() || trait_diagnostics.has_errors();
         let mut diagnostics = infer_diagnostics.into_diagnostics();

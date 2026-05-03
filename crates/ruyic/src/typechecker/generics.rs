@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use crate::typechecker::types::{Type, TypeVar};
 use crate::typechecker::constraints::ConstraintSolver;
 use crate::typechecker::diagnostics::{DiagnosticBag, DiagnosticKind};
+use crate::typechecker::traits::TraitRegistry;
 
 /// A generic definition (function, class, or trait) with type parameters.
 #[derive(Debug, Clone, PartialEq)]
@@ -165,6 +166,8 @@ pub struct MonomorphizationTracker {
     specializations: HashMap<String, Specialization>,
     /// Counter for generating unique type variable IDs.
     next_var_id: u32,
+    /// Registry for checking trait bounds against implementations.
+    trait_registry: Option<TraitRegistry>,
 }
 
 impl MonomorphizationTracker {
@@ -174,7 +177,13 @@ impl MonomorphizationTracker {
             generic_defs: HashMap::new(),
             specializations: HashMap::new(),
             next_var_id: 0,
+            trait_registry: None,
         }
+    }
+
+    /** Sets the trait registry for bound checking during specialization. */
+    pub fn set_trait_registry(&mut self, registry: TraitRegistry) {
+        self.trait_registry = Some(registry);
     }
 
     /// Creates a fresh type variable ID for a new type parameter.
@@ -350,26 +359,26 @@ impl MonomorphizationTracker {
         &self,
         param: &TypeParamInfo,
         arg: &Type,
-        _diagnostics: &mut DiagnosticBag,
+        diagnostics: &mut DiagnosticBag,
     ) -> bool {
-        // Per spec Section 10.2:
-        // - dyn satisfies any trait bound (runtime check)
-        // - Any type satisfies an empty bound list
-        // - For concrete types, we'd need a trait implementation registry
-        //   For now, we accept all bounds since trait impl checking is not yet complete
-
         if arg.is_dynamic() {
-            // dyn satisfies any bound (checked at runtime)
             return true;
         }
-
         if param.bounds.is_empty() {
             return true;
         }
-
-        // TODO: When trait implementation checking is complete, verify that
-        // `arg` implements each trait in `param.bounds`.
-        // For now, we accept all bounds to allow forward progress.
+        if let Some(ref registry) = self.trait_registry {
+            for bound_name in &param.bounds {
+                if !registry.check_bound(arg, bound_name) {
+                    diagnostics.add_error(DiagnosticKind::TraitNotImplemented {
+                        ty: arg.clone(),
+                        trait_name: bound_name.clone(),
+                    });
+                    return false;
+                }
+            }
+            return true;
+        }
         true
     }
 
@@ -410,24 +419,54 @@ pub fn make_generic_function_def(
     tracker: &mut MonomorphizationTracker,
 ) -> GenericDefinition {
     let mut param_infos = Vec::new();
+    let mut name_to_var: HashMap<&str, Type> = HashMap::new();
     for tp in type_params {
         let var_id = tracker.fresh_var_id();
-        param_infos.push(TypeParamInfo::with_bounds(
+        let info = TypeParamInfo::with_bounds(
             tp.name.clone(),
             var_id,
             tp.bounds.clone(),
-        ));
+        );
+        name_to_var.insert(&tp.name, Type::TypeVar(info.to_type_var()));
+        param_infos.push(info);
     }
 
+    let replace_type_names = |ty: &Type| -> Type {
+        replace_type_param_refs(ty, &name_to_var)
+    };
+
     let body_type = Type::Function {
-        params: param_types.to_vec(),
-        return_type: Box::new(return_type.clone()),
+        params: param_types.iter().map(&replace_type_names).collect(),
+        return_type: Box::new(replace_type_names(return_type)),
     };
 
     GenericDefinition {
         name: name.to_string(),
         type_params: param_infos,
         body_type,
+    }
+}
+
+fn replace_type_param_refs(ty: &Type, name_to_var: &HashMap<&str, Type>) -> Type {
+    match ty {
+        Type::Named(n) => {
+            if let Some(replacement) = name_to_var.get(n.as_str()) {
+                replacement.clone()
+            } else {
+                ty.clone()
+            }
+        }
+        Type::Nullable(inner) => Type::Nullable(Box::new(replace_type_param_refs(inner, name_to_var))),
+        Type::Array(elem) => Type::Array(Box::new(replace_type_param_refs(elem, name_to_var))),
+        Type::Function { params, return_type } => Type::Function {
+            params: params.iter().map(|p| replace_type_param_refs(p, name_to_var)).collect(),
+            return_type: Box::new(replace_type_param_refs(return_type, name_to_var)),
+        },
+        Type::Generic { base, args } => Type::Generic {
+            base: base.clone(),
+            args: args.iter().map(|a| replace_type_param_refs(a, name_to_var)).collect(),
+        },
+        _ => ty.clone(),
     }
 }
 
@@ -814,5 +853,59 @@ mod tests {
         let spec = tracker.specialize("max", vec![Type::Int], &mut diagnostics);
         assert!(spec.is_some());
         assert!(!diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_check_bounds_with_trait_registry_dyn_passes() {
+        let mut tracker = MonomorphizationTracker::new();
+        let registry = TraitRegistry::new();
+        tracker.set_trait_registry(registry);
+
+        let var_id = tracker.fresh_var_id();
+        let def = GenericDefinition {
+            name: "print_it".to_string(),
+            type_params: vec![TypeParamInfo::with_bounds(
+                "T".to_string(),
+                var_id,
+                vec!["Marker".to_string()],
+            )],
+            body_type: Type::Function {
+                params: vec![Type::TypeVar(TypeVar::new(var_id, "T".to_string()))],
+                return_type: Box::new(Type::Void),
+            },
+        };
+        tracker.register_generic(def);
+
+        let mut diagnostics = DiagnosticBag::new();
+        let spec = tracker.specialize("print_it", vec![Type::Dynamic], &mut diagnostics);
+        assert!(spec.is_some(), "dyn should pass trait bounds");
+        assert!(!diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_check_bounds_with_trait_registry_concrete_fails() {
+        let mut tracker = MonomorphizationTracker::new();
+        let registry = TraitRegistry::new();
+        tracker.set_trait_registry(registry);
+
+        let var_id = tracker.fresh_var_id();
+        let def = GenericDefinition {
+            name: "print_it".to_string(),
+            type_params: vec![TypeParamInfo::with_bounds(
+                "T".to_string(),
+                var_id,
+                vec!["Marker".to_string()],
+            )],
+            body_type: Type::Function {
+                params: vec![Type::TypeVar(TypeVar::new(var_id, "T".to_string()))],
+                return_type: Box::new(Type::Void),
+            },
+        };
+        tracker.register_generic(def);
+
+        let mut diagnostics = DiagnosticBag::new();
+        let spec = tracker.specialize("print_it", vec![Type::Int], &mut diagnostics);
+        assert!(spec.is_none(), "int should fail Marker bound without impl");
+        assert!(diagnostics.has_errors());
     }
 }

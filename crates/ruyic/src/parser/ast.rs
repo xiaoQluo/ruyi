@@ -48,6 +48,7 @@ pub enum Declaration {
     Trait {
         name: String,
         type_params: Vec<TypeParam>,
+        supertraits: Vec<String>,
         body: Vec<TraitElement>,
     },
     Impl {
