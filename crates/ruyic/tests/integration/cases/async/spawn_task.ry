@@ -1,0 +1,8 @@
+async fn task() {
+    print("running");
+}
+
+fn main() {
+    spawn(task());
+    ruyi_run_scheduler();
+}

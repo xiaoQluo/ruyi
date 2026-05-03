@@ -59,6 +59,20 @@ impl TypeInference {
                 return_type: Box::new(Type::Void),
             },
         );
+        env.declare_let(
+            "spawn",
+            Type::Function {
+                params: vec![Type::Dynamic],
+                return_type: Box::new(Type::Dynamic),
+            },
+        );
+        env.declare_let(
+            "ruyi_run_scheduler",
+            Type::Function {
+                params: vec![],
+                return_type: Box::new(Type::Void),
+            },
+        );
         Self {
             env,
             diagnostics: DiagnosticBag::new(),

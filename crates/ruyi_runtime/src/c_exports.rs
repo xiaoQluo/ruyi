@@ -1,38 +1,23 @@
-use std::cell::RefCell;
 use std::ffi::CStr;
 use std::alloc::{alloc, Layout};
+use std::sync::atomic::{AtomicPtr, Ordering};
 use crate::exception::types::ExceptionObject;
 
-thread_local! {
-    static PENDING_EXCEPTION: RefCell<*const i8> = RefCell::new(std::ptr::null());
-}
+static PENDING_EXCEPTION: AtomicPtr<i8> = AtomicPtr::new(std::ptr::null_mut());
 
 #[no_mangle]
 pub extern "C" fn ruyi_throw(msg: *const i8) {
-    PENDING_EXCEPTION.with(|e| {
-        *e.borrow_mut() = msg;
-    });
-}
-
-#[no_mangle]
-pub extern "C" fn ruyi_get_pending_exception() -> *const i8 {
-    PENDING_EXCEPTION.with(|e| *e.borrow())
+    PENDING_EXCEPTION.store(msg as *mut i8, Ordering::SeqCst);
 }
 
 #[no_mangle]
 pub extern "C" fn ruyi_clear_pending_exception() {
-    PENDING_EXCEPTION.with(|e| {
-        let old = *e.borrow();
-        *e.borrow_mut() = std::ptr::null();
-        eprintln!("clear_pending: old={:?}", old);
-    });
+    PENDING_EXCEPTION.store(std::ptr::null_mut(), Ordering::SeqCst);
 }
 
 #[no_mangle]
 pub extern "C" fn ruyi_get_pending_exception() -> *const i8 {
-    let val = PENDING_EXCEPTION.with(|e| *e.borrow());
-    eprintln!("get_pending: val={:?}", val);
-    val
+    PENDING_EXCEPTION.load(Ordering::SeqCst) as *const i8
 }
 
 #[no_mangle]

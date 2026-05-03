@@ -1,0 +1,8 @@
+fn make_obj() {
+    return { x: 42 };
+}
+
+fn main() {
+    let o = make_obj();
+    print(o.x);
+}

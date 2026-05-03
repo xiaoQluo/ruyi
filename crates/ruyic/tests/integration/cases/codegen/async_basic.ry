@@ -1,0 +1,8 @@
+async fn get_value() {
+    return 123;
+}
+
+fn main() {
+    let fut = get_value();
+    print(fut);
+}
