@@ -1,0 +1,185 @@
+// =============================================================================
+// Type System - Ruyi Tutorial Chapter 6
+// =============================================================================
+// Covers: gradual typing, dyn type, type inference, nullable types,
+//         optional chaining, nullish coalescing, null assertion,
+//         type narrowing, function types, structural subtyping
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 6.1 Gradual Typing
+// -----------------------------------------------------------------------------
+// Static typing (compile-time checked)
+let staticInt: int = 42;
+let staticString: string = "hello";
+
+// Dynamic typing (runtime checked)
+let inferred = 42;           // inferred: int
+let dynamicValue: int = 0;   // explicit type (dyn planned)
+
+// -----------------------------------------------------------------------------
+// 6.2 The dyn Type
+// -----------------------------------------------------------------------------
+fn dynDemo() {
+  print("--- dyn Type ---\n");
+  let value: dyn = 42;
+  value = "hello";
+  value = true;
+  print("dyn can hold any type\n");
+}
+
+// -----------------------------------------------------------------------------
+// 6.3 Type Inference
+// -----------------------------------------------------------------------------
+fn inferenceDemo() {
+  print("--- Type Inference ---\n");
+  let a = 42;              // int
+  let b = "hello";         // string
+  let c = true;            // bool
+  let d = 3.14;            // float
+  let e = 100n;            // bigint
+  let f = null;            // null
+
+  print("42 -> int\n");
+  print("3.14 -> float\n");
+  print("true -> bool\n");
+  print("\"hello\" -> string\n");
+  print("100n -> bigint\n");
+  print("null -> null\n");
+}
+
+// -----------------------------------------------------------------------------
+// 6.4 Nullable Types
+// -----------------------------------------------------------------------------
+// Nullable type declaration
+let requiredName: string = "Ruyi";    // cannot be null
+let optionalName: string? = null;      // can be null
+
+// Optional chaining simulation
+class Address {
+  city: string;
+  fn new(city: string) {
+    self.city = city;
+  }
+}
+
+class User {
+  name: string;
+  address: Address?;
+  fn new(name: string) {
+    self.name = name;
+    self.address = null;
+  }
+}
+
+fn nullableDemo() {
+  print("--- Nullable Types ---\n");
+
+  // Basic nullable
+  let maybe: string? = null;
+  if (maybe === null) {
+    print("maybe is null\n");
+  }
+
+  // Null assertion
+  let definite: string? = "hello";
+  let safe: string = definite!;
+  print("null assertion: ");
+  print(safe);
+  print("\n");
+
+  // Type narrowing
+  let name: string? = getUser();
+  if (name !== null) {
+    // name is narrowed to string here
+    print("narrowed name length demo\n");
+  }
+}
+
+fn getUser(): string? {
+  return "Alice";
+}
+
+// -----------------------------------------------------------------------------
+// 6.5 Function Types
+// -----------------------------------------------------------------------------
+fn functionTypeDemo() {
+  print("--- Function Types ---\n");
+
+  let add: fn(int, int) -> int = (a: int, b: int) => a + b;
+  print("add(3, 5): ");
+  print(add(3, 5));
+  print("\n");
+
+  let log: fn(string) -> void = (msg: string) => {
+    print(msg);
+    print("\n");
+  };
+  log("function type demo");
+}
+
+// -----------------------------------------------------------------------------
+// 6.6 Structural Subtyping
+// -----------------------------------------------------------------------------
+fn structuralSubtypingDemo() {
+  print("--- Structural Subtyping ---\n");
+
+  let point3d = { x: 1.0, y: 2.0, z: 3.0 };
+  // point3d has all fields required by {x: float, y: float}
+  print("point3d.x: ");
+  print(point3d.x);
+  print("\npoint3d.y: ");
+  print(point3d.y);
+  print("\npoint3d.z: ");
+  print(point3d.z);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// Nullish Coalescing
+// -----------------------------------------------------------------------------
+fn nullishCoalescingDemo() {
+  print("--- Nullish Coalescing ---\n");
+
+  let name: string? = null;
+  let displayName: string = name ?? "anonymous";
+  print("null ?? \"anonymous\": ");
+  print(displayName);
+  print("\n");
+
+  let count: int? = null;
+  let safeCount: int = count ?? 0;
+  print("null ?? 0: ");
+  print(safeCount);
+  print("\n");
+
+  // Chained coalescing
+  let first: string? = null;
+  let second: string? = null;
+  let third: string = "fallback";
+  let result: string = first ?? second ?? third;
+  print("chained ?? result: ");
+  print(result);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+  print("=== Type System Demo ===\n\n");
+
+  dynDemo();
+  print("\n");
+  inferenceDemo();
+  print("\n");
+  nullableDemo();
+  print("\n");
+  nullishCoalescingDemo();
+  print("\n");
+  functionTypeDemo();
+  print("\n");
+  structuralSubtypingDemo();
+
+  print("\nAll type system demos completed successfully!\n");
+}

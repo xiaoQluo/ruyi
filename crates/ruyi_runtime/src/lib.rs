@@ -8,46 +8,43 @@ pub mod gc;
 pub mod gc_exports;
 
 pub use alloc::{
-    allocate, deallocate, reallocate, Heap, MemoryStrategy, TypeInfo, GcObjectHeader,
-    ruyi_alloc, ruyi_dealloc, ruyi_realloc,
+    allocate, deallocate, reallocate, ruyi_alloc, ruyi_dealloc, ruyi_realloc, GcObjectHeader, Heap,
+    MemoryStrategy, TypeInfo,
 };
 pub use arc::{
-    ruyi_arc_alloc, ruyi_arc_retain, ruyi_arc_release, ruyi_arc_ref_count,
-    ruyi_arc_weak, ruyi_arc_weak_load, ruyi_arc_weak_drop,
-    ruyi_is_arc, ruyi_is_gc, ruyi_retain_any, ruyi_release_any,
-    CycleDetector, WeakRef, WeakTable,
+    ruyi_arc_alloc, ruyi_arc_ref_count, ruyi_arc_release, ruyi_arc_retain, ruyi_arc_weak,
+    ruyi_arc_weak_drop, ruyi_arc_weak_load, ruyi_is_arc, ruyi_is_gc, ruyi_release_any,
+    ruyi_retain_any, CycleDetector, WeakRef, WeakTable,
 };
 pub use async_runtime::{
-    ruyi_await, register_async_roots, JoinAll, RuyiFuture, Poll, Race, Scheduler, Task, TaskId,
+    register_async_roots, ruyi_await, JoinAll, Poll, Race, RuyiFuture, Scheduler, Task, TaskId,
     Waker, WorkStealingDeque, GLOBAL_SCHEDULER,
-};
-pub use exception::{
-    builtin_type_ids, fresh_type_id, throw_exception, CatchClause, ExceptionTableEntry,
-    ExceptionTableRegistry, FunctionExceptionTable, RuyiException, LandingPadAction,
-    LandingPadDescriptor, StackFrame, TypeId,
-};
-pub use exception::types::{ExceptionObject, ExceptionType, KLANG_EXCEPTION_CLASS, UnwindException};
-pub use exception::runtime::{
-    capture_stack_trace, ruyi_begin_catch, ruyi_end_catch, ruyi_finally, ruyi_match_exception,
-    ruyi_throw,
 };
 #[cfg(feature = "inkwell")]
 pub use exception::landing_pad::llvm::LandingPadGenerator;
 #[cfg(feature = "inkwell")]
 pub use exception::runtime::llvm::ExceptionRuntime;
+pub use exception::runtime::{
+    capture_stack_trace, ruyi_begin_catch, ruyi_end_catch, ruyi_finally, ruyi_match_exception,
+    ruyi_throw,
+};
+pub use exception::types::{
+    ExceptionObject, ExceptionType, UnwindException, KLANG_EXCEPTION_CLASS,
+};
+pub use exception::{
+    builtin_type_ids, fresh_type_id, throw_exception, CatchClause, ExceptionTableEntry,
+    ExceptionTableRegistry, FunctionExceptionTable, LandingPadAction, LandingPadDescriptor,
+    RuyiException, StackFrame, TypeId,
+};
 pub use gc::{
-    barrier::WriteBarrier,
-    generational::GenerationalCollector,
-    old::OldGeneration,
-    roots::RootSet,
-    young::YoungGeneration,
-    Collector, GcAllocator, MarkSweepCollector,
+    barrier::WriteBarrier, generational::GenerationalCollector, old::OldGeneration, roots::RootSet,
+    young::YoungGeneration, Collector, GcAllocator, MarkSweepCollector,
 };
 
 #[cfg(feature = "inkwell")]
 use inkwell::context::Context;
 #[cfg(feature = "inkwell")]
-use inkwell::types::{BasicTypeEnum, IntType, FloatType, PointerType, StructType, VoidType};
+use inkwell::types::{BasicTypeEnum, FloatType, IntType, PointerType, StructType, VoidType};
 
 /// Ruyi primitive types that map directly to LLVM IR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,16 +76,17 @@ pub enum RuyiType {
 /// | void   | void                |
 /// | dyn    | { i64, i8* }        |
 /// | never  | void (poison)       |
-pub fn ruyi_type_to_llvm<'ctx>(
-    context: &'ctx Context,
-    ty: RuyiType,
-) -> BasicTypeEnum<'ctx> {
+pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: RuyiType) -> BasicTypeEnum<'ctx> {
     match ty {
         RuyiType::Int => BasicTypeEnum::IntType(context.i64_type()),
         RuyiType::Float => BasicTypeEnum::FloatType(context.f64_type()),
         RuyiType::Bool => BasicTypeEnum::IntType(context.bool_type()),
-        RuyiType::String => BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default())),
-        RuyiType::Null => BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default())),
+        RuyiType::String => {
+            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+        }
+        RuyiType::Null => {
+            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+        }
         RuyiType::Dyn => {
             // Tagged union: { type_id: i64, payload: i8* }
             let dyn_type = context.struct_type(
@@ -230,10 +228,25 @@ mod tests {
     #[test]
     fn test_type_mapping() {
         let ctx = RuyiContext::new();
-        assert!(matches!(ctx.ruyi_type(RuyiType::Int), BasicTypeEnum::IntType(_)));
-        assert!(matches!(ctx.ruyi_type(RuyiType::Float), BasicTypeEnum::FloatType(_)));
-        assert!(matches!(ctx.ruyi_type(RuyiType::Bool), BasicTypeEnum::IntType(_)));
-        assert!(matches!(ctx.ruyi_type(RuyiType::String), BasicTypeEnum::PointerType(_)));
-        assert!(matches!(ctx.ruyi_type(RuyiType::Dyn), BasicTypeEnum::StructType(_)));
+        assert!(matches!(
+            ctx.ruyi_type(RuyiType::Int),
+            BasicTypeEnum::IntType(_)
+        ));
+        assert!(matches!(
+            ctx.ruyi_type(RuyiType::Float),
+            BasicTypeEnum::FloatType(_)
+        ));
+        assert!(matches!(
+            ctx.ruyi_type(RuyiType::Bool),
+            BasicTypeEnum::IntType(_)
+        ));
+        assert!(matches!(
+            ctx.ruyi_type(RuyiType::String),
+            BasicTypeEnum::PointerType(_)
+        ));
+        assert!(matches!(
+            ctx.ruyi_type(RuyiType::Dyn),
+            BasicTypeEnum::StructType(_)
+        ));
     }
 }

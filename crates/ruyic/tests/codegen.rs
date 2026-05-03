@@ -13,7 +13,6 @@
  * @author Ruyi Team
  * @date 2026-05-02
  */
-
 use std::env;
 use std::fs;
 use std::io;
@@ -183,8 +182,14 @@ fn codegen_string_concat() {
 #[test]
 #[ignore]
 fn codegen_template_literal() {
-    assert_output(r#"let name = "world"; print("Hello ${name}");"#, "Hello world");
-    assert_output(r#"let a = 1; let b = 2; print("${a} + ${b} = ${a + b}");"#, "1 + 2 = 3");
+    assert_output(
+        r#"let name = "world"; print("Hello ${name}");"#,
+        "Hello world",
+    );
+    assert_output(
+        r#"let a = 1; let b = 2; print("${a} + ${b} = ${a + b}");"#,
+        "1 + 2 = 3",
+    );
     assert_output(r#"let empty = ""; print("val: ${empty}");"#, "val: ");
 }
 
@@ -221,7 +226,10 @@ fn codegen_if_else() {
 #[test]
 #[ignore]
 fn codegen_while_loop() {
-    assert_output("let i = 0; while (i < 3) { print(i); i = i + 1; }", "0\n1\n2");
+    assert_output(
+        "let i = 0; while (i < 3) { print(i); i = i + 1; }",
+        "0\n1\n2",
+    );
 }
 
 #[test]

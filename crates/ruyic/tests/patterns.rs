@@ -4,7 +4,6 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use ruyic::parser::Parser;
 use ruyic::typechecker::TypeChecker;
 
@@ -14,7 +13,9 @@ fn check_program(source: &str) -> ruyic::typechecker::TypeCheckResult {
         Err(_) => {
             let env = ruyic::typechecker::TypeEnvironment::new();
             let mut bag = ruyic::typechecker::DiagnosticBag::new();
-            bag.add_error(ruyic::typechecker::DiagnosticKind::Other { message: "lexer error".into() });
+            bag.add_error(ruyic::typechecker::DiagnosticKind::Other {
+                message: "lexer error".into(),
+            });
             return ruyic::typechecker::TypeCheckResult {
                 env,
                 diagnostics: bag.into_diagnostics(),
@@ -28,7 +29,9 @@ fn check_program(source: &str) -> ruyic::typechecker::TypeCheckResult {
         Err(_) => {
             let env = ruyic::typechecker::TypeEnvironment::new();
             let mut bag = ruyic::typechecker::DiagnosticBag::new();
-            bag.add_error(ruyic::typechecker::DiagnosticKind::Other { message: "parse error".into() });
+            bag.add_error(ruyic::typechecker::DiagnosticKind::Other {
+                message: "parse error".into(),
+            });
             return ruyic::typechecker::TypeCheckResult {
                 env,
                 diagnostics: bag.into_diagnostics(),
@@ -43,7 +46,9 @@ fn check_program(source: &str) -> ruyic::typechecker::TypeCheckResult {
 
 fn assert_no_errors(result: &ruyic::typechecker::TypeCheckResult) {
     if result.has_errors {
-        let errors: Vec<String> = result.diagnostics.iter()
+        let errors: Vec<String> = result
+            .diagnostics
+            .iter()
             .filter(|d| d.is_error())
             .map(|d| d.message().to_string())
             .collect();
@@ -215,7 +220,9 @@ fn test_non_exhaustive_match_bool() {
     // but for now we let it pass with a warning
     let result = check_program("match (x) { true => { } }");
     // Should have a warning about non-exhaustive match
-    let warnings: Vec<_> = result.diagnostics.iter()
+    let warnings: Vec<_> = result
+        .diagnostics
+        .iter()
         .filter(|d| d.is_warning())
         .collect();
     assert!(!warnings.is_empty() || !result.has_errors);
@@ -226,7 +233,9 @@ fn test_match_same_literal_twice() {
     // This should produce a warning about the second arm being redundant
     let result = check_program("match (x) { 1 => { } 1 => { } _ => { } }");
     // Should have a warning about redundant pattern
-    let warnings: Vec<_> = result.diagnostics.iter()
+    let warnings: Vec<_> = result
+        .diagnostics
+        .iter()
         .filter(|d| d.is_warning())
         .collect();
     assert!(!warnings.is_empty() || !result.has_errors);

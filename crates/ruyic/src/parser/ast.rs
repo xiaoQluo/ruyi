@@ -6,7 +6,6 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use crate::lexer::token::Token;
 
 // ── Program ──────────────────────────────────────────────────
@@ -490,8 +489,13 @@ pub struct NamedImport {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExportDecl {
     Named(Vec<NamedExport>),
-    ReExportAll { source: String },
-    ReExportNamed { items: Vec<NamedExport>, source: String },
+    ReExportAll {
+        source: String,
+    },
+    ReExportNamed {
+        items: Vec<NamedExport>,
+        source: String,
+    },
     Declaration(Declaration),
     DefaultExpr(Box<Expr>),
     DefaultFunction {

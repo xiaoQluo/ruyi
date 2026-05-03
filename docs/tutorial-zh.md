@@ -23,6 +23,13 @@
 
 ---
 
+## 附录
+
+- [附录 C：内置函数与标准库](#appendix-c-built-in-functions-and-standard-library)
+- [附录 D：完整示例——一个简单的 CLI 工具](#appendix-d-complete-example---a-simple-cli-tool)
+
+---
+
 ## 1. 快速开始 {#1-getting-started}
 
 ### 1.1 Ruyi 是什么？
@@ -1923,57 +1930,419 @@ self        super       this
 
 ---
 
-## 附录 C：标准库概览 {#appendix-c-standard-library-overview}
+## 附录 C：内置函数与标准库 {#appendix-c-built-in-functions-and-standard-library}
 
-Ruyi 的标准库为日常编程提供了核心模块。以下是可用模块的概览：
+Ruyi 提供了多层级的内置功能。有些函数无需任何 `import` 即可使用，另一些则需要显式导入模块。
 
-### 核心类型
+### C.1 编译器内置函数（无需导入）
+
+这些函数**硬编码在编译器中**，在任何 Ruyi 程序中都无需 `import` 语句即可使用。它们在代码生成阶段被特殊处理。
+
+#### `print(value)`
+
+将值打印到 stdout，末尾带一个换行符。支持所有基本类型和数组。
 
 ```ruyi
-// Array<T> - Dynamic array
-let arr: Array<int> = [1, 2, 3];
-arr.push(4);
-arr.pop();
-arr.length;
-
-// String - UTF-8 string operations
-let s = "hello";
-s.length;           // 5
-s.toUpperCase();    // "HELLO"
-s.toLowerCase();    // "hello"
-s.contains("ell");  // true
-s.split(" ");       // Array<string>
-s.trim();           // removes whitespace
-
-// Option<T> - Optional value wrapper
-let opt: Option<int> = Option.new(42);
-opt.unwrap();       // 42
-opt.isSome();       // true
-opt.isNone();       // false
-opt.map((x) => x * 2);  // Option<int>
+print(42);              // "42\n"
+print(3.14);            // "3.140000\n"
+print("hello");         // "hello\n"
+print([1, 2, 3]);       // "[1, 2, 3]\n"
 ```
 
-### IO 模块
+| 类型 | 格式 |
+|------|------|
+| `int` | `%ld`（有符号 64 位整数） |
+| `float` | `%f`（浮点数） |
+| `string` | `%s`（C 字符串） |
+| `Array<T>` | `[elem1, elem2, ...]` |
+| 其他 | `<unknown>` |
+
+#### `spawn(fn)`
+
+在工作窃取调度器上生成一个绿色线程（轻量级并发任务）。返回任务句柄。
+
+```ruyi
+let task = spawn(() => {
+  // 并发运行
+  doHeavyWork();
+});
+```
+
+---
+
+### C.2 核心模块（自动可用）
+
+`core.ry` 模块**自动对所有 Ruyi 程序可用**。它提供基本类型上的方法，这些方法映射到编译器内建函数（`__builtin_*`）。
+
+#### String 方法
+
+| 方法 | 签名 | 说明 |
+|------|------|------|
+| `length` | `fn length(self: string): int` | 返回字符数 |
+| `slice` | `fn slice(self: string, start: int, end: int): string` | 提取子串 [start, end) |
+| `find` | `fn find(self: string, substr: string): int` | 返回首次出现的索引，未找到返回 -1 |
+| `replace` | `fn replace(self: string, from: string, to: string): string` | 替换首次出现的子串 |
+| `toUpperCase` | `fn toUpperCase(self: string): string` | 转换为大写 |
+| `toLowerCase` | `fn toLowerCase(self: string): string` | 转换为小写 |
+| `trim` | `fn trim(self: string): string` | 去除首尾空白 |
+| `contains` | `fn contains(self: string, substr: string): bool` | 检查是否包含子串 |
+| `startsWith` | `fn startsWith(self: string, prefix: string): bool` | 检查前缀 |
+| `endsWith` | `fn endsWith(self: string, suffix: string): bool` | 检查后缀 |
+| `split` | `fn split(self: string, delimiter: string): Array<string>` | 按分隔符拆分 |
+
+```ruyi
+let s = "hello world";
+s.length();           // 11
+s.slice(0, 5);        // "hello"
+s.find("world");      // 6
+s.replace("world", "Ruyi");  // "hello Ruyi"
+s.toUpperCase();      // "HELLO WORLD"
+s.contains("hello");  // true
+s.startsWith("hello"); // true
+s.endsWith("world");  // true
+s.split(" ");         // ["hello", "world"]
+```
+
+#### Int 方法
+
+| 方法 | 签名 | 说明 |
+|------|------|------|
+| `toString` | `fn toString(self: int): string` | 转换为字符串 |
+| `abs` | `fn abs(self: int): int` | 绝对值 |
+| `min` | `fn min(self: int, other: int): int` | 两个整数中的最小值 |
+| `max` | `fn max(self: int, other: int): int` | 两个整数中的最大值 |
+
+```ruyi
+let n = -42;
+n.toString();   // "-42"
+n.abs();        // 42
+3.min(5);       // 3
+3.max(5);       // 5
+```
+
+#### Float 方法
+
+| 方法 | 签名 | 说明 |
+|------|------|------|
+| `toString` | `fn toString(self: float): string` | 转换为字符串 |
+| `abs` | `fn abs(self: float): float` | 绝对值 |
+| `min` | `fn min(self: float, other: float): float` | 两个浮点数中的最小值 |
+| `max` | `fn max(self: float, other: float): float` | 两个浮点数中的最大值 |
+| `round` | `fn round(self: float): int` | 四舍五入到最近整数 |
+| `floor` | `fn floor(self: float): int` | 向下取整 |
+| `ceil` | `fn ceil(self: float): int` | 向上取整 |
+
+```ruyi
+let f = 3.7;
+f.toString();   // "3.7"
+f.abs();        // 3.7
+f.round();      // 4
+f.floor();      // 3
+f.ceil();       // 4
+```
+
+#### Bool 方法
+
+| 方法 | 签名 | 说明 |
+|------|------|------|
+| `toString` | `fn toString(self: bool): string` | 转换为 "true" 或 "false" |
+
+```ruyi
+true.toString();    // "true"
+false.toString();   // "false"
+```
+
+---
+
+### C.3 标准库模块（需要导入）
+
+这些模块必须通过 `import { ... } from "std::module"` 显式导入。
+
+#### IO 模块（`std::io`）
+
+控制台和文件 I/O 操作。
 
 ```ruyi
 import { print, println, readLine } from "std::io";
-
-print("no newline");
-println("with newline");
-let input = readLine();  // reads from stdin
 ```
 
-### Math 模块
+| 函数 | 签名 | 说明 |
+|------|------|------|
+| `print` | `fn print(value: dynamic): void` | 打印（不带换行） |
+| `println` | `fn println(value: dynamic): void` | 打印（带换行） |
+| `readLine` | `fn readLine(): string?` | 从 stdin 读取一行 |
+
+**File 类：**
+
+| 方法 | 签名 | 说明 |
+|------|------|------|
+| `File.readText` | `static fn readText(path: string): string` | 读取整个文件 |
+| `File.readTextAsync` | `static async fn readTextAsync(path: string): Future<string>` | 读取文件（异步） |
+| `File.writeText` | `static fn writeText(path: string, content: string): void` | 写入字符串到文件 |
+| `File.writeTextAsync` | `static async fn writeTextAsync(path: string, content: string): Future<void>` | 写入文件（异步） |
+| `File.readLines` | `static fn readLines(path: string): Array<string>` | 按行读取 |
+| `File.readLinesAsync` | `static async fn readLinesAsync(path: string): Future<Array<string>>` | 按行读取（异步） |
+| `File.writeLines` | `static fn writeLines(path: string, lines: Array<string>): void` | 写入多行到文件 |
+| `File.writeLinesAsync` | `static async fn writeLinesAsync(path: string, lines: Array<string>): Future<void>` | 写入多行（异步） |
+| `File.exists` | `static fn exists(path: string): bool` | 检查路径是否存在 |
+| `File.isDirectory` | `static fn isDirectory(path: string): bool` | 检查是否为目录 |
+| `File.isFile` | `static fn isFile(path: string): bool` | 检查是否为文件 |
+| `File.delete` | `static fn delete(path: string): void` | 删除文件 |
+| `File.deleteAsync` | `static async fn deleteAsync(path: string): Future<void>` | 删除文件（异步） |
+| `File.mkdir` | `static fn mkdir(path: string, recursive: bool = false): void` | 创建目录 |
+| `File.mkdirAsync` | `static async fn mkdirAsync(path: string, recursive: bool = false): Future<void>` | 创建目录（异步） |
+
+#### Collections 模块（`std::collections`）
+
+泛型集合类型：`Array<T>`、`Map<K, V>`、`Set<T>` 和 `Iterator<T>`。
+
+**Array<T> 方法：**
+
+| 方法 | 签名 | 说明 |
+|------|------|------|
+| `get` | `fn get(self, index: int): T` | 获取指定索引的元素 |
+| `set` | `fn set(self, index: int, value: T): void` | 设置指定索引的元素 |
+| `push` | `fn push(self, value: T): void` | 在末尾添加元素 |
+| `pop` | `fn pop(self): T` | 移除并返回最后一个元素 |
+| `map` | `fn map<U>(self, f: fn(T): U): Array<U>` | 转换元素 |
+| `filter` | `fn filter(self, pred: fn(T): bool): Array<T>` | 过滤元素 |
+| `reduce` | `fn reduce<U>(self, init: U, f: fn(U, T): U): U` | 归约为单个值 |
+| `forEach` | `fn forEach(self, f: fn(T): void): void` | 对每个元素应用函数 |
+| `iter` | `fn iter(self): ArrayIterator<T>` | 创建迭代器 |
+
+**Map<K, V> 方法：**
+
+| 方法 | 签名 | 说明 |
+|------|------|------|
+| `get` | `fn get(self, key: K): Option<V>` | 按键获取值 |
+| `set` | `fn set(self, key: K, value: V): void` | 设置键值对 |
+| `delete` | `fn delete(self, key: K): bool` | 移除条目 |
+| `has` | `fn has(self, key: K): bool` | 检查键是否存在 |
+| `keys` | `fn keys(self): Array<K>` | 获取所有键 |
+| `values` | `fn values(self): Array<V>` | 获取所有值 |
+| `entries` | `fn entries(self): Array<[K, V]>` | 获取所有键值对 |
+
+**Set<T> 方法：**
+
+| 方法 | 签名 | 说明 |
+|------|------|------|
+| `add` | `fn add(self, value: T): void` | 添加元素 |
+| `delete` | `fn delete(self, value: T): bool` | 移除元素 |
+| `has` | `fn has(self, value: T): bool` | 检查元素是否存在 |
+| `union` | `fn union(self, other: Set<T>): Set<T>` | 并集 |
+| `intersection` | `fn intersection(self, other: Set<T>): Set<T>` | 交集 |
+| `difference` | `fn difference(self, other: Set<T>): Set<T>` | 差集 |
+
+**Iterator<T> 特征：**
+
+| 方法 | 签名 | 说明 |
+|------|------|------|
+| `next` | `fn next(self): Option<T>` | 获取下一个元素 |
+| `forEach` | `fn forEach(self, f: fn(T): void): void` | 对每个元素应用函数 |
+| `map` | `fn map<U>(self, f: fn(T): U): Iterator<U>` | 转换元素 |
+| `filter` | `fn filter(self, pred: fn(T): bool): Iterator<T>` | 过滤元素 |
+| `reduce` | `fn reduce<U>(self, init: U, f: fn(U, T): U): U` | 归约为单个值 |
+
+#### Option 类型（`std::option`）
 
 ```ruyi
-import { min, max, abs, sqrt, pow } from "std::math";
-
-min(3, 5);       // 3
-max(3, 5);       // 5
-abs(-42);        // 42
-sqrt(16.0);      // 4.0
-pow(2.0, 10.0);  // 1024.0
+enum Option<T> {
+    Some(T),
+    None
+}
 ```
+
+| 方法 | 签名 | 说明 |
+|------|------|------|
+| `isSome` | `fn isSome<T>(self: Option<T>): bool` | 检查是否为 Some |
+| `isNone` | `fn isNone<T>(self: Option<T>): bool` | 检查是否为 None |
+| `unwrap` | `fn unwrap<T>(self: Option<T>): T` | 获取值（None 时 panic） |
+| `unwrapOr` | `fn unwrapOr<T>(self: Option<T>, default: T): T` | 获取值或默认值 |
+| `unwrapOrElse` | `fn unwrapOrElse<T>(self: Option<T>, f: fn(): T): T` | 获取值或计算默认值 |
+| `map` | `fn map<T, U>(self: Option<T>, f: fn(T): U): Option<U>` | 转换包含的值 |
+| `andThen` | `fn andThen<T, U>(self: Option<T>, f: fn(T): Option<U>): Option<U>` | 链式计算 |
+| `filter` | `fn filter<T>(self: Option<T>, pred: fn(T): bool): Option<T>` | 按谓词过滤 |
+| `flatten` | `fn flatten<T>(self: Option<Option<T>>): Option<T>` | 展平嵌套 Option |
+| `okOr` | `fn okOr<T, E>(self: Option<T>, err: E): Result<T, E>` | 转换为 Result |
+| `okOrElse` | `fn okOrElse<T, E>(self: Option<T>, f: fn(): E): Result<T, E>` | 转换为 Result（计算错误值） |
+| `forEach` | `fn forEach<T>(self: Option<T>, f: fn(T): void): void` | 如果是 Some 则应用函数 |
+| `toString` | `fn toString<T>(self: Option<T>): string` | 字符串表示 |
+
+#### Result 类型（`std::result`）
+
+```ruyi
+enum Result<T, E> {
+    Ok(T),
+    Err(E)
+}
+```
+
+| 方法 | 签名 | 说明 |
+|------|------|------|
+| `isOk` | `fn isOk<T, E>(self: Result<T, E>): bool` | 检查是否为 Ok |
+| `isErr` | `fn isErr<T, E>(self: Result<T, E>): bool` | 检查是否为 Err |
+| `unwrap` | `fn unwrap<T, E>(self: Result<T, E>): T` | 获取值（Err 时 panic） |
+| `unwrapOr` | `fn unwrapOr<T, E>(self: Result<T, E>, default: T): T` | 获取值或默认值 |
+| `unwrapOrElse` | `fn unwrapOrElse<T, E>(self: Result<T, E>, f: fn(E): T): T` | 获取值或计算默认值 |
+| `map` | `fn map<T, U, E>(self: Result<T, E>, f: fn(T): U): Result<U, E>` | 转换 Ok 值 |
+| `mapErr` | `fn mapErr<T, E, F>(self: Result<T, E>, f: fn(E): F): Result<T, F>` | 转换 Err 值 |
+| `andThen` | `fn andThen<T, U, E>(self: Result<T, E>, f: fn(T): Result<U, E>): Result<U, E>` | 链式计算 |
+| `filter` | `fn filter<T, E>(self: Result<T, E>, pred: fn(T): bool): Result<T, E>` | 按谓词过滤 |
+| `ok` | `fn ok<T, E>(self: Result<T, E>): Option<T>` | 转换为 Option |
+| `err` | `fn err<T, E>(self: Result<T, E>): Option<E>` | 将 Err 转为 Option |
+| `forEach` | `fn forEach<T, E>(self: Result<T, E>, f: fn(T): void): void` | 如果是 Ok 则应用函数 |
+| `toOption` | `fn toOption<T, E>(self: Result<T, E>): Option<T>` | 转换为 Option |
+| `toBool` | `fn toBool<T, E>(self: Result<T, E>): bool` | 转换为 bool |
+| `toString` | `fn toString<T, E>(self: Result<T, E>): string` | 字符串表示 |
+
+#### Error 类型（`std::error`）
+
+错误层次结构和工具函数。
+
+**错误类：**
+
+| 类 | 说明 |
+|------|------|
+| `Error` | 基础错误类，包含消息和原因链 |
+| `TypeError` | 类型检查或转换失败 |
+| `RuntimeError` | 运行时操作失败 |
+| `RangeError` | 索引越界 |
+| `AssertionError` | 断言失败 |
+| `ArgumentError` | 无效的参数值 |
+| `NullError` | 需要值但遇到 null |
+| `ArithmeticError` | 除以零等算术错误 |
+| `IteratorError` | 迭代器相关问题 |
+| `ParseError` | 解析失败 |
+
+**工具函数：**
+
+| 函数 | 签名 | 说明 |
+|------|------|------|
+| `isError` | `fn isError(value: dynamic): bool` | 检查值是否为 Error |
+| `assert` | `fn assert(condition: bool, message: string): void` | 断言条件 |
+| `assertNotNull` | `fn assertNotNull<T>(value: T, message: string): void` | 断言非 null |
+| `errorWithCause` | `fn errorWithCause(message: string, cause: Error): Error` | 创建带原因的错误 |
+
+#### String 模块（`std::string`）
+
+超出核心方法的扩展字符串操作。
+
+| 函数 | 签名 | 说明 |
+|------|------|------|
+| `split` | `fn split(separator: string): Array<string>` | 按分隔符拆分 |
+| `join` | `fn join(array: Array<dynamic>, separator: string = ""): string` | 连接数组元素 |
+| `startsWith` | `fn startsWith(prefix: string): bool` | 检查前缀 |
+| `endsWith` | `fn endsWith(suffix: string): bool` | 检查后缀 |
+| `contains` | `fn contains(substring: string): bool` | 检查子串 |
+| `indexOf` | `fn indexOf(substring: string): int?` | 查找首次出现 |
+| `lastIndexOf` | `fn lastIndexOf(substring: string): int?` | 查找最后一次出现 |
+| `substring` | `fn substring(start: int, end: int? = null): string` | 提取子串 |
+| `replace` | `fn replace(old: string, new: string): string` | 替换首次出现 |
+| `replaceAll` | `fn replaceAll(old: string, new: string): string` | 替换所有出现 |
+| `padStart` | `fn padStart(length: int, padString: string = " "): string` | 在开头填充 |
+| `padEnd` | `fn padEnd(length: int, padString: string = " "): string` | 在末尾填充 |
+| `repeat` | `fn repeat(count: int): string` | 重复字符串 |
+| `reverse` | `fn reverse(): string` | 反转字符串 |
+| `toUpperCase` | `fn toUpperCase(): string` | 转换为大写 |
+| `toLowerCase` | `fn toLowerCase(): string` | 转换为小写 |
+| `length` | `fn length(): int` | 获取长度 |
+| `trim` | `fn trim(): string` | 去除空白 |
+| `trimStart` | `fn trimStart(): string` | 去除开头空白 |
+| `trimEnd` | `fn trimEnd(): string` | 去除末尾空白 |
+| `slice` | `fn slice(start: int, length: int? = null): string` | 切片 |
+| `matches` | `fn matches(pattern: string): bool` | 匹配模式 |
+| `isEmpty` | `fn isEmpty(): bool` | 检查是否为空 |
+| `charAt` | `fn charAt(index: int): string?` | 获取指定位置字符 |
+| `fromCharCode` | `fn fromCharCode(code: int): string` | 从字符码创建 |
+| `fromCharCodes` | `fn fromCharCodes(codes: Array<int>): string` | 从字符码数组创建 |
+| `concat` | `fn concat(args: ...string): string` | 连接字符串 |
+| `template` | `fn template(template: string, values: Array<dynamic>): string` | 格式化模板 |
+
+#### Path 模块（`std::path`）
+
+文件系统路径操作工具。
+
+| 方法 | 签名 | 说明 |
+|------|------|------|
+| `Path.join` | `static fn join(paths: ...string): string` | 连接路径段 |
+| `Path.basename` | `static fn basename(path: string): string` | 获取文件名 |
+| `Path.basenameNoExt` | `static fn basenameNoExt(path: string): string` | 获取不带扩展名的文件名 |
+| `Path.dirname` | `static fn dirname(path: string): string` | 获取目录名 |
+| `Path.extname` | `static fn extname(path: string): string` | 获取文件扩展名 |
+| `Path.isAbsolute` | `static fn isAbsolute(path: string): bool` | 检查是否为绝对路径 |
+| `Path.isRelative` | `static fn isRelative(path: string): bool` | 检查是否为相对路径 |
+| `Path.resolve` | `static fn resolve(base: string, relative: string): string` | 解析相对路径 |
+| `Path.normalize` | `static fn normalize(path: string): string` | 规范化路径 |
+| `Path.withoutExt` | `static fn withoutExt(path: string): string` | 移除扩展名 |
+| `Path.changeExt` | `static fn changeExt(path: string, newExt: string): string` | 更改扩展名 |
+| `Path.compare` | `static fn compare(path1: string, path2: string): int` | 比较路径 |
+| `Path.equals` | `static fn equals(path1: string, path2: string): bool` | 检查路径是否相等 |
+| `Path.parents` | `static fn parents(path: string): Array<string>` | 获取父目录 |
+| `Path.isChildOf` | `static fn isChildOf(parent: string, child: string): bool` | 检查是否为子路径 |
+| `Path.relative` | `static fn relative(from: string, to: string): string` | 获取相对路径 |
+| `Path.separator` | `static fn separator(): string` | 获取平台路径分隔符 |
+
+#### Process 模块（`std::process`）
+
+进程管理和系统命令执行。
+
+| 函数 | 签名 | 说明 |
+|------|------|------|
+| `Process.create` | `static fn create(command: string, options: ProcessOptions?): Process` | 创建进程 |
+| `Process.exec` | `static fn exec(command: string): ProcessResult` | 执行命令 |
+| `Process.execWith` | `static fn execWith(command: string, options: ExecOptions): ProcessResult` | 带选项执行 |
+| `Process.spawn` | `static fn spawn(command: string, args: Array<string>?): Process` | 生成子进程 |
+| `Process.spawnWith` | `static fn spawnWith(command: string, args: Array<string>?, options: ProcessOptions): Process` | 带选项生成 |
+| `getEnv` | `fn getEnv(name: string): string?` | 获取环境变量 |
+| `setEnv` | `fn setEnv(name: string, value: string): void` | 设置环境变量 |
+| `getAllEnv` | `fn getAllEnv(): Map<string, string>` | 获取所有环境变量 |
+| `getPID` | `fn getPID(): int` | 获取当前进程 ID |
+| `getPPID` | `fn getPPID(): int` | 获取父进程 ID |
+| `getPlatform` | `fn getPlatform(): string` | 获取平台（"linux"、"macos"、"windows"） |
+| `getCPUCount` | `fn getCPUCount(): int` | 获取 CPU 核心数 |
+| `getTotalMemory` | `fn getTotalMemory(): int` | 获取总内存（字节） |
+| `getFreeMemory` | `fn getFreeMemory(): int` | 获取可用内存（字节） |
+
+---
+
+### C.4 运行时内部函数
+
+这些函数在编译时被声明到 LLVM 模块中，由编译器的代码生成内部使用。**用户不应直接调用这些函数**——它们由编译器自动调用。
+
+#### 垃圾回收
+
+| 运行时函数 | 说明 |
+|------------|------|
+| `ruyi_gc_alloc(size)` | 在 GC 堆上分配内存 |
+| `ruyi_gc_collect()` | 触发垃圾回收 |
+| `ruyi_gc_add_root(ptr)` | 添加 GC 根 |
+| `ruyi_gc_remove_root(ptr)` | 移除 GC 根 |
+| `ruyi_gc_write_barrier(parent, field)` | 分代 GC 的写屏障 |
+
+#### 异常处理
+
+| 运行时函数 | 说明 |
+|------------|------|
+| `ruyi_throw(exception)` | 抛出异常 |
+| `ruyi_get_pending_exception()` | 获取待处理异常 |
+| `ruyi_clear_pending_exception()` | 清除待处理异常 |
+| `ruyi_begin_catch(exception)` | 进入 catch 块 |
+| `ruyi_end_catch()` | 退出 catch 块 |
+
+#### 字符串操作
+
+| 运行时函数 | 说明 |
+|------------|------|
+| `ruyi_str_concat(a, b)` | 连接两个字符串 |
+
+#### 异步/调度器
+
+| 运行时函数 | 说明 |
+|------------|------|
+| `ruyi_async_poll(future, waker)` | 轮询异步 future |
+| `ruyi_spawn(future)` | 在调度器上生成任务 |
+| `ruyi_wake_task(task)` | 唤醒休眠任务 |
+| `ruyi_run_scheduler()` | 运行工作窃取调度器 |
 
 ---
 

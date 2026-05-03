@@ -23,6 +23,13 @@
 
 ---
 
+## Appendices
+
+- [Appendix C: Built-in Functions and Standard Library](#appendix-c-built-in-functions-and-standard-library)
+- [Appendix D: Complete Example - A Simple CLI Tool](#appendix-d-complete-example---a-simple-cli-tool)
+
+---
+
 ## 1. Getting Started
 
 ### 1.1 What is Ruyi?
@@ -1923,57 +1930,419 @@ self        super       this
 
 ---
 
-## Appendix C: Standard Library Overview
+## Appendix C: Built-in Functions and Standard Library
 
-Ruyi's standard library provides core modules for everyday programming. Here is an overview of the available modules:
+Ruyi provides several layers of built-in functionality. Some functions are available without any import, while others require explicit module imports.
 
-### Core Types
+### C.1 Compiler Built-in Functions (No Import Required)
+
+These functions are **hard-coded into the compiler** and work in every Ruyi program without any `import` statement. They are handled specially during code generation.
+
+#### `print(value)`
+
+Prints a value to stdout followed by a newline. Supports all primitive types and arrays.
 
 ```ruyi
-// Array<T> - Dynamic array
-let arr: Array<int> = [1, 2, 3];
-arr.push(4);
-arr.pop();
-arr.length;
-
-// String - UTF-8 string operations
-let s = "hello";
-s.length;           // 5
-s.toUpperCase();    // "HELLO"
-s.toLowerCase();    // "hello"
-s.contains("ell");  // true
-s.split(" ");       // Array<string>
-s.trim();           // removes whitespace
-
-// Option<T> - Optional value wrapper
-let opt: Option<int> = Option.new(42);
-opt.unwrap();       // 42
-opt.isSome();       // true
-opt.isNone();       // false
-opt.map((x) => x * 2);  // Option<int>
+print(42);              // "42\n"
+print(3.14);            // "3.140000\n"
+print("hello");         // "hello\n"
+print([1, 2, 3]);       // "[1, 2, 3]\n"
 ```
 
-### IO Module
+| Type | Format |
+|------|--------|
+| `int` | `%ld` (signed 64-bit) |
+| `float` | `%f` (floating point) |
+| `string` | `%s` (C string) |
+| `Array<T>` | `[elem1, elem2, ...]` |
+| Other | `<unknown>` |
+
+#### `spawn(fn)`
+
+Spawns a green thread (lightweight concurrent task) on the work-stealing scheduler. Returns a task handle.
+
+```ruyi
+let task = spawn(() => {
+  // runs concurrently
+  doHeavyWork();
+});
+```
+
+---
+
+### C.2 Core Module (Auto-Available)
+
+The `core.ry` module is **automatically available** to all Ruyi programs. It provides methods on primitive types that map to compiler intrinsics (`__builtin_*`).
+
+#### String Methods
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `length` | `fn length(self: string): int` | Returns character count |
+| `slice` | `fn slice(self: string, start: int, end: int): string` | Extracts substring [start, end) |
+| `find` | `fn find(self: string, substr: string): int` | Returns index of first occurrence, or -1 |
+| `replace` | `fn replace(self: string, from: string, to: string): string` | Replaces first occurrence |
+| `toUpperCase` | `fn toUpperCase(self: string): string` | Converts to uppercase |
+| `toLowerCase` | `fn toLowerCase(self: string): string` | Converts to lowercase |
+| `trim` | `fn trim(self: string): string` | Removes leading/trailing whitespace |
+| `contains` | `fn contains(self: string, substr: string): bool` | Checks if substring exists |
+| `startsWith` | `fn startsWith(self: string, prefix: string): bool` | Checks prefix |
+| `endsWith` | `fn endsWith(self: string, suffix: string): bool` | Checks suffix |
+| `split` | `fn split(self: string, delimiter: string): Array<string>` | Splits by delimiter |
+
+```ruyi
+let s = "hello world";
+s.length();           // 11
+s.slice(0, 5);        // "hello"
+s.find("world");      // 6
+s.replace("world", "Ruyi");  // "hello Ruyi"
+s.toUpperCase();      // "HELLO WORLD"
+s.contains("hello");  // true
+s.startsWith("hello"); // true
+s.endsWith("world");  // true
+s.split(" ");         // ["hello", "world"]
+```
+
+#### Int Methods
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `toString` | `fn toString(self: int): string` | Converts to string |
+| `abs` | `fn abs(self: int): int` | Absolute value |
+| `min` | `fn min(self: int, other: int): int` | Minimum of two integers |
+| `max` | `fn max(self: int, other: int): int` | Maximum of two integers |
+
+```ruyi
+let n = -42;
+n.toString();   // "-42"
+n.abs();        // 42
+3.min(5);       // 3
+3.max(5);       // 5
+```
+
+#### Float Methods
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `toString` | `fn toString(self: float): string` | Converts to string |
+| `abs` | `fn abs(self: float): float` | Absolute value |
+| `min` | `fn min(self: float, other: float): float` | Minimum of two floats |
+| `max` | `fn max(self: float, other: float): float` | Maximum of two floats |
+| `round` | `fn round(self: float): int` | Rounds to nearest integer |
+| `floor` | `fn floor(self: float): int` | Rounds down |
+| `ceil` | `fn ceil(self: float): int` | Rounds up |
+
+```ruyi
+let f = 3.7;
+f.toString();   // "3.7"
+f.abs();        // 3.7
+f.round();      // 4
+f.floor();      // 3
+f.ceil();       // 4
+```
+
+#### Bool Methods
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `toString` | `fn toString(self: bool): string` | Converts to "true" or "false" |
+
+```ruyi
+true.toString();    // "true"
+false.toString();   // "false"
+```
+
+---
+
+### C.3 Standard Library Modules (Require Import)
+
+These modules must be explicitly imported using `import { ... } from "std::module"`.
+
+#### IO Module (`std::io`)
+
+Console and file I/O operations.
 
 ```ruyi
 import { print, println, readLine } from "std::io";
-
-print("no newline");
-println("with newline");
-let input = readLine();  // reads from stdin
 ```
 
-### Math Module
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `print` | `fn print(value: dynamic): void` | Print without newline |
+| `println` | `fn println(value: dynamic): void` | Print with newline |
+| `readLine` | `fn readLine(): string?` | Read line from stdin |
+
+**File Class:**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `File.readText` | `static fn readText(path: string): string` | Read entire file |
+| `File.readTextAsync` | `static async fn readTextAsync(path: string): Future<string>` | Read file (async) |
+| `File.writeText` | `static fn writeText(path: string, content: string): void` | Write string to file |
+| `File.writeTextAsync` | `static async fn writeTextAsync(path: string, content: string): Future<void>` | Write file (async) |
+| `File.readLines` | `static fn readLines(path: string): Array<string>` | Read as lines |
+| `File.readLinesAsync` | `static async fn readLinesAsync(path: string): Future<Array<string>>` | Read lines (async) |
+| `File.writeLines` | `static fn writeLines(path: string, lines: Array<string>): void` | Write lines to file |
+| `File.writeLinesAsync` | `static async fn writeLinesAsync(path: string, lines: Array<string>): Future<void>` | Write lines (async) |
+| `File.exists` | `static fn exists(path: string): bool` | Check if path exists |
+| `File.isDirectory` | `static fn isDirectory(path: string): bool` | Check if directory |
+| `File.isFile` | `static fn isFile(path: string): bool` | Check if file |
+| `File.delete` | `static fn delete(path: string): void` | Delete file |
+| `File.deleteAsync` | `static async fn deleteAsync(path: string): Future<void>` | Delete file (async) |
+| `File.mkdir` | `static fn mkdir(path: string, recursive: bool = false): void` | Create directory |
+| `File.mkdirAsync` | `static async fn mkdirAsync(path: string, recursive: bool = false): Future<void>` | Create directory (async) |
+
+#### Collections Module (`std::collections`)
+
+Generic collection types: `Array<T>`, `Map<K, V>`, `Set<T>`, and `Iterator<T>`.
+
+**Array<T> Methods:**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `get` | `fn get(self, index: int): T` | Get element at index |
+| `set` | `fn set(self, index: int, value: T): void` | Set element at index |
+| `push` | `fn push(self, value: T): void` | Add element to end |
+| `pop` | `fn pop(self): T` | Remove and return last element |
+| `map` | `fn map<U>(self, f: fn(T): U): Array<U>` | Transform elements |
+| `filter` | `fn filter(self, pred: fn(T): bool): Array<T>` | Filter elements |
+| `reduce` | `fn reduce<U>(self, init: U, f: fn(U, T): U): U` | Reduce to single value |
+| `forEach` | `fn forEach(self, f: fn(T): void): void` | Apply function to each |
+| `iter` | `fn iter(self): ArrayIterator<T>` | Create iterator |
+
+**Map<K, V> Methods:**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `get` | `fn get(self, key: K): Option<V>` | Get value by key |
+| `set` | `fn set(self, key: K, value: V): void` | Set key-value pair |
+| `delete` | `fn delete(self, key: K): bool` | Remove entry |
+| `has` | `fn has(self, key: K): bool` | Check if key exists |
+| `keys` | `fn keys(self): Array<K>` | Get all keys |
+| `values` | `fn values(self): Array<V>` | Get all values |
+| `entries` | `fn entries(self): Array<[K, V]>` | Get all key-value pairs |
+
+**Set<T> Methods:**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `add` | `fn add(self, value: T): void` | Add element |
+| `delete` | `fn delete(self, value: T): bool` | Remove element |
+| `has` | `fn has(self, value: T): bool` | Check if element exists |
+| `union` | `fn union(self, other: Set<T>): Set<T>` | Set union |
+| `intersection` | `fn intersection(self, other: Set<T>): Set<T>` | Set intersection |
+| `difference` | `fn difference(self, other: Set<T>): Set<T>` | Set difference |
+
+**Iterator<T> Trait:**
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `next` | `fn next(self): Option<T>` | Get next element |
+| `forEach` | `fn forEach(self, f: fn(T): void): void` | Apply function to each |
+| `map` | `fn map<U>(self, f: fn(T): U): Iterator<U>` | Transform elements |
+| `filter` | `fn filter(self, pred: fn(T): bool): Iterator<T>` | Filter elements |
+| `reduce` | `fn reduce<U>(self, init: U, f: fn(U, T): U): U` | Reduce to single value |
+
+#### Option Type (`std::option`)
 
 ```ruyi
-import { min, max, abs, sqrt, pow } from "std::math";
-
-min(3, 5);       // 3
-max(3, 5);       // 5
-abs(-42);        // 42
-sqrt(16.0);      // 4.0
-pow(2.0, 10.0);  // 1024.0
+enum Option<T> {
+    Some(T),
+    None
+}
 ```
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `isSome` | `fn isSome<T>(self: Option<T>): bool` | Check if Some |
+| `isNone` | `fn isNone<T>(self: Option<T>): bool` | Check if None |
+| `unwrap` | `fn unwrap<T>(self: Option<T>): T` | Get value (panics if None) |
+| `unwrapOr` | `fn unwrapOr<T>(self: Option<T>, default: T): T` | Get value or default |
+| `unwrapOrElse` | `fn unwrapOrElse<T>(self: Option<T>, f: fn(): T): T` | Get value or compute default |
+| `map` | `fn map<T, U>(self: Option<T>, f: fn(T): U): Option<U>` | Transform contained value |
+| `andThen` | `fn andThen<T, U>(self: Option<T>, f: fn(T): Option<U>): Option<U>` | Chain computations |
+| `filter` | `fn filter<T>(self: Option<T>, pred: fn(T): bool): Option<T>` | Filter by predicate |
+| `flatten` | `fn flatten<T>(self: Option<Option<T>>): Option<T>` | Flatten nested Options |
+| `okOr` | `fn okOr<T, E>(self: Option<T>, err: E): Result<T, E>` | Convert to Result |
+| `okOrElse` | `fn okOrElse<T, E>(self: Option<T>, f: fn(): E): Result<T, E>` | Convert to Result (computed error) |
+| `forEach` | `fn forEach<T>(self: Option<T>, f: fn(T): void): void` | Apply function if Some |
+| `toString` | `fn toString<T>(self: Option<T>): string` | String representation |
+
+#### Result Type (`std::result`)
+
+```ruyi
+enum Result<T, E> {
+    Ok(T),
+    Err(E)
+}
+```
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `isOk` | `fn isOk<T, E>(self: Result<T, E>): bool` | Check if Ok |
+| `isErr` | `fn isErr<T, E>(self: Result<T, E>): bool` | Check if Err |
+| `unwrap` | `fn unwrap<T, E>(self: Result<T, E>): T` | Get value (panics if Err) |
+| `unwrapOr` | `fn unwrapOr<T, E>(self: Result<T, E>, default: T): T` | Get value or default |
+| `unwrapOrElse` | `fn unwrapOrElse<T, E>(self: Result<T, E>, f: fn(E): T): T` | Get value or compute default |
+| `map` | `fn map<T, U, E>(self: Result<T, E>, f: fn(T): U): Result<U, E>` | Transform Ok value |
+| `mapErr` | `fn mapErr<T, E, F>(self: Result<T, E>, f: fn(E): F): Result<T, F>` | Transform Err value |
+| `andThen` | `fn andThen<T, U, E>(self: Result<T, E>, f: fn(T): Result<U, E>): Result<U, E>` | Chain computations |
+| `filter` | `fn filter<T, E>(self: Result<T, E>, pred: fn(T): bool): Result<T, E>` | Filter by predicate |
+| `ok` | `fn ok<T, E>(self: Result<T, E>): Option<T>` | Convert to Option |
+| `err` | `fn err<T, E>(self: Result<T, E>): Option<E>` | Get Err as Option |
+| `forEach` | `fn forEach<T, E>(self: Result<T, E>, f: fn(T): void): void` | Apply function if Ok |
+| `toOption` | `fn toOption<T, E>(self: Result<T, E>): Option<T>` | Convert to Option |
+| `toBool` | `fn toBool<T, E>(self: Result<T, E>): bool` | Convert to bool |
+| `toString` | `fn toString<T, E>(self: Result<T, E>): string` | String representation |
+
+#### Error Types (`std::error`)
+
+Error hierarchy and utility functions.
+
+**Error Classes:**
+
+| Class | Description |
+|-------|-------------|
+| `Error` | Base error class with message and cause chain |
+| `TypeError` | Type check or conversion failures |
+| `RuntimeError` | Runtime operation failures |
+| `RangeError` | Index out of bounds |
+| `AssertionError` | Assertion failures |
+| `ArgumentError` | Invalid argument values |
+| `NullError` | Null value where value required |
+| `ArithmeticError` | Division by zero, etc. |
+| `IteratorError` | Iterator-related issues |
+| `ParseError` | Parsing failures |
+
+**Utility Functions:**
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `isError` | `fn isError(value: dynamic): bool` | Check if value is Error |
+| `assert` | `fn assert(condition: bool, message: string): void` | Assert condition |
+| `assertNotNull` | `fn assertNotNull<T>(value: T, message: string): void` | Assert non-null |
+| `errorWithCause` | `fn errorWithCause(message: string, cause: Error): Error` | Create error with cause |
+
+#### String Module (`std::string`)
+
+Extended string operations beyond core methods.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `split` | `fn split(separator: string): Array<string>` | Split by separator |
+| `join` | `fn join(array: Array<dynamic>, separator: string = ""): string` | Join array elements |
+| `startsWith` | `fn startsWith(prefix: string): bool` | Check prefix |
+| `endsWith` | `fn endsWith(suffix: string): bool` | Check suffix |
+| `contains` | `fn contains(substring: string): bool` | Check substring |
+| `indexOf` | `fn indexOf(substring: string): int?` | Find first occurrence |
+| `lastIndexOf` | `fn lastIndexOf(substring: string): int?` | Find last occurrence |
+| `substring` | `fn substring(start: int, end: int? = null): string` | Extract substring |
+| `replace` | `fn replace(old: string, new: string): string` | Replace first occurrence |
+| `replaceAll` | `fn replaceAll(old: string, new: string): string` | Replace all occurrences |
+| `padStart` | `fn padStart(length: int, padString: string = " "): string` | Pad at start |
+| `padEnd` | `fn padEnd(length: int, padString: string = " "): string` | Pad at end |
+| `repeat` | `fn repeat(count: int): string` | Repeat string |
+| `reverse` | `fn reverse(): string` | Reverse string |
+| `toUpperCase` | `fn toUpperCase(): string` | Convert to uppercase |
+| `toLowerCase` | `fn toLowerCase(): string` | Convert to lowercase |
+| `length` | `fn length(): int` | Get length |
+| `trim` | `fn trim(): string` | Trim whitespace |
+| `trimStart` | `fn trimStart(): string` | Trim leading whitespace |
+| `trimEnd` | `fn trimEnd(): string` | Trim trailing whitespace |
+| `slice` | `fn slice(start: int, length: int? = null): string` | Slice string |
+| `matches` | `fn matches(pattern: string): bool` | Match pattern |
+| `isEmpty` | `fn isEmpty(): bool` | Check if empty |
+| `charAt` | `fn charAt(index: int): string?` | Get character at index |
+| `fromCharCode` | `fn fromCharCode(code: int): string` | Create from char code |
+| `fromCharCodes` | `fn fromCharCodes(codes: Array<int>): string` | Create from char codes |
+| `concat` | `fn concat(args: ...string): string` | Concatenate strings |
+| `template` | `fn template(template: string, values: Array<dynamic>): string` | Format template |
+
+#### Path Module (`std::path`)
+
+File system path manipulation utilities.
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `Path.join` | `static fn join(paths: ...string): string` | Join path segments |
+| `Path.basename` | `static fn basename(path: string): string` | Get file name |
+| `Path.basenameNoExt` | `static fn basenameNoExt(path: string): string` | Get file name without extension |
+| `Path.dirname` | `static fn dirname(path: string): string` | Get directory name |
+| `Path.extname` | `static fn extname(path: string): string` | Get file extension |
+| `Path.isAbsolute` | `static fn isAbsolute(path: string): bool` | Check if absolute |
+| `Path.isRelative` | `static fn isRelative(path: string): bool` | Check if relative |
+| `Path.resolve` | `static fn resolve(base: string, relative: string): string` | Resolve relative path |
+| `Path.normalize` | `static fn normalize(path: string): string` | Normalize path |
+| `Path.withoutExt` | `static fn withoutExt(path: string): string` | Remove extension |
+| `Path.changeExt` | `static fn changeExt(path: string, newExt: string): string` | Change extension |
+| `Path.compare` | `static fn compare(path1: string, path2: string): int` | Compare paths |
+| `Path.equals` | `static fn equals(path1: string, path2: string): bool` | Check path equality |
+| `Path.parents` | `static fn parents(path: string): Array<string>` | Get parent directories |
+| `Path.isChildOf` | `static fn isChildOf(parent: string, child: string): bool` | Check if child path |
+| `Path.relative` | `static fn relative(from: string, to: string): string` | Get relative path |
+| `Path.separator` | `static fn separator(): string` | Get platform separator |
+
+#### Process Module (`std::process`)
+
+Process management and system command execution.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `Process.create` | `static fn create(command: string, options: ProcessOptions?): Process` | Create process |
+| `Process.exec` | `static fn exec(command: string): ProcessResult` | Execute command |
+| `Process.execWith` | `static fn execWith(command: string, options: ExecOptions): ProcessResult` | Execute with options |
+| `Process.spawn` | `static fn spawn(command: string, args: Array<string>?): Process` | Spawn child process |
+| `Process.spawnWith` | `static fn spawnWith(command: string, args: Array<string>?, options: ProcessOptions): Process` | Spawn with options |
+| `getEnv` | `fn getEnv(name: string): string?` | Get environment variable |
+| `setEnv` | `fn setEnv(name: string, value: string): void` | Set environment variable |
+| `getAllEnv` | `fn getAllEnv(): Map<string, string>` | Get all environment variables |
+| `getPID` | `fn getPID(): int` | Get current process ID |
+| `getPPID` | `fn getPPID(): int` | Get parent process ID |
+| `getPlatform` | `fn getPlatform(): string` | Get platform ("linux", "macos", "windows") |
+| `getCPUCount` | `fn getCPUCount(): int` | Get CPU core count |
+| `getTotalMemory` | `fn getTotalMemory(): int` | Get total memory in bytes |
+| `getFreeMemory` | `fn getFreeMemory(): int` | Get free memory in bytes |
+
+---
+
+### C.4 Runtime Internal Functions
+
+These functions are declared in the LLVM module at compile time and used internally by the compiler's code generation. **Users should not call these directly** — they are invoked automatically by the compiler.
+
+#### Garbage Collection
+
+| Runtime Function | Description |
+|------------------|-------------|
+| `ruyi_gc_alloc(size)` | Allocate memory on the GC heap |
+| `ruyi_gc_collect()` | Trigger garbage collection |
+| `ruyi_gc_add_root(ptr)` | Add a GC root |
+| `ruyi_gc_remove_root(ptr)` | Remove a GC root |
+| `ruyi_gc_write_barrier(parent, field)` | Write barrier for generational GC |
+
+#### Exception Handling
+
+| Runtime Function | Description |
+|------------------|-------------|
+| `ruyi_throw(exception)` | Throw an exception |
+| `ruyi_get_pending_exception()` | Get the pending exception |
+| `ruyi_clear_pending_exception()` | Clear the pending exception |
+| `ruyi_begin_catch(exception)` | Enter a catch block |
+| `ruyi_end_catch()` | Exit a catch block |
+
+#### String Operations
+
+| Runtime Function | Description |
+|------------------|-------------|
+| `ruyi_str_concat(a, b)` | Concatenate two strings |
+
+#### Async/Scheduler
+
+| Runtime Function | Description |
+|------------------|-------------|
+| `ruyi_async_poll(future, waker)` | Poll an async future |
+| `ruyi_spawn(future)` | Spawn a task on the scheduler |
+| `ruyi_wake_task(task)` | Wake a sleeping task |
+| `ruyi_run_scheduler()` | Run the work-stealing scheduler |
 
 ---
 

@@ -392,10 +392,10 @@ impl Token {
                 | Token::Const
                 | Token::Fn
                 | Token::Class
-            | Token::Trait
-            | Token::Impl
-            | Token::Dyn
-            | Token::Match
+                | Token::Trait
+                | Token::Impl
+                | Token::Dyn
+                | Token::Match
                 | Token::If
                 | Token::Else
                 | Token::For
@@ -419,20 +419,20 @@ impl Token {
                 | Token::This
                 | Token::In
                 | Token::Instanceof
-            | Token::Typeof
-            | Token::Void
-            | Token::Delete
-            | Token::As
-            | Token::From
-            | Token::Extends
-            | Token::Static
-            | Token::Get
-            | Token::Set
-            | Token::New
-            | Token::Of
-            | Token::Break
-            | Token::Continue
-            | Token::Underscore
+                | Token::Typeof
+                | Token::Void
+                | Token::Delete
+                | Token::As
+                | Token::From
+                | Token::Extends
+                | Token::Static
+                | Token::Get
+                | Token::Set
+                | Token::New
+                | Token::Of
+                | Token::Break
+                | Token::Continue
+                | Token::Underscore
         )
     }
 }

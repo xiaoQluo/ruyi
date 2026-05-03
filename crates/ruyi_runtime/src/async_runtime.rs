@@ -9,10 +9,10 @@
 //! @author Ruyi Team
 //! @date 2026-05-01
 
+use once_cell::sync::Lazy;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use once_cell::sync::Lazy;
 
 // ── Poll / Future core types ─────────────────────────────────
 
@@ -266,8 +266,7 @@ impl Scheduler {
     where
         F: RuyiFuture<Output = ()> + Send + 'static,
     {
-        self.inner
-            .spawn_task(Box::new(future), 0)
+        self.inner.spawn_task(Box::new(future), 0)
     }
 
     /// Block the current thread until all tasks have completed.
@@ -382,8 +381,7 @@ impl AsyncException {
 /// Global scheduler instance (baseline: single worker thread).
 ///
 /// Uses the same `Lazy<Mutex<…>>` pattern as `gc_exports.rs`.
-pub static GLOBAL_SCHEDULER: Lazy<Mutex<Scheduler>> =
-    Lazy::new(|| Mutex::new(Scheduler::new(1)));
+pub static GLOBAL_SCHEDULER: Lazy<Mutex<Scheduler>> = Lazy::new(|| Mutex::new(Scheduler::new(1)));
 
 /// Register all active async tasks as GC roots.
 ///
@@ -394,8 +392,7 @@ pub fn register_async_roots(collector: &mut crate::gc::MarkSweepCollector) {
         let tasks = scheduler.inner.tasks.lock().unwrap();
         for (_, task) in tasks.iter() {
             let future_ref: &(dyn RuyiFuture<Output = ()> + Send) = &*task.future;
-            let data_ptr =
-                future_ref as *const (dyn RuyiFuture<Output = ()> + Send) as *const u8;
+            let data_ptr = future_ref as *const (dyn RuyiFuture<Output = ()> + Send) as *const u8;
             let size = std::mem::size_of_val(future_ref);
             let step = std::mem::size_of::<usize>();
             if data_ptr.is_null() || size == 0 {
@@ -407,7 +404,9 @@ pub fn register_async_roots(collector: &mut crate::gc::MarkSweepCollector) {
                     unsafe { std::ptr::read_unaligned(data_ptr.add(offset) as *const usize) };
                 let candidate = word as *mut u8;
                 if !candidate.is_null() && collector.is_valid_payload(candidate) {
-                    unsafe { collector.add_root(candidate); }
+                    unsafe {
+                        collector.add_root(candidate);
+                    }
                 }
                 offset += step;
             }
@@ -457,7 +456,12 @@ where
             }
         }
         if self.completed == self.results.len() {
-            Poll::Ready(self.results.iter_mut().map(|o| o.take().unwrap()).collect::<Vec<T>>())
+            Poll::Ready(
+                self.results
+                    .iter_mut()
+                    .map(|o| o.take().unwrap())
+                    .collect::<Vec<T>>(),
+            )
         } else {
             Poll::Pending
         }
@@ -578,10 +582,7 @@ mod tests {
 
     #[test]
     fn test_race() {
-        let futs = vec![
-            ImmediateFuture(Some(1)),
-            ImmediateFuture(Some(2)),
-        ];
+        let futs = vec![ImmediateFuture(Some(1)), ImmediateFuture(Some(2))];
         let mut race = Race::new(futs);
         let waker = Waker {
             scheduler: SchedulerInner::new(1),

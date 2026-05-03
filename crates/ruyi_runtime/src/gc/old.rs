@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-use crate::alloc::{GcObjectHeader, MemoryStrategy, TypeInfo, ruyi_alloc};
+use crate::alloc::{ruyi_alloc, GcObjectHeader, MemoryStrategy, TypeInfo};
 
 /// Old generation for the generational GC.
 ///

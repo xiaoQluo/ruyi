@@ -7,7 +7,6 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use crate::parser::ast::Program;
 use crate::typechecker::diagnostics::{Diagnostic, DiagnosticBag};
 use crate::typechecker::environment::TypeEnvironment;
@@ -27,11 +26,15 @@ pub struct TypeCheckResult {
 
 impl TypeCheckResult {
     pub fn errors(&self) -> impl Iterator<Item = &Diagnostic> {
-        self.diagnostics.iter().filter(|d: &&Diagnostic| d.is_error())
+        self.diagnostics
+            .iter()
+            .filter(|d: &&Diagnostic| d.is_error())
     }
 
     pub fn warnings(&self) -> impl Iterator<Item = &Diagnostic> {
-        self.diagnostics.iter().filter(|d: &&Diagnostic| d.is_warning())
+        self.diagnostics
+            .iter()
+            .filter(|d: &&Diagnostic| d.is_warning())
     }
 }
 
@@ -55,8 +58,11 @@ impl TypeChecker {
     pub fn check(&mut self, program: &Program) -> TypeCheckResult {
         let registry = build_trait_registry(program);
         let inference = TypeInference::new(registry.clone());
-        let InferenceResult { typed_env, diagnostics: infer_diagnostics, mut tracker } =
-            inference.infer_program(program);
+        let InferenceResult {
+            typed_env,
+            diagnostics: infer_diagnostics,
+            mut tracker,
+        } = inference.infer_program(program);
 
         tracker.set_trait_registry(registry.clone());
 

@@ -7,7 +7,6 @@
  * @author Ruyi Team
  * @date 2026-05-02
  */
-
 use std::collections::HashSet;
 
 use crate::parser::ast::Program;
@@ -39,7 +38,9 @@ impl ArcClassRegistry {
     fn scan_declaration(&mut self, decl: &crate::parser::ast::Declaration) {
         use crate::parser::ast::Declaration;
         match decl {
-            Declaration::Class { name, annotations, .. } => {
+            Declaration::Class {
+                name, annotations, ..
+            } => {
                 if annotations.iter().any(|a| a == "arc") {
                     self.arc_classes.insert(name.clone());
                 }

@@ -1,3 +1,5 @@
+use ruyic::parser::Parser;
+use ruyic::typechecker::diagnostics::{DiagnosticBag, DiagnosticKind};
 /**
  * Comprehensive tests for the Ruyi gradual type checker.
  *
@@ -13,10 +15,7 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use ruyic::typechecker::*;
-use ruyic::parser::Parser;
-use ruyic::typechecker::diagnostics::{DiagnosticBag, DiagnosticKind};
 
 // ── Type System Core ──────────────────────────────────────────
 
@@ -40,7 +39,10 @@ fn test_type_display() {
     assert_eq!(Type::BigInt.to_string(), "bigint");
     assert_eq!(Type::Dynamic.to_string(), "dyn");
     assert_eq!(Type::Nullable(Box::new(Type::Int)).to_string(), "int?");
-    assert_eq!(Type::Array(Box::new(Type::String)).to_string(), "Array<string>");
+    assert_eq!(
+        Type::Array(Box::new(Type::String)).to_string(),
+        "Array<string>"
+    );
     assert_eq!(
         Type::Function {
             params: vec![Type::Int, Type::String],
@@ -133,12 +135,22 @@ fn test_subtype_function() {
 #[test]
 fn test_subtype_object_structural() {
     let obj_a = Type::Object(vec![
-        ObjectField { name: "x".into(), ty: Type::Int, optional: false },
-        ObjectField { name: "y".into(), ty: Type::Float, optional: false },
+        ObjectField {
+            name: "x".into(),
+            ty: Type::Int,
+            optional: false,
+        },
+        ObjectField {
+            name: "y".into(),
+            ty: Type::Float,
+            optional: false,
+        },
     ]);
-    let obj_b = Type::Object(vec![
-        ObjectField { name: "x".into(), ty: Type::Int, optional: false },
-    ]);
+    let obj_b = Type::Object(vec![ObjectField {
+        name: "x".into(),
+        ty: Type::Int,
+        optional: false,
+    }]);
     // { x: int, y: float } <: { x: int } — supertype has fewer fields
     assert!(obj_a.is_subtype_of(&obj_b));
 }
@@ -166,7 +178,10 @@ fn test_lub_int_float() {
 #[test]
 fn test_lub_with_dyn() {
     assert_eq!(Type::Int.least_upper_bound(&Type::Dynamic), Type::Dynamic);
-    assert_eq!(Type::Dynamic.least_upper_bound(&Type::String), Type::Dynamic);
+    assert_eq!(
+        Type::Dynamic.least_upper_bound(&Type::String),
+        Type::Dynamic
+    );
 }
 
 #[test]
@@ -203,15 +218,42 @@ fn test_non_null() {
 #[test]
 fn test_from_annotation() {
     use ruyic::parser::ast::TypeAnnotation;
-    assert_eq!(Type::from_annotation(&TypeAnnotation::Identifier("int".into())), Type::Int);
-    assert_eq!(Type::from_annotation(&TypeAnnotation::Identifier("float".into())), Type::Float);
-    assert_eq!(Type::from_annotation(&TypeAnnotation::Identifier("bool".into())), Type::Bool);
-    assert_eq!(Type::from_annotation(&TypeAnnotation::Identifier("string".into())), Type::String);
-    assert_eq!(Type::from_annotation(&TypeAnnotation::Identifier("null".into())), Type::Null);
-    assert_eq!(Type::from_annotation(&TypeAnnotation::Identifier("void".into())), Type::Void);
-    assert_eq!(Type::from_annotation(&TypeAnnotation::Identifier("never".into())), Type::Never);
-    assert_eq!(Type::from_annotation(&TypeAnnotation::Identifier("dyn".into())), Type::Dynamic);
-    assert_eq!(Type::from_annotation(&TypeAnnotation::Identifier("bigint".into())), Type::BigInt);
+    assert_eq!(
+        Type::from_annotation(&TypeAnnotation::Identifier("int".into())),
+        Type::Int
+    );
+    assert_eq!(
+        Type::from_annotation(&TypeAnnotation::Identifier("float".into())),
+        Type::Float
+    );
+    assert_eq!(
+        Type::from_annotation(&TypeAnnotation::Identifier("bool".into())),
+        Type::Bool
+    );
+    assert_eq!(
+        Type::from_annotation(&TypeAnnotation::Identifier("string".into())),
+        Type::String
+    );
+    assert_eq!(
+        Type::from_annotation(&TypeAnnotation::Identifier("null".into())),
+        Type::Null
+    );
+    assert_eq!(
+        Type::from_annotation(&TypeAnnotation::Identifier("void".into())),
+        Type::Void
+    );
+    assert_eq!(
+        Type::from_annotation(&TypeAnnotation::Identifier("never".into())),
+        Type::Never
+    );
+    assert_eq!(
+        Type::from_annotation(&TypeAnnotation::Identifier("dyn".into())),
+        Type::Dynamic
+    );
+    assert_eq!(
+        Type::from_annotation(&TypeAnnotation::Identifier("bigint".into())),
+        Type::BigInt
+    );
     assert_eq!(
         Type::from_annotation(&TypeAnnotation::Identifier("MyClass".into())),
         Type::Named("MyClass".into())
@@ -223,7 +265,10 @@ fn test_from_annotation_nullable() {
     use ruyic::parser::ast::TypeAnnotation;
     let inner = TypeAnnotation::Identifier("int".into());
     let nullable = TypeAnnotation::Nullable(Box::new(inner));
-    assert_eq!(Type::from_annotation(&nullable), Type::Nullable(Box::new(Type::Int)));
+    assert_eq!(
+        Type::from_annotation(&nullable),
+        Type::Nullable(Box::new(Type::Int))
+    );
 }
 
 #[test]
@@ -262,7 +307,10 @@ fn test_from_annotation_generic() {
 fn test_from_annotation_array() {
     use ruyic::parser::ast::TypeAnnotation;
     let arr_type = TypeAnnotation::Array(Box::new(TypeAnnotation::Identifier("string".into())));
-    assert_eq!(Type::from_annotation(&arr_type), Type::Array(Box::new(Type::String)));
+    assert_eq!(
+        Type::from_annotation(&arr_type),
+        Type::Array(Box::new(Type::String))
+    );
 }
 
 // ── Type Environment ───────────────────────────────────────────
@@ -325,7 +373,10 @@ fn test_env_narrowing() {
     env.narrow("x", Type::String);
     assert_eq!(env.lookup("x"), Some(&Type::String));
     env.pop_scope();
-    assert_eq!(env.lookup("x"), Some(&Type::Nullable(Box::new(Type::String))));
+    assert_eq!(
+        env.lookup("x"),
+        Some(&Type::Nullable(Box::new(Type::String)))
+    );
 }
 
 #[test]
@@ -344,7 +395,10 @@ fn test_diagnostic_type_mismatch() {
     });
     assert!(diag.is_error());
     assert!(!diag.is_warning());
-    assert_eq!(diag.message(), "Type mismatch: expected `int`, but found `string`");
+    assert_eq!(
+        diag.message(),
+        "Type mismatch: expected `int`, but found `string`"
+    );
 }
 
 #[test]
@@ -361,7 +415,9 @@ fn test_diagnostic_immutable_assign() {
 
 #[test]
 fn test_diagnostic_nullable_access() {
-    let diag = Diagnostic::error(DiagnosticKind::NullableAccess { ty: Type::Nullable(Box::new(Type::String)) });
+    let diag = Diagnostic::error(DiagnosticKind::NullableAccess {
+        ty: Type::Nullable(Box::new(Type::String)),
+    });
     assert!(diag.message().contains("Nullable access"));
 }
 
@@ -384,7 +440,10 @@ fn test_diagnostic_display() {
 #[test]
 fn test_diagnostic_bag() {
     let mut bag = DiagnosticBag::new();
-    bag.add_error(DiagnosticKind::TypeMismatch { expected: Type::Int, found: Type::String });
+    bag.add_error(DiagnosticKind::TypeMismatch {
+        expected: Type::Int,
+        found: Type::String,
+    });
     bag.add_warning(DiagnosticKind::CannotInfer);
     assert!(bag.has_errors());
     assert!(bag.has_warnings());
@@ -495,7 +554,9 @@ fn check_program(source: &str) -> TypeCheckResult {
         Err(_) => {
             let env = TypeEnvironment::new();
             let mut bag = DiagnosticBag::new();
-            bag.add_error(DiagnosticKind::Other { message: "lexer error".into() });
+            bag.add_error(DiagnosticKind::Other {
+                message: "lexer error".into(),
+            });
             return TypeCheckResult {
                 env,
                 diagnostics: bag.into_diagnostics(),
@@ -509,7 +570,9 @@ fn check_program(source: &str) -> TypeCheckResult {
         Err(_) => {
             let env = TypeEnvironment::new();
             let mut bag = DiagnosticBag::new();
-            bag.add_error(DiagnosticKind::Other { message: "parse error".into() });
+            bag.add_error(DiagnosticKind::Other {
+                message: "parse error".into(),
+            });
             return TypeCheckResult {
                 env,
                 diagnostics: bag.into_diagnostics(),
@@ -524,7 +587,9 @@ fn check_program(source: &str) -> TypeCheckResult {
 
 fn assert_no_errors(result: &TypeCheckResult) {
     if result.has_errors {
-        let errors: Vec<String> = result.diagnostics.iter()
+        let errors: Vec<String> = result
+            .diagnostics
+            .iter()
             .filter(|d| d.is_error())
             .map(|d| d.message().to_string())
             .collect();
@@ -573,7 +638,10 @@ fn test_infer_dyn_default() {
 fn test_infer_typed_annotation() {
     assert_eq!(get_var_type("let x: int = 42;", "x"), Some(Type::Int));
     assert_eq!(get_var_type("let x: float = 3.14;", "x"), Some(Type::Float));
-    assert_eq!(get_var_type("let x: string = \"hi\";", "x"), Some(Type::String));
+    assert_eq!(
+        get_var_type("let x: string = \"hi\";", "x"),
+        Some(Type::String)
+    );
 }
 
 // ── Expression Inference ──────────────────────────────────────
@@ -590,7 +658,10 @@ fn test_infer_addition_int_float() {
 
 #[test]
 fn test_infer_string_concat() {
-    assert_eq!(get_var_type("let x = \"hello\" + \" world\";", "x"), Some(Type::String));
+    assert_eq!(
+        get_var_type("let x = \"hello\" + \" world\";", "x"),
+        Some(Type::String)
+    );
 }
 
 #[test]
@@ -605,12 +676,18 @@ fn test_infer_less_than() {
 
 #[test]
 fn test_infer_logical_and() {
-    assert_eq!(get_var_type("let x = true && false;", "x"), Some(Type::Bool));
+    assert_eq!(
+        get_var_type("let x = true && false;", "x"),
+        Some(Type::Bool)
+    );
 }
 
 #[test]
 fn test_infer_logical_or() {
-    assert_eq!(get_var_type("let x = true || false;", "x"), Some(Type::Bool));
+    assert_eq!(
+        get_var_type("let x = true || false;", "x"),
+        Some(Type::Bool)
+    );
 }
 
 #[test]
@@ -715,7 +792,15 @@ fn test_check_string_literal() {
 #[ignore] // Parser/type checker limitation
 fn test_check_array_literal() {
     let result = check_program("let x = [1, 2, 3];");
-    assert!(!result.has_errors, "errors: {:?}", result.diagnostics.iter().map(|d| d.message()).collect::<Vec<_>>());
+    assert!(
+        !result.has_errors,
+        "errors: {:?}",
+        result
+            .diagnostics
+            .iter()
+            .map(|d| d.message())
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]
@@ -1028,6 +1113,39 @@ fn test_check_class_extends() {
 }
 
 #[test]
+fn test_self_referential_field_nullable_warning() {
+    let source = "class ListNode { value: int; next: ListNode?; }";
+    let result = check_program(source);
+    let warnings: Vec<_> = result.warnings().collect();
+    assert!(
+        !warnings.is_empty(),
+        "nullable self-ref should produce warning"
+    );
+}
+
+#[test]
+fn test_self_referential_field_nonnullable_error() {
+    let source = "class ListNode { value: int; next: ListNode; }";
+    let result = check_program(source);
+    assert!(
+        result.has_errors,
+        "non-nullable self-ref should be an error"
+    );
+}
+
+#[test]
+fn test_normal_fields_no_diagnostic() {
+    let source = "class Point { x: float; y: float; }";
+    let result = check_program(source);
+    assert_no_errors(&result);
+    assert_eq!(
+        result.warnings().count(),
+        0,
+        "normal fields should not trigger self-ref warning"
+    );
+}
+
+#[test]
 #[ignore] // Parser/type checker limitation
 fn test_check_trait_with_method() {
     let result = check_program("trait Printable { fn format(self): string; }");
@@ -1324,7 +1442,10 @@ fn test_check_nullable_with_value() {
 #[test]
 fn test_check_unsafe_nullable_access_error() {
     let result = check_program("let obj: { prop: int }? = null; let x = obj.prop;");
-    assert!(result.has_errors, "Expected error for unsafe nullable access");
+    assert!(
+        result.has_errors,
+        "Expected error for unsafe nullable access"
+    );
 }
 
 #[test]
@@ -1395,7 +1516,8 @@ fn test_check_nullable_array() {
 
 #[test]
 fn test_check_optional_chain_nested() {
-    let result = check_program("let obj: { inner: { value: int } }? = null; let x = obj?.inner?.value;");
+    let result =
+        check_program("let obj: { inner: { value: int } }? = null; let x = obj?.inner?.value;");
     assert_no_errors(&result);
 }
 
@@ -1408,21 +1530,30 @@ fn test_check_nullish_assignment() {
 #[test]
 fn test_diagnostic_unsafe_nullable_access() {
     let result = check_program("let obj: { prop: int }? = null; let x = obj.prop;");
-    let has_unsafe_error = result.diagnostics.iter().any(|d| {
-        d.message().contains("Unsafe nullable access")
-    });
-    assert!(has_unsafe_error, "Expected UnsafeNullableAccess error: {:?}", result.diagnostics);
+    let has_unsafe_error = result
+        .diagnostics
+        .iter()
+        .any(|d| d.message().contains("Unsafe nullable access"));
+    assert!(
+        has_unsafe_error,
+        "Expected UnsafeNullableAccess error: {:?}",
+        result.diagnostics
+    );
 }
 
 #[test]
 fn test_check_chained_nullish_coalescing() {
-    let result = check_program("let a: string? = null; let b: string? = null; let c = a ?? b ?? \"fallback\";");
+    let result = check_program(
+        "let a: string? = null; let b: string? = null; let c = a ?? b ?? \"fallback\";",
+    );
     assert_no_errors(&result);
 }
 
 #[test]
 fn test_check_nullish_coalescing_with_function_call() {
-    let result = check_program("fn getDefault(): int { return -1; } let x: int? = null; let y = x ?? getDefault();");
+    let result = check_program(
+        "fn getDefault(): int { return -1; } let x: int? = null; let y = x ?? getDefault();",
+    );
     assert_no_errors(&result);
 }
 
@@ -1466,12 +1597,10 @@ fn test_check_async_function_type() {
     let result = check_program("async fn fetch(): int { return 42; }");
     let ty = result.env.lookup("fetch").cloned();
     match ty {
-        Some(Type::Function { return_type, .. }) => {
-            match *return_type {
-                Type::Future(inner) => assert_eq!(*inner, Type::Int),
-                other => panic!("Expected Future<int>, got {:?}", other),
-            }
-        }
+        Some(Type::Function { return_type, .. }) => match *return_type {
+            Type::Future(inner) => assert_eq!(*inner, Type::Int),
+            other => panic!("Expected Future<int>, got {:?}", other),
+        },
         other => panic!("Expected function type, got {:?}", other),
     }
 }
@@ -1491,7 +1620,9 @@ fn test_check_async_arrow_function() {
 
 #[test]
 fn test_check_await_expression() {
-    let result = check_program("async fn foo(): int { let x = await bar(); return x; } async fn bar(): int { return 1; }");
+    let result = check_program(
+        "async fn foo(): int { let x = await bar(); return x; } async fn bar(): int { return 1; }",
+    );
     assert_no_errors(&result);
 }
 
@@ -1510,7 +1641,10 @@ fn test_check_async_method() {
 #[test]
 fn test_future_type_display() {
     assert_eq!(Type::Future(Box::new(Type::Int)).to_string(), "Future<int>");
-    assert_eq!(Type::Future(Box::new(Type::String)).to_string(), "Future<string>");
+    assert_eq!(
+        Type::Future(Box::new(Type::String)).to_string(),
+        "Future<string>"
+    );
 }
 
 #[test]
@@ -1529,8 +1663,8 @@ fn test_check_nested_async() {
 
 #[test]
 fn test_type_inference_has_trait_registry() {
-    use ruyic::typechecker::traits::TraitRegistry;
     use ruyic::typechecker::inference::TypeInference;
+    use ruyic::typechecker::traits::TraitRegistry;
     let registry = TraitRegistry::new();
     let _inference = TypeInference::new(registry);
     assert!(true);
@@ -1576,6 +1710,13 @@ fn test_supertrait_valid_hierarchy() {
 fn test_trait_bound_dyn_always_passes() {
     let source = "trait Marker { } fn main() { let x: dyn = 42; }";
     let result = check_program(source);
-    assert!(!result.has_errors, "dyn should pass any bound, errors: {:?}",
-        result.diagnostics.iter().map(|d| d.message()).collect::<Vec<_>>());
+    assert!(
+        !result.has_errors,
+        "dyn should pass any bound, errors: {:?}",
+        result
+            .diagnostics
+            .iter()
+            .map(|d| d.message())
+            .collect::<Vec<_>>()
+    );
 }

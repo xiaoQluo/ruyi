@@ -1,0 +1,211 @@
+// =============================================================================
+// Variables and Types - Ruyi Tutorial Chapter 2: Basic Syntax
+// =============================================================================
+// Covers: let/const, built-in types, type annotations, numeric literals,
+//         string literals, operators, comments
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 2.1 Variables: let and const
+// -----------------------------------------------------------------------------
+// let declares a mutable variable
+let mutableVar: int = 42;
+mutableVar = 100;
+
+// const declares an immutable variable
+const PI: float = 3.14159;
+
+// Block scoping
+{
+  let inner: string = "visible inside";
+  print(inner);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 2.2 & 2.3 Built-in Types and Type Annotations
+// -----------------------------------------------------------------------------
+let count: int = 42;
+let name: string = "Ruyi";
+let ratio: float = 0.75;
+let active: bool = true;
+
+// Type inference
+let x = 42;           // x: int (inferred)
+let y = "hello";      // y: string (inferred)
+let z = true;         // z: bool (inferred)
+
+// No initializer + no annotation => dyn
+let unknown;
+
+// -----------------------------------------------------------------------------
+// 2.4 Numeric Literals
+// -----------------------------------------------------------------------------
+// Decimal
+let decimal: int = 42;
+let negative: int = -7;
+
+// Floating point
+let pi: float = 3.14159;
+let scientific: float = 1e10;
+let small: float = 0.001;
+
+// Hexadecimal
+let hex: int = 0xFF;       // 255
+
+// Octal
+let octal: int = 0o77;     // 63
+
+// Binary
+let binary: int = 0b1010;  // 10
+
+// BigInt (planned - not yet supported in codegen)
+// let big = 100n;
+
+print("=== Numeric Literals ===\n");
+print("decimal: ");
+print(decimal);
+print("\nnegative: ");
+print(negative);
+print("\nhex (0xFF): ");
+print(hex);
+print("\noctal (0o77): ");
+print(octal);
+print("\nbinary (0b1010): ");
+print(binary);
+print("\nbig: ");
+// print(big);
+print("(planned)");
+print("\n");
+
+// -----------------------------------------------------------------------------
+// 2.5 String Literals
+// -----------------------------------------------------------------------------
+let greeting: string = "Hello, Ruyi!";
+let singleQuoted: string = 'World';
+
+// Escape sequences
+let escaped: string = "line1\nline2\ttab";
+print("=== String Literals ===\n");
+print(greeting);
+print("\n");
+print(singleQuoted);
+print("\n");
+print(escaped);
+print("\n");
+
+// -----------------------------------------------------------------------------
+// 2.6 Operators
+// -----------------------------------------------------------------------------
+// Arithmetic
+let sum: int = 10 + 3;       // 13
+let diff: int = 10 - 3;      // 7
+let product: int = 10 * 3;   // 30
+let quotient: int = 10 / 3;  // 3 (integer division)
+let remainder: int = 10 % 3; // 1
+let power: int = 2 ** 8;     // 256
+
+print("=== Arithmetic Operators ===\n");
+print("10 + 3 = ");
+print(sum);
+print("\n10 - 3 = ");
+print(diff);
+print("\n10 * 3 = ");
+print(product);
+print("\n10 / 3 = ");
+print(quotient);
+print("\n10 % 3 = ");
+print(remainder);
+print("\n2 ** 8 = ");
+print(power);
+print("\n");
+
+// Comparison (strict equality only - no == or !=)
+let eq: bool = 5 === 5;       // true
+let neq: bool = 5 !== 3;      // true
+let lt: bool = 3 < 5;         // true
+let gt: bool = 5 > 3;         // true
+let lte: bool = 3 <= 3;       // true
+let gte: bool = 5 >= 5;       // true
+
+print("=== Comparison Operators ===\n");
+print("5 === 5: ");
+print(eq);
+print("\n5 !== 3: ");
+print(neq);
+print("\n3 < 5: ");
+print(lt);
+print("\n5 > 3: ");
+print(gt);
+print("\n");
+
+// Logical
+let and: bool = true && false;   // false
+let or: bool = true || false;    // true
+let not: bool = !true;           // false
+
+print("=== Logical Operators ===\n");
+print("true && false: ");
+print(and);
+print("\ntrue || false: ");
+print(or);
+print("\n!true: ");
+print(not);
+print("\n");
+
+// Nullish coalescing
+let maybeName: string? = null;
+let displayName: string = maybeName ?? "anonymous";
+
+print("=== Nullish Coalescing ===\n");
+print("null ?? \"anonymous\": ");
+print(displayName);
+print("\n");
+
+// -----------------------------------------------------------------------------
+// 2.7 Comments
+// -----------------------------------------------------------------------------
+// Single-line comment
+
+/* Multi-line
+   comment */
+
+/**
+ * Documentation comment.
+ * Preserved for tooling.
+ */
+
+// -----------------------------------------------------------------------------
+// Main entry point
+// -----------------------------------------------------------------------------
+fn main() {
+  print("=== Variables and Types Demo ===\n\n");
+
+  // Demonstrate let vs const
+  let counter: int = 0;
+  counter = counter + 1;
+  print("counter (let): ");
+  print(counter);
+  print("\n");
+
+  const MAX: int = 100;
+  print("MAX (const): ");
+  print(MAX);
+  print("\n");
+
+  // Demonstrate type inference
+  let inferred = 42;
+  print("inferred type (42): ");
+  print(inferred);
+  print("\n");
+
+  // Demonstrate block scoping
+  {
+    let blockScoped: int = 999;
+    print("block-scoped var: ");
+    print(blockScoped);
+    print("\n");
+  }
+
+  print("\nAll basic syntax demos completed successfully!\n");
+}

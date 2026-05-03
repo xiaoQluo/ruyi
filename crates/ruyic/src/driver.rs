@@ -6,7 +6,6 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,10 +13,10 @@ use std::path::{Path, PathBuf};
 use crate::codegen::CodeGenerator;
 use crate::lexer::LexerError;
 use crate::macro_expand::{expand_macros, MacroError, MacroRegistry};
-use crate::parser::{ParseError, Parser as RuyiParser};
-use crate::typechecker::{TypeCheckResult, TypeChecker};
 use crate::parser::ast::Program;
+use crate::parser::{ParseError, Parser as RuyiParser};
 use crate::typechecker::diagnostics::Diagnostic;
+use crate::typechecker::{TypeCheckResult, TypeChecker};
 
 /// Errors that can occur during compilation.
 #[derive(Debug)]
@@ -229,7 +228,10 @@ impl Driver {
     }
 
     /// Compile a source file with the given options.
-    pub fn compile_file(&mut self, options: &CompileOptions) -> Result<CompileResult, CompileError> {
+    pub fn compile_file(
+        &mut self,
+        options: &CompileOptions,
+    ) -> Result<CompileResult, CompileError> {
         let source = fs::read_to_string(&options.input)?;
 
         // Resolve modules and combine programs
@@ -240,25 +242,41 @@ impl Driver {
     }
 
     /// Compile a program string directly.
-    pub fn compile_source(&mut self, source: &str, options: &CompileOptions) -> Result<CompileResult, CompileError> {
+    pub fn compile_source(
+        &mut self,
+        source: &str,
+        options: &CompileOptions,
+    ) -> Result<CompileResult, CompileError> {
         let program = self.parse_source(source)?;
         self.compile_program(program, options)
     }
 
     fn ensure_runtime_built() -> Result<(), CompileError> {
         let status = std::process::Command::new("cargo")
-            .args(["build", "-p", "ruyi_runtime", "--lib", "--no-default-features"])
+            .args([
+                "build",
+                "-p",
+                "ruyi_runtime",
+                "--lib",
+                "--no-default-features",
+            ])
             .status()
             .map_err(|e| CompileError::Io(format!("Failed to build runtime: {}", e)))?;
 
         if !status.success() {
-            return Err(CompileError::Linker("Failed to build ruyi_runtime".to_string()));
+            return Err(CompileError::Linker(
+                "Failed to build ruyi_runtime".to_string(),
+            ));
         }
         Ok(())
     }
 
     /// Parse source to AST, handling imports.
-    fn resolve_modules(&mut self, source: &str, input_path: &Path) -> Result<Program, CompileError> {
+    fn resolve_modules(
+        &mut self,
+        source: &str,
+        input_path: &Path,
+    ) -> Result<Program, CompileError> {
         // Parse the main file
         let mut parser = RuyiParser::new(source)?;
         let mut program = parser.parse()?;
@@ -270,7 +288,11 @@ impl Driver {
     }
 
     /// Recursively resolve imports in a program.
-    fn resolve_imports(&mut self, mut program: Program, _input_path: &Path) -> Result<Program, CompileError> {
+    fn resolve_imports(
+        &mut self,
+        mut program: Program,
+        _input_path: &Path,
+    ) -> Result<Program, CompileError> {
         let items_to_process: Vec<_> = program.items.clone();
         program.items.clear();
 
@@ -286,7 +308,9 @@ impl Driver {
                         let mut module_parser = RuyiParser::new(&module_source)?;
                         let mut module_ast = module_parser.parse()?;
                         module_ast = self.resolve_imports(module_ast, &resolved_path)?;
-                        self.resolver.loaded_modules.insert(canonical.clone(), module_ast);
+                        self.resolver
+                            .loaded_modules
+                            .insert(canonical.clone(), module_ast);
                     }
 
                     // For now, we just skip the import item since we're
@@ -310,14 +334,21 @@ impl Driver {
     }
 
     /// Run the full compilation pipeline on a program.
-    pub fn compile_program(&mut self, program: Program, options: &CompileOptions) -> Result<CompileResult, CompileError> {
+    pub fn compile_program(
+        &mut self,
+        program: Program,
+        options: &CompileOptions,
+    ) -> Result<CompileResult, CompileError> {
         // Phase 1: Lexing (already done in parser)
         // Phase 2: Parsing (already done)
 
         if matches!(options.emit, EmitType::Ast) {
             return Ok(CompileResult {
                 llvm_ir: Some(format!("{:#?}", program)),
-                output_path: options.output.clone().unwrap_or_else(|| PathBuf::from("ast.txt")),
+                output_path: options
+                    .output
+                    .clone()
+                    .unwrap_or_else(|| PathBuf::from("ast.txt")),
             });
         }
 
@@ -335,7 +366,10 @@ impl Driver {
         if matches!(options.emit, EmitType::TypedAst) {
             return Ok(CompileResult {
                 llvm_ir: Some(format!("{:#?}", type_result.env)),
-                output_path: options.output.clone().unwrap_or_else(|| PathBuf::from("typed_ast.txt")),
+                output_path: options
+                    .output
+                    .clone()
+                    .unwrap_or_else(|| PathBuf::from("typed_ast.txt")),
             });
         }
 
@@ -360,12 +394,33 @@ impl Driver {
         generator.generate(&expanded)?;
 
         // Phase 6: Output
-        let output_path = options.output.clone().unwrap_or_else(|| {
-            match options.emit {
-                EmitType::LlvmIr => options.input.with_extension("ll"),
-                _ => options.input.with_extension(""),
-            }
-        });
+        let output_path = options
+            .output
+            .clone()
+            .unwrap_or_else(|| match options.emit {
+                EmitType::LlvmIr => {
+                    let parent = options.input.parent().unwrap_or(std::path::Path::new("."));
+                    let target_dir = parent.join("target");
+                    std::fs::create_dir_all(&target_dir).ok();
+                    let stem = options
+                        .input
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("main");
+                    target_dir.join(format!("{}.ll", stem))
+                }
+                _ => {
+                    let parent = options.input.parent().unwrap_or(std::path::Path::new("."));
+                    let target_dir = parent.join("target");
+                    std::fs::create_dir_all(&target_dir).ok();
+                    let stem = options
+                        .input
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("main");
+                    target_dir.join(stem)
+                }
+            });
 
         match options.emit {
             EmitType::LlvmIr => {

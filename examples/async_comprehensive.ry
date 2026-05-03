@@ -1,0 +1,146 @@
+// =============================================================================
+// Async Programming - Ruyi Tutorial Chapter 11
+// =============================================================================
+// Covers: async functions, await, concurrent execution, async arrow functions,
+//         async iterators, async and exceptions
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 11.1 async Functions
+// -----------------------------------------------------------------------------
+async fn fetchData(url: string): string {
+  // Simulated async operation
+  let result: string = "data from " + url;
+  return result;
+}
+
+// -----------------------------------------------------------------------------
+// 11.2 await Expression
+// -----------------------------------------------------------------------------
+async fn loadSequential(urls: Array<string>): Array<string> {
+  let results: Array<string> = [];
+  for (let url of urls) {
+    let data = await fetchData(url);
+    results.push(data);
+  }
+  return results;
+}
+
+// -----------------------------------------------------------------------------
+// 11.3 Concurrent Execution
+// -----------------------------------------------------------------------------
+async fn loadConcurrent(urls: Array<string>): Array<string> {
+  let futures = [];
+  for (let url of urls) {
+    futures.push(spawn(fetchData(url)));
+  }
+
+  let results: Array<string> = [];
+  for (let future of futures) {
+    let data = await future;
+    results.push(data);
+  }
+  return results;
+}
+
+// -----------------------------------------------------------------------------
+// 11.4 Async Arrow Functions
+// -----------------------------------------------------------------------------
+fn asyncArrowDemo() {
+  print("--- Async Arrow Functions ---\n");
+
+  let fetch = async (url) => await fetchData(url);
+  print("async arrow function created\n");
+}
+
+// -----------------------------------------------------------------------------
+// 11.5 Async Iterators
+// -----------------------------------------------------------------------------
+async fn* readLines(count: int): AsyncIterator<string> {
+  let i: int = 0;
+  while (i < count) {
+    let line: string = "line " + toString(i);
+    yield line;
+    i = i + 1;
+  }
+}
+
+async fn asyncIteratorDemo() {
+  print("--- Async Iterators ---\n");
+
+  for await (let line of readLines(3)) {
+    print(line);
+    print("\n");
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 11.8 Async and Exceptions
+// -----------------------------------------------------------------------------
+async fn risky(): int {
+  throw Error("async error");
+}
+
+async fn safeOperation(): int {
+  return 42;
+}
+
+async fn asyncExceptionDemo() {
+  print("--- Async and Exceptions ---\n");
+
+  try {
+    let result = await safeOperation();
+    print("safe result: ");
+    print(result);
+    print("\n");
+  } catch (e: Error) {
+    print("unexpected error: ");
+    print(e.message);
+    print("\n");
+  }
+
+  try {
+    let result = await risky();
+    print("should not reach here\n");
+  } catch (e: Error) {
+    print("caught async error: ");
+    print(e.message);
+    print("\n");
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Practical: async main
+// -----------------------------------------------------------------------------
+async fn main() {
+  print("=== Async Programming Demo ===\n\n");
+
+  // Basic async/await
+  print("--- Basic async/await ---\n");
+  let data = await fetchData("https://api.example.com");
+  print(data);
+  print("\n\n");
+
+  // Sequential loading
+  print("--- Sequential Loading ---\n");
+  let urls: Array<string> = ["url1", "url2", "url3"];
+  let results = await loadSequential(urls);
+  for (let r of results) {
+    print(r);
+    print("\n");
+  }
+  print("\n");
+
+  // Async arrow
+  asyncArrowDemo();
+  print("\n");
+
+  // Async iterator
+  await asyncIteratorDemo();
+  print("\n");
+
+  // Async exceptions
+  await asyncExceptionDemo();
+
+  print("\nAll async demos completed successfully!\n");
+}

@@ -1,6 +1,6 @@
 use crate::lexer::token::Token;
-use crate::macro_expand::{MacroRegistry, MacroResult, BuiltinMacro};
 use crate::macro_expand::hygiene::HygieneContext;
+use crate::macro_expand::{BuiltinMacro, MacroRegistry, MacroResult};
 
 pub fn register_builtins(registry: &mut MacroRegistry) {
     registry.builtins.insert(

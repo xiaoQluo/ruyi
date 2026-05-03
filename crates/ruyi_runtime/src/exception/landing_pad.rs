@@ -49,7 +49,9 @@ pub mod llvm {
         ) -> BasicValueEnum<'ctx> {
             let i8_ptr = self.context.i8_type().ptr_type(AddressSpace::default());
             let i32_ty = self.context.i32_type();
-            let lpad_ty = self.context.struct_type(&[i8_ptr.into(), i32_ty.into()], false);
+            let lpad_ty = self
+                .context
+                .struct_type(&[i8_ptr.into(), i32_ty.into()], false);
 
             let personality = self.get_personality_function();
 
@@ -59,13 +61,8 @@ pub mod llvm {
                 clauses.push(type_info.as_basic_value_enum());
             }
 
-            self.builder.build_landing_pad(
-                lpad_ty,
-                personality,
-                &clauses,
-                has_cleanup,
-                name,
-            )
+            self.builder
+                .build_landing_pad(lpad_ty, personality, &clauses, has_cleanup, name)
         }
 
         /// Build an `invoke` instruction.
@@ -81,7 +78,8 @@ pub mod llvm {
             catch_bb: BasicBlock<'ctx>,
             name: &str,
         ) -> inkwell::values::CallSiteValue<'ctx> {
-            self.builder.build_invoke(fn_val, args, then_bb, catch_bb, name)
+            self.builder
+                .build_invoke(fn_val, args, then_bb, catch_bb, name)
         }
 
         /// Build a `resume` instruction.
@@ -124,7 +122,11 @@ pub mod llvm {
             let type_info = self.get_type_info_global(type_id);
 
             self.builder
-                .build_call(intrinsic, &[type_info.as_basic_value_enum().into()], "typeid")
+                .build_call(
+                    intrinsic,
+                    &[type_info.as_basic_value_enum().into()],
+                    "typeid",
+                )
                 .try_as_basic_value()
                 .left()
                 .unwrap()
@@ -212,6 +214,8 @@ pub mod llvm {
         name: &str,
         fn_type: inkwell::types::FunctionType<'ctx>,
     ) -> FunctionValue<'ctx> {
-        module.get_function(name).unwrap_or_else(|| module.add_function(name, fn_type, None))
+        module
+            .get_function(name)
+            .unwrap_or_else(|| module.add_function(name, fn_type, None))
     }
 }

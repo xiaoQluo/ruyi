@@ -1,0 +1,208 @@
+// =============================================================================
+// Classes and Objects - Ruyi Tutorial Chapter 5
+// =============================================================================
+// Covers: class declarations, constructors, static methods, inheritance,
+//         getters/setters, object literals, spread syntax
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 5.1 & 5.2 Class Declarations and Constructors
+// -----------------------------------------------------------------------------
+class Point {
+  x: float;
+  y: float;
+
+  fn new(x: float, y: float) {
+    self.x = x;
+    self.y = y;
+  }
+
+  fn distance(other: Point): float {
+    let dx: float = self.x - other.x;
+    let dy: float = self.y - other.y;
+    return (dx ** 2 + dy ** 2) ** 0.5;
+  }
+
+  fn describe(): string {
+    return "Point";
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 5.3 Static Methods
+// -----------------------------------------------------------------------------
+class Rectangle {
+  width: float;
+  height: float;
+
+  fn new(width: float, height: float) {
+    self.width = width;
+    self.height = height;
+  }
+
+  fn area(): float {
+    return self.width * self.height;
+  }
+
+  static fn square(side: float): Rectangle {
+    return Rectangle.new(side, side);
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 5.4 Inheritance
+// -----------------------------------------------------------------------------
+class Shape {
+  color: string;
+
+  fn new(color: string) {
+    self.color = color;
+  }
+
+  fn area(): float {
+    return 0.0;
+  }
+
+  fn describe(): string {
+    return "Shape(" + self.color + ")";
+  }
+}
+
+class Circle extends Shape {
+  radius: float;
+
+  fn new(radius: float, color: string) {
+    super.new(color);
+    self.radius = radius;
+  }
+
+  fn area(): float {
+    return 3.14159 * self.radius ** 2;
+  }
+
+  fn describe(): string {
+    return "Circle(radius=" + self.radius + ", color=" + self.color + ")";
+  }
+}
+
+class Triangle extends Shape {
+  base: float;
+  height: float;
+
+  fn new(base: float, height: float, color: string) {
+    super.new(color);
+    self.base = base;
+    self.height = height;
+  }
+
+  fn area(): float {
+    return 0.5 * self.base * self.height;
+  }
+
+  fn describe(): string {
+    return "Triangle(base=" + self.base + ", height=" + self.height + ", color=" + self.color + ")";
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 5.5 Getters and Setters (simulated via methods)
+// -----------------------------------------------------------------------------
+class Temperature {
+  _celsius: float;
+
+  fn new(celsius: float) {
+    self._celsius = celsius;
+  }
+
+  fn getCelsius(): float {
+    return self._celsius;
+  }
+
+  fn setCelsius(value: float) {
+    self._celsius = value;
+  }
+
+  fn getFahrenheit(): float {
+    return self._celsius * 9.0 / 5.0 + 32.0;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 5.6 Object Literals
+// -----------------------------------------------------------------------------
+fn objectLiteralDemo() {
+  print("--- Object Literals ---\n");
+
+  let person = {
+    name: "Alice",
+    age: 30,
+    city: "New York"
+  };
+
+  print("person.name: ");
+  print(person.name);
+  print("\nperson.age: ");
+  print(person.age);
+  print("\nperson.city: ");
+  print(person.city);
+  print("\n");
+}
+
+fn main() {
+  print("=== Classes and Objects Demo ===\n\n");
+
+  // Point class
+  print("--- Point Class ---\n");
+  let p1 = Point.new(3.0, 4.0);
+  let p2 = Point.new(0.0, 0.0);
+  print("p1 distance from origin: ");
+  print(p1.distance(p2));
+  print("\n\n");
+
+  // Rectangle with static method
+  print("--- Rectangle with Static Method ---\n");
+  let rect = Rectangle.new(5.0, 3.0);
+  print("rectangle area: ");
+  print(rect.area());
+  print("\n");
+
+  let square = Rectangle.square(4.0);
+  print("square area: ");
+  print(square.area());
+  print("\n\n");
+
+  // Inheritance
+  print("--- Inheritance ---\n");
+  let circle = Circle.new(5.0, "red");
+  print("circle area: ");
+  print(circle.area());
+  print("\ncircle color: ");
+  print(circle.color);
+  print("\ncircle describe: ");
+  print(circle.describe());
+  print("\n\n");
+
+  let triangle = Triangle.new(6.0, 4.0, "blue");
+  print("triangle area: ");
+  print(triangle.area());
+  print("\ntriangle describe: ");
+  print(triangle.describe());
+  print("\n\n");
+
+  // Getters and Setters (method-based)
+  print("--- Getters and Setters ---\n");
+  let temp = Temperature.new(100.0);
+  print("temp fahrenheit (100C): ");
+  print(temp.getFahrenheit());
+  print("\n");
+
+  temp.setCelsius(0.0);
+  print("temp fahrenheit (0C): ");
+  print(temp.getFahrenheit());
+  print("\n\n");
+
+  // Object Literals
+  objectLiteralDemo();
+
+  print("\nAll class and object demos completed successfully!\n");
+}

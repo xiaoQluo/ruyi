@@ -1,0 +1,206 @@
+// =============================================================================
+// Traits - Ruyi Tutorial Chapter 8
+// =============================================================================
+// Covers: trait declarations, impl blocks, static dispatch,
+//         dynamic dispatch (trait objects), default method implementations,
+//         trait object downcasting, orphan rule
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 8.1 Trait Declarations
+// -----------------------------------------------------------------------------
+trait Printable {
+  fn format(self): string;
+}
+
+trait Comparable<T> {
+  fn compare(self, other: T): int;
+}
+
+trait Iterator<T> {
+  fn next(self): T?;
+}
+
+// -----------------------------------------------------------------------------
+// 8.5 Default Method Implementations
+// -----------------------------------------------------------------------------
+trait Stringable {
+  fn toString(self): string;
+
+  fn display(self) {
+    print(self.toString());
+    print("\n");
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 8.2 Trait Implementations
+// -----------------------------------------------------------------------------
+impl Printable for string {
+  fn format(self): string {
+    return self;
+  }
+}
+
+impl Printable for int {
+  fn format(self): string {
+    return toString(self);
+  }
+}
+
+impl Printable for bool {
+  fn format(self): string {
+    if (self) {
+      return "true";
+    }
+    return "false";
+  }
+}
+
+// Generic impl
+impl<T: Printable> Printable for Array<T> {
+  fn format(self): string {
+    let result: string = "[";
+    // Note: iterating over generic array with trait-bounded elements
+    return result + "]";
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 8.3 Static Dispatch
+// -----------------------------------------------------------------------------
+fn printIt<T: Printable>(value: T) {
+  // static dispatch: monomorphized
+  print(value.format());
+  print("\n");
+}
+
+fn staticDispatchDemo() {
+  print("--- Static Dispatch ---\n");
+  printIt("hello");
+  printIt(42);
+  printIt(true);
+  printIt(false);
+}
+
+// -----------------------------------------------------------------------------
+// 8.4 Dynamic Dispatch (simulated - static dispatch only for now)
+// -----------------------------------------------------------------------------
+fn dynamicDispatchDemo() {
+  print("--- Dynamic Dispatch (simulated) ---\n");
+  print("Note: dyn Trait objects are planned but not yet fully implemented.\n");
+  print("Using static dispatch instead:\n");
+  printIt("hello");
+  printIt(42);
+}
+
+// -----------------------------------------------------------------------------
+// 8.6 Trait Object Downcasting
+// -----------------------------------------------------------------------------
+fn downcastDemo() {
+  print("--- Trait Object Downcasting ---\n");
+
+  let y: dyn Printable = "hello";
+
+  match (y) {
+    s as string => { print("string: "); print(s); print("\n"); }
+    n as int => { print("int: "); print(n); print("\n"); }
+    _ => { print("unknown type\n"); }
+  }
+
+  let z: dyn Printable = 42;
+  match (z) {
+    s as string => { print("string: "); print(s); print("\n"); }
+    n as int => { print("int: "); print(n); print("\n"); }
+    _ => { print("unknown type\n"); }
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Practical Example: Printable Shapes
+// -----------------------------------------------------------------------------
+trait Drawable {
+  fn draw(self);
+  fn area(self): float;
+}
+
+class CircleDrawable {
+  radius: float;
+  fn new(radius: float) {
+    self.radius = radius;
+  }
+}
+
+class RectangleDrawable {
+  width: float;
+  height: float;
+  fn new(width: float, height: float) {
+    self.width = width;
+    self.height = height;
+  }
+}
+
+impl Drawable for CircleDrawable {
+  fn draw(self) {
+    print("Drawing circle with radius ");
+    print(self.radius);
+    print("\n");
+  }
+
+  fn area(self): float {
+    return 3.14159 * self.radius ** 2;
+  }
+}
+
+impl Drawable for RectangleDrawable {
+  fn draw(self) {
+    print("Drawing rectangle ");
+    print(self.width);
+    print("x");
+    print(self.height);
+    print("\n");
+  }
+
+  fn area(self): float {
+    return self.width * self.height;
+  }
+}
+
+fn drawAllStatic() {
+  print("Static drawing demo:\n");
+}
+
+fn practicalDemo() {
+  print("--- Practical Example: Drawable Shapes ---\n");
+
+  let circle = CircleDrawable.new(5.0);
+  let rect = RectangleDrawable.new(4.0, 6.0);
+
+  // Static dispatch demo
+  circle.draw();
+  print("  area: ");
+  print(circle.area());
+  print("\n");
+
+  rect.draw();
+  print("  area: ");
+  print(rect.area());
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+  print("=== Traits Demo ===\n\n");
+
+  staticDispatchDemo();
+  print("\n");
+  dynamicDispatchDemo();
+  print("\n");
+  downcastDemo();
+  print("\n");
+  practicalDemo();
+
+  print("\nAll traits demos completed successfully!\n");
+}

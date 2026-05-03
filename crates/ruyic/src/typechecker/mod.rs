@@ -10,23 +10,22 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 pub mod arc;
-pub mod types;
-pub mod environment;
-pub mod diagnostics;
-pub mod constraints;
-pub mod inference;
 pub mod checker;
+pub mod constraints;
+pub mod diagnostics;
+pub mod environment;
+pub mod generics;
+pub mod inference;
 pub mod patterns;
 pub mod traits;
-pub mod generics;
+pub mod types;
 
 pub use arc::ArcClassRegistry;
-pub use types::*;
-pub use environment::TypeEnvironment;
-pub use diagnostics::{Diagnostic, DiagnosticBag, DiagnosticKind, Severity};
+pub use checker::{TypeCheckResult, TypeChecker};
 pub use constraints::{ConstraintSolver, SolveResult};
+pub use diagnostics::{Diagnostic, DiagnosticBag, DiagnosticKind, Severity};
+pub use environment::TypeEnvironment;
+pub use generics::{GenericDefinition, MonomorphizationTracker, Specialization, TypeParamInfo};
 pub use inference::TypeInference;
-pub use checker::{TypeChecker, TypeCheckResult};
-pub use generics::{MonomorphizationTracker, GenericDefinition, TypeParamInfo, Specialization};
+pub use types::*;

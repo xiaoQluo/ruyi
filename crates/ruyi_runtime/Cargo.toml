@@ -6,15 +6,12 @@ authors.workspace = true
 license.workspace = true
 
 [lib]
-crate-type = ["staticlib", "lib"]
+crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 inkwell = { workspace = true, optional = true }
 thiserror.workspace = true
 once_cell = "1.19"
-
-[lib]
-crate-type = ["rlib", "staticlib"]
 
 [features]
 default = ["inkwell"]

@@ -4,7 +4,6 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use thiserror::Error;
 
 #[derive(Error, Debug, Clone, PartialEq)]

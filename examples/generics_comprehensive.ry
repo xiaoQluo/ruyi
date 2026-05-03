@@ -1,0 +1,175 @@
+// =============================================================================
+// Generics - Ruyi Tutorial Chapter 7
+// =============================================================================
+// Covers: generic functions, trait bounds, generic classes,
+//         generic type aliases, type inference with generics, monomorphization
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 7.1 Generic Functions
+// -----------------------------------------------------------------------------
+fn identity<T>(x: T): T {
+  return x;
+}
+
+// -----------------------------------------------------------------------------
+// 7.2 Trait Bounds (simulated - bounds enforced by usage)
+// -----------------------------------------------------------------------------
+fn max<T>(a: T, b: T): T {
+  // Note: Without trait bounds, comparison must be done externally or via trait impl
+  return a;
+}
+
+// Multiple bounds (simulated)
+fn process<T>(value: T) {
+  print("processing value\n");
+}
+
+// -----------------------------------------------------------------------------
+// 7.3 Generic Classes
+// -----------------------------------------------------------------------------
+class Option<T> {
+  value: T?;
+
+  fn new(value: T?) {
+    self.value = value;
+  }
+
+  fn isSome(): bool {
+    return self.value !== null;
+  }
+
+  fn isNone(): bool {
+    return self.value === null;
+  }
+
+  fn unwrap(): T {
+    if (self.value === null) {
+      throw Error("unwrap on None");
+    }
+    return self.value!;
+  }
+
+  fn map<U>(f: fn(T) -> U): Option<U> {
+    if (self.value === null) {
+      return Option<U>.new(null);
+    }
+    return Option<U>.new(f(self.value!));
+  }
+
+  fn getOrElse(default: T): T {
+    if (self.value === null) {
+      return default;
+    }
+    return self.value!;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 7.4 Generic Type Aliases
+// -----------------------------------------------------------------------------
+type Result<T, E> = Ok<T> | Err<E>;
+type Callback<T> = fn(T) -> void;
+type Pair<T> = { first: T, second: T };
+
+// -----------------------------------------------------------------------------
+// 7.5 Type Inference with Generics
+// -----------------------------------------------------------------------------
+fn wrap<T>(value: T): Option<T> {
+  return Option<T>.new(value);
+}
+
+// -----------------------------------------------------------------------------
+// Demo Functions
+// -----------------------------------------------------------------------------
+fn genericFunctionDemo() {
+  print("--- Generic Functions ---\n");
+
+  let a = identity(42);
+  print("identity(42): ");
+  print(a);
+  print("\n");
+
+  let b = identity("hello");
+  print("identity(\"hello\"): ");
+  print(b);
+  print("\n");
+
+  let c = identity(true);
+  print("identity(true): ");
+  print(c);
+  print("\n");
+}
+
+fn genericClassDemo() {
+  print("--- Generic Classes (Option<T>) ---\n");
+
+  let some = Option<int>.new(42);
+  print("some.isSome(): ");
+  print(some.isSome());
+  print("\nsome.unwrap(): ");
+  print(some.unwrap());
+  print("\n");
+
+  let none: Option<int> = Option<int>.new(null);
+  print("none.isSome(): ");
+  print(none.isSome());
+  print("\nnone.isNone(): ");
+  print(none.isNone());
+  print("\n");
+
+  // map
+  let mapped = some.map((x: int) => x * 2);
+  print("some.map(x*2).unwrap(): ");
+  print(mapped.unwrap());
+  print("\n");
+
+  // getOrElse
+  print("some.getOrElse(0): ");
+  print(some.getOrElse(0));
+  print("\nnone.getOrElse(0): ");
+  print(none.getOrElse(0));
+  print("\n");
+}
+
+fn typeInferenceDemo() {
+  print("--- Type Inference with Generics ---\n");
+
+  let x = wrap(42);
+  print("wrap(42).unwrap(): ");
+  print(x.unwrap());
+  print("\n");
+
+  let y = wrap("hello");
+  print("wrap(\"hello\").unwrap(): ");
+  print(y.unwrap());
+  print("\n");
+}
+
+fn pairDemo() {
+  print("--- Pair Type Alias ---\n");
+
+  let pair: Pair<int> = { first: 1, second: 2 };
+  print("pair.first: ");
+  print(pair.first);
+  print("\npair.second: ");
+  print(pair.second);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+  print("=== Generics Demo ===\n\n");
+
+  genericFunctionDemo();
+  print("\n");
+  genericClassDemo();
+  print("\n");
+  typeInferenceDemo();
+  print("\n");
+  pairDemo();
+
+  print("\nAll generics demos completed successfully!\n");
+}

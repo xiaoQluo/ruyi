@@ -1,7 +1,7 @@
-pub mod token;
-pub mod scanner;
 pub mod error;
+pub mod scanner;
+pub mod token;
 
-pub use token::{Token, TokenWithLocation, Location};
-pub use scanner::Scanner;
 pub use error::LexerError;
+pub use scanner::Scanner;
+pub use token::{Location, Token, TokenWithLocation};

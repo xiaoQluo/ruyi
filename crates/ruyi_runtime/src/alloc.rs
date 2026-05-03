@@ -230,7 +230,11 @@ impl Heap {
 /// # Safety
 ///
 /// `type_info` must remain valid for the lifetime of the object.
-pub unsafe fn ruyi_alloc(size: usize, type_info: *mut TypeInfo, strategy: MemoryStrategy) -> *mut u8 {
+pub unsafe fn ruyi_alloc(
+    size: usize,
+    type_info: *mut TypeInfo,
+    strategy: MemoryStrategy,
+) -> *mut u8 {
     let total = size + GcObjectHeader::SIZE;
     let layout = Layout::from_size_align(total, align_of::<GcObjectHeader>()).unwrap();
     let ptr = System.alloc(layout);
@@ -344,7 +348,8 @@ mod tests {
 
     #[test]
     fn test_header_flags() {
-        let mut header = unsafe { GcObjectHeader::new(32, std::ptr::null_mut(), MemoryStrategy::GC) };
+        let mut header =
+            unsafe { GcObjectHeader::new(32, std::ptr::null_mut(), MemoryStrategy::GC) };
         assert!(!header.is_marked());
         header.set_marked();
         assert!(header.is_marked());

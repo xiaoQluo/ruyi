@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use crate::alloc::{GcObjectHeader, MemoryStrategy, TypeInfo, ruyi_alloc};
+use crate::alloc::{ruyi_alloc, GcObjectHeader, MemoryStrategy, TypeInfo};
 
 /// Young generation (nursery) for the generational GC.
 ///

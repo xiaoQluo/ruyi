@@ -60,7 +60,10 @@ fn test_let_with_type() {
         Declaration::Let(bindings) => {
             assert_eq!(bindings.len(), 1);
             assert_eq!(bindings[0].pattern, Pattern::Identifier("x".into()));
-            assert_eq!(bindings[0].ty, Some(TypeAnnotation::Identifier("int".into())));
+            assert_eq!(
+                bindings[0].ty,
+                Some(TypeAnnotation::Identifier("int".into()))
+            );
         }
         _ => panic!("expected let declaration"),
     }
@@ -127,7 +130,14 @@ fn test_const_destructure() {
 fn test_fn_simple() {
     let decl = single_decl("fn add(a: int, b: int): int { return a + b; }");
     match decl {
-        Declaration::Function { name, params, return_type, body, is_async, .. } => {
+        Declaration::Function {
+            name,
+            params,
+            return_type,
+            body,
+            is_async,
+            ..
+        } => {
             assert_eq!(name, "add");
             assert_eq!(params.len(), 2);
             assert_eq!(return_type, Some(TypeAnnotation::Identifier("int".into())));
@@ -142,17 +152,21 @@ fn test_fn_simple() {
 fn test_fn_async() {
     let stmt = single_stmt("async fn fetch() { return 1; };");
     match stmt {
-        Statement::Expression(e) => {
-            match *e {
-                Expr::Function { name, params, body, is_async, .. } => {
-                    assert_eq!(name, Some("fetch".into()));
-                    assert_eq!(params.len(), 0);
-                    assert!(is_async);
-                    assert_eq!(body.len(), 1);
-                }
-                _ => panic!("expected async function expression"),
+        Statement::Expression(e) => match *e {
+            Expr::Function {
+                name,
+                params,
+                body,
+                is_async,
+                ..
+            } => {
+                assert_eq!(name, Some("fetch".into()));
+                assert_eq!(params.len(), 0);
+                assert!(is_async);
+                assert_eq!(body.len(), 1);
             }
-        }
+            _ => panic!("expected async function expression"),
+        },
         _ => panic!("expected expression statement"),
     }
 }
@@ -161,7 +175,9 @@ fn test_fn_async() {
 fn test_fn_generic() {
     let decl = single_decl("fn identity<T>(x: T): T { return x; }");
     match decl {
-        Declaration::Function { name, type_params, .. } => {
+        Declaration::Function {
+            name, type_params, ..
+        } => {
             assert_eq!(name, "identity");
             assert_eq!(type_params.len(), 1);
             assert_eq!(type_params[0].name, "T");
@@ -174,7 +190,12 @@ fn test_fn_generic() {
 fn test_fn_no_return_type() {
     let decl = single_decl("fn main() { }");
     match decl {
-        Declaration::Function { name, return_type, body, .. } => {
+        Declaration::Function {
+            name,
+            return_type,
+            body,
+            ..
+        } => {
             assert_eq!(name, "main");
             assert_eq!(return_type, None);
             assert_eq!(body.len(), 0);
@@ -189,7 +210,12 @@ fn test_fn_no_return_type() {
 fn test_class_simple() {
     let decl = single_decl("class Point { x: int; y: int; }");
     match decl {
-        Declaration::Class { name, body, extends, .. } => {
+        Declaration::Class {
+            name,
+            body,
+            extends,
+            ..
+        } => {
             assert_eq!(name, "Point");
             assert_eq!(extends, None);
             assert_eq!(body.len(), 2);
@@ -202,7 +228,12 @@ fn test_class_simple() {
 fn test_class_with_extends() {
     let decl = single_decl("class Dog extends Animal { fn bark() { } }");
     match decl {
-        Declaration::Class { name, extends, body, .. } => {
+        Declaration::Class {
+            name,
+            extends,
+            body,
+            ..
+        } => {
             assert_eq!(name, "Dog");
             assert!(extends.is_some());
             assert_eq!(body.len(), 1);
@@ -218,7 +249,11 @@ fn test_class_with_method() {
         Declaration::Class { name, body, .. } => {
             assert_eq!(name, "Counter");
             match &body[0] {
-                ClassElement::Method { name: PropertyName::Ident(n), is_static, .. } => {
+                ClassElement::Method {
+                    name: PropertyName::Ident(n),
+                    is_static,
+                    ..
+                } => {
                     assert_eq!(n, "increment");
                     assert!(!is_static);
                 }
@@ -233,15 +268,17 @@ fn test_class_with_method() {
 fn test_class_static_field() {
     let decl = single_decl("class Config { static version: string = \"1.0\"; }");
     match decl {
-        Declaration::Class { body, .. } => {
-            match &body[0] {
-                ClassElement::Field { name: PropertyName::Ident(n), is_static, .. } => {
-                    assert_eq!(n, "version");
-                    assert!(is_static);
-                }
-                _ => panic!("expected static field"),
+        Declaration::Class { body, .. } => match &body[0] {
+            ClassElement::Field {
+                name: PropertyName::Ident(n),
+                is_static,
+                ..
+            } => {
+                assert_eq!(n, "version");
+                assert!(is_static);
             }
-        }
+            _ => panic!("expected static field"),
+        },
         _ => panic!("expected class declaration"),
     }
 }
@@ -256,7 +293,10 @@ fn test_trait_simple() {
             assert_eq!(name, "Printable");
             assert_eq!(body.len(), 1);
             match &body[0] {
-                TraitElement::Method { name: PropertyName::Ident(n), .. } => {
+                TraitElement::Method {
+                    name: PropertyName::Ident(n),
+                    ..
+                } => {
                     assert_eq!(n, "format");
                 }
                 _ => panic!("expected trait method"),
@@ -282,7 +322,9 @@ fn test_trait_with_field() {
 fn test_trait_generic() {
     let decl = single_decl("trait Container<T> { fn getValue(): T; }");
     match decl {
-        Declaration::Trait { name, type_params, .. } => {
+        Declaration::Trait {
+            name, type_params, ..
+        } => {
             assert_eq!(name, "Container");
             assert_eq!(type_params.len(), 1);
         }
@@ -341,7 +383,8 @@ fn test_macro_empty_rules() {
 
 #[test]
 fn test_macro_rule_with_tokens() {
-    let err = parse_err("macro assert { (cond) => { if (!cond) { throw \"assertion failed\"; } } }");
+    let err =
+        parse_err("macro assert { (cond) => { if (!cond) { throw \"assertion failed\"; } } }");
     match err {
         ParseError::ExpectedToken { expected, .. } => {
             assert_eq!(expected, "'=>'");
@@ -456,16 +499,14 @@ fn test_import_string_only() {
 fn test_export_named() {
     let item = single_item("export { foo, bar };");
     match item {
-        ModuleItem::Export(decl) => {
-            match decl {
-                ExportDecl::Named(items) => {
-                    assert_eq!(items.len(), 2);
-                    assert_eq!(items[0].name, "foo");
-                    assert_eq!(items[1].name, "bar");
-                }
-                _ => panic!("expected named export"),
+        ModuleItem::Export(decl) => match decl {
+            ExportDecl::Named(items) => {
+                assert_eq!(items.len(), 2);
+                assert_eq!(items[0].name, "foo");
+                assert_eq!(items[1].name, "bar");
             }
-        }
+            _ => panic!("expected named export"),
+        },
         _ => panic!("expected export"),
     }
 }
@@ -485,12 +526,10 @@ fn test_export_reexport_all() {
 fn test_export_declaration() {
     let item = single_item("export fn helper() { }");
     match item {
-        ModuleItem::Export(ExportDecl::Declaration(decl)) => {
-            match decl {
-                Declaration::Function { name, .. } => assert_eq!(name, "helper"),
-                _ => panic!("expected function declaration"),
-            }
-        }
+        ModuleItem::Export(ExportDecl::Declaration(decl)) => match decl {
+            Declaration::Function { name, .. } => assert_eq!(name, "helper"),
+            _ => panic!("expected function declaration"),
+        },
         _ => panic!("expected export declaration"),
     }
 }
@@ -512,7 +551,11 @@ fn test_export_default_expr() {
 fn test_if_simple() {
     let stmt = single_stmt("if (true) { x = 1; }");
     match stmt {
-        Statement::If { condition, then_branch, else_branch } => {
+        Statement::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
             assert_eq!(*condition, Expr::BooleanLiteral(true));
             assert!(else_branch.is_none());
             match *then_branch {
@@ -528,7 +571,11 @@ fn test_if_simple() {
 fn test_if_else() {
     let stmt = single_stmt("if (x > 0) { return 1; } else { return 0; }");
     match stmt {
-        Statement::If { condition, else_branch, .. } => {
+        Statement::If {
+            condition,
+            else_branch,
+            ..
+        } => {
             assert!(else_branch.is_some());
             match *condition {
                 Expr::Binary { op, .. } => assert_eq!(op, BinaryOp::Greater),
@@ -543,7 +590,12 @@ fn test_if_else() {
 fn test_if_let() {
     let stmt = single_stmt("if let x = maybe { return x; }");
     match stmt {
-        Statement::IfLet { pattern, value, else_branch, .. } => {
+        Statement::IfLet {
+            pattern,
+            value,
+            else_branch,
+            ..
+        } => {
             assert!(else_branch.is_none());
             assert_eq!(*value, Expr::Identifier("maybe".into()));
             assert_eq!(pattern, Pattern::Identifier("x".into()));
@@ -602,18 +654,16 @@ fn test_while_let() {
 fn test_while_nested() {
     let stmt = single_stmt("while (true) { while (false) { } }");
     match stmt {
-        Statement::While { body, .. } => {
-            match *body {
-                Statement::Block(stmts) => {
-                    assert_eq!(stmts.len(), 1);
-                    match &stmts[0] {
-                        Statement::While { .. } => {}
-                        _ => panic!("expected nested while"),
-                    }
+        Statement::While { body, .. } => match *body {
+            Statement::Block(stmts) => {
+                assert_eq!(stmts.len(), 1);
+                match &stmts[0] {
+                    Statement::While { .. } => {}
+                    _ => panic!("expected nested while"),
                 }
-                _ => panic!("expected block"),
             }
-        }
+            _ => panic!("expected block"),
+        },
         _ => panic!("expected while statement"),
     }
 }
@@ -635,7 +685,12 @@ fn test_while_condition() {
 fn test_for_c_style() {
     let stmt = single_stmt("for (i = 0; i < 10; i = i + 1) { }");
     match stmt {
-        Statement::For { init, condition, update, body } => {
+        Statement::For {
+            init,
+            condition,
+            update,
+            body,
+        } => {
             assert!(init.is_some());
             assert!(condition.is_some());
             assert!(update.is_some());
@@ -652,7 +707,12 @@ fn test_for_c_style() {
 fn test_for_infinite() {
     let stmt = single_stmt("for (;;) { }");
     match stmt {
-        Statement::For { init, condition, update, .. } => {
+        Statement::For {
+            init,
+            condition,
+            update,
+            ..
+        } => {
             assert_eq!(init, None);
             assert_eq!(condition, None);
             assert_eq!(update, None);
@@ -665,7 +725,9 @@ fn test_for_infinite() {
 fn test_for_in() {
     let stmt = single_stmt("for (let key in obj) { }");
     match stmt {
-        Statement::ForIn { variable, iterable, .. } => {
+        Statement::ForIn {
+            variable, iterable, ..
+        } => {
             assert_eq!(variable, "key");
             assert_eq!(*iterable, Expr::Identifier("obj".into()));
         }
@@ -677,7 +739,12 @@ fn test_for_in() {
 fn test_for_of() {
     let stmt = single_stmt("for (let item of list) { }");
     match stmt {
-        Statement::ForOf { variable, iterable, is_async, .. } => {
+        Statement::ForOf {
+            variable,
+            iterable,
+            is_async,
+            ..
+        } => {
             assert_eq!(variable, "item");
             assert_eq!(*iterable, Expr::Identifier("list".into()));
             assert!(!is_async);
@@ -690,7 +757,9 @@ fn test_for_of() {
 fn test_for_of_async() {
     let stmt = single_stmt("for (let item of async gen) { }");
     match stmt {
-        Statement::ForOf { variable, is_async, .. } => {
+        Statement::ForOf {
+            variable, is_async, ..
+        } => {
             assert_eq!(variable, "item");
             assert!(is_async);
         }
@@ -704,7 +773,11 @@ fn test_for_of_async() {
 fn test_try_catch() {
     let stmt = single_stmt("try { x = 1; } catch (e) { x = 0; }");
     match stmt {
-        Statement::Try { body, catch, finally } => {
+        Statement::Try {
+            body,
+            catch,
+            finally,
+        } => {
             assert_eq!(body.len(), 1);
             assert!(catch.is_some());
             assert_eq!(finally, None);
@@ -719,7 +792,11 @@ fn test_try_catch() {
 fn test_try_catch_finally() {
     let stmt = single_stmt("try { } catch { } finally { x = 1; }");
     match stmt {
-        Statement::Try { body, catch, finally } => {
+        Statement::Try {
+            body,
+            catch,
+            finally,
+        } => {
             assert_eq!(body.len(), 0);
             assert!(catch.is_some());
             assert!(finally.is_some());
@@ -745,7 +822,11 @@ fn test_try_catch_typed() {
 fn test_try_finally_only() {
     let stmt = single_stmt("try { } finally { }");
     match stmt {
-        Statement::Try { body, catch, finally } => {
+        Statement::Try {
+            body,
+            catch,
+            finally,
+        } => {
             assert_eq!(body.len(), 0);
             assert_eq!(catch, None);
             assert!(finally.is_some());
@@ -943,10 +1024,16 @@ fn test_expr_binary_power() {
 fn test_expr_binary_precedence() {
     // Should parse as (1 + 2) * 3, not 1 + (2 * 3)
     match single_expr("1 + 2 * 3;") {
-        Expr::Binary { op: BinaryOp::Plus, left, right } => {
+        Expr::Binary {
+            op: BinaryOp::Plus,
+            left,
+            right,
+        } => {
             assert_eq!(*left, Expr::IntLiteral(1));
             match *right {
-                Expr::Binary { op: BinaryOp::Star, .. } => {}
+                Expr::Binary {
+                    op: BinaryOp::Star, ..
+                } => {}
                 _ => panic!("expected * to bind tighter"),
             }
         }
@@ -1042,7 +1129,11 @@ fn test_expr_call_with_args() {
 #[test]
 fn test_expr_optional_call() {
     match single_expr("obj?.method;") {
-        Expr::Member { object, property, optional } => {
+        Expr::Member {
+            object,
+            property,
+            optional,
+        } => {
             assert_eq!(*object, Expr::Identifier("obj".into()));
             assert_eq!(property, MemberProperty::Ident("method".into()));
             assert!(optional);
@@ -1054,7 +1145,11 @@ fn test_expr_optional_call() {
 #[test]
 fn test_expr_member() {
     match single_expr("obj.prop;") {
-        Expr::Member { object, property, optional } => {
+        Expr::Member {
+            object,
+            property,
+            optional,
+        } => {
             assert_eq!(*object, Expr::Identifier("obj".into()));
             assert_eq!(property, MemberProperty::Ident("prop".into()));
             assert!(!optional);
@@ -1066,7 +1161,11 @@ fn test_expr_member() {
 #[test]
 fn test_expr_optional_member() {
     match single_expr("obj?.prop;") {
-        Expr::Member { object, property, optional } => {
+        Expr::Member {
+            object,
+            property,
+            optional,
+        } => {
             assert_eq!(*object, Expr::Identifier("obj".into()));
             assert_eq!(property, MemberProperty::Ident("prop".into()));
             assert!(optional);
@@ -1078,9 +1177,16 @@ fn test_expr_optional_member() {
 #[test]
 fn test_expr_index() {
     match single_expr("arr[0];") {
-        Expr::Member { object, property, optional } => {
+        Expr::Member {
+            object,
+            property,
+            optional,
+        } => {
             assert_eq!(*object, Expr::Identifier("arr".into()));
-            assert_eq!(property, MemberProperty::Expr(Box::new(Expr::IntLiteral(0))));
+            assert_eq!(
+                property,
+                MemberProperty::Expr(Box::new(Expr::IntLiteral(0)))
+            );
             assert!(!optional);
         }
         _ => panic!("expected index expression"),
@@ -1090,10 +1196,15 @@ fn test_expr_index() {
 #[test]
 fn test_expr_chained_member() {
     match single_expr("a.b.c;") {
-        Expr::Member { object, property, .. } => {
+        Expr::Member {
+            object, property, ..
+        } => {
             assert_eq!(property, MemberProperty::Ident("c".into()));
             match *object {
-                Expr::Member { property: MemberProperty::Ident(ref n), .. } => {
+                Expr::Member {
+                    property: MemberProperty::Ident(ref n),
+                    ..
+                } => {
                     assert_eq!(n, "b");
                 }
                 _ => panic!("expected nested member"),
@@ -1174,7 +1285,11 @@ fn test_expr_assign_bitwise() {
 #[test]
 fn test_expr_conditional() {
     match single_expr("cond ? 1 : 0;") {
-        Expr::Conditional { condition, then_branch, else_branch } => {
+        Expr::Conditional {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
             assert_eq!(*condition, Expr::Identifier("cond".into()));
             assert_eq!(*then_branch, Expr::IntLiteral(1));
             assert_eq!(*else_branch, Expr::IntLiteral(0));
@@ -1202,12 +1317,12 @@ fn test_expr_arrow_single_param() {
             assert_eq!(params.len(), 1);
             assert_eq!(params[0].pattern, Pattern::Identifier("x".into()));
             match body {
-                ArrowBody::Expr(e) => {
-                    match *e {
-                        Expr::Binary { op: BinaryOp::Star, .. } => {}
-                        _ => panic!("expected multiplication in arrow body"),
-                    }
-                }
+                ArrowBody::Expr(e) => match *e {
+                    Expr::Binary {
+                        op: BinaryOp::Star, ..
+                    } => {}
+                    _ => panic!("expected multiplication in arrow body"),
+                },
                 _ => panic!("expected expression body"),
             }
         }
@@ -1276,20 +1391,21 @@ fn test_expr_array_with_spread() {
 fn test_expr_object_literal() {
     let decl = single_decl("let _ = { x: 1 };");
     match decl {
-        Declaration::Let(bindings) => {
-            match &**bindings[0].init.as_ref().unwrap() {
-                Expr::ObjectLiteral(props) => {
-                    assert_eq!(props.len(), 1);
-                    match &props[0] {
-                        ObjectProperty::Property { key: PropertyName::Ident(n), .. } => {
-                            assert_eq!(n, "x");
-                        }
-                        _ => panic!("expected property"),
+        Declaration::Let(bindings) => match &**bindings[0].init.as_ref().unwrap() {
+            Expr::ObjectLiteral(props) => {
+                assert_eq!(props.len(), 1);
+                match &props[0] {
+                    ObjectProperty::Property {
+                        key: PropertyName::Ident(n),
+                        ..
+                    } => {
+                        assert_eq!(n, "x");
                     }
+                    _ => panic!("expected property"),
                 }
-                _ => panic!("expected object literal"),
             }
-        }
+            _ => panic!("expected object literal"),
+        },
         _ => panic!("expected let declaration"),
     }
 }
@@ -1298,18 +1414,16 @@ fn test_expr_object_literal() {
 fn test_expr_object_shorthand() {
     let decl = single_decl("let _ = { x };");
     match decl {
-        Declaration::Let(bindings) => {
-            match &**bindings[0].init.as_ref().unwrap() {
-                Expr::ObjectLiteral(props) => {
-                    assert_eq!(props.len(), 1);
-                    match &props[0] {
-                        ObjectProperty::Shorthand(n) => assert_eq!(n, "x"),
-                        _ => panic!("expected shorthand"),
-                    }
+        Declaration::Let(bindings) => match &**bindings[0].init.as_ref().unwrap() {
+            Expr::ObjectLiteral(props) => {
+                assert_eq!(props.len(), 1);
+                match &props[0] {
+                    ObjectProperty::Shorthand(n) => assert_eq!(n, "x"),
+                    _ => panic!("expected shorthand"),
                 }
-                _ => panic!("expected object literal"),
             }
-        }
+            _ => panic!("expected object literal"),
+        },
         _ => panic!("expected let declaration"),
     }
 }
@@ -1318,20 +1432,18 @@ fn test_expr_object_shorthand() {
 fn test_expr_object_spread() {
     let decl = single_decl("let _ = { ...obj };");
     match decl {
-        Declaration::Let(bindings) => {
-            match &**bindings[0].init.as_ref().unwrap() {
-                Expr::ObjectLiteral(props) => {
-                    assert_eq!(props.len(), 1);
-                    match &props[0] {
-                        ObjectProperty::Spread(e) => {
-                            assert_eq!(**e, Expr::Identifier("obj".into()));
-                        }
-                        _ => panic!("expected spread property"),
+        Declaration::Let(bindings) => match &**bindings[0].init.as_ref().unwrap() {
+            Expr::ObjectLiteral(props) => {
+                assert_eq!(props.len(), 1);
+                match &props[0] {
+                    ObjectProperty::Spread(e) => {
+                        assert_eq!(**e, Expr::Identifier("obj".into()));
                     }
+                    _ => panic!("expected spread property"),
                 }
-                _ => panic!("expected object literal"),
             }
-        }
+            _ => panic!("expected object literal"),
+        },
         _ => panic!("expected let declaration"),
     }
 }
@@ -1400,12 +1512,12 @@ fn test_expr_template_multi_interpolation() {
 #[test]
 fn test_expr_grouping() {
     match single_expr("(1 + 2);") {
-        Expr::Grouping(e) => {
-            match *e {
-                Expr::Binary { op: BinaryOp::Plus, .. } => {}
-                _ => panic!("expected binary inside grouping"),
-            }
-        }
+        Expr::Grouping(e) => match *e {
+            Expr::Binary {
+                op: BinaryOp::Plus, ..
+            } => {}
+            _ => panic!("expected binary inside grouping"),
+        },
         _ => panic!("expected grouping expression"),
     }
 }
@@ -1413,14 +1525,12 @@ fn test_expr_grouping() {
 #[test]
 fn test_expr_grouping_nested() {
     match single_expr("((x));") {
-        Expr::Grouping(inner) => {
-            match *inner {
-                Expr::Grouping(inner2) => {
-                    assert_eq!(*inner2, Expr::Identifier("x".into()));
-                }
-                _ => panic!("expected nested grouping"),
+        Expr::Grouping(inner) => match *inner {
+            Expr::Grouping(inner2) => {
+                assert_eq!(*inner2, Expr::Identifier("x".into()));
             }
-        }
+            _ => panic!("expected nested grouping"),
+        },
         _ => panic!("expected grouping expression"),
     }
 }
@@ -1431,17 +1541,21 @@ fn test_expr_grouping_nested() {
 fn test_expr_function() {
     let decl = single_decl("let _ = fn() { return 1; };");
     match decl {
-        Declaration::Let(bindings) => {
-            match &**bindings[0].init.as_ref().unwrap() {
-                Expr::Function { name, params, body, is_async, .. } => {
-                    assert_eq!(*name, None);
-                    assert_eq!(params.len(), 0);
-                    assert_eq!(body.len(), 1);
-                    assert!(!is_async);
-                }
-                _ => panic!("expected function expression"),
+        Declaration::Let(bindings) => match &**bindings[0].init.as_ref().unwrap() {
+            Expr::Function {
+                name,
+                params,
+                body,
+                is_async,
+                ..
+            } => {
+                assert_eq!(*name, None);
+                assert_eq!(params.len(), 0);
+                assert_eq!(body.len(), 1);
+                assert!(!is_async);
             }
-        }
+            _ => panic!("expected function expression"),
+        },
         _ => panic!("expected let declaration"),
     }
 }
@@ -1450,14 +1564,12 @@ fn test_expr_function() {
 fn test_expr_function_named() {
     let decl = single_decl("let _ = fn foo() { };");
     match decl {
-        Declaration::Let(bindings) => {
-            match &**bindings[0].init.as_ref().unwrap() {
-                Expr::Function { name, .. } => {
-                    assert_eq!(*name, Some("foo".into()));
-                }
-                _ => panic!("expected function expression"),
+        Declaration::Let(bindings) => match &**bindings[0].init.as_ref().unwrap() {
+            Expr::Function { name, .. } => {
+                assert_eq!(*name, Some("foo".into()));
             }
-        }
+            _ => panic!("expected function expression"),
+        },
         _ => panic!("expected let declaration"),
     }
 }
@@ -1466,14 +1578,12 @@ fn test_expr_function_named() {
 fn test_expr_function_async() {
     let decl = single_decl("let _ = async fn() { };");
     match decl {
-        Declaration::Let(bindings) => {
-            match &**bindings[0].init.as_ref().unwrap() {
-                Expr::Function { is_async, .. } => {
-                    assert!(*is_async);
-                }
-                _ => panic!("expected async function expression"),
+        Declaration::Let(bindings) => match &**bindings[0].init.as_ref().unwrap() {
+            Expr::Function { is_async, .. } => {
+                assert!(*is_async);
             }
-        }
+            _ => panic!("expected async function expression"),
+        },
         _ => panic!("expected let declaration"),
     }
 }
@@ -1484,15 +1594,13 @@ fn test_expr_function_async() {
 fn test_expr_class() {
     let decl = single_decl("let _ = class { };");
     match decl {
-        Declaration::Let(bindings) => {
-            match &**bindings[0].init.as_ref().unwrap() {
-                Expr::Class { name, body, .. } => {
-                    assert_eq!(*name, None);
-                    assert_eq!(body.len(), 0);
-                }
-                _ => panic!("expected class expression"),
+        Declaration::Let(bindings) => match &**bindings[0].init.as_ref().unwrap() {
+            Expr::Class { name, body, .. } => {
+                assert_eq!(*name, None);
+                assert_eq!(body.len(), 0);
             }
-        }
+            _ => panic!("expected class expression"),
+        },
         _ => panic!("expected let declaration"),
     }
 }
@@ -1501,15 +1609,13 @@ fn test_expr_class() {
 fn test_expr_class_named() {
     let decl = single_decl("let _ = class Point { x: int; };");
     match decl {
-        Declaration::Let(bindings) => {
-            match &**bindings[0].init.as_ref().unwrap() {
-                Expr::Class { name, body, .. } => {
-                    assert_eq!(*name, Some("Point".into()));
-                    assert_eq!(body.len(), 1);
-                }
-                _ => panic!("expected class expression"),
+        Declaration::Let(bindings) => match &**bindings[0].init.as_ref().unwrap() {
+            Expr::Class { name, body, .. } => {
+                assert_eq!(*name, Some("Point".into()));
+                assert_eq!(body.len(), 1);
             }
-        }
+            _ => panic!("expected class expression"),
+        },
         _ => panic!("expected let declaration"),
     }
 }
@@ -1520,16 +1626,18 @@ fn test_expr_class_named() {
 fn test_expr_if() {
     let decl = single_decl("let _ = if (cond) { 1; };");
     match decl {
-        Declaration::Let(bindings) => {
-            match &**bindings[0].init.as_ref().unwrap() {
-                Expr::If { condition, then_branch, else_branch } => {
-                    assert_eq!(**condition, Expr::Identifier("cond".into()));
-                    assert_eq!(**then_branch, Expr::IntLiteral(1));
-                    assert_eq!(*else_branch, None);
-                }
-                _ => panic!("expected if expression"),
+        Declaration::Let(bindings) => match &**bindings[0].init.as_ref().unwrap() {
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                assert_eq!(**condition, Expr::Identifier("cond".into()));
+                assert_eq!(**then_branch, Expr::IntLiteral(1));
+                assert_eq!(*else_branch, None);
             }
-        }
+            _ => panic!("expected if expression"),
+        },
         _ => panic!("expected let declaration"),
     }
 }
@@ -1538,14 +1646,12 @@ fn test_expr_if() {
 fn test_expr_if_else() {
     let decl = single_decl("let _ = if (cond) { 1; } else { 2; };");
     match decl {
-        Declaration::Let(bindings) => {
-            match &**bindings[0].init.as_ref().unwrap() {
-                Expr::If { else_branch, .. } => {
-                    assert!(else_branch.is_some());
-                }
-                _ => panic!("expected if expression"),
+        Declaration::Let(bindings) => match &**bindings[0].init.as_ref().unwrap() {
+            Expr::If { else_branch, .. } => {
+                assert!(else_branch.is_some());
             }
-        }
+            _ => panic!("expected if expression"),
+        },
         _ => panic!("expected let declaration"),
     }
 }
@@ -1556,15 +1662,13 @@ fn test_expr_if_else() {
 fn test_expr_match() {
     let decl = single_decl("let _ = match (x) { 1 => one, 2 => two };");
     match decl {
-        Declaration::Let(bindings) => {
-            match &**bindings[0].init.as_ref().unwrap() {
-                Expr::Match { value, arms } => {
-                    assert_eq!(**value, Expr::Identifier("x".into()));
-                    assert_eq!(arms.len(), 2);
-                }
-                _ => panic!("expected match expression"),
+        Declaration::Let(bindings) => match &**bindings[0].init.as_ref().unwrap() {
+            Expr::Match { value, arms } => {
+                assert_eq!(**value, Expr::Identifier("x".into()));
+                assert_eq!(arms.len(), 2);
             }
-        }
+            _ => panic!("expected match expression"),
+        },
         _ => panic!("expected let declaration"),
     }
 }
@@ -1573,15 +1677,13 @@ fn test_expr_match() {
 fn test_expr_match_block_body() {
     let decl = single_decl("let _ = match (x) { 1 => { one; } };");
     match decl {
-        Declaration::Let(bindings) => {
-            match &**bindings[0].init.as_ref().unwrap() {
-                Expr::Match { arms, .. } => {
-                    assert_eq!(arms.len(), 1);
-                    assert_eq!(arms[0].body.len(), 1);
-                }
-                _ => panic!("expected match expression"),
+        Declaration::Let(bindings) => match &**bindings[0].init.as_ref().unwrap() {
+            Expr::Match { arms, .. } => {
+                assert_eq!(arms.len(), 1);
+                assert_eq!(arms[0].body.len(), 1);
             }
-        }
+            _ => panic!("expected match expression"),
+        },
         _ => panic!("expected let declaration"),
     }
 }
@@ -1652,22 +1754,20 @@ fn test_pattern_wildcard() {
 fn test_pattern_object() {
     let decl = single_decl("let { x, y: val } = obj;");
     match decl {
-        Declaration::Let(bindings) => {
-            match &bindings[0].pattern {
-                Pattern::Object(fields) => {
-                    assert_eq!(fields.len(), 2);
-                    assert_eq!(fields[0], ObjectPatternField::Shorthand("x".into()));
-                    match &fields[1] {
-                        ObjectPatternField::Property { key, pattern } => {
-                            assert_eq!(key, "y");
-                            assert_eq!(*pattern, Pattern::Identifier("val".into()));
-                        }
-                        _ => panic!("expected property field"),
+        Declaration::Let(bindings) => match &bindings[0].pattern {
+            Pattern::Object(fields) => {
+                assert_eq!(fields.len(), 2);
+                assert_eq!(fields[0], ObjectPatternField::Shorthand("x".into()));
+                match &fields[1] {
+                    ObjectPatternField::Property { key, pattern } => {
+                        assert_eq!(key, "y");
+                        assert_eq!(*pattern, Pattern::Identifier("val".into()));
                     }
+                    _ => panic!("expected property field"),
                 }
-                _ => panic!("expected object pattern"),
             }
-        }
+            _ => panic!("expected object pattern"),
+        },
         _ => panic!("expected let"),
     }
 }
@@ -1676,20 +1776,18 @@ fn test_pattern_object() {
 fn test_pattern_array() {
     let decl = single_decl("let [a, b] = arr;");
     match decl {
-        Declaration::Let(bindings) => {
-            match &bindings[0].pattern {
-                Pattern::Array(elements) => {
-                    assert_eq!(elements.len(), 2);
-                    match &elements[0] {
-                        ArrayPatternElement::Pattern(p) => {
-                            assert_eq!(*p, Pattern::Identifier("a".into()));
-                        }
-                        _ => panic!("expected pattern element"),
+        Declaration::Let(bindings) => match &bindings[0].pattern {
+            Pattern::Array(elements) => {
+                assert_eq!(elements.len(), 2);
+                match &elements[0] {
+                    ArrayPatternElement::Pattern(p) => {
+                        assert_eq!(*p, Pattern::Identifier("a".into()));
                     }
+                    _ => panic!("expected pattern element"),
                 }
-                _ => panic!("expected array pattern"),
             }
-        }
+            _ => panic!("expected array pattern"),
+        },
         _ => panic!("expected let"),
     }
 }
@@ -1698,20 +1796,18 @@ fn test_pattern_array() {
 fn test_pattern_rest() {
     let decl = single_decl("let [...rest] = arr;");
     match decl {
-        Declaration::Let(bindings) => {
-            match &bindings[0].pattern {
-                Pattern::Array(elements) => {
-                    assert_eq!(elements.len(), 1);
-                    match &elements[0] {
-                        ArrayPatternElement::Rest(p) => {
-                            assert_eq!(*p, Pattern::Identifier("rest".into()));
-                        }
-                        _ => panic!("expected rest element"),
+        Declaration::Let(bindings) => match &bindings[0].pattern {
+            Pattern::Array(elements) => {
+                assert_eq!(elements.len(), 1);
+                match &elements[0] {
+                    ArrayPatternElement::Rest(p) => {
+                        assert_eq!(*p, Pattern::Identifier("rest".into()));
                     }
+                    _ => panic!("expected rest element"),
                 }
-                _ => panic!("expected array pattern"),
             }
-        }
+            _ => panic!("expected array pattern"),
+        },
         _ => panic!("expected let"),
     }
 }
@@ -1720,14 +1816,12 @@ fn test_pattern_rest() {
 fn test_pattern_literal() {
     let stmt = single_stmt("match (x) { 42 => { } }");
     match stmt {
-        Statement::Match { arms, .. } => {
-            match &arms[0].pattern {
-                Pattern::Literal(e) => {
-                    assert_eq!(**e, Expr::IntLiteral(42));
-                }
-                _ => panic!("expected literal pattern"),
+        Statement::Match { arms, .. } => match &arms[0].pattern {
+            Pattern::Literal(e) => {
+                assert_eq!(**e, Expr::IntLiteral(42));
             }
-        }
+            _ => panic!("expected literal pattern"),
+        },
         _ => panic!("expected match"),
     }
 }
@@ -1736,14 +1830,12 @@ fn test_pattern_literal() {
 fn test_pattern_or() {
     let stmt = single_stmt("match (x) { 1 | 2 | 3 => { } }");
     match stmt {
-        Statement::Match { arms, .. } => {
-            match &arms[0].pattern {
-                Pattern::Or(patterns) => {
-                    assert_eq!(patterns.len(), 3);
-                }
-                _ => panic!("expected or pattern, got {:?}", arms[0].pattern),
+        Statement::Match { arms, .. } => match &arms[0].pattern {
+            Pattern::Or(patterns) => {
+                assert_eq!(patterns.len(), 3);
             }
-        }
+            _ => panic!("expected or pattern, got {:?}", arms[0].pattern),
+        },
         _ => panic!("expected match"),
     }
 }
@@ -1752,15 +1844,13 @@ fn test_pattern_or() {
 fn test_pattern_as() {
     let stmt = single_stmt("match (x) { val as v => { } }");
     match stmt {
-        Statement::Match { arms, .. } => {
-            match &arms[0].pattern {
-                Pattern::As(inner, alias) => {
-                    assert_eq!(*inner, Box::new(Pattern::Identifier("val".into())));
-                    assert_eq!(alias, "v");
-                }
-                _ => panic!("expected as pattern, got {:?}", arms[0].pattern),
+        Statement::Match { arms, .. } => match &arms[0].pattern {
+            Pattern::As(inner, alias) => {
+                assert_eq!(*inner, Box::new(Pattern::Identifier("val".into())));
+                assert_eq!(alias, "v");
             }
-        }
+            _ => panic!("expected as pattern, got {:?}", arms[0].pattern),
+        },
         _ => panic!("expected match"),
     }
 }
@@ -1772,7 +1862,10 @@ fn test_type_simple() {
     let decl = single_decl("let x: int = 1;");
     match decl {
         Declaration::Let(bindings) => {
-            assert_eq!(bindings[0].ty, Some(TypeAnnotation::Identifier("int".into())));
+            assert_eq!(
+                bindings[0].ty,
+                Some(TypeAnnotation::Identifier("int".into()))
+            );
         }
         _ => panic!("expected let"),
     }
@@ -1782,16 +1875,14 @@ fn test_type_simple() {
 fn test_type_generic() {
     let decl = single_decl("let x: Array<int> = [];");
     match decl {
-        Declaration::Let(bindings) => {
-            match bindings[0].ty.as_ref().unwrap() {
-                TypeAnnotation::Generic { base, args } => {
-                    assert_eq!(base, "Array");
-                    assert_eq!(args.len(), 1);
-                    assert_eq!(args[0], TypeAnnotation::Identifier("int".into()));
-                }
-                _ => panic!("expected generic type"),
+        Declaration::Let(bindings) => match bindings[0].ty.as_ref().unwrap() {
+            TypeAnnotation::Generic { base, args } => {
+                assert_eq!(base, "Array");
+                assert_eq!(args.len(), 1);
+                assert_eq!(args[0], TypeAnnotation::Identifier("int".into()));
             }
-        }
+            _ => panic!("expected generic type"),
+        },
         _ => panic!("expected let"),
     }
 }
@@ -1800,14 +1891,12 @@ fn test_type_generic() {
 fn test_type_nullable() {
     let decl = single_decl("let x: string? = null;");
     match decl {
-        Declaration::Let(bindings) => {
-            match bindings[0].ty.as_ref().unwrap() {
-                TypeAnnotation::Nullable(inner) => {
-                    assert_eq!(**inner, TypeAnnotation::Identifier("string".into()));
-                }
-                _ => panic!("expected nullable type"),
+        Declaration::Let(bindings) => match bindings[0].ty.as_ref().unwrap() {
+            TypeAnnotation::Nullable(inner) => {
+                assert_eq!(**inner, TypeAnnotation::Identifier("string".into()));
             }
-        }
+            _ => panic!("expected nullable type"),
+        },
         _ => panic!("expected let"),
     }
 }
@@ -1816,15 +1905,19 @@ fn test_type_nullable() {
 fn test_type_function() {
     let decl = single_decl("let f: fn(int) => string = x => x;");
     match decl {
-        Declaration::Let(bindings) => {
-            match bindings[0].ty.as_ref().unwrap() {
-                TypeAnnotation::Function { params, return_type } => {
-                    assert_eq!(params.len(), 1);
-                    assert_eq!(*return_type, Box::new(TypeAnnotation::Identifier("string".into())));
-                }
-                _ => panic!("expected function type"),
+        Declaration::Let(bindings) => match bindings[0].ty.as_ref().unwrap() {
+            TypeAnnotation::Function {
+                params,
+                return_type,
+            } => {
+                assert_eq!(params.len(), 1);
+                assert_eq!(
+                    *return_type,
+                    Box::new(TypeAnnotation::Identifier("string".into()))
+                );
             }
-        }
+            _ => panic!("expected function type"),
+        },
         _ => panic!("expected let"),
     }
 }
@@ -1833,15 +1926,13 @@ fn test_type_function() {
 fn test_type_object() {
     let decl = single_decl("let p: { x: int } = { x: 0 };");
     match decl {
-        Declaration::Let(bindings) => {
-            match bindings[0].ty.as_ref().unwrap() {
-                TypeAnnotation::Object(fields) => {
-                    assert_eq!(fields.len(), 1);
-                    assert_eq!(fields[0].name, "x");
-                }
-                _ => panic!("expected object type"),
+        Declaration::Let(bindings) => match bindings[0].ty.as_ref().unwrap() {
+            TypeAnnotation::Object(fields) => {
+                assert_eq!(fields.len(), 1);
+                assert_eq!(fields[0].name, "x");
             }
-        }
+            _ => panic!("expected object type"),
+        },
         _ => panic!("expected let"),
     }
 }
@@ -1850,16 +1941,14 @@ fn test_type_object() {
 fn test_type_tuple() {
     let decl = single_decl("let t: (int, string);");
     match decl {
-        Declaration::Let(bindings) => {
-            match bindings[0].ty.as_ref().unwrap() {
-                TypeAnnotation::Tuple(types) => {
-                    assert_eq!(types.len(), 2);
-                    assert_eq!(types[0], TypeAnnotation::Identifier("int".into()));
-                    assert_eq!(types[1], TypeAnnotation::Identifier("string".into()));
-                }
-                _ => panic!("expected tuple type"),
+        Declaration::Let(bindings) => match bindings[0].ty.as_ref().unwrap() {
+            TypeAnnotation::Tuple(types) => {
+                assert_eq!(types.len(), 2);
+                assert_eq!(types[0], TypeAnnotation::Identifier("int".into()));
+                assert_eq!(types[1], TypeAnnotation::Identifier("string".into()));
             }
-        }
+            _ => panic!("expected tuple type"),
+        },
         _ => panic!("expected let"),
     }
 }
@@ -1868,14 +1957,12 @@ fn test_type_tuple() {
 fn test_type_array() {
     let decl = single_decl("let a: [int] = [];");
     match decl {
-        Declaration::Let(bindings) => {
-            match bindings[0].ty.as_ref().unwrap() {
-                TypeAnnotation::Array(inner) => {
-                    assert_eq!(*inner, Box::new(TypeAnnotation::Identifier("int".into())));
-                }
-                _ => panic!("expected array type"),
+        Declaration::Let(bindings) => match bindings[0].ty.as_ref().unwrap() {
+            TypeAnnotation::Array(inner) => {
+                assert_eq!(*inner, Box::new(TypeAnnotation::Identifier("int".into())));
             }
-        }
+            _ => panic!("expected array type"),
+        },
         _ => panic!("expected let"),
     }
 }
@@ -1918,7 +2005,10 @@ fn test_error_missing_closing_brace() {
     let err = parse_err("fn foo() { ");
     match err {
         ParseError::UnexpectedEof { .. } | ParseError::ExpectedToken { .. } => {}
-        _ => panic!("expected unexpected eof or expected token error, got {:?}", err),
+        _ => panic!(
+            "expected unexpected eof or expected token error, got {:?}",
+            err
+        ),
     }
 }
 

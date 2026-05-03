@@ -1,7 +1,7 @@
 pub mod ast;
-pub mod parser;
 pub mod error;
+pub mod parser;
 
 pub use ast::*;
-pub use parser::Parser;
 pub use error::ParseError;
+pub use parser::Parser;

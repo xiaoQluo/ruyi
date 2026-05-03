@@ -119,3 +119,4 @@ ruyic examples/hello.ry --check       # Type-check only
 ## Workflow Rules
 
 - **After creating a development branch**: Update the version number in both `Cargo.toml` (workspace `version`) and `crates/ruyic/src/main.rs` (`#[command(version = "...")]`) to match the branch's target version.
+- **After completing a version release**: Update the roadmap status in `docs/roadmap.md` (and `docs/roadmap-zh.md`) to reflect completed tasks and current progress.

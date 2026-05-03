@@ -7,7 +7,6 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use crate::typechecker::types::Type;
 
 /// Binding info for a variable in the type environment.
@@ -26,7 +25,9 @@ pub struct Scope {
 
 impl Scope {
     fn new() -> Self {
-        Self { bindings: Vec::new() }
+        Self {
+            bindings: Vec::new(),
+        }
     }
 
     fn declare(&mut self, binding: Binding) {
@@ -222,7 +223,10 @@ mod tests {
         env.narrow("x", Type::String);
         assert_eq!(env.lookup("x"), Some(&Type::String));
         env.pop_scope();
-        assert_eq!(env.lookup("x"), Some(&Type::Nullable(Box::new(Type::String))));
+        assert_eq!(
+            env.lookup("x"),
+            Some(&Type::Nullable(Box::new(Type::String)))
+        );
     }
 
     #[test]

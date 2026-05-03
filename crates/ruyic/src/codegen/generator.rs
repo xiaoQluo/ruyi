@@ -7,16 +7,17 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use std::collections::HashMap;
 
+use crate::driver::OptLevel;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine};
+use inkwell::targets::{
+    CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
+};
 use inkwell::values::FunctionValue;
 use inkwell::OptimizationLevel;
-use crate::driver::OptLevel;
 
 fn opt_level_to_inkwell(level: OptLevel) -> OptimizationLevel {
     match level {
@@ -26,14 +27,14 @@ fn opt_level_to_inkwell(level: OptLevel) -> OptimizationLevel {
     }
 }
 
-use crate::parser::ast::Program;
-use crate::typechecker::generics::MonomorphizationTracker;
-use crate::typechecker::types::Type;
 use super::builtins::declare_builtins;
 use super::decl::compile_declaration;
 use super::monomorph::{MonomorphizationContext, MonomorphizedFunction};
 use super::stmt::compile_block;
-use super::types::{ruyi_type_to_llvm, function_type_from_ruyi};
+use super::types::{function_type_from_ruyi, ruyi_type_to_llvm};
+use crate::parser::ast::Program;
+use crate::typechecker::generics::MonomorphizationTracker;
+use crate::typechecker::types::Type;
 
 pub struct TryContext<'ctx> {
     pub exception_ptr: inkwell::values::PointerValue<'ctx>,
@@ -49,7 +50,10 @@ pub struct CodegenContext<'ctx, 'm> {
     pub builder: Builder<'ctx>,
     pub variables: HashMap<String, (inkwell::values::PointerValue<'ctx>, Type)>,
     pub current_function: Option<FunctionValue<'ctx>>,
-    pub loop_stack: Vec<(inkwell::basic_block::BasicBlock<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)>,
+    pub loop_stack: Vec<(
+        inkwell::basic_block::BasicBlock<'ctx>,
+        inkwell::basic_block::BasicBlock<'ctx>,
+    )>,
     pub gc_roots: Vec<Vec<(inkwell::values::PointerValue<'ctx>, Type)>>,
     /// Async state machine support: pointer to the state struct's state field (i32*)
     pub async_state_field_ptr: Option<inkwell::values::PointerValue<'ctx>>,
@@ -60,6 +64,7 @@ pub struct CodegenContext<'ctx, 'm> {
     /// Async state machine support: waker pointer for await expressions
     pub waker_ptr: Option<inkwell::values::PointerValue<'ctx>>,
     pub try_stack: Vec<TryContext<'ctx>>,
+    pub class_fields: HashMap<String, Vec<(String, Type)>>,
 }
 
 impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
@@ -77,6 +82,7 @@ impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
             async_return_bb: None,
             waker_ptr: None,
             try_stack: Vec::new(),
+            class_fields: HashMap::new(),
         }
     }
 
@@ -127,7 +133,11 @@ impl<'ctx> CodeGenerator<'ctx> {
     pub fn new(context: &'ctx Context, name: &str) -> Self {
         let module = context.create_module(name);
         let builder = context.create_builder();
-        Self { context, module, builder }
+        Self {
+            context,
+            module,
+            builder,
+        }
     }
 
     /// Generate LLVM IR from a typed AST program.
@@ -136,8 +146,13 @@ impl<'ctx> CodeGenerator<'ctx> {
     }
 
     /// Generate LLVM IR from a typed AST program with monomorphization tracker.
-    pub fn generate_with_tracker(&self, program: &Program, tracker: &MonomorphizationTracker) -> Result<(), String> {
-        let mut ctx = CodegenContext::new(self.context, &self.module, self.context.create_builder());
+    pub fn generate_with_tracker(
+        &self,
+        program: &Program,
+        tracker: &MonomorphizationTracker,
+    ) -> Result<(), String> {
+        let mut ctx =
+            CodegenContext::new(self.context, &self.module, self.context.create_builder());
 
         declare_builtins(self.context, &self.module);
 
@@ -155,8 +170,22 @@ impl<'ctx> CodeGenerator<'ctx> {
             }
         }
 
+        let has_async_main = program.items.iter().any(|item| {
+            if let crate::parser::ast::ModuleItem::Declaration(
+                crate::parser::ast::Declaration::Function { name, is_async, .. },
+            ) = item
+            {
+                name == "main" && *is_async
+            } else {
+                false
+            }
+        });
+
+        let llvm_main_name = "main";
         let i32_ty = self.context.i32_type();
-        let main_fn = ctx.module.add_function("main", i32_ty.fn_type(&[], false), None);
+        let main_fn = ctx
+            .module
+            .add_function(llvm_main_name, i32_ty.fn_type(&[], false), None);
         let entry_bb = ctx.context.append_basic_block(main_fn, "entry");
         ctx.builder.position_at_end(entry_bb);
         ctx.current_function = Some(main_fn);
@@ -173,13 +202,36 @@ impl<'ctx> CodeGenerator<'ctx> {
             }
         }
 
-        let ruyi_main = ctx.module.get_function("main.1")
-            .or_else(|| ctx.module.get_function("_main"));
-
         let current_bb = ctx.builder.get_insert_block().unwrap();
         if current_bb.get_terminator().is_none() {
-            if let Some(func) = ruyi_main {
-                ctx.builder.build_call(func, &[], "main_call");
+            if has_async_main {
+                if let Some(async_main) = ctx.module.get_function("_ruyi_async_main") {
+                    let future_ptr = ctx
+                        .builder
+                        .build_call(async_main, &[], "async_main_call")
+                        .try_as_basic_value()
+                        .left()
+                        .unwrap();
+                    let spawn_fn = ctx
+                        .module
+                        .get_function("ruyi_spawn")
+                        .expect("ruyi_spawn not declared");
+                    ctx.builder
+                        .build_call(spawn_fn, &[future_ptr.into()], "spawn_main");
+                    let scheduler_fn = ctx
+                        .module
+                        .get_function("ruyi_run_scheduler")
+                        .expect("ruyi_run_scheduler not declared");
+                    ctx.builder.build_call(scheduler_fn, &[], "run_scheduler");
+                }
+            } else {
+                let ruyi_main = ctx
+                    .module
+                    .get_function("main.1")
+                    .or_else(|| ctx.module.get_function("_main"));
+                if let Some(func) = ruyi_main {
+                    ctx.builder.build_call(func, &[], "main_call");
+                }
             }
             let zero = i32_ty.const_int(0, false);
             ctx.builder.build_return(Some(&zero));
@@ -204,7 +256,11 @@ impl<'ctx> CodeGenerator<'ctx> {
     }
 
     /// Compile the generated LLVM IR to a native object file with optimization level.
-    pub fn compile_to_object_with_opt(&self, path: &std::path::Path, opt_level: OptLevel) -> Result<(), String> {
+    pub fn compile_to_object_with_opt(
+        &self,
+        path: &std::path::Path,
+        opt_level: OptLevel,
+    ) -> Result<(), String> {
         Target::initialize_native(&InitializationConfig::default())
             .map_err(|e| format!("Failed to initialize native target: {}", e))?;
 
@@ -234,7 +290,11 @@ impl<'ctx> CodeGenerator<'ctx> {
     }
 
     /// Compile the generated LLVM IR to a native binary with optimization level.
-    pub fn compile_to_binary_with_opt(&self, path: &std::path::Path, opt_level: OptLevel) -> Result<(), String> {
+    pub fn compile_to_binary_with_opt(
+        &self,
+        path: &std::path::Path,
+        opt_level: OptLevel,
+    ) -> Result<(), String> {
         let temp_obj = std::env::temp_dir().join("ruyi_temp.o");
         self.compile_to_object_with_opt(&temp_obj, opt_level)?;
 
@@ -287,8 +347,11 @@ fn compile_monomorphized_function<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_>,
     mono_func: &MonomorphizedFunction,
 ) -> Result<(), String> {
-    let fn_type = function_type_from_ruyi(ctx.context, &mono_func.param_types, &mono_func.return_type);
-    let function = ctx.module.add_function(&mono_func.mangled_name, fn_type, None);
+    let fn_type =
+        function_type_from_ruyi(ctx.context, &mono_func.param_types, &mono_func.return_type);
+    let function = ctx
+        .module
+        .add_function(&mono_func.mangled_name, fn_type, None);
 
     let entry_bb = ctx.context.append_basic_block(function, "entry");
     let prev_function = ctx.current_function;
@@ -313,7 +376,10 @@ fn compile_monomorphized_function<'ctx>(
             ctx.add_gc_root(ptr, param_ty.clone());
         }
 
-        if let Some(old) = ctx.variables.insert(param_name.clone(), (ptr, param_ty.clone())) {
+        if let Some(old) = ctx
+            .variables
+            .insert(param_name.clone(), (ptr, param_ty.clone()))
+        {
             prev_vars.insert(param_name, old);
         }
     }
@@ -329,19 +395,27 @@ fn compile_monomorphized_function<'ctx>(
             }
             Type::Int => {
                 let zero = ctx.context.i64_type().const_int(0, true);
-                ctx.builder.build_return(Some(&BasicValueEnum::IntValue(zero)));
+                ctx.builder
+                    .build_return(Some(&BasicValueEnum::IntValue(zero)));
             }
             Type::Float => {
                 let zero = ctx.context.f64_type().const_float(0.0);
-                ctx.builder.build_return(Some(&BasicValueEnum::FloatValue(zero)));
+                ctx.builder
+                    .build_return(Some(&BasicValueEnum::FloatValue(zero)));
             }
             Type::Bool => {
                 let zero = ctx.context.bool_type().const_int(0, false);
-                ctx.builder.build_return(Some(&BasicValueEnum::IntValue(zero)));
+                ctx.builder
+                    .build_return(Some(&BasicValueEnum::IntValue(zero)));
             }
             _ => {
-                let null_ptr = ctx.context.i8_type().ptr_type(Default::default()).const_null();
-                ctx.builder.build_return(Some(&BasicValueEnum::PointerValue(null_ptr)));
+                let null_ptr = ctx
+                    .context
+                    .i8_type()
+                    .ptr_type(Default::default())
+                    .const_null();
+                ctx.builder
+                    .build_return(Some(&BasicValueEnum::PointerValue(null_ptr)));
             }
         }
     }

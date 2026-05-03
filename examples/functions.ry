@@ -1,0 +1,215 @@
+// =============================================================================
+// Functions - Ruyi Tutorial Chapter 4
+// =============================================================================
+// Covers: fn declarations, return type inference, arrow functions,
+//         default params, rest params, closures, higher-order functions
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 4.1 Function Declarations
+// -----------------------------------------------------------------------------
+fn add(a: int, b: int): int {
+  return a + b;
+}
+
+// -----------------------------------------------------------------------------
+// 4.2 Return Type Inference
+// -----------------------------------------------------------------------------
+// Inferred return type: int
+fn multiply(a: int, b: int) {
+  return a * b;
+}
+
+// Inferred return type: void
+fn greet(name: string) {
+  print("Hello, ");
+  print(name);
+  print("!\n");
+}
+
+// Inferred return type: float (least upper bound of int and float)
+fn maybeNumber(flag: bool) {
+  if (flag) {
+    return 42;
+  } else {
+    return 3.14;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 4.3 Arrow Functions
+// -----------------------------------------------------------------------------
+fn arrowDemo() {
+  // Single expression arrow (implicit return)
+  let double = (x) => x * 2;
+  let square = (x) => x * x;
+
+  print("double(5): ");
+  print(double(5));
+  print("\n");
+
+  print("square(7): ");
+  print(square(7));
+  print("\n");
+
+  // Block arrow function
+  let greetArrow = (name) => {
+    print("Hi, ");
+    print(name);
+    print("!\n");
+  };
+  greetArrow("Ruyi");
+}
+
+// -----------------------------------------------------------------------------
+// 4.4 Parameters
+// -----------------------------------------------------------------------------
+// Default parameters
+fn greetWithDefault(name: string = "World") {
+  print("Hello, ");
+  print(name);
+  print("!\n");
+}
+
+// Rest parameters
+fn sumAll(...numbers: Array<int>): int {
+  let total: int = 0;
+  for (let n of numbers) {
+    total = total + n;
+  }
+  return total;
+}
+
+fn paramDemo() {
+  print("--- Default Parameters ---\n");
+  greetWithDefault();
+  greetWithDefault("Ruyi");
+
+  print("\n--- Rest Parameters ---\n");
+  print("sumAll(1, 2, 3, 4): ");
+  print(sumAll(1, 2, 3, 4));
+  print("\n");
+
+  print("sumAll(10, 20): ");
+  print(sumAll(10, 20));
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 4.5 Closures
+// -----------------------------------------------------------------------------
+fn makeCounter(): fn(): int {
+  let count: int = 0;
+  return () => {
+    count = count + 1;
+    return count;
+  };
+}
+
+fn closureDemo() {
+  print("--- Closures ---\n");
+  let counter = makeCounter();
+  print("counter(): ");
+  print(counter());
+  print("\ncounter(): ");
+  print(counter());
+  print("\ncounter(): ");
+  print(counter());
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 4.6 Higher-Order Functions
+// -----------------------------------------------------------------------------
+fn map(arr: Array<int>, f: fn(int) -> int): Array<int> {
+  let result: Array<int> = [];
+  for (let item of arr) {
+    result.push(f(item));
+  }
+  return result;
+}
+
+fn filter(arr: Array<int>, pred: fn(int) -> bool): Array<int> {
+  let result: Array<int> = [];
+  for (let item of arr) {
+    if (pred(item)) {
+      result.push(item);
+    }
+  }
+  return result;
+}
+
+fn reduce(arr: Array<int>, initial: int, f: fn(int, int) -> int): int {
+  let acc: int = initial;
+  for (let item of arr) {
+    acc = f(acc, item);
+  }
+  return acc;
+}
+
+fn higherOrderDemo() {
+  print("--- Higher-Order Functions ---\n");
+
+  let numbers: Array<int> = [1, 2, 3, 4, 5];
+
+  // map
+  let doubled = map(numbers, (x: int) => x * 2);
+  print("map double: ");
+  print(doubled);
+  print("\n");
+
+  // filter
+  let odds = filter(numbers, (x: int) => x % 2 !== 0);
+  print("filter odds: ");
+  print(odds);
+  print("\n");
+
+  // reduce
+  let total = reduce(numbers, 0, (acc: int, x: int) => acc + x);
+  print("reduce sum: ");
+  print(total);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+  print("=== Functions Demo ===\n\n");
+
+  // Basic function calls
+  print("--- Basic Functions ---\n");
+  print("add(3, 5): ");
+  print(add(3, 5));
+  print("\n");
+
+  print("multiply(4, 6): ");
+  print(multiply(4, 6));
+  print("\n");
+
+  greet("Developer");
+
+  print("\nmaybeNumber(true): ");
+  print(maybeNumber(true));
+  print("\nmaybeNumber(false): ");
+  print(maybeNumber(false));
+  print("\n\n");
+
+  // Arrow functions
+  print("--- Arrow Functions ---\n");
+  arrowDemo();
+
+  // Parameters
+  print("\n");
+  paramDemo();
+
+  // Closures
+  print("\n");
+  closureDemo();
+
+  // Higher-order functions
+  print("\n");
+  higherOrderDemo();
+
+  print("\nAll function demos completed successfully!\n");
+}

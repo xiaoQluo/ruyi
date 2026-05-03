@@ -1,9 +1,5 @@
 use ruyi_runtime::gc_exports::{
-    ruyi_gc_alloc,
-    ruyi_gc_collect,
-    ruyi_gc_add_root,
-    ruyi_gc_remove_root,
-    ruyi_gc_write_barrier,
+    ruyi_gc_add_root, ruyi_gc_alloc, ruyi_gc_collect, ruyi_gc_remove_root, ruyi_gc_write_barrier,
 };
 use ruyi_runtime::GcObjectHeader;
 
@@ -13,14 +9,22 @@ fn test_gc_alloc_returns_unique() {
 
     for size in 1..=100 {
         let ptr = ruyi_gc_alloc(size);
-        assert!(!ptr.is_null(), "allocation with size {} returned null", size);
+        assert!(
+            !ptr.is_null(),
+            "allocation with size {} returned null",
+            size
+        );
         pointers.push(ptr);
     }
 
     for (i, &p1) in pointers.iter().enumerate() {
         for (j, &p2) in pointers.iter().enumerate() {
             if i != j {
-                assert_ne!(p1, p2, "duplicate pointer detected at indices {} and {}", i, j);
+                assert_ne!(
+                    p1, p2,
+                    "duplicate pointer detected at indices {} and {}",
+                    i, j
+                );
             }
         }
     }
@@ -31,7 +35,10 @@ fn test_gc_alloc_zero_size() {
     let ptr = ruyi_gc_alloc(0);
     let ptr2 = ruyi_gc_alloc(0);
     if !ptr.is_null() && !ptr2.is_null() {
-        assert_ne!(ptr, ptr2, "zero-size allocations should be distinct if non-null");
+        assert_ne!(
+            ptr, ptr2,
+            "zero-size allocations should be distinct if non-null"
+        );
     }
 }
 
@@ -42,13 +49,18 @@ fn test_gc_collect_survives_reachable() {
 
     ruyi_gc_add_root(obj);
 
-    unsafe { *(obj as *mut u64) = 0xDEADBEEF; }
+    unsafe {
+        *(obj as *mut u64) = 0xDEADBEEF;
+    }
 
     ruyi_gc_collect();
 
     unsafe {
         let header = GcObjectHeader::from_payload(obj);
-        assert!(!header.is_null() && (*header).is_marked(), "object should survive with root");
+        assert!(
+            !header.is_null() && (*header).is_marked(),
+            "object should survive with root"
+        );
     }
 
     ruyi_gc_remove_root(obj);
@@ -71,7 +83,9 @@ fn test_gc_add_remove_root() {
     let obj = ruyi_gc_alloc(32);
     assert!(!obj.is_null());
 
-    unsafe { *(obj as *mut u64) = 0xCAFEBABE; }
+    unsafe {
+        *(obj as *mut u64) = 0xCAFEBABE;
+    }
 
     ruyi_gc_add_root(obj);
     ruyi_gc_collect();
@@ -104,9 +118,13 @@ fn test_gc_write_barrier() {
     ruyi_gc_add_root(old);
     ruyi_gc_add_root(young);
 
-    unsafe { *(young as *mut u64) = 0x1234; }
+    unsafe {
+        *(young as *mut u64) = 0x1234;
+    }
     ruyi_gc_collect();
-    unsafe { assert_eq!(*(young as *mut u64), 0x1234); }
+    unsafe {
+        assert_eq!(*(young as *mut u64), 0x1234);
+    }
 
     ruyi_gc_remove_root(old);
     ruyi_gc_remove_root(young);
@@ -122,7 +140,9 @@ fn test_gc_stress() {
         let obj = ruyi_gc_alloc(16);
         assert!(!obj.is_null(), "allocation {} failed", i);
 
-        unsafe { *(obj as *mut u64) = i as u64; }
+        unsafe {
+            *(obj as *mut u64) = i as u64;
+        }
 
         if i % 2 == 0 {
             ruyi_gc_add_root(obj);
@@ -136,7 +156,9 @@ fn test_gc_stress() {
 
     for (i, &obj) in roots.iter().enumerate() {
         let expected = (i * 2) as u64;
-        unsafe { assert_eq!(*(obj as *mut u64), expected, "root {} value mismatch", i); }
+        unsafe {
+            assert_eq!(*(obj as *mut u64), expected, "root {} value mismatch", i);
+        }
     }
 
     for &obj in &roots {

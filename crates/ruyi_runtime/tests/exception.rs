@@ -3,9 +3,18 @@ use ruyi_runtime::*;
 #[test]
 fn test_exception_type_ids() {
     assert_eq!(ExceptionType::Error.type_id(), builtin_type_ids::ERROR);
-    assert_eq!(ExceptionType::TypeError.type_id(), builtin_type_ids::TYPE_ERROR);
-    assert_eq!(ExceptionType::RangeError.type_id(), builtin_type_ids::RANGE_ERROR);
-    assert_eq!(ExceptionType::RuntimeError.type_id(), builtin_type_ids::RUNTIME_ERROR);
+    assert_eq!(
+        ExceptionType::TypeError.type_id(),
+        builtin_type_ids::TYPE_ERROR
+    );
+    assert_eq!(
+        ExceptionType::RangeError.type_id(),
+        builtin_type_ids::RANGE_ERROR
+    );
+    assert_eq!(
+        ExceptionType::RuntimeError.type_id(),
+        builtin_type_ids::RUNTIME_ERROR
+    );
 }
 
 #[test]
@@ -116,8 +125,8 @@ fn test_finally_guarantee_on_uncaught() {
 mod inkwell_tests {
     use super::*;
     use inkwell::context::Context;
-use ruyi_runtime::LandingPadGenerator;
-use ruyi_runtime::ExceptionRuntime;
+    use ruyi_runtime::ExceptionRuntime;
+    use ruyi_runtime::LandingPadGenerator;
 
     #[test]
     fn test_landing_pad_generation() {

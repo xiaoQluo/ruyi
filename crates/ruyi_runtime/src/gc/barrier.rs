@@ -1,8 +1,8 @@
 use std::sync::Mutex;
 
-use crate::alloc::GcObjectHeader;
 #[cfg(test)]
 use crate::alloc::ruyi_dealloc;
+use crate::alloc::GcObjectHeader;
 
 /// Write barrier that tracks cross-generational references.
 ///
@@ -88,7 +88,7 @@ impl Default for WriteBarrier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::alloc::{MemoryStrategy, TypeInfo, ruyi_alloc};
+    use crate::alloc::{ruyi_alloc, MemoryStrategy, TypeInfo};
 
     #[test]
     fn test_young_to_old_no_barrier() {

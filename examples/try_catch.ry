@@ -1,0 +1,13 @@
+// Try-catch-finally example for Ruyi
+fn main() {
+  print("Testing try-catch...\n");
+
+  try {
+    print("Inside try block\n");
+    throw "test error";
+  } catch {
+    print("Caught exception\n");
+  }
+
+  print("After try-catch\n");
+}

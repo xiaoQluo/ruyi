@@ -11,7 +11,9 @@ pub struct Parser {
 impl Parser {
     pub fn new(source: &str) -> Result<Self, ParseError> {
         let mut scanner = Scanner::new(source);
-        let tokens = scanner.scan_all().map_err(|e| ParseError::LexerError(e.to_string()))?;
+        let tokens = scanner
+            .scan_all()
+            .map_err(|e| ParseError::LexerError(e.to_string()))?;
         Ok(Self { tokens, pos: 0 })
     }
 
@@ -83,7 +85,10 @@ impl Parser {
             Ok(())
         } else {
             let loc = self.location();
-            let found = self.current_token().map(|t| t.name()).unwrap_or_else(|| "end of file".into());
+            let found = self
+                .current_token()
+                .map(|t| t.name())
+                .unwrap_or_else(|| "end of file".into());
             Err(ParseError::ExpectedToken {
                 expected: token.name(),
                 found,
@@ -102,7 +107,10 @@ impl Parser {
             }
             _ => {
                 let loc = self.location();
-                let found = self.current_token().map(|t| t.name()).unwrap_or_else(|| "end of file".into());
+                let found = self
+                    .current_token()
+                    .map(|t| t.name())
+                    .unwrap_or_else(|| "end of file".into());
                 Err(ParseError::ExpectedToken {
                     expected: "identifier".into(),
                     found,
@@ -122,7 +130,10 @@ impl Parser {
             }
             _ => {
                 let loc = self.location();
-                let found = self.current_token().map(|t| t.name()).unwrap_or_else(|| "end of file".into());
+                let found = self
+                    .current_token()
+                    .map(|t| t.name())
+                    .unwrap_or_else(|| "end of file".into());
                 Err(ParseError::ExpectedToken {
                     expected: "string literal".into(),
                     found,
@@ -175,10 +186,9 @@ impl Parser {
         match self.current_token() {
             Some(Token::Import) => self.parse_import().map(ModuleItem::Import),
             Some(Token::Export) => self.parse_export().map(ModuleItem::Export),
-            Some(Token::Let) | Some(Token::Const) | Some(Token::Fn)
-            | Some(Token::Class) | Some(Token::Trait) | Some(Token::Impl)
-            | Some(Token::Type) | Some(Token::Macro) | Some(Token::At)
-            | Some(Token::Async) => {
+            Some(Token::Let) | Some(Token::Const) | Some(Token::Fn) | Some(Token::Class)
+            | Some(Token::Trait) | Some(Token::Impl) | Some(Token::Type) | Some(Token::Macro)
+            | Some(Token::At) | Some(Token::Async) => {
                 self.parse_declaration().map(ModuleItem::Declaration)
             }
             _ => self.parse_statement().map(ModuleItem::Statement),
@@ -198,7 +208,12 @@ impl Parser {
             // import "...";
             source = self.expect_string()?;
             self.expect(Token::SemiColon)?;
-            return Ok(ImportDecl { default, namespace, named, source });
+            return Ok(ImportDecl {
+                default,
+                namespace,
+                named,
+                source,
+            });
         }
 
         if let Some(Token::Ident(_)) = self.current_token() {
@@ -209,7 +224,12 @@ impl Parser {
                 self.expect(Token::From)?;
                 source = self.expect_string()?;
                 self.expect(Token::SemiColon)?;
-                return Ok(ImportDecl { default, namespace, named, source });
+                return Ok(ImportDecl {
+                    default,
+                    namespace,
+                    named,
+                    source,
+                });
             }
         }
 
@@ -219,7 +239,12 @@ impl Parser {
             self.expect(Token::From)?;
             source = self.expect_string()?;
             self.expect(Token::SemiColon)?;
-            return Ok(ImportDecl { default, namespace, named, source });
+            return Ok(ImportDecl {
+                default,
+                namespace,
+                named,
+                source,
+            });
         }
 
         self.expect(Token::LBrace)?;
@@ -239,7 +264,12 @@ impl Parser {
         self.expect(Token::From)?;
         source = self.expect_string()?;
         self.expect(Token::SemiColon)?;
-        Ok(ImportDecl { default, namespace, named, source })
+        Ok(ImportDecl {
+            default,
+            namespace,
+            named,
+            source,
+        })
     }
 
     fn parse_export(&mut self) -> Result<ExportDecl, ParseError> {
@@ -248,15 +278,43 @@ impl Parser {
         if self.match_ident("default") {
             if self.check(&Token::Fn) {
                 let decl = self.parse_fn_declaration()?;
-                if let Declaration::Function { name, type_params, params, return_type, body, is_async } = decl {
-                    return Ok(ExportDecl::DefaultFunction { name, type_params, params, return_type, body, is_async });
+                if let Declaration::Function {
+                    name,
+                    type_params,
+                    params,
+                    return_type,
+                    body,
+                    is_async,
+                } = decl
+                {
+                    return Ok(ExportDecl::DefaultFunction {
+                        name,
+                        type_params,
+                        params,
+                        return_type,
+                        body,
+                        is_async,
+                    });
                 }
                 unreachable!()
             }
             if self.check(&Token::Class) || self.check(&Token::At) {
                 let decl = self.parse_class_declaration()?;
-                if let Declaration::Class { name, type_params, extends, body, annotations } = decl {
-                    return Ok(ExportDecl::DefaultClass { name, type_params, extends, body, annotations });
+                if let Declaration::Class {
+                    name,
+                    type_params,
+                    extends,
+                    body,
+                    annotations,
+                } = decl
+                {
+                    return Ok(ExportDecl::DefaultClass {
+                        name,
+                        type_params,
+                        extends,
+                        body,
+                        annotations,
+                    });
                 }
                 unreachable!()
             }
@@ -369,7 +427,14 @@ impl Parser {
         self.expect(Token::LBrace)?;
         let body = self.parse_function_body()?;
         self.expect(Token::RBrace)?;
-        Ok(Declaration::Function { name, type_params, params, return_type, body, is_async })
+        Ok(Declaration::Function {
+            name,
+            type_params,
+            params,
+            return_type,
+            body,
+            is_async,
+        })
     }
 
     fn parse_class_declaration(&mut self) -> Result<Declaration, ParseError> {
@@ -388,7 +453,13 @@ impl Parser {
             body.push(self.parse_class_element()?);
         }
         self.expect(Token::RBrace)?;
-        Ok(Declaration::Class { name, type_params, extends, body, annotations })
+        Ok(Declaration::Class {
+            name,
+            type_params,
+            extends,
+            body,
+            annotations,
+        })
     }
 
     fn parse_trait_declaration(&mut self) -> Result<Declaration, ParseError> {
@@ -410,7 +481,12 @@ impl Parser {
             body.push(self.parse_trait_element()?);
         }
         self.expect(Token::RBrace)?;
-        Ok(Declaration::Trait { name, type_params, supertraits, body })
+        Ok(Declaration::Trait {
+            name,
+            type_params,
+            supertraits,
+            body,
+        })
     }
 
     fn parse_impl_declaration(&mut self) -> Result<Declaration, ParseError> {
@@ -430,7 +506,13 @@ impl Parser {
             body.push(self.parse_class_element()?);
         }
         self.expect(Token::RBrace)?;
-        Ok(Declaration::Impl { type_params, trait_name, trait_args, for_type, body })
+        Ok(Declaration::Impl {
+            type_params,
+            trait_name,
+            trait_args,
+            for_type,
+            body,
+        })
     }
 
     fn parse_type_alias(&mut self) -> Result<Declaration, ParseError> {
@@ -440,7 +522,11 @@ impl Parser {
         self.expect(Token::Assign)?;
         let ty = self.parse_type_annotation()?;
         self.expect(Token::SemiColon)?;
-        Ok(Declaration::TypeAlias { name, type_params, ty })
+        Ok(Declaration::TypeAlias {
+            name,
+            type_params,
+            ty,
+        })
     }
 
     fn parse_macro_declaration(&mut self) -> Result<Declaration, ParseError> {
@@ -505,7 +591,17 @@ impl Parser {
             self.expect(Token::LBrace)?;
             let body = self.parse_function_body()?;
             self.expect(Token::RBrace)?;
-            return Ok(ClassElement::Method { name, type_params: vec![], params: vec![], return_type, body, is_async: false, is_static, is_getter: true, is_setter: false });
+            return Ok(ClassElement::Method {
+                name,
+                type_params: vec![],
+                params: vec![],
+                return_type,
+                body,
+                is_async: false,
+                is_static,
+                is_getter: true,
+                is_setter: false,
+            });
         }
 
         if self.match_token(&Token::Set) {
@@ -516,7 +612,17 @@ impl Parser {
             self.expect(Token::LBrace)?;
             let body = self.parse_function_body()?;
             self.expect(Token::RBrace)?;
-            return Ok(ClassElement::Method { name, type_params: vec![], params, return_type: None, body, is_async: false, is_static, is_getter: false, is_setter: true });
+            return Ok(ClassElement::Method {
+                name,
+                type_params: vec![],
+                params,
+                return_type: None,
+                body,
+                is_async: false,
+                is_static,
+                is_getter: false,
+                is_setter: true,
+            });
         }
 
         let is_async = self.match_token(&Token::Async);
@@ -535,7 +641,17 @@ impl Parser {
             self.expect(Token::LBrace)?;
             let body = self.parse_function_body()?;
             self.expect(Token::RBrace)?;
-            return Ok(ClassElement::Method { name, type_params, params, return_type, body, is_async, is_static, is_getter: false, is_setter: false });
+            return Ok(ClassElement::Method {
+                name,
+                type_params,
+                params,
+                return_type,
+                body,
+                is_async,
+                is_static,
+                is_getter: false,
+                is_setter: false,
+            });
         }
 
         // Field
@@ -551,7 +667,12 @@ impl Parser {
             None
         };
         self.expect(Token::SemiColon)?;
-        Ok(ClassElement::Field { name, ty, init, is_static })
+        Ok(ClassElement::Field {
+            name,
+            ty,
+            init,
+            is_static,
+        })
     }
 
     fn parse_trait_element(&mut self) -> Result<TraitElement, ParseError> {
@@ -579,7 +700,13 @@ impl Parser {
                 self.expect(Token::SemiColon)?;
                 None
             };
-            return Ok(TraitElement::Method { name, type_params, params, return_type, body });
+            return Ok(TraitElement::Method {
+                name,
+                type_params,
+                params,
+                return_type,
+                body,
+            });
         }
         let name = self.parse_property_name()?;
         self.expect(Token::Colon)?;
@@ -688,7 +815,12 @@ impl Parser {
             } else {
                 None
             };
-            return Ok(Statement::IfLet { pattern, value: Box::new(value), then_branch, else_branch });
+            return Ok(Statement::IfLet {
+                pattern,
+                value: Box::new(value),
+                then_branch,
+                else_branch,
+            });
         }
         self.expect(Token::LParen)?;
         let condition = self.parse_expression()?;
@@ -699,7 +831,11 @@ impl Parser {
         } else {
             None
         };
-        Ok(Statement::If { condition: Box::new(condition), then_branch, else_branch })
+        Ok(Statement::If {
+            condition: Box::new(condition),
+            then_branch,
+            else_branch,
+        })
     }
 
     fn parse_while_statement(&mut self) -> Result<Statement, ParseError> {
@@ -709,13 +845,20 @@ impl Parser {
             self.expect(Token::Assign)?;
             let value = self.parse_expression()?;
             let body = Box::new(self.parse_block_statement()?);
-            return Ok(Statement::WhileLet { pattern, value: Box::new(value), body });
+            return Ok(Statement::WhileLet {
+                pattern,
+                value: Box::new(value),
+                body,
+            });
         }
         self.expect(Token::LParen)?;
         let condition = self.parse_expression()?;
         self.expect(Token::RParen)?;
         let body = Box::new(self.parse_statement()?);
-        Ok(Statement::While { condition: Box::new(condition), body })
+        Ok(Statement::While {
+            condition: Box::new(condition),
+            body,
+        })
     }
 
     fn parse_for_statement(&mut self) -> Result<Statement, ParseError> {
@@ -736,14 +879,23 @@ impl Parser {
                         let iterable = self.parse_expression()?;
                         self.expect(Token::RParen)?;
                         let body = Box::new(self.parse_statement()?);
-                        return Ok(Statement::ForIn { variable, iterable: Box::new(iterable), body });
+                        return Ok(Statement::ForIn {
+                            variable,
+                            iterable: Box::new(iterable),
+                            body,
+                        });
                     }
                     if self.match_token(&Token::Of) {
                         let is_async = self.match_token(&Token::Async);
                         let iterable = self.parse_expression()?;
                         self.expect(Token::RParen)?;
                         let body = Box::new(self.parse_statement()?);
-                        return Ok(Statement::ForOf { variable, iterable: Box::new(iterable), body, is_async });
+                        return Ok(Statement::ForOf {
+                            variable,
+                            iterable: Box::new(iterable),
+                            body,
+                            is_async,
+                        });
                     }
                 }
             }
@@ -773,16 +925,22 @@ impl Parser {
         };
         self.expect(Token::RParen)?;
         let body = Box::new(self.parse_statement()?);
-        Ok(Statement::For { init, condition, update, body })
+        Ok(Statement::For {
+            init,
+            condition,
+            update,
+            body,
+        })
     }
 
     fn parse_return_statement(&mut self) -> Result<Statement, ParseError> {
         self.expect(Token::Return)?;
-        let value = if self.check(&Token::SemiColon) || self.check(&Token::RBrace) || self.is_at_end() {
-            None
-        } else {
-            Some(Box::new(self.parse_expression()?))
-        };
+        let value =
+            if self.check(&Token::SemiColon) || self.check(&Token::RBrace) || self.is_at_end() {
+                None
+            } else {
+                Some(Box::new(self.parse_expression()?))
+            };
         self.expect(Token::SemiColon)?;
         Ok(Statement::Return(value))
     }
@@ -834,7 +992,11 @@ impl Parser {
             None
         };
 
-        Ok(Statement::Try { body, catch, finally })
+        Ok(Statement::Try {
+            body,
+            catch,
+            finally,
+        })
     }
 
     fn parse_match_statement(&mut self) -> Result<Statement, ParseError> {
@@ -851,7 +1013,10 @@ impl Parser {
             }
         }
         self.expect(Token::RBrace)?;
-        Ok(Statement::Match { value: Box::new(value), arms })
+        Ok(Statement::Match {
+            value: Box::new(value),
+            arms,
+        })
     }
 
     fn parse_match_arm(&mut self) -> Result<MatchArm, ParseError> {
@@ -873,7 +1038,11 @@ impl Parser {
         } else {
             vec![Statement::Expression(Box::new(self.parse_expression()?))]
         };
-        Ok(MatchArm { pattern, guard, body })
+        Ok(MatchArm {
+            pattern,
+            guard,
+            body,
+        })
     }
 
     fn parse_break_statement(&mut self) -> Result<Statement, ParseError> {
@@ -977,7 +1146,12 @@ impl Parser {
                 } else {
                     ArrowBody::Expr(Box::new(self.parse_expr_bp(r_bp)?))
                 };
-                lhs = Expr::ArrowFunction { params, return_type, body, is_async: false };
+                lhs = Expr::ArrowFunction {
+                    params,
+                    return_type,
+                    body,
+                    is_async: false,
+                };
                 continue;
             }
 
@@ -1176,7 +1350,10 @@ impl Parser {
             }
             _ => {
                 let loc = self.location();
-                let found = self.current_token().map(|t| t.name()).unwrap_or_else(|| "end of file".into());
+                let found = self
+                    .current_token()
+                    .map(|t| t.name())
+                    .unwrap_or_else(|| "end of file".into());
                 Err(ParseError::UnexpectedToken {
                     token: found,
                     line: loc.line,
@@ -1237,7 +1414,10 @@ impl Parser {
                 let key = self.parse_property_name()?;
                 if self.match_token(&Token::Colon) {
                     let value = self.parse_expression()?;
-                    properties.push(ObjectProperty::Property { key, value: Box::new(value) });
+                    properties.push(ObjectProperty::Property {
+                        key,
+                        value: Box::new(value),
+                    });
                 } else if let PropertyName::Ident(name) = &key {
                     properties.push(ObjectProperty::Shorthand(name.clone()));
                 } else {
@@ -1278,13 +1458,35 @@ impl Parser {
         self.expect(Token::LBrace)?;
         let body = self.parse_function_body()?;
         self.expect(Token::RBrace)?;
-        Ok(Expr::Function { name, type_params, params, return_type, body, is_async: false })
+        Ok(Expr::Function {
+            name,
+            type_params,
+            params,
+            return_type,
+            body,
+            is_async: false,
+        })
     }
 
     fn parse_async_function_expression(&mut self) -> Result<Expr, ParseError> {
         let expr = self.parse_function_expression()?;
-        if let Expr::Function { name, type_params, params, return_type, body, .. } = expr {
-            Ok(Expr::Function { name, type_params, params, return_type, body, is_async: true })
+        if let Expr::Function {
+            name,
+            type_params,
+            params,
+            return_type,
+            body,
+            ..
+        } = expr
+        {
+            Ok(Expr::Function {
+                name,
+                type_params,
+                params,
+                return_type,
+                body,
+                is_async: true,
+            })
         } else {
             unreachable!()
         }
@@ -1310,7 +1512,13 @@ impl Parser {
             body.push(self.parse_class_element()?);
         }
         self.expect(Token::RBrace)?;
-        Ok(Expr::Class { name, type_params, extends, body, annotations })
+        Ok(Expr::Class {
+            name,
+            type_params,
+            extends,
+            body,
+            annotations,
+        })
     }
 
     fn parse_new_expression(&mut self) -> Result<Expr, ParseError> {
@@ -1321,7 +1529,10 @@ impl Parser {
         } else {
             vec![]
         };
-        Ok(Expr::New { callee: Box::new(callee), args })
+        Ok(Expr::New {
+            callee: Box::new(callee),
+            args,
+        })
     }
 
     fn parse_match_expression(&mut self) -> Result<Expr, ParseError> {
@@ -1338,7 +1549,10 @@ impl Parser {
             }
         }
         self.expect(Token::RBrace)?;
-        Ok(Expr::Match { value: Box::new(value), arms })
+        Ok(Expr::Match {
+            value: Box::new(value),
+            arms,
+        })
     }
 
     fn parse_if_expression(&mut self) -> Result<Expr, ParseError> {
@@ -1372,7 +1586,11 @@ impl Parser {
         } else {
             None
         };
-        Ok(Expr::If { condition: Box::new(condition), then_branch: Box::new(then_branch), else_branch })
+        Ok(Expr::If {
+            condition: Box::new(condition),
+            then_branch: Box::new(then_branch),
+            else_branch,
+        })
     }
 
     fn parse_arguments(&mut self) -> Result<Vec<Argument>, ParseError> {
@@ -1449,7 +1667,10 @@ impl Parser {
                 // Note: lexer tokenizes -> as FatArrow due to a bug, so we use FatArrow here
                 self.expect(Token::FatArrow)?;
                 let return_type = Box::new(self.parse_type()?);
-                Ok(TypeAnnotation::Function { params, return_type })
+                Ok(TypeAnnotation::Function {
+                    params,
+                    return_type,
+                })
             }
             Some(Token::LBrace) => {
                 self.advance();
@@ -1555,7 +1776,12 @@ impl Parser {
         } else {
             None
         };
-        Ok(Param { pattern, ty, init, is_rest })
+        Ok(Param {
+            pattern,
+            ty,
+            init,
+            is_rest,
+        })
     }
 }
 
@@ -1693,10 +1919,22 @@ impl Parser {
 
 fn infix_binding_power(op: &Token) -> Option<(u8, u8)> {
     match op {
-        Token::Assign | Token::PlusAssign | Token::MinusAssign | Token::StarAssign
-        | Token::SlashAssign | Token::PercentAssign | Token::PowerAssign | Token::AmpAssign
-        | Token::PipeAssign | Token::CaretAssign | Token::ShlAssign | Token::ShrAssign
-        | Token::UShrAssign | Token::AndAssign | Token::OrAssign | Token::NullishAssign => {
+        Token::Assign
+        | Token::PlusAssign
+        | Token::MinusAssign
+        | Token::StarAssign
+        | Token::SlashAssign
+        | Token::PercentAssign
+        | Token::PowerAssign
+        | Token::AmpAssign
+        | Token::PipeAssign
+        | Token::CaretAssign
+        | Token::ShlAssign
+        | Token::ShrAssign
+        | Token::UShrAssign
+        | Token::AndAssign
+        | Token::OrAssign
+        | Token::NullishAssign => {
             Some((21, 20)) // right-associative
         }
         Token::FatArrow => Some((31, 30)), // right-associative
@@ -1710,15 +1948,18 @@ fn infix_binding_power(op: &Token) -> Option<(u8, u8)> {
         Token::Equals | Token::NotEquals | Token::StrictEquals | Token::StrictNotEquals => {
             Some((110, 111))
         }
-        Token::Less | Token::Greater | Token::LessEq | Token::GreaterEq | Token::In | Token::Instanceof => {
-            Some((120, 121))
-        }
+        Token::Less
+        | Token::Greater
+        | Token::LessEq
+        | Token::GreaterEq
+        | Token::In
+        | Token::Instanceof => Some((120, 121)),
         Token::Shl | Token::Shr | Token::UShr => Some((130, 131)),
         Token::Plus | Token::Minus => Some((140, 141)),
         Token::Star | Token::Slash | Token::Percent => Some((150, 151)),
         Token::Power => Some((161, 160)), // right-associative
         Token::Dot | Token::OptChain => Some((180, 181)),
-        Token::LParen => Some((180, 181)), // call
+        Token::LParen => Some((180, 181)),   // call
         Token::LBracket => Some((180, 181)), // index
         _ => None,
     }
@@ -1795,48 +2036,46 @@ fn token_to_prefix_op(op: &Token) -> Option<UnaryOp> {
 
 fn expr_to_arrow_params(expr: Expr) -> Result<Vec<Param>, ParseError> {
     match expr {
-        Expr::Identifier(name) => {
-            Ok(vec![Param {
+        Expr::Identifier(name) => Ok(vec![Param {
+            pattern: Pattern::Identifier(name),
+            ty: None,
+            init: None,
+            is_rest: false,
+        }]),
+        Expr::Grouping(boxed) => match *boxed {
+            Expr::Sequence(exprs) => {
+                let mut params = Vec::new();
+                for e in exprs {
+                    match e {
+                        Expr::Identifier(name) => params.push(Param {
+                            pattern: Pattern::Identifier(name),
+                            ty: None,
+                            init: None,
+                            is_rest: false,
+                        }),
+                        _ => {
+                            return Err(ParseError::SyntaxError {
+                                message: "invalid arrow function parameter".into(),
+                                line: 0,
+                                col: 0,
+                            })
+                        }
+                    }
+                }
+                Ok(params)
+            }
+            Expr::Identifier(name) => Ok(vec![Param {
                 pattern: Pattern::Identifier(name),
                 ty: None,
                 init: None,
                 is_rest: false,
-            }])
-        }
-        Expr::Grouping(boxed) => {
-            match *boxed {
-                Expr::Sequence(exprs) => {
-                    let mut params = Vec::new();
-                    for e in exprs {
-                        match e {
-                            Expr::Identifier(name) => params.push(Param {
-                                pattern: Pattern::Identifier(name),
-                                ty: None,
-                                init: None,
-                                is_rest: false,
-                            }),
-                            _ => return Err(ParseError::SyntaxError {
-                                message: "invalid arrow function parameter".into(),
-                                line: 0,
-                                col: 0,
-                            }),
-                        }
-                    }
-                    Ok(params)
-                }
-                Expr::Identifier(name) => Ok(vec![Param {
-                    pattern: Pattern::Identifier(name),
-                    ty: None,
-                    init: None,
-                    is_rest: false,
-                }]),
-                _ => Err(ParseError::SyntaxError {
-                    message: "invalid arrow function parameters".into(),
-                    line: 0,
-                    col: 0,
-                }),
-            }
-        }
+            }]),
+            _ => Err(ParseError::SyntaxError {
+                message: "invalid arrow function parameters".into(),
+                line: 0,
+                col: 0,
+            }),
+        },
         _ => Err(ParseError::SyntaxError {
             message: "invalid arrow function parameters".into(),
             line: 0,

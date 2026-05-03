@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use ruyi_runtime::{
     alloc::TypeInfo,
-    async_runtime::{register_async_roots, GLOBAL_SCHEDULER, Poll, RuyiFuture, Waker},
+    async_runtime::{register_async_roots, Poll, RuyiFuture, Waker, GLOBAL_SCHEDULER},
     gc::MarkSweepCollector,
 };
 

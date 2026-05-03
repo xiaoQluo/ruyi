@@ -1,0 +1,14 @@
+// =============================================================================
+// Module: config - Configuration module
+// =============================================================================
+// Demonstrates: re-exports, side-effect imports
+
+// Re-export all from string_utils
+export * from "./lib/string_utils";
+
+// Re-export specific items from math
+export { add, multiply, PI } from "./math";
+
+// Additional config-specific export
+export const APP_NAME: string = "Ruyi Modules Demo";
+export const VERSION: string = "0.1.0";

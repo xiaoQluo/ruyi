@@ -253,16 +253,46 @@ impl Scanner {
                     Token::Colon
                 }
             }
-            ';' => { self.advance(); Token::SemiColon }
-            ',' => { self.advance(); Token::Comma }
-            '(' => { self.advance(); Token::LParen }
-            ')' => { self.advance(); Token::RParen }
-            '{' => { self.advance(); Token::LBrace }
-            '}' => { self.advance(); Token::RBrace }
-            '[' => { self.advance(); Token::LBracket }
-            ']' => { self.advance(); Token::RBracket }
-            '@' => { self.advance(); Token::At }
-            '#' => { self.advance(); Token::Hash }
+            ';' => {
+                self.advance();
+                Token::SemiColon
+            }
+            ',' => {
+                self.advance();
+                Token::Comma
+            }
+            '(' => {
+                self.advance();
+                Token::LParen
+            }
+            ')' => {
+                self.advance();
+                Token::RParen
+            }
+            '{' => {
+                self.advance();
+                Token::LBrace
+            }
+            '}' => {
+                self.advance();
+                Token::RBrace
+            }
+            '[' => {
+                self.advance();
+                Token::LBracket
+            }
+            ']' => {
+                self.advance();
+                Token::RBracket
+            }
+            '@' => {
+                self.advance();
+                Token::At
+            }
+            '#' => {
+                self.advance();
+                Token::Hash
+            }
             _ => {
                 return Err(LexerError::InvalidCharacter {
                     ch,
@@ -349,9 +379,15 @@ impl Scanner {
     fn skip_whitespace_and_comments(&mut self) -> Result<(), LexerError> {
         while !self.is_at_end() {
             match self.current_char() {
-                ' ' | '\t' | '\r' | '\n' | '\x0C' => { self.advance(); }
-                '/' if self.peek_char(1) == '/' => { self.skip_line_comment(); }
-                '/' if self.peek_char(1) == '*' => { self.skip_block_comment()?; }
+                ' ' | '\t' | '\r' | '\n' | '\x0C' => {
+                    self.advance();
+                }
+                '/' if self.peek_char(1) == '/' => {
+                    self.skip_line_comment();
+                }
+                '/' if self.peek_char(1) == '*' => {
+                    self.skip_block_comment()?;
+                }
                 _ => break,
             }
         }
@@ -377,7 +413,10 @@ impl Scanner {
             }
             self.advance();
         }
-        Err(LexerError::UnterminatedComment { line: start_line, col: start_col })
+        Err(LexerError::UnterminatedComment {
+            line: start_line,
+            col: start_col,
+        })
     }
 
     fn scan_ident_or_keyword(&mut self) -> Token {
@@ -531,7 +570,11 @@ impl Scanner {
         }
     }
 
-    fn scan_hex_number(&mut self, start_line: usize, start_col: usize) -> Result<Token, LexerError> {
+    fn scan_hex_number(
+        &mut self,
+        start_line: usize,
+        start_col: usize,
+    ) -> Result<Token, LexerError> {
         let start = self.pos;
         if !self.current_char().is_ascii_hexdigit() {
             return Err(LexerError::InvalidNumber {
@@ -558,7 +601,11 @@ impl Scanner {
         }
     }
 
-    fn scan_octal_number(&mut self, start_line: usize, start_col: usize) -> Result<Token, LexerError> {
+    fn scan_octal_number(
+        &mut self,
+        start_line: usize,
+        start_col: usize,
+    ) -> Result<Token, LexerError> {
         let start = self.pos;
         if !matches!(self.current_char(), '0'..='7') {
             return Err(LexerError::InvalidNumber {
@@ -585,7 +632,11 @@ impl Scanner {
         }
     }
 
-    fn scan_binary_number(&mut self, start_line: usize, start_col: usize) -> Result<Token, LexerError> {
+    fn scan_binary_number(
+        &mut self,
+        start_line: usize,
+        start_col: usize,
+    ) -> Result<Token, LexerError> {
         let start = self.pos;
         if !matches!(self.current_char(), '0' | '1') {
             return Err(LexerError::InvalidNumber {
@@ -623,21 +674,31 @@ impl Scanner {
                 let escaped = self.scan_escape_sequence(start_line, start_col)?;
                 result.push_str(&escaped);
             } else if self.current_char() == '\n' {
-                return Err(LexerError::UnterminatedString { line: start_line, col: start_col });
+                return Err(LexerError::UnterminatedString {
+                    line: start_line,
+                    col: start_col,
+                });
             } else {
                 result.push(self.advance());
             }
         }
 
         if self.is_at_end() {
-            return Err(LexerError::UnterminatedString { line: start_line, col: start_col });
+            return Err(LexerError::UnterminatedString {
+                line: start_line,
+                col: start_col,
+            });
         }
 
         self.advance();
         Ok(Token::String(result))
     }
 
-    fn scan_escape_sequence(&mut self, start_line: usize, start_col: usize) -> Result<String, LexerError> {
+    fn scan_escape_sequence(
+        &mut self,
+        start_line: usize,
+        start_col: usize,
+    ) -> Result<String, LexerError> {
         self.advance();
         let ch = self.current_char();
         let escaped = match ch {
@@ -657,13 +718,21 @@ impl Scanner {
                 self.advance();
                 let d2 = self.current_char();
                 if !d1.is_ascii_hexdigit() || !d2.is_ascii_hexdigit() {
-                    return Err(LexerError::InvalidEscape { line: start_line, col: start_col });
+                    return Err(LexerError::InvalidEscape {
+                        line: start_line,
+                        col: start_col,
+                    });
                 }
                 let hex: String = self.input[self.pos - 1..=self.pos].iter().collect();
                 self.advance();
                 match u8::from_str_radix(&hex, 16) {
                     Ok(b) => String::from_utf8_lossy(&[b]).to_string(),
-                    Err(_) => return Err(LexerError::InvalidEscape { line: start_line, col: start_col }),
+                    Err(_) => {
+                        return Err(LexerError::InvalidEscape {
+                            line: start_line,
+                            col: start_col,
+                        })
+                    }
                 }
             }
             'u' => {
@@ -676,22 +745,38 @@ impl Scanner {
                     }
                     let hex: String = self.input[ustart..self.pos].iter().collect();
                     if self.current_char() != '}' || hex.is_empty() {
-                        return Err(LexerError::InvalidEscape { line: start_line, col: start_col });
+                        return Err(LexerError::InvalidEscape {
+                            line: start_line,
+                            col: start_col,
+                        });
                     }
                     self.advance();
                     match u32::from_str_radix(&hex, 16) {
                         Ok(cp) => match char::from_u32(cp) {
                             Some(c) => c.to_string(),
-                            None => return Err(LexerError::InvalidEscape { line: start_line, col: start_col }),
+                            None => {
+                                return Err(LexerError::InvalidEscape {
+                                    line: start_line,
+                                    col: start_col,
+                                })
+                            }
                         },
-                        Err(_) => return Err(LexerError::InvalidEscape { line: start_line, col: start_col }),
+                        Err(_) => {
+                            return Err(LexerError::InvalidEscape {
+                                line: start_line,
+                                col: start_col,
+                            })
+                        }
                     }
                 } else {
                     let mut hex = String::new();
                     for _ in 0..4 {
                         let c = self.current_char();
                         if !c.is_ascii_hexdigit() {
-                            return Err(LexerError::InvalidEscape { line: start_line, col: start_col });
+                            return Err(LexerError::InvalidEscape {
+                                line: start_line,
+                                col: start_col,
+                            });
                         }
                         hex.push(c);
                         self.advance();
@@ -699,13 +784,28 @@ impl Scanner {
                     match u32::from_str_radix(&hex, 16) {
                         Ok(cp) => match char::from_u32(cp) {
                             Some(c) => c.to_string(),
-                            None => return Err(LexerError::InvalidEscape { line: start_line, col: start_col }),
+                            None => {
+                                return Err(LexerError::InvalidEscape {
+                                    line: start_line,
+                                    col: start_col,
+                                })
+                            }
                         },
-                        Err(_) => return Err(LexerError::InvalidEscape { line: start_line, col: start_col }),
+                        Err(_) => {
+                            return Err(LexerError::InvalidEscape {
+                                line: start_line,
+                                col: start_col,
+                            })
+                        }
                     }
                 }
             }
-            _ => return Err(LexerError::InvalidEscape { line: start_line, col: start_col }),
+            _ => {
+                return Err(LexerError::InvalidEscape {
+                    line: start_line,
+                    col: start_col,
+                })
+            }
         };
         if !matches!(ch, 'x' | 'u') {
             self.advance();
@@ -747,6 +847,9 @@ impl Scanner {
             }
         }
 
-        Err(LexerError::UnterminatedTemplate { line: start_line, col: start_col })
+        Err(LexerError::UnterminatedTemplate {
+            line: start_line,
+            col: start_col,
+        })
     }
 }

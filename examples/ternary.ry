@@ -1,0 +1,13 @@
+// Ternary operator example for Ruyi
+fn main() {
+  let x = 10;
+  let result: int = x > 5 ? 1 : 0;
+  print("x > 5 ? 1 : 0 = ");
+  print(result);
+  print("\n");
+
+  let y: int = x < 5 ? 1 : 0;
+  print("x < 5 ? 1 : 0 = ");
+  print(y);
+  print("\n");
+}

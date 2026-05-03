@@ -1,3 +1,4 @@
+use crate::typechecker::types::Type;
 /**
  * LLVM type mapping for Ruyi types.
  *
@@ -18,10 +19,10 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use inkwell::context::Context;
-use inkwell::types::{BasicType, BasicTypeEnum, FunctionType, IntType, FloatType, PointerType, StructType, VoidType};
-use crate::typechecker::types::Type;
+use inkwell::types::{
+    BasicType, BasicTypeEnum, FloatType, FunctionType, IntType, PointerType, StructType, VoidType,
+};
 
 /// Map a Ruyi `Type` to its LLVM `BasicTypeEnum` equivalent.
 pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: &Type) -> BasicTypeEnum<'ctx> {
@@ -37,12 +38,24 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: &Type) -> BasicTypeEn
         }
         Type::BigInt => BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default())),
         Type::Nullable(inner) => ruyi_type_to_llvm(context, inner),
-        Type::Array(_) => BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default())),
-        Type::Object(_) => BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default())),
-        Type::Function { .. } => BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default())),
-        Type::Named(_) => BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default())),
-        Type::Generic { .. } => BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default())),
-        Type::TypeVar(_) => BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default())),
+        Type::Array(_) => {
+            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+        }
+        Type::Object(_) => {
+            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+        }
+        Type::Function { .. } => {
+            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+        }
+        Type::Named(_) => {
+            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+        }
+        Type::Generic { .. } => {
+            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+        }
+        Type::TypeVar(_) => {
+            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+        }
         Type::Trait(_) => {
             let trait_obj_type = context.struct_type(
                 &[
@@ -53,7 +66,9 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: &Type) -> BasicTypeEn
             );
             BasicTypeEnum::StructType(trait_obj_type)
         }
-        Type::Future(_) => BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default())),
+        Type::Future(_) => {
+            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+        }
         Type::Dynamic => {
             let dyn_type = context.struct_type(
                 &[
@@ -134,9 +149,9 @@ impl<'ctx> LlvmTypes<'ctx> {
     pub fn ruyi_object_type(&self, field_count: u32) -> StructType<'ctx> {
         self.context.struct_type(
             &[
-                self.context.i64_type().into(),  // type_tag (gc vtable pointer)
-                self.context.i64_type().into(),  // field_count
-                self.context.i8_type().ptr_type(Default::default()).into(),  // field storage (opaque)
+                self.context.i64_type().into(), // type_tag (gc vtable pointer)
+                self.context.i64_type().into(), // field_count
+                self.context.i8_type().ptr_type(Default::default()).into(), // field storage (opaque)
             ],
             false,
         )
@@ -147,9 +162,9 @@ impl<'ctx> LlvmTypes<'ctx> {
     pub fn ruyi_array_type(&self) -> StructType<'ctx> {
         self.context.struct_type(
             &[
-                self.context.i64_type().into(),  // length
-                self.context.i64_type().into(),  // capacity
-                self.context.i8_type().ptr_type(Default::default()).into(),  // element storage
+                self.context.i64_type().into(),                             // length
+                self.context.i64_type().into(),                             // capacity
+                self.context.i8_type().ptr_type(Default::default()).into(), // element storage
             ],
             false,
         )
@@ -169,10 +184,22 @@ mod tests {
     #[test]
     fn test_primitive_types() {
         let context = Context::create();
-        assert!(matches!(ruyi_type_to_llvm(&context, &Type::Int), BasicTypeEnum::IntType(_)));
-        assert!(matches!(ruyi_type_to_llvm(&context, &Type::Float), BasicTypeEnum::FloatType(_)));
-        assert!(matches!(ruyi_type_to_llvm(&context, &Type::Bool), BasicTypeEnum::IntType(_)));
-        assert!(matches!(ruyi_type_to_llvm(&context, &Type::String), BasicTypeEnum::PointerType(_)));
+        assert!(matches!(
+            ruyi_type_to_llvm(&context, &Type::Int),
+            BasicTypeEnum::IntType(_)
+        ));
+        assert!(matches!(
+            ruyi_type_to_llvm(&context, &Type::Float),
+            BasicTypeEnum::FloatType(_)
+        ));
+        assert!(matches!(
+            ruyi_type_to_llvm(&context, &Type::Bool),
+            BasicTypeEnum::IntType(_)
+        ));
+        assert!(matches!(
+            ruyi_type_to_llvm(&context, &Type::String),
+            BasicTypeEnum::PointerType(_)
+        ));
     }
 
     #[test]

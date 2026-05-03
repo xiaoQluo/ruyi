@@ -103,7 +103,8 @@ impl MarkSweepCollector {
         if ptr.is_null() {
             return false;
         }
-        let header_addr = (ptr as usize).wrapping_sub(std::mem::size_of::<GcObjectHeader>()) as *mut GcObjectHeader;
+        let header_addr = (ptr as usize).wrapping_sub(std::mem::size_of::<GcObjectHeader>())
+            as *mut GcObjectHeader;
         let objects = self.objects.lock().unwrap();
         objects.iter().any(|&obj| obj == header_addr)
     }

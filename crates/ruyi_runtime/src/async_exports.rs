@@ -7,29 +7,36 @@
 //! @author Ruyi Team
 //! @date 2026-05-03
 
-use crate::async_runtime::{GLOBAL_SCHEDULER, Poll, RuyiFuture, TaskId, Waker};
+use crate::async_runtime::{Poll, RuyiFuture, TaskId, Waker, GLOBAL_SCHEDULER};
 
 /// Wrapper that turns an opaque C future pointer into a `RuyiFuture`.
 ///
 /// The codegen (T05) will produce future state machines as raw
 /// heap-allocated structs. Until the vtable convention is defined,
 /// this wrapper provides a minimal baseline `RuyiFuture` implementation.
+type PollFn = unsafe extern "C" fn(*mut u8, *mut u8) -> i32;
+
 struct CFuture {
     ptr: *mut u8,
 }
 
-// Safety: `*mut u8` is `Send`, and the pointer is treated as opaque.
 unsafe impl Send for CFuture {}
 
 impl RuyiFuture for CFuture {
     type Output = ();
 
-    fn poll(&mut self, _waker: &Waker) -> Poll<Self::Output> {
-        // Baseline: opaque future cannot be polled without a codegen-
-        // provided vtable (T05). Return Ready so the task completes
-        // immediately rather than hanging the scheduler.
-        let _ = self.ptr;
-        Poll::Ready(())
+    fn poll(&mut self, waker: &Waker) -> Poll<Self::Output> {
+        let poll_fn_ptr = unsafe {
+            let ptr_val = std::ptr::read::<*mut u8>(self.ptr as *const *mut u8);
+            std::mem::transmute::<*mut u8, PollFn>(ptr_val)
+        };
+        let waker_ptr = waker as *const Waker as *mut u8;
+        let result = unsafe { poll_fn_ptr(self.ptr, waker_ptr) };
+        if result == 1 {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
     }
 }
 
@@ -43,10 +50,12 @@ impl RuyiFuture for CFuture {
 ///
 /// Returns `0` for Pending, `1` for Ready.
 #[no_mangle]
-pub extern "C" fn ruyi_async_poll(_future_ptr: *mut u8, _waker_ptr: *mut u8) -> i32 {
-    // Baseline placeholder: opaque future cannot be polled without a
-    // codegen-provided vtable (T05). Return Ready (1).
-    1
+pub extern "C" fn ruyi_async_poll(future_ptr: *mut u8, waker_ptr: *mut u8) -> i32 {
+    let poll_fn_ptr = unsafe {
+        let ptr_val = std::ptr::read::<*mut u8>(future_ptr as *const *mut u8);
+        std::mem::transmute::<*mut u8, PollFn>(ptr_val)
+    };
+    unsafe { poll_fn_ptr(future_ptr, waker_ptr) }
 }
 
 /// Spawn a future onto the global scheduler.

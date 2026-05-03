@@ -10,4 +10,4 @@ pub mod traits;
 pub mod types;
 
 pub use generator::{CodeGenerator, CodegenContext};
-pub use monomorph::{MonomorphizedFunction, MonomorphizationContext, collect_monomorphizations};
+pub use monomorph::{collect_monomorphizations, MonomorphizationContext, MonomorphizedFunction};

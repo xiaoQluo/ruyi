@@ -1,6 +1,5 @@
 use ruyi_runtime::async_runtime::{
-    ruyi_await, JoinAll, RuyiFuture, Poll, Race, Scheduler, TaskId, Waker,
-    WorkStealingDeque,
+    ruyi_await, JoinAll, Poll, Race, RuyiFuture, Scheduler, TaskId, Waker, WorkStealingDeque,
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -82,10 +81,7 @@ fn test_join_all() {
 
 #[test]
 fn test_race() {
-    let futs = vec![
-        ImmediateFuture(Some(1)),
-        ImmediateFuture(Some(2)),
-    ];
+    let futs = vec![ImmediateFuture(Some(1)), ImmediateFuture(Some(2))];
     let mut race = Race::new(futs);
     let scheduler = Scheduler::new(1);
     let waker = scheduler.test_waker(TaskId(0));

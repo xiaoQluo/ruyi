@@ -1,0 +1,106 @@
+// =============================================================================
+// Modules Demo - Ruyi Tutorial Chapter 12
+// =============================================================================
+// Main entry point demonstrating all import/export patterns:
+// - Named imports
+// - Renamed imports
+// - Namespace imports
+// - Default imports
+// - Combined imports
+// - Side-effect imports
+// - Re-exports
+// =============================================================================
+
+// Named imports
+import { add, subtract, multiply, divide } from "./math";
+
+// Renamed import
+import { add as plus } from "./math";
+
+// Namespace import
+import * as math from "./math";
+
+// Default import
+import compute from "./math";
+
+// Combined import
+import compute, { PI, E } from "./math";
+
+// Re-exports from config
+import { APP_NAME, VERSION, reverse, repeat, isBlank } from "./config";
+
+// Side-effect import (runs module initialization)
+import "./config";
+
+// -----------------------------------------------------------------------------
+// Demo Functions
+// -----------------------------------------------------------------------------
+fn namedImportsDemo() {
+  print("--- Named Imports ---\n");
+  print("add(3, 5): ");
+  print(add(3, 5));
+  print("\nsubtract(10, 3): ");
+  print(subtract(10, 3));
+  print("\nmultiply(4, 6): ");
+  print(multiply(4, 6));
+  print("\ndivide(10, 2): ");
+  print(divide(10, 2));
+  print("\n");
+}
+
+fn renamedImportsDemo() {
+  print("--- Renamed Imports ---\n");
+  print("plus(7, 8): ");
+  print(plus(7, 8));
+  print("\n");
+}
+
+fn namespaceImportsDemo() {
+  print("--- Namespace Imports ---\n");
+  print("math.PI: ");
+  print(math.PI);
+  print("\nmath.E: ");
+  print(math.E);
+  print("\nmath.add(1, 2): ");
+  print(math.add(1, 2));
+  print("\n");
+}
+
+fn defaultImportsDemo() {
+  print("--- Default Imports ---\n");
+  print("compute(10, 5, \"+\"): ");
+  print(compute(10, 5, "+"));
+  print("\ncompute(10, 5, \"*\"): ");
+  print(compute(10, 5, "*"));
+  print("\n");
+}
+
+fn reExportsDemo() {
+  print("--- Re-exports ---\n");
+  print("APP_NAME: ");
+  print(APP_NAME);
+  print("\nVERSION: ");
+  print(VERSION);
+  print("\nreverse(\"hello\"): ");
+  print(reverse("hello"));
+  print("\nrepeat(\"*\", 5): ");
+  print(repeat("*", 5));
+  print("\nisBlank(\"\"): ");
+  print(isBlank(""));
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+  print("=== Modules Demo ===\n\n");
+
+  namedImportsDemo();
+  renamedImportsDemo();
+  namespaceImportsDemo();
+  defaultImportsDemo();
+  reExportsDemo();
+
+  print("\nAll modules demos completed successfully!\n");
+}

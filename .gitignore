@@ -21,6 +21,7 @@ Thumbs.db
 # LLVM
 *.bc
 *.ll
+*.out
 
 # Ruyi output
 *.ryc

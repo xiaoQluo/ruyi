@@ -7,7 +7,6 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use std::collections::HashMap;
 
 use crate::parser::ast::{ClassElement, Declaration, TraitElement, TypeAnnotation, TypeParam};
@@ -59,12 +58,25 @@ impl TraitRegistry {
 
     /// Register a trait declaration.
     pub fn register_trait(&mut self, decl: &Declaration) {
-        if let Declaration::Trait { name, type_params, supertraits, body } = decl {
+        if let Declaration::Trait {
+            name,
+            type_params,
+            supertraits,
+            body,
+        } = decl
+        {
             let mut methods = HashMap::new();
             let mut is_marker = true;
 
             for element in body {
-                if let TraitElement::Method { name: prop_name, params, return_type, body, .. } = element {
+                if let TraitElement::Method {
+                    name: prop_name,
+                    params,
+                    return_type,
+                    body,
+                    ..
+                } = element
+                {
                     let method_name = match prop_name {
                         crate::parser::ast::PropertyName::Ident(n) => n.clone(),
                         _ => continue,
@@ -110,10 +122,20 @@ impl TraitRegistry {
 
     /// Register an impl declaration.
     pub fn register_impl(&mut self, decl: &Declaration) {
-        if let Declaration::Impl { type_params, trait_name, trait_args, for_type, body } = decl {
+        if let Declaration::Impl {
+            type_params,
+            trait_name,
+            trait_args,
+            for_type,
+            body,
+        } = decl
+        {
             let mut methods = Vec::new();
             for element in body {
-                if let ClassElement::Method { name: prop_name, .. } = element {
+                if let ClassElement::Method {
+                    name: prop_name, ..
+                } = element
+                {
                     let method_name = match prop_name {
                         crate::parser::ast::PropertyName::Ident(n) => n.clone(),
                         _ => continue,
@@ -136,7 +158,8 @@ impl TraitRegistry {
             // Index by concrete type name if possible
             let type_key = type_annotation_name(for_type);
             if !type_key.is_empty() {
-                self.type_trait_impls.insert((type_key, trait_name.clone()), impl_idx);
+                self.type_trait_impls
+                    .insert((type_key, trait_name.clone()), impl_idx);
             }
         }
     }
@@ -149,9 +172,9 @@ impl TraitRegistry {
     /// Check if a type implements a trait.
     pub fn implements(&self, ty: &Type, trait_name: &str) -> bool {
         match ty {
-            Type::Named(name) | Type::Generic { base: name, .. } => {
-                self.type_trait_impls.contains_key(&(name.clone(), trait_name.to_string()))
-            }
+            Type::Named(name) | Type::Generic { base: name, .. } => self
+                .type_trait_impls
+                .contains_key(&(name.clone(), trait_name.to_string())),
             Type::Dynamic | Type::Error => true,
             _ => false,
         }
@@ -160,9 +183,10 @@ impl TraitRegistry {
     /// Get the impl index for a (type, trait) pair.
     pub fn get_impl_index(&self, ty: &Type, trait_name: &str) -> Option<usize> {
         match ty {
-            Type::Named(name) | Type::Generic { base: name, .. } => {
-                self.type_trait_impls.get(&(name.clone(), trait_name.to_string())).copied()
-            }
+            Type::Named(name) | Type::Generic { base: name, .. } => self
+                .type_trait_impls
+                .get(&(name.clone(), trait_name.to_string()))
+                .copied(),
             _ => None,
         }
     }
@@ -193,7 +217,10 @@ impl TraitRegistry {
                 }
             } else {
                 diagnostics.add_error(DiagnosticKind::Other {
-                    message: format!("Impl {} references unknown trait `{}`", i, impl_info.trait_name),
+                    message: format!(
+                        "Impl {} references unknown trait `{}`",
+                        i, impl_info.trait_name
+                    ),
                 });
             }
         }
@@ -224,10 +251,7 @@ impl TraitRegistry {
                 // Check super trait exists
                 if !self.traits.contains_key(super_name) {
                     diagnostics.add_error(DiagnosticKind::Other {
-                        message: format!(
-                            "Trait '{}' extends unknown trait '{}'",
-                            name, super_name
-                        ),
+                        message: format!("Trait '{}' extends unknown trait '{}'", name, super_name),
                     });
                 }
                 // Check for circular: A extends B, B extends A
@@ -348,7 +372,7 @@ mod tests {
     #[test]
     fn test_impl_validation_missing_method() {
         let mut registry = registry_from_source(
-            "trait Printable { fn format(self): string; }\nimpl Printable for int { }"
+            "trait Printable { fn format(self): string; }\nimpl Printable for int { }",
         );
         let mut diagnostics = DiagnosticBag::new();
         registry.validate_impls(&mut diagnostics);

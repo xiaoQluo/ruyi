@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::alloc::{GcObjectHeader, MemoryStrategy, TypeInfo, ruyi_alloc, ruyi_dealloc};
+use crate::alloc::{ruyi_alloc, ruyi_dealloc, GcObjectHeader, MemoryStrategy, TypeInfo};
 
 use super::barrier::WriteBarrier;
 use super::old::OldGeneration;
@@ -404,7 +404,11 @@ impl GenerationalCollector {
         }
     }
 
-    unsafe fn mark_recursive(&self, start: *mut GcObjectHeader, marked: &mut HashSet<*mut GcObjectHeader>) {
+    unsafe fn mark_recursive(
+        &self,
+        start: *mut GcObjectHeader,
+        marked: &mut HashSet<*mut GcObjectHeader>,
+    ) {
         let mut worklist: Vec<*mut GcObjectHeader> = vec![start];
 
         while let Some(header) = worklist.pop() {

@@ -1,10 +1,10 @@
-pub mod expand;
-pub mod pattern;
-pub mod hygiene;
 pub mod builtins;
+pub mod expand;
+pub mod hygiene;
+pub mod pattern;
 
-use crate::parser::ast::{MacroRule, Program};
 use crate::lexer::token::Token;
+use crate::parser::ast::{MacroRule, Program};
 use std::collections::HashMap;
 
 pub const MAX_EXPANSION_DEPTH: usize = 128;
@@ -40,20 +40,49 @@ pub enum MacroError {
 impl std::fmt::Display for MacroError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MacroError::NoMatchingRule { macro_name, location } => {
-                write!(f, "no matching rule for macro '{}' at {}", macro_name, location)
+            MacroError::NoMatchingRule {
+                macro_name,
+                location,
+            } => {
+                write!(
+                    f,
+                    "no matching rule for macro '{}' at {}",
+                    macro_name, location
+                )
             }
-            MacroError::RepetitionMismatch { macro_name, pattern_var, location } => {
-                write!(f, "repetition mismatch for '${}' in macro '{}' at {}", pattern_var, macro_name, location)
+            MacroError::RepetitionMismatch {
+                macro_name,
+                pattern_var,
+                location,
+            } => {
+                write!(
+                    f,
+                    "repetition mismatch for '${}' in macro '{}' at {}",
+                    pattern_var, macro_name, location
+                )
             }
             MacroError::ExpansionDepthExceeded { macro_name, depth } => {
-                write!(f, "maximum expansion depth ({}) exceeded for macro '{}'", depth, macro_name)
+                write!(
+                    f,
+                    "maximum expansion depth ({}) exceeded for macro '{}'",
+                    depth, macro_name
+                )
             }
-            MacroError::InvalidInvocation { macro_name, message } => {
+            MacroError::InvalidInvocation {
+                macro_name,
+                message,
+            } => {
                 write!(f, "invalid macro invocation '{}': {}", macro_name, message)
             }
-            MacroError::HygieneViolation { identifier, location } => {
-                write!(f, "hygiene violation for identifier '{}' at {}", identifier, location)
+            MacroError::HygieneViolation {
+                identifier,
+                location,
+            } => {
+                write!(
+                    f,
+                    "hygiene violation for identifier '{}' at {}",
+                    identifier, location
+                )
             }
             MacroError::NestedMacroDefinition { location } => {
                 write!(f, "nested macro definition encountered at {}", location)

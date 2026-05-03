@@ -13,7 +13,6 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use ruyic::parser::Parser;
 use ruyic::typechecker::checker::TypeChecker;
 use ruyic::typechecker::traits::{build_trait_registry, TraitRegistry};
@@ -24,10 +23,7 @@ fn parse_and_check(source: &str) -> (bool, Vec<ruyic::typechecker::diagnostics::
     let program = parser.parse().expect("parse should succeed");
     let mut checker = TypeChecker::new();
     let result = checker.check(&program);
-    (
-        !result.has_errors,
-        result.diagnostics,
-    )
+    (!result.has_errors, result.diagnostics)
 }
 
 fn build_registry(source: &str) -> TraitRegistry {
@@ -46,25 +42,20 @@ fn test_trait_declaration_empty() {
 
 #[test]
 fn test_trait_declaration_with_method() {
-    let (ok, _) = parse_and_check(
-        "trait Printable { fn format(self): string; }"
-    );
+    let (ok, _) = parse_and_check("trait Printable { fn format(self): string; }");
     assert!(ok);
 }
 
 #[test]
 fn test_trait_declaration_with_generic() {
-    let (ok, _) = parse_and_check(
-        "trait Comparable<T> { fn compare(self, other: T): int; }"
-    );
+    let (ok, _) = parse_and_check("trait Comparable<T> { fn compare(self, other: T): int; }");
     assert!(ok);
 }
 
 #[test]
 fn test_trait_declaration_multiple_methods() {
-    let (ok, _) = parse_and_check(
-        "trait Iterator<T> { fn next(self): T?; fn hasNext(self): bool; }"
-    );
+    let (ok, _) =
+        parse_and_check("trait Iterator<T> { fn next(self): T?; fn hasNext(self): bool; }");
     assert!(ok);
 }
 
@@ -81,9 +72,7 @@ fn test_registry_collects_traits() {
 
 #[test]
 fn test_registry_trait_methods() {
-    let registry = build_registry(
-        "trait Printable { fn format(self): string; }"
-    );
+    let registry = build_registry("trait Printable { fn format(self): string; }");
     let trait_info = registry.get_trait("Printable").unwrap();
     assert!(trait_info.methods.contains_key("format"));
     assert_eq!(trait_info.methods["format"].return_type, Type::String);
@@ -115,11 +104,12 @@ fn test_impl_declaration() {
 
 #[test]
 fn test_impl_missing_method_error() {
-    let (ok, diagnostics) = parse_and_check(
-        "trait Printable { fn format(self): string; }\nimpl Printable for int { }"
-    );
+    let (ok, diagnostics) =
+        parse_and_check("trait Printable { fn format(self): string; }\nimpl Printable for int { }");
     assert!(!ok);
-    assert!(diagnostics.iter().any(|d| d.message().contains("does not implement trait")));
+    assert!(diagnostics
+        .iter()
+        .any(|d| d.message().contains("does not implement trait")));
 }
 
 #[test]
@@ -136,7 +126,9 @@ fn test_impl_partial_methods_error() {
         "trait Iterator { fn next(self): int; fn hasNext(self): bool; }\nimpl Iterator for int { fn next(self): int { return 0; } }"
     );
     assert!(!ok);
-    assert!(diagnostics.iter().any(|d| d.message().contains("does not implement trait")));
+    assert!(diagnostics
+        .iter()
+        .any(|d| d.message().contains("does not implement trait")));
 }
 
 #[test]
@@ -170,16 +162,15 @@ fn test_trait_bound_check() {
 
 #[test]
 fn test_dyn_type_annotation() {
-    let (ok, _) = parse_and_check(
-        "trait Printable { fn format(self): string; }\nlet x: dyn Printable = 42;"
-    );
+    let (ok, _) =
+        parse_and_check("trait Printable { fn format(self): string; }\nlet x: dyn Printable = 42;");
     assert!(ok);
 }
 
 #[test]
 fn test_dyn_trait_object_array() {
     let (ok, _) = parse_and_check(
-        "trait Printable { fn format(self): string; }\nlet items: Array<dyn Printable> = [];"
+        "trait Printable { fn format(self): string; }\nlet items: Array<dyn Printable> = [];",
     );
     assert!(ok);
 }
@@ -232,7 +223,10 @@ fn test_duplicate_impl_error() {
     let (ok, _) = parse_and_check(
         "trait Printable { fn format(self): string; }\nimpl Printable for int { fn format(self): string { return \"a\"; } }\nimpl Printable for int { fn format(self): string { return \"b\"; } }"
     );
-    assert!(ok, "Duplicate impls currently accepted (coherence not enforced)");
+    assert!(
+        ok,
+        "Duplicate impls currently accepted (coherence not enforced)"
+    );
 }
 
 // ── Complex Integration ──────────────────────────────────────

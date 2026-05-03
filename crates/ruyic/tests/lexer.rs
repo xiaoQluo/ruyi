@@ -17,11 +17,7 @@ fn tokens(source: &str) -> Vec<TokenWithLocation> {
 
 fn assert_tokens(source: &str, expected: &[Token]) {
     let actual = token_kinds(source);
-    assert_eq!(
-        actual, expected,
-        "Token mismatch for source: {}",
-        source
-    );
+    assert_eq!(actual, expected, "Token mismatch for source: {}", source);
 }
 
 // ── Keywords ─────────────────────────────────────────────────
@@ -42,7 +38,10 @@ fn test_keywords() {
 
 #[test]
 fn test_boolean_and_null_literals() {
-    assert_tokens("true false null", &[Token::True, Token::False, Token::Null, Token::Eof]);
+    assert_tokens(
+        "true false null",
+        &[Token::True, Token::False, Token::Null, Token::Eof],
+    );
 }
 
 #[test]
@@ -57,7 +56,14 @@ fn test_special_identifiers() {
 fn test_operator_keywords() {
     assert_tokens(
         "in instanceof typeof void delete",
-        &[Token::In, Token::Instanceof, Token::Typeof, Token::Void, Token::Delete, Token::Eof],
+        &[
+            Token::In,
+            Token::Instanceof,
+            Token::Typeof,
+            Token::Void,
+            Token::Delete,
+            Token::Eof,
+        ],
     );
 }
 
@@ -97,8 +103,14 @@ fn test_comparison_operators() {
     assert_tokens(
         "=== !== == != < > <= >=",
         &[
-            Token::StrictEquals, Token::StrictNotEquals, Token::Equals,
-            Token::NotEquals, Token::Less, Token::Greater, Token::LessEq, Token::GreaterEq,
+            Token::StrictEquals,
+            Token::StrictNotEquals,
+            Token::Equals,
+            Token::NotEquals,
+            Token::Less,
+            Token::Greater,
+            Token::LessEq,
+            Token::GreaterEq,
             Token::Eof,
         ],
     );
@@ -108,7 +120,15 @@ fn test_comparison_operators() {
 fn test_arithmetic_operators() {
     assert_tokens(
         "+ - * / % **",
-        &[Token::Plus, Token::Minus, Token::Star, Token::Slash, Token::Percent, Token::Power, Token::Eof],
+        &[
+            Token::Plus,
+            Token::Minus,
+            Token::Star,
+            Token::Slash,
+            Token::Percent,
+            Token::Power,
+            Token::Eof,
+        ],
     );
 }
 
@@ -117,8 +137,14 @@ fn test_bitwise_operators() {
     assert_tokens(
         "& | ^ ~ << >> >>>",
         &[
-            Token::Amp, Token::Pipe, Token::Caret, Token::Tilde,
-            Token::Shl, Token::Shr, Token::UShr, Token::Eof,
+            Token::Amp,
+            Token::Pipe,
+            Token::Caret,
+            Token::Tilde,
+            Token::Shl,
+            Token::Shr,
+            Token::UShr,
+            Token::Eof,
         ],
     );
 }
@@ -127,7 +153,13 @@ fn test_bitwise_operators() {
 fn test_logical_operators() {
     assert_tokens(
         "&& || ?? !",
-        &[Token::And, Token::Or, Token::Nullish, Token::Not, Token::Eof],
+        &[
+            Token::And,
+            Token::Or,
+            Token::Nullish,
+            Token::Not,
+            Token::Eof,
+        ],
     );
 }
 
@@ -135,7 +167,13 @@ fn test_logical_operators() {
 fn test_null_safety_operators() {
     assert_tokens(
         "?. ? . ...",
-        &[Token::OptChain, Token::Question, Token::Dot, Token::Spread, Token::Eof],
+        &[
+            Token::OptChain,
+            Token::Question,
+            Token::Dot,
+            Token::Spread,
+            Token::Eof,
+        ],
     );
 }
 
@@ -144,11 +182,22 @@ fn test_assignment_operators() {
     assert_tokens(
         "= += -= *= /= %= **= &= |= ^= <<= >>= >>>= &&= ||= ??=",
         &[
-            Token::Assign, Token::PlusAssign, Token::MinusAssign, Token::StarAssign,
-            Token::SlashAssign, Token::PercentAssign, Token::PowerAssign,
-            Token::AmpAssign, Token::PipeAssign, Token::CaretAssign,
-            Token::ShlAssign, Token::ShrAssign, Token::UShrAssign,
-            Token::AndAssign, Token::OrAssign, Token::NullishAssign,
+            Token::Assign,
+            Token::PlusAssign,
+            Token::MinusAssign,
+            Token::StarAssign,
+            Token::SlashAssign,
+            Token::PercentAssign,
+            Token::PowerAssign,
+            Token::AmpAssign,
+            Token::PipeAssign,
+            Token::CaretAssign,
+            Token::ShlAssign,
+            Token::ShrAssign,
+            Token::UShrAssign,
+            Token::AndAssign,
+            Token::OrAssign,
+            Token::NullishAssign,
             Token::Eof,
         ],
     );
@@ -158,7 +207,12 @@ fn test_assignment_operators() {
 fn test_arrow_and_inc_dec() {
     assert_tokens(
         "=> ++ --",
-        &[Token::FatArrow, Token::Increment, Token::Decrement, Token::Eof],
+        &[
+            Token::FatArrow,
+            Token::Increment,
+            Token::Decrement,
+            Token::Eof,
+        ],
     );
 }
 
@@ -169,9 +223,18 @@ fn test_delimiters() {
     assert_tokens(
         "( ) [ ] { } , ; : :: @ #",
         &[
-            Token::LParen, Token::RParen, Token::LBracket, Token::RBracket,
-            Token::LBrace, Token::RBrace, Token::Comma, Token::SemiColon,
-            Token::Colon, Token::DoubleColon, Token::At, Token::Hash,
+            Token::LParen,
+            Token::RParen,
+            Token::LBracket,
+            Token::RBracket,
+            Token::LBrace,
+            Token::RBrace,
+            Token::Comma,
+            Token::SemiColon,
+            Token::Colon,
+            Token::DoubleColon,
+            Token::At,
+            Token::Hash,
             Token::Eof,
         ],
     );
@@ -181,7 +244,10 @@ fn test_delimiters() {
 
 #[test]
 fn test_decimal_integers() {
-    assert_tokens("42 0 123", &[Token::Int(42), Token::Int(0), Token::Int(123), Token::Eof]);
+    assert_tokens(
+        "42 0 123",
+        &[Token::Int(42), Token::Int(0), Token::Int(123), Token::Eof],
+    );
 }
 
 #[test]
@@ -204,7 +270,10 @@ fn test_scientific_notation() {
 
 #[test]
 fn test_hex_numbers() {
-    assert_tokens("0xFF 0x0 0xABC", &[Token::Int(255), Token::Int(0), Token::Int(2748), Token::Eof]);
+    assert_tokens(
+        "0xFF 0x0 0xABC",
+        &[Token::Int(255), Token::Int(0), Token::Int(2748), Token::Eof],
+    );
 }
 
 #[test]
@@ -236,18 +305,12 @@ fn test_hex_bigint() {
 
 #[test]
 fn test_double_quoted_string() {
-    assert_tokens(
-        r#""hello""#,
-        &[Token::String("hello".into()), Token::Eof],
-    );
+    assert_tokens(r#""hello""#, &[Token::String("hello".into()), Token::Eof]);
 }
 
 #[test]
 fn test_single_quoted_string() {
-    assert_tokens(
-        r#"'world'"#,
-        &[Token::String("world".into()), Token::Eof],
-    );
+    assert_tokens(r#"'world'"#, &[Token::String("world".into()), Token::Eof]);
 }
 
 #[test]
@@ -316,22 +379,39 @@ fn test_template_string_multiline() {
 
 #[test]
 fn test_line_comment() {
-    assert_tokens("let x // this is a comment\n42", &[Token::Let, Token::Ident("x".into()), Token::Int(42), Token::Eof]);
+    assert_tokens(
+        "let x // this is a comment\n42",
+        &[
+            Token::Let,
+            Token::Ident("x".into()),
+            Token::Int(42),
+            Token::Eof,
+        ],
+    );
 }
 
 #[test]
 fn test_block_comment() {
-    assert_tokens("let /* middle */ x", &[Token::Let, Token::Ident("x".into()), Token::Eof]);
+    assert_tokens(
+        "let /* middle */ x",
+        &[Token::Let, Token::Ident("x".into()), Token::Eof],
+    );
 }
 
 #[test]
 fn test_block_comment_multiline() {
-    assert_tokens("let /* \n multiline \n */ x", &[Token::Let, Token::Ident("x".into()), Token::Eof]);
+    assert_tokens(
+        "let /* \n multiline \n */ x",
+        &[Token::Let, Token::Ident("x".into()), Token::Eof],
+    );
 }
 
 #[test]
 fn test_doc_comment() {
-    assert_tokens("/** doc */ let x", &[Token::Let, Token::Ident("x".into()), Token::Eof]);
+    assert_tokens(
+        "/** doc */ let x",
+        &[Token::Let, Token::Ident("x".into()), Token::Eof],
+    );
 }
 
 // ── Location tracking ────────────────────────────────────────
@@ -359,28 +439,44 @@ fn test_invalid_character() {
     let mut scanner = Scanner::new("let €");
     scanner.next_token().unwrap(); // let
     let err = scanner.next_token().unwrap_err();
-    assert!(matches!(err, LexerError::InvalidCharacter { ch: '€', line: 1, col: 5 }));
+    assert!(matches!(
+        err,
+        LexerError::InvalidCharacter {
+            ch: '€',
+            line: 1,
+            col: 5
+        }
+    ));
 }
 
 #[test]
 fn test_unterminated_string() {
     let mut scanner = Scanner::new(r#""hello"#);
     let err = scanner.next_token().unwrap_err();
-    assert!(matches!(err, LexerError::UnterminatedString { line: 1, col: 1 }));
+    assert!(matches!(
+        err,
+        LexerError::UnterminatedString { line: 1, col: 1 }
+    ));
 }
 
 #[test]
 fn test_unterminated_block_comment() {
     let mut scanner = Scanner::new("/* hello");
     let err = scanner.next_token().unwrap_err();
-    assert!(matches!(err, LexerError::UnterminatedComment { line: 1, col: 1 }));
+    assert!(matches!(
+        err,
+        LexerError::UnterminatedComment { line: 1, col: 1 }
+    ));
 }
 
 #[test]
 fn test_unterminated_template() {
     let mut scanner = Scanner::new("`hello");
     let err = scanner.next_token().unwrap_err();
-    assert!(matches!(err, LexerError::UnterminatedTemplate { line: 1, col: 2 }));
+    assert!(matches!(
+        err,
+        LexerError::UnterminatedTemplate { line: 1, col: 2 }
+    ));
 }
 
 #[test]
@@ -394,14 +490,28 @@ fn test_invalid_escape() {
 fn test_invalid_number_no_digits_after_prefix() {
     let mut scanner = Scanner::new("0x");
     let err = scanner.next_token().unwrap_err();
-    assert!(matches!(err, LexerError::InvalidNumber { line: 1, col: 1, .. }));
+    assert!(matches!(
+        err,
+        LexerError::InvalidNumber {
+            line: 1,
+            col: 1,
+            ..
+        }
+    ));
 }
 
 #[test]
 fn test_invalid_number_bad_exponent() {
     let mut scanner = Scanner::new("1e");
     let err = scanner.next_token().unwrap_err();
-    assert!(matches!(err, LexerError::InvalidNumber { line: 1, col: 1, .. }));
+    assert!(matches!(
+        err,
+        LexerError::InvalidNumber {
+            line: 1,
+            col: 1,
+            ..
+        }
+    ));
 }
 
 // ── Complex / realistic snippets ─────────────────────────────
@@ -411,8 +521,12 @@ fn test_variable_declaration() {
     assert_tokens(
         "let x = 42;",
         &[
-            Token::Let, Token::Ident("x".into()), Token::Assign,
-            Token::Int(42), Token::SemiColon, Token::Eof,
+            Token::Let,
+            Token::Ident("x".into()),
+            Token::Assign,
+            Token::Int(42),
+            Token::SemiColon,
+            Token::Eof,
         ],
     );
 }
@@ -422,13 +536,27 @@ fn test_function_declaration() {
     assert_tokens(
         "fn add(a: int, b: int): int { return a + b; }",
         &[
-            Token::Fn, Token::Ident("add".into()), Token::LParen,
-            Token::Ident("a".into()), Token::Colon, Token::Ident("int".into()),
-            Token::Comma, Token::Ident("b".into()), Token::Colon, Token::Ident("int".into()),
-            Token::RParen, Token::Colon, Token::Ident("int".into()),
-            Token::LBrace, Token::Return, Token::Ident("a".into()),
-            Token::Plus, Token::Ident("b".into()), Token::SemiColon,
-            Token::RBrace, Token::Eof,
+            Token::Fn,
+            Token::Ident("add".into()),
+            Token::LParen,
+            Token::Ident("a".into()),
+            Token::Colon,
+            Token::Ident("int".into()),
+            Token::Comma,
+            Token::Ident("b".into()),
+            Token::Colon,
+            Token::Ident("int".into()),
+            Token::RParen,
+            Token::Colon,
+            Token::Ident("int".into()),
+            Token::LBrace,
+            Token::Return,
+            Token::Ident("a".into()),
+            Token::Plus,
+            Token::Ident("b".into()),
+            Token::SemiColon,
+            Token::RBrace,
+            Token::Eof,
         ],
     );
 }
@@ -437,7 +565,12 @@ fn test_function_declaration() {
 fn test_optional_chaining() {
     assert_tokens(
         "user?.name",
-        &[Token::Ident("user".into()), Token::OptChain, Token::Ident("name".into()), Token::Eof],
+        &[
+            Token::Ident("user".into()),
+            Token::OptChain,
+            Token::Ident("name".into()),
+            Token::Eof,
+        ],
     );
 }
 
@@ -445,7 +578,12 @@ fn test_optional_chaining() {
 fn test_nullish_coalescing() {
     assert_tokens(
         "val ?? default",
-        &[Token::Ident("val".into()), Token::Nullish, Token::Ident("default".into()), Token::Eof],
+        &[
+            Token::Ident("val".into()),
+            Token::Nullish,
+            Token::Ident("default".into()),
+            Token::Eof,
+        ],
     );
 }
 
@@ -454,8 +592,14 @@ fn test_arrow_function() {
     assert_tokens(
         "(x) => x * 2",
         &[
-            Token::LParen, Token::Ident("x".into()), Token::RParen,
-            Token::FatArrow, Token::Ident("x".into()), Token::Star, Token::Int(2), Token::Eof,
+            Token::LParen,
+            Token::Ident("x".into()),
+            Token::RParen,
+            Token::FatArrow,
+            Token::Ident("x".into()),
+            Token::Star,
+            Token::Int(2),
+            Token::Eof,
         ],
     );
 }
@@ -465,8 +609,13 @@ fn test_spread_operator() {
     assert_tokens(
         "[a, ...rest]",
         &[
-            Token::LBracket, Token::Ident("a".into()), Token::Comma,
-            Token::Spread, Token::Ident("rest".into()), Token::RBracket, Token::Eof,
+            Token::LBracket,
+            Token::Ident("a".into()),
+            Token::Comma,
+            Token::Spread,
+            Token::Ident("rest".into()),
+            Token::RBracket,
+            Token::Eof,
         ],
     );
 }
@@ -476,10 +625,20 @@ fn test_match_expression() {
     assert_tokens(
         "match (value) { 1 => \"one\", _ => \"other\" }",
         &[
-            Token::Match, Token::LParen, Token::Ident("value".into()), Token::RParen,
-            Token::LBrace, Token::Int(1), Token::FatArrow, Token::String("one".into()), Token::Comma,
-            Token::Ident("_".into()), Token::FatArrow, Token::String("other".into()),
-            Token::RBrace, Token::Eof,
+            Token::Match,
+            Token::LParen,
+            Token::Ident("value".into()),
+            Token::RParen,
+            Token::LBrace,
+            Token::Int(1),
+            Token::FatArrow,
+            Token::String("one".into()),
+            Token::Comma,
+            Token::Ident("_".into()),
+            Token::FatArrow,
+            Token::String("other".into()),
+            Token::RBrace,
+            Token::Eof,
         ],
     );
 }
@@ -489,10 +648,19 @@ fn test_generic_function() {
     assert_tokens(
         "fn identity<T>(x: T): T",
         &[
-            Token::Fn, Token::Ident("identity".into()), Token::Less,
-            Token::Ident("T".into()), Token::Greater, Token::LParen,
-            Token::Ident("x".into()), Token::Colon, Token::Ident("T".into()),
-            Token::RParen, Token::Colon, Token::Ident("T".into()), Token::Eof,
+            Token::Fn,
+            Token::Ident("identity".into()),
+            Token::Less,
+            Token::Ident("T".into()),
+            Token::Greater,
+            Token::LParen,
+            Token::Ident("x".into()),
+            Token::Colon,
+            Token::Ident("T".into()),
+            Token::RParen,
+            Token::Colon,
+            Token::Ident("T".into()),
+            Token::Eof,
         ],
     );
 }
@@ -502,11 +670,19 @@ fn test_trait_declaration() {
     assert_tokens(
         "trait Printable { fn format(self): string; }",
         &[
-            Token::Trait, Token::Ident("Printable".into()), Token::LBrace,
-            Token::Fn, Token::Ident("format".into()), Token::LParen,
-            Token::SelfKw, Token::RParen, Token::Colon,
-            Token::Ident("string".into()), Token::SemiColon,
-            Token::RBrace, Token::Eof,
+            Token::Trait,
+            Token::Ident("Printable".into()),
+            Token::LBrace,
+            Token::Fn,
+            Token::Ident("format".into()),
+            Token::LParen,
+            Token::SelfKw,
+            Token::RParen,
+            Token::Colon,
+            Token::Ident("string".into()),
+            Token::SemiColon,
+            Token::RBrace,
+            Token::Eof,
         ],
     );
 }
@@ -515,7 +691,13 @@ fn test_trait_declaration() {
 fn test_whitespace_between_tokens() {
     assert_tokens(
         "let   x\t=\n42",
-        &[Token::Let, Token::Ident("x".into()), Token::Assign, Token::Int(42), Token::Eof],
+        &[
+            Token::Let,
+            Token::Ident("x".into()),
+            Token::Assign,
+            Token::Int(42),
+            Token::Eof,
+        ],
     );
 }
 

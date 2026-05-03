@@ -1,3 +1,7 @@
+use crate::typechecker::constraints::ConstraintSolver;
+use crate::typechecker::diagnostics::{DiagnosticBag, DiagnosticKind};
+use crate::typechecker::traits::TraitRegistry;
+use crate::typechecker::types::{Type, TypeVar};
 /**
  * Generic type specialization and monomorphization tracking.
  *
@@ -13,12 +17,7 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use std::collections::HashMap;
-use crate::typechecker::types::{Type, TypeVar};
-use crate::typechecker::constraints::ConstraintSolver;
-use crate::typechecker::diagnostics::{DiagnosticBag, DiagnosticKind};
-use crate::typechecker::traits::TraitRegistry;
 
 /// A generic definition (function, class, or trait) with type parameters.
 #[derive(Debug, Clone, PartialEq)]
@@ -57,7 +56,11 @@ impl TypeParamInfo {
 
     /// Creates a new type parameter info with trait bounds.
     pub fn with_bounds(name: String, var_id: u32, bounds: Vec<String>) -> Self {
-        Self { name, var_id, bounds }
+        Self {
+            name,
+            var_id,
+            bounds,
+        }
     }
 
     /// Returns the TypeVar for this type parameter.
@@ -127,12 +130,16 @@ fn mangle_type(ty: &Type) -> String {
         Type::Nullable(inner) => format!("{}__opt", mangle_type(inner)),
         Type::Array(elem) => format!("Array__{}", mangle_type(elem)),
         Type::Object(fields) => {
-            let field_strs: Vec<String> = fields.iter()
+            let field_strs: Vec<String> = fields
+                .iter()
                 .map(|f| format!("{}_{}", f.name, mangle_type(&f.ty)))
                 .collect();
             format!("Obj_{}", field_strs.join("_"))
         }
-        Type::Function { params, return_type } => {
+        Type::Function {
+            params,
+            return_type,
+        } => {
             let param_strs: Vec<String> = params.iter().map(|p| mangle_type(p)).collect();
             format!("fn_{}_{}", param_strs.join("_"), mangle_type(return_type))
         }
@@ -272,7 +279,10 @@ impl MonomorphizationTracker {
             Type::Function { params, .. } => params.clone(),
             _ => {
                 diagnostics.add_error(DiagnosticKind::Other {
-                    message: format!("Cannot infer type args for non-function generic {}", generic_name),
+                    message: format!(
+                        "Cannot infer type args for non-function generic {}",
+                        generic_name
+                    ),
                 });
                 return None;
             }
@@ -291,7 +301,8 @@ impl MonomorphizationTracker {
         let subst = type_var_map;
 
         // Apply substitution to parameter types to get the expected types
-        let expected_param_types: Vec<Type> = param_types.iter()
+        let expected_param_types: Vec<Type> = param_types
+            .iter()
             .map(|p| ConstraintSolver::apply_subst(&subst, p))
             .collect();
 
@@ -312,7 +323,9 @@ impl MonomorphizationTracker {
         match solver.solve() {
             crate::typechecker::constraints::SolveResult::Solved(solution) => {
                 // Map solutions back to type parameters in order
-                let type_args: Vec<Type> = def.type_params.iter()
+                let type_args: Vec<Type> = def
+                    .type_params
+                    .iter()
                     .map(|param| {
                         let var_id = param.var_id;
                         // First check the solution from the constraint solver
@@ -388,7 +401,8 @@ impl MonomorphizationTracker {
         type_params: &[TypeParamInfo],
         type_args: &[Type],
     ) -> HashMap<u32, Type> {
-        type_params.iter()
+        type_params
+            .iter()
             .zip(type_args.iter())
             .map(|(param, arg)| (param.var_id, arg.clone()))
             .collect()
@@ -422,18 +436,12 @@ pub fn make_generic_function_def(
     let mut name_to_var: HashMap<&str, Type> = HashMap::new();
     for tp in type_params {
         let var_id = tracker.fresh_var_id();
-        let info = TypeParamInfo::with_bounds(
-            tp.name.clone(),
-            var_id,
-            tp.bounds.clone(),
-        );
+        let info = TypeParamInfo::with_bounds(tp.name.clone(), var_id, tp.bounds.clone());
         name_to_var.insert(&tp.name, Type::TypeVar(info.to_type_var()));
         param_infos.push(info);
     }
 
-    let replace_type_names = |ty: &Type| -> Type {
-        replace_type_param_refs(ty, &name_to_var)
-    };
+    let replace_type_names = |ty: &Type| -> Type { replace_type_param_refs(ty, &name_to_var) };
 
     let body_type = Type::Function {
         params: param_types.iter().map(&replace_type_names).collect(),
@@ -456,15 +464,26 @@ fn replace_type_param_refs(ty: &Type, name_to_var: &HashMap<&str, Type>) -> Type
                 ty.clone()
             }
         }
-        Type::Nullable(inner) => Type::Nullable(Box::new(replace_type_param_refs(inner, name_to_var))),
+        Type::Nullable(inner) => {
+            Type::Nullable(Box::new(replace_type_param_refs(inner, name_to_var)))
+        }
         Type::Array(elem) => Type::Array(Box::new(replace_type_param_refs(elem, name_to_var))),
-        Type::Function { params, return_type } => Type::Function {
-            params: params.iter().map(|p| replace_type_param_refs(p, name_to_var)).collect(),
+        Type::Function {
+            params,
+            return_type,
+        } => Type::Function {
+            params: params
+                .iter()
+                .map(|p| replace_type_param_refs(p, name_to_var))
+                .collect(),
             return_type: Box::new(replace_type_param_refs(return_type, name_to_var)),
         },
         Type::Generic { base, args } => Type::Generic {
             base: base.clone(),
-            args: args.iter().map(|a| replace_type_param_refs(a, name_to_var)).collect(),
+            args: args
+                .iter()
+                .map(|a| replace_type_param_refs(a, name_to_var))
+                .collect(),
         },
         _ => ty.clone(),
     }
@@ -609,7 +628,10 @@ mod tests {
         assert_eq!(spec.type_args, vec![Type::Int]);
         // The specialized type should have T replaced with int
         match &spec.specialized_type {
-            Type::Function { params, return_type } => {
+            Type::Function {
+                params,
+                return_type,
+            } => {
                 assert_eq!(params, &vec![Type::Int]);
                 assert_eq!(**return_type, Type::Int);
             }
@@ -653,8 +675,12 @@ mod tests {
         tracker.register_generic(def);
 
         let mut diagnostics = DiagnosticBag::new();
-        let spec1 = tracker.specialize("identity", vec![Type::Int], &mut diagnostics).unwrap();
-        let spec2 = tracker.specialize("identity", vec![Type::Int], &mut diagnostics).unwrap();
+        let spec1 = tracker
+            .specialize("identity", vec![Type::Int], &mut diagnostics)
+            .unwrap();
+        let spec2 = tracker
+            .specialize("identity", vec![Type::Int], &mut diagnostics)
+            .unwrap();
         assert_eq!(spec1.mangled_name, spec2.mangled_name);
     }
 
@@ -664,7 +690,10 @@ mod tests {
         assert_eq!(info.name, "T");
         assert_eq!(info.var_id, 0);
         assert_eq!(info.bounds, vec!["Comparable"]);
-        assert_eq!(info.to_type(), Type::TypeVar(TypeVar::new(0, "T".to_string())));
+        assert_eq!(
+            info.to_type(),
+            Type::TypeVar(TypeVar::new(0, "T".to_string()))
+        );
     }
 
     #[test]
@@ -686,21 +715,22 @@ mod tests {
             return_type: Box::new(Type::TypeVar(TypeVar::new(1, "U".to_string()))),
         };
         let result = MonomorphizationTracker::substitute_type(&subst, &ty);
-        assert_eq!(result, Type::Function {
-            params: vec![Type::Int],
-            return_type: Box::new(Type::String),
-        });
+        assert_eq!(
+            result,
+            Type::Function {
+                params: vec![Type::Int],
+                return_type: Box::new(Type::String),
+            }
+        );
     }
 
     #[test]
     fn test_make_generic_function_def() {
         let mut tracker = MonomorphizationTracker::new();
-        let type_params = vec![
-            crate::parser::ast::TypeParam {
-                name: "T".to_string(),
-                bounds: vec![],
-            },
-        ];
+        let type_params = vec![crate::parser::ast::TypeParam {
+            name: "T".to_string(),
+            bounds: vec![],
+        }];
         let def = make_generic_function_def(
             "identity",
             &type_params,
@@ -764,13 +794,17 @@ mod tests {
 
         let mut diagnostics = DiagnosticBag::new();
         // map([1, 2, 3], fn(x) => x + 1) → T=int, U=int
-        let inferred = tracker.infer_type_args("map", &[
-            Type::Array(Box::new(Type::Int)),
-            Type::Function {
-                params: vec![Type::Int],
-                return_type: Box::new(Type::Int),
-            },
-        ], &mut diagnostics);
+        let inferred = tracker.infer_type_args(
+            "map",
+            &[
+                Type::Array(Box::new(Type::Int)),
+                Type::Function {
+                    params: vec![Type::Int],
+                    return_type: Box::new(Type::Int),
+                },
+            ],
+            &mut diagnostics,
+        );
         assert!(inferred.is_some());
         let inferred = inferred.unwrap();
         assert_eq!(inferred.len(), 2);
@@ -795,11 +829,16 @@ mod tests {
         tracker.register_generic(def);
 
         let mut diagnostics = DiagnosticBag::new();
-        let spec = tracker.specialize("wrap", vec![Type::Int], &mut diagnostics).unwrap();
-        assert_eq!(spec.specialized_type, Type::Function {
-            params: vec![Type::Int],
-            return_type: Box::new(Type::Nullable(Box::new(Type::Int))),
-        });
+        let spec = tracker
+            .specialize("wrap", vec![Type::Int], &mut diagnostics)
+            .unwrap();
+        assert_eq!(
+            spec.specialized_type,
+            Type::Function {
+                params: vec![Type::Int],
+                return_type: Box::new(Type::Nullable(Box::new(Type::Int))),
+            }
+        );
     }
 
     #[test]
@@ -819,11 +858,16 @@ mod tests {
         tracker.register_generic(def);
 
         let mut diagnostics = DiagnosticBag::new();
-        let spec = tracker.specialize("identity", vec![Type::Dynamic], &mut diagnostics).unwrap();
-        assert_eq!(spec.specialized_type, Type::Function {
-            params: vec![Type::Dynamic],
-            return_type: Box::new(Type::Dynamic),
-        });
+        let spec = tracker
+            .specialize("identity", vec![Type::Dynamic], &mut diagnostics)
+            .unwrap();
+        assert_eq!(
+            spec.specialized_type,
+            Type::Function {
+                params: vec![Type::Dynamic],
+                return_type: Box::new(Type::Dynamic),
+            }
+        );
     }
 
     #[test]

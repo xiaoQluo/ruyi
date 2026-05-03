@@ -117,9 +117,18 @@ mod tests {
     #[test]
     fn test_exception_type_ids() {
         assert_eq!(ExceptionType::Error.type_id(), builtin_type_ids::ERROR);
-        assert_eq!(ExceptionType::TypeError.type_id(), builtin_type_ids::TYPE_ERROR);
-        assert_eq!(ExceptionType::RangeError.type_id(), builtin_type_ids::RANGE_ERROR);
-        assert_eq!(ExceptionType::RuntimeError.type_id(), builtin_type_ids::RUNTIME_ERROR);
+        assert_eq!(
+            ExceptionType::TypeError.type_id(),
+            builtin_type_ids::TYPE_ERROR
+        );
+        assert_eq!(
+            ExceptionType::RangeError.type_id(),
+            builtin_type_ids::RANGE_ERROR
+        );
+        assert_eq!(
+            ExceptionType::RuntimeError.type_id(),
+            builtin_type_ids::RUNTIME_ERROR
+        );
     }
 
     #[test]

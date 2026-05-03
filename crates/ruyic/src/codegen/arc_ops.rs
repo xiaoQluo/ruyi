@@ -7,7 +7,6 @@
  * @author Ruyi Team
  * @date 2026-05-02
  */
-
 use inkwell::values::PointerValue;
 
 use crate::codegen::generator::CodegenContext;
@@ -17,10 +16,7 @@ use crate::codegen::generator::CodegenContext;
 /// # Safety
 ///
 /// The pointer must be a valid ARC object payload.
-pub fn emit_arc_retain<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
-    ptr: PointerValue<'ctx>,
-) {
+pub fn emit_arc_retain<'ctx>(ctx: &mut CodegenContext<'ctx, '_>, ptr: PointerValue<'ctx>) {
     let fn_name = "ruyi_arc_retain";
     let func = ctx.module.get_function(fn_name).unwrap_or_else(|| {
         let void_ty = ctx.context.void_type();
@@ -36,10 +32,7 @@ pub fn emit_arc_retain<'ctx>(
 /// # Safety
 ///
 /// The pointer must be a valid ARC object payload.
-pub fn emit_arc_release<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
-    ptr: PointerValue<'ctx>,
-) {
+pub fn emit_arc_release<'ctx>(ctx: &mut CodegenContext<'ctx, '_>, ptr: PointerValue<'ctx>) {
     let fn_name = "ruyi_arc_release";
     let func = ctx.module.get_function(fn_name).unwrap_or_else(|| {
         let void_ty = ctx.context.void_type();
@@ -65,7 +58,9 @@ pub fn emit_arc_alloc<'ctx>(
         let fn_ty = ptr_ty.fn_type(&[i64_ty.into(), ptr_ty.into()], false);
         ctx.module.add_function(fn_name, fn_ty, None)
     });
-    let call = ctx.builder.build_call(func, &[size.into(), type_info.into()], "arc_alloc");
+    let call = ctx
+        .builder
+        .build_call(func, &[size.into(), type_info.into()], "arc_alloc");
     call.try_as_basic_value()
         .left()
         .unwrap()

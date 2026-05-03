@@ -40,7 +40,8 @@ pub fn discover_tests(cases_dir: &Path) -> io::Result<DiscoveryResult> {
         let path = entry.path();
 
         if path.is_dir() {
-            let category = path.file_name()
+            let category = path
+                .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("unknown")
                 .to_string();
@@ -50,7 +51,8 @@ pub fn discover_tests(cases_dir: &Path) -> io::Result<DiscoveryResult> {
                 let test_path = test_entry.path();
 
                 if test_path.extension() == Some(OsStr::new("ry")) {
-                    let test_name = test_path.file_stem()
+                    let test_name = test_path
+                        .file_stem()
                         .and_then(|n| n.to_str())
                         .unwrap_or("unnamed")
                         .to_string();
@@ -90,7 +92,10 @@ pub fn discover_tests(cases_dir: &Path) -> io::Result<DiscoveryResult> {
 pub fn run_positive_test(test: &TestCase, ruyic_path: &Path) -> TestResult {
     let test_id = &test.id;
     let source_path = &test.source_path;
-    let expected_path = test.expected_path.as_ref().expect("positive test must have .expected file");
+    let expected_path = test
+        .expected_path
+        .as_ref()
+        .expect("positive test must have .expected file");
 
     let temp_dir = env::temp_dir();
     let binary_path = temp_dir.join(format!("ruyi_test_{}", test_id.replace("/", "_")));
@@ -117,8 +122,11 @@ pub fn run_positive_test(test: &TestCase, ruyic_path: &Path) -> TestResult {
         return TestResult {
             test_id: test_id.clone(),
             passed: false,
-            message: format!("Execution failed (exit code: {:?}):\n{}",
-                run_result.status.code(), stderr),
+            message: format!(
+                "Execution failed (exit code: {:?}):\n{}",
+                run_result.status.code(),
+                stderr
+            ),
             stdout: Some(String::from_utf8_lossy(&run_result.stdout).to_string()),
             stderr: Some(stderr),
         };
@@ -126,13 +134,15 @@ pub fn run_positive_test(test: &TestCase, ruyic_path: &Path) -> TestResult {
 
     let expected = match fs::read_to_string(expected_path) {
         Ok(content) => content,
-        Err(e) => return TestResult {
-            test_id: test_id.clone(),
-            passed: false,
-            message: format!("Failed to read .expected file: {}", e),
-            stdout: None,
-            stderr: None,
-        },
+        Err(e) => {
+            return TestResult {
+                test_id: test_id.clone(),
+                passed: false,
+                message: format!("Failed to read .expected file: {}", e),
+                stdout: None,
+                stderr: None,
+            }
+        }
     };
 
     let actual = String::from_utf8_lossy(&run_result.stdout).to_string();
@@ -165,7 +175,10 @@ pub fn run_positive_test(test: &TestCase, ruyic_path: &Path) -> TestResult {
 pub fn run_negative_test(test: &TestCase, ruyic_path: &Path) -> TestResult {
     let test_id = &test.id;
     let source_path = &test.source_path;
-    let error_path = test.error_path.as_ref().expect("negative test must have .error file");
+    let error_path = test
+        .error_path
+        .as_ref()
+        .expect("negative test must have .error file");
 
     let compile_result = compile_file(source_path, Path::new("/dev/null"), ruyic_path);
 
@@ -181,13 +194,15 @@ pub fn run_negative_test(test: &TestCase, ruyic_path: &Path) -> TestResult {
 
     let expected_error = match fs::read_to_string(error_path) {
         Ok(content) => content.trim().to_string(),
-        Err(e) => return TestResult {
-            test_id: test_id.clone(),
-            passed: false,
-            message: format!("Failed to read .error file: {}", e),
-            stdout: None,
-            stderr: None,
-        },
+        Err(e) => {
+            return TestResult {
+                test_id: test_id.clone(),
+                passed: false,
+                message: format!("Failed to read .error file: {}", e),
+                stdout: None,
+                stderr: None,
+            }
+        }
     };
 
     let actual_stderr = String::from_utf8_lossy(&compile_result.stderr).to_string();
@@ -288,7 +303,10 @@ pub fn run_integration_tests(cases_dir: &Path) -> HashMap<String, TestResult> {
         println!("[{}] {}", status, test.id);
 
         if !result.passed {
-            println!("  Message: {}", result.message.split('\n').next().unwrap_or(&result.message));
+            println!(
+                "  Message: {}",
+                result.message.split('\n').next().unwrap_or(&result.message)
+            );
         }
 
         results.insert(test.id.clone(), result);
@@ -313,7 +331,10 @@ pub fn print_summary(results: &HashMap<String, TestResult>) {
         println!("\nFailed tests:");
         for (id, result) in results.iter().filter(|(_, r)| !r.passed) {
             println!("  - {}", id);
-            println!("    Reason: {}", result.message.split('\n').next().unwrap_or(&result.message));
+            println!(
+                "    Reason: {}",
+                result.message.split('\n').next().unwrap_or(&result.message)
+            );
         }
     }
 }
@@ -322,7 +343,11 @@ pub fn format_results(results: &HashMap<String, TestResult>) -> String {
     let mut output = String::new();
 
     for (id, result) in results.iter() {
-        output.push_str(&format!("{}: {}\n", id, if result.passed { "ok" } else { "FAILED" }));
+        output.push_str(&format!(
+            "{}: {}\n",
+            id,
+            if result.passed { "ok" } else { "FAILED" }
+        ));
     }
 
     output
@@ -352,8 +377,8 @@ mod tests {
     }
 
     #[test]
-fn test_get_ruyic_path() {
-    let path = get_ruyic_path();
+    fn test_get_ruyic_path() {
+        let path = get_ruyic_path();
         assert!(path.file_name().is_some());
     }
 }

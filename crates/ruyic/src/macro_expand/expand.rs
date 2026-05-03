@@ -1,9 +1,9 @@
 use crate::lexer::token::Token;
 use crate::macro_expand::hygiene::StandardHygieneContext;
 use crate::macro_expand::pattern::{parse_pattern, PatternMatcher};
-use crate::macro_expand::{MacroError, MacroResult, MacroRegistry, MacroRule, MAX_EXPANSION_DEPTH};
-use crate::parser::ast::{Declaration, Expr, ForInit, ModuleItem, Program, Statement};
+use crate::macro_expand::{MacroError, MacroRegistry, MacroResult, MacroRule, MAX_EXPANSION_DEPTH};
 use crate::parser::ast::{Argument, MatchArm};
+use crate::parser::ast::{Declaration, Expr, ForInit, ModuleItem, Program, Statement};
 
 pub struct MacroExpander {
     registry: MacroRegistry,
@@ -28,7 +28,9 @@ impl MacroExpander {
             expanded_items.push(expanded);
         }
 
-        Ok(Program { items: expanded_items })
+        Ok(Program {
+            items: expanded_items,
+        })
     }
 
     fn expand_module_item(&mut self, item: &ModuleItem) -> MacroResult<ModuleItem> {
@@ -69,24 +71,44 @@ impl MacroExpander {
                 }
                 Ok(Statement::Block(expanded_stmts))
             }
-            Statement::If { condition, then_branch, else_branch } => {
+            Statement::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 let cond = self.expand_expression(condition)?;
                 let then_b = Box::new(self.expand_statement(then_branch)?);
                 let else_b = match else_branch {
                     Some(e) => Some(Box::new(self.expand_statement(e)?)),
                     None => None,
                 };
-                Ok(Statement::If { condition: Box::new(cond), then_branch: then_b, else_branch: else_b })
+                Ok(Statement::If {
+                    condition: Box::new(cond),
+                    then_branch: then_b,
+                    else_branch: else_b,
+                })
             }
             Statement::While { condition, body } => {
                 let cond = self.expand_expression(condition)?;
                 let b = Box::new(self.expand_statement(body)?);
-                Ok(Statement::While { condition: Box::new(cond), body: b })
+                Ok(Statement::While {
+                    condition: Box::new(cond),
+                    body: b,
+                })
             }
-            Statement::For { init, condition, update, body } => {
+            Statement::For {
+                init,
+                condition,
+                update,
+                body,
+            } => {
                 let init_expanded = match init {
-                    Some(ForInit::Expr(e)) => Some(ForInit::Expr(Box::new(self.expand_expression(e)?))),
-                    Some(ForInit::VarDecl(d)) => Some(ForInit::VarDecl(self.expand_declaration(d)?)),
+                    Some(ForInit::Expr(e)) => {
+                        Some(ForInit::Expr(Box::new(self.expand_expression(e)?)))
+                    }
+                    Some(ForInit::VarDecl(d)) => {
+                        Some(ForInit::VarDecl(self.expand_declaration(d)?))
+                    }
                     None => None,
                 };
                 let cond_expanded = match condition {
@@ -98,7 +120,12 @@ impl MacroExpander {
                     None => None,
                 };
                 let body_expanded = Box::new(self.expand_statement(body)?);
-                Ok(Statement::For { init: init_expanded, condition: cond_expanded, update: update_expanded, body: body_expanded })
+                Ok(Statement::For {
+                    init: init_expanded,
+                    condition: cond_expanded,
+                    update: update_expanded,
+                    body: body_expanded,
+                })
             }
             Statement::Return(expr) => {
                 let expanded = match expr {
@@ -111,32 +138,55 @@ impl MacroExpander {
                 let expanded = self.expand_expression(expr)?;
                 Ok(Statement::Throw(Box::new(expanded)))
             }
-            Statement::Try { body, catch, finally } => {
-                let body_expanded: Result<Vec<Statement>, MacroError> = body.iter().map(|s| self.expand_statement(s)).collect();
-                let catch_expanded = catch.as_ref().map(|c| -> Result<crate::parser::ast::CatchClause, MacroError> {
-                    let body: Result<Vec<Statement>, MacroError> = c.body.iter().map(|s| self.expand_statement(s)).collect();
-                    Ok(crate::parser::ast::CatchClause {
-                        pattern: c.pattern.clone(),
-                        ty: c.ty.clone(),
-                        body: body?,
+            Statement::Try {
+                body,
+                catch,
+                finally,
+            } => {
+                let body_expanded: Result<Vec<Statement>, MacroError> =
+                    body.iter().map(|s| self.expand_statement(s)).collect();
+                let catch_expanded = catch
+                    .as_ref()
+                    .map(|c| -> Result<crate::parser::ast::CatchClause, MacroError> {
+                        let body: Result<Vec<Statement>, MacroError> =
+                            c.body.iter().map(|s| self.expand_statement(s)).collect();
+                        Ok(crate::parser::ast::CatchClause {
+                            pattern: c.pattern.clone(),
+                            ty: c.ty.clone(),
+                            body: body?,
+                        })
                     })
-                }).transpose()?;
-                let finally_expanded = finally.as_ref().map(|f| -> Result<Vec<Statement>, MacroError> {
-                    f.iter().map(|s| self.expand_statement(s)).collect()
-                }).transpose()?;
-                Ok(Statement::Try { body: body_expanded?, catch: catch_expanded, finally: finally_expanded })
+                    .transpose()?;
+                let finally_expanded = finally
+                    .as_ref()
+                    .map(|f| -> Result<Vec<Statement>, MacroError> {
+                        f.iter().map(|s| self.expand_statement(s)).collect()
+                    })
+                    .transpose()?;
+                Ok(Statement::Try {
+                    body: body_expanded?,
+                    catch: catch_expanded,
+                    finally: finally_expanded,
+                })
             }
             Statement::Match { value, arms } => {
                 let value_expanded = self.expand_expression(value)?;
-                let arms_expanded: Result<Vec<MatchArm>, MacroError> = arms.iter().map(|arm| {
-                    let body: Result<Vec<Statement>, MacroError> = arm.body.iter().map(|s| self.expand_statement(s)).collect();
-                    Ok(crate::parser::ast::MatchArm {
-                        pattern: arm.pattern.clone(),
-                        guard: arm.guard.clone(),
-                        body: body?,
+                let arms_expanded: Result<Vec<MatchArm>, MacroError> = arms
+                    .iter()
+                    .map(|arm| {
+                        let body: Result<Vec<Statement>, MacroError> =
+                            arm.body.iter().map(|s| self.expand_statement(s)).collect();
+                        Ok(crate::parser::ast::MatchArm {
+                            pattern: arm.pattern.clone(),
+                            guard: arm.guard.clone(),
+                            body: body?,
+                        })
                     })
-                }).collect();
-                Ok(Statement::Match { value: Box::new(value_expanded), arms: arms_expanded? })
+                    .collect();
+                Ok(Statement::Match {
+                    value: Box::new(value_expanded),
+                    arms: arms_expanded?,
+                })
             }
             Statement::Declaration(decl) => {
                 let expanded = self.expand_declaration(decl)?;
@@ -150,16 +200,17 @@ impl MacroExpander {
         match expr {
             Expr::Call { callee, args } => {
                 let callee_expanded = self.expand_expression(callee)?;
-                let args_expanded: Result<Vec<Argument>, MacroError> = args.iter().map(|a| {
-                    match a {
+                let args_expanded: Result<Vec<Argument>, MacroError> = args
+                    .iter()
+                    .map(|a| match a {
                         Argument::Expr(e) => {
                             Ok(Argument::Expr(Box::new(self.expand_expression(e)?)))
                         }
                         Argument::Spread(e) => {
                             Ok(Argument::Spread(Box::new(self.expand_expression(e)?)))
                         }
-                    }
-                }).collect();
+                    })
+                    .collect();
 
                 if let Expr::Identifier(name) = &callee_expanded {
                     if self.registry.contains(name.as_str()) && !is_buildin_expr(expr) {
@@ -167,60 +218,93 @@ impl MacroExpander {
                     }
                 }
 
-                Ok(Expr::Call { callee: Box::new(callee_expanded), args: args_expanded? })
+                Ok(Expr::Call {
+                    callee: Box::new(callee_expanded),
+                    args: args_expanded?,
+                })
             }
             Expr::Block(stmts) => {
-                let stmts_expanded: Result<Vec<Statement>, MacroError> = stmts.iter().map(|s| self.expand_statement(s)).collect();
+                let stmts_expanded: Result<Vec<Statement>, MacroError> =
+                    stmts.iter().map(|s| self.expand_statement(s)).collect();
                 Ok(Expr::Block(stmts_expanded?))
             }
-            Expr::If { condition, then_branch, else_branch } => {
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
                 let cond = self.expand_expression(condition)?;
                 let then_b = Box::new(self.expand_expression(then_branch)?);
                 let else_b = match else_branch {
                     Some(e) => Some(Box::new(self.expand_expression(e)?)),
                     None => None,
                 };
-                Ok(Expr::If { condition: Box::new(cond), then_branch: then_b, else_branch: else_b })
+                Ok(Expr::If {
+                    condition: Box::new(cond),
+                    then_branch: then_b,
+                    else_branch: else_b,
+                })
             }
             Expr::Match { value, arms } => {
                 let value_expanded = self.expand_expression(value)?;
-                let arms_expanded: Result<Vec<MatchArm>, MacroError> = arms.iter().map(|arm| {
-                    let body = self.expand_expression(&Expr::Block(arm.body.clone()))?;
-                    if let Expr::Block(stmts) = body {
-                        Ok(crate::parser::ast::MatchArm {
-                            pattern: arm.pattern.clone(),
-                            guard: arm.guard.clone(),
-                            body: stmts,
-                        })
-                    } else {
-                        Ok(crate::parser::ast::MatchArm {
-                            pattern: arm.pattern.clone(),
-                            guard: arm.guard.clone(),
-                            body: vec![Statement::Expression(Box::new(body))],
-                        })
-                    }
-                }).collect();
-                Ok(Expr::Match { value: Box::new(value_expanded), arms: arms_expanded? })
+                let arms_expanded: Result<Vec<MatchArm>, MacroError> = arms
+                    .iter()
+                    .map(|arm| {
+                        let body = self.expand_expression(&Expr::Block(arm.body.clone()))?;
+                        if let Expr::Block(stmts) = body {
+                            Ok(crate::parser::ast::MatchArm {
+                                pattern: arm.pattern.clone(),
+                                guard: arm.guard.clone(),
+                                body: stmts,
+                            })
+                        } else {
+                            Ok(crate::parser::ast::MatchArm {
+                                pattern: arm.pattern.clone(),
+                                guard: arm.guard.clone(),
+                                body: vec![Statement::Expression(Box::new(body))],
+                            })
+                        }
+                    })
+                    .collect();
+                Ok(Expr::Match {
+                    value: Box::new(value_expanded),
+                    arms: arms_expanded?,
+                })
             }
             Expr::Binary { op, left, right } => {
                 let left_expanded = self.expand_expression(left)?;
                 let right_expanded = self.expand_expression(right)?;
-                Ok(Expr::Binary { op: op.clone(), left: Box::new(left_expanded), right: Box::new(right_expanded) })
+                Ok(Expr::Binary {
+                    op: op.clone(),
+                    left: Box::new(left_expanded),
+                    right: Box::new(right_expanded),
+                })
             }
             Expr::Unary { op, operand } => {
                 let operand_expanded = self.expand_expression(operand)?;
-                Ok(Expr::Unary { op: op.clone(), operand: Box::new(operand_expanded) })
+                Ok(Expr::Unary {
+                    op: op.clone(),
+                    operand: Box::new(operand_expanded),
+                })
             }
             Expr::Assignment { left, op, right } => {
                 let left_expanded = self.expand_expression(left)?;
                 let right_expanded = self.expand_expression(right)?;
-                Ok(Expr::Assignment { left: Box::new(left_expanded), op: op.clone(), right: Box::new(right_expanded) })
+                Ok(Expr::Assignment {
+                    left: Box::new(left_expanded),
+                    op: op.clone(),
+                    right: Box::new(right_expanded),
+                })
             }
             _ => Ok(expr.clone()),
         }
     }
 
-    fn expand_macro_call(&mut self, name: &str, args: &[crate::parser::ast::Argument]) -> MacroResult<Expr> {
+    fn expand_macro_call(
+        &mut self,
+        name: &str,
+        args: &[crate::parser::ast::Argument],
+    ) -> MacroResult<Expr> {
         if self.depth >= MAX_EXPANSION_DEPTH {
             return Err(MacroError::ExpansionDepthExceeded {
                 macro_name: name.to_string(),
@@ -245,13 +329,18 @@ impl MacroExpander {
 
         self.depth -= 1;
 
-        let expanded_tokens = apply_template(&expansion, &std::collections::HashMap::new(), &self.hygiene_ctx);
+        let expanded_tokens = apply_template(
+            &expansion,
+            &std::collections::HashMap::new(),
+            &self.hygiene_ctx,
+        );
         let source = tokens_to_source(&expanded_tokens);
 
-        let mut parser = crate::parser::Parser::new(&source).map_err(|e| MacroError::InvalidInvocation {
-            macro_name: name.to_string(),
-            message: e.to_string(),
-        })?;
+        let mut parser =
+            crate::parser::Parser::new(&source).map_err(|e| MacroError::InvalidInvocation {
+                macro_name: name.to_string(),
+                message: e.to_string(),
+            })?;
         let program = parser.parse().map_err(|e| MacroError::InvalidInvocation {
             macro_name: name.to_string(),
             message: e.to_string(),
@@ -261,7 +350,9 @@ impl MacroExpander {
             self.expand_expression(e)
         } else if let Some(ModuleItem::Declaration(d)) = program.items.first() {
             if let Declaration::Macro { .. } = d {
-                Err(MacroError::NestedMacroDefinition { location: "unknown".to_string() })
+                Err(MacroError::NestedMacroDefinition {
+                    location: "unknown".to_string(),
+                })
             } else {
                 Ok(Expr::Block(vec![Statement::Declaration(d.clone())]))
             }
@@ -278,7 +369,12 @@ impl MacroExpander {
         }
     }
 
-    fn expand_with_rules(&mut self, _name: &str, rules: &[MacroRule], input: &[Token]) -> MacroResult<Vec<Token>> {
+    fn expand_with_rules(
+        &mut self,
+        _name: &str,
+        rules: &[MacroRule],
+        input: &[Token],
+    ) -> MacroResult<Vec<Token>> {
         for rule in rules {
             let pattern = parse_pattern(&rule.pattern)?;
             let mut matcher = PatternMatcher::new(pattern, input.to_vec());
@@ -355,7 +451,9 @@ fn expr_to_tokens(expr: &Expr) -> Vec<Token> {
             tokens.push(Token::RParen);
             tokens
         }
-        Expr::Member { object, property, .. } => {
+        Expr::Member {
+            object, property, ..
+        } => {
             let mut tokens = expr_to_tokens(object);
             tokens.push(Token::Dot);
             match property {
@@ -483,7 +581,11 @@ fn unary_op_to_token(op: &crate::parser::ast::UnaryOp) -> Token {
     }
 }
 
-fn apply_template(template: &[Token], captures: &std::collections::HashMap<String, crate::macro_expand::pattern::CapturedTokens>, _ctx: &StandardHygieneContext) -> Vec<Token> {
+fn apply_template(
+    template: &[Token],
+    captures: &std::collections::HashMap<String, crate::macro_expand::pattern::CapturedTokens>,
+    _ctx: &StandardHygieneContext,
+) -> Vec<Token> {
     let mut result = Vec::new();
     let mut i = 0;
 
@@ -505,7 +607,11 @@ fn apply_template(template: &[Token], captures: &std::collections::HashMap<Strin
 }
 
 fn tokens_to_source(tokens: &[Token]) -> String {
-    tokens.iter().map(|t| token_to_source(t)).collect::<Vec<_>>().join(" ")
+    tokens
+        .iter()
+        .map(|t| token_to_source(t))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn token_to_source(token: &Token) -> String {

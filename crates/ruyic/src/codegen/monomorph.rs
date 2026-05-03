@@ -1,3 +1,5 @@
+use crate::typechecker::generics::{MonomorphizationTracker, Specialization};
+use crate::typechecker::types::Type;
 /**
  * Monomorphization for generic function code generation.
  *
@@ -7,10 +9,7 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use std::collections::HashMap;
-use crate::typechecker::generics::{MonomorphizationTracker, Specialization};
-use crate::typechecker::types::Type;
 
 /// Represents a monomorphized function that needs to be generated.
 #[derive(Debug, Clone)]
@@ -31,7 +30,10 @@ impl MonomorphizedFunction {
     /// Creates a new monomorphized function from a specialization.
     pub fn from_specialization(spec: &Specialization) -> Self {
         let (param_types, return_type) = match &spec.specialized_type {
-            Type::Function { params, return_type } => (params.clone(), *return_type.clone()),
+            Type::Function {
+                params,
+                return_type,
+            } => (params.clone(), *return_type.clone()),
             _ => (vec![], Type::Void),
         };
 
@@ -168,7 +170,10 @@ mod tests {
         let type_var = TypeVar::new(var_id, "T".to_string());
         let def = crate::typechecker::generics::GenericDefinition {
             name: "identity".to_string(),
-            type_params: vec![crate::typechecker::generics::TypeParamInfo::new("T".to_string(), var_id)],
+            type_params: vec![crate::typechecker::generics::TypeParamInfo::new(
+                "T".to_string(),
+                var_id,
+            )],
             body_type: Type::Function {
                 params: vec![Type::TypeVar(type_var.clone())],
                 return_type: Box::new(Type::TypeVar(type_var)),
@@ -191,7 +196,10 @@ mod tests {
         let type_var = TypeVar::new(var_id, "T".to_string());
         let def = crate::typechecker::generics::GenericDefinition {
             name: "identity".to_string(),
-            type_params: vec![crate::typechecker::generics::TypeParamInfo::new("T".to_string(), var_id)],
+            type_params: vec![crate::typechecker::generics::TypeParamInfo::new(
+                "T".to_string(),
+                var_id,
+            )],
             body_type: Type::Function {
                 params: vec![Type::TypeVar(type_var.clone())],
                 return_type: Box::new(Type::TypeVar(type_var)),

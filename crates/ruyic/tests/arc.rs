@@ -1,3 +1,8 @@
+use ruyi_runtime::alloc::TypeInfo;
+use ruyi_runtime::arc::{
+    ruyi_arc_alloc, ruyi_arc_ref_count, ruyi_arc_release, ruyi_arc_retain, ruyi_arc_weak,
+    ruyi_arc_weak_drop, ruyi_arc_weak_load, ruyi_release_any, ruyi_retain_any, CycleDetector,
+};
 /**
  * Integration tests for ARC (Automatic Reference Counting) support.
  *
@@ -10,15 +15,8 @@
  * @author Ruyi Team
  * @date 2026-05-02
  */
-
 use ruyic::parser::Parser;
 use ruyic::typechecker::ArcClassRegistry;
-use ruyi_runtime::arc::{
-    ruyi_arc_alloc, ruyi_arc_retain, ruyi_arc_release, ruyi_arc_ref_count,
-    ruyi_arc_weak, ruyi_arc_weak_load, ruyi_arc_weak_drop,
-    ruyi_retain_any, ruyi_release_any, CycleDetector,
-};
-use ruyi_runtime::alloc::TypeInfo;
 
 // ── Parser Tests ─────────────────────────────────────────────
 

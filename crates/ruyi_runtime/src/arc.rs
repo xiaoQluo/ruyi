@@ -13,13 +13,11 @@
  * @author Ruyi Team
  * @date 2026-05-02
  */
-
-use std::alloc::{GlobalAlloc, Layout, System};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 
-use crate::alloc::{GcObjectHeader, MemoryStrategy, TypeInfo, ruyi_alloc, ruyi_dealloc};
+use crate::alloc::{ruyi_alloc, ruyi_dealloc, GcObjectHeader, MemoryStrategy, TypeInfo};
 
 static WEAK_TABLE: OnceLock<Mutex<WeakTable>> = OnceLock::new();
 
@@ -36,6 +34,7 @@ unsafe impl Sync for WeakTable {}
 #[derive(Debug)]
 pub struct WeakRef {
     /// The payload pointer, or null if the object has been deallocated.
+    #[allow(dead_code)]
     ptr: *mut u8,
     /// Unique slot ID in the weak table.
     slot_id: u64,
@@ -77,7 +76,10 @@ impl WeakTable {
     }
 
     fn get(&self, slot_id: u64) -> *mut u8 {
-        self.slots.get(&slot_id).copied().unwrap_or(std::ptr::null_mut())
+        self.slots
+            .get(&slot_id)
+            .copied()
+            .unwrap_or(std::ptr::null_mut())
     }
 
     fn remove_slot(&mut self, slot_id: u64) {
@@ -304,7 +306,8 @@ impl CycleDetector {
                         return;
                     }
                     let child_header = GcObjectHeader::from_payload(child);
-                    if self.candidate_set.contains(&child_header) && (*child_header).ref_count() > 0 {
+                    if self.candidate_set.contains(&child_header) && (*child_header).ref_count() > 0
+                    {
                         (*child_header).release();
                         changed = true;
                     }
@@ -458,20 +461,20 @@ mod tests {
             trace_fn: None,
         };
 
-    unsafe {
-        let ptr = ruyi_arc_alloc(16, &raw mut TYPE_INFO);
-        assert!(!ptr.is_null());
-        let header = GcObjectHeader::from_payload(ptr);
-        assert_eq!(ruyi_arc_ref_count(ptr), 1);
+        unsafe {
+            let ptr = ruyi_arc_alloc(16, &raw mut TYPE_INFO);
+            assert!(!ptr.is_null());
+            let header = GcObjectHeader::from_payload(ptr);
+            assert_eq!(ruyi_arc_ref_count(ptr), 1);
 
-        ruyi_arc_retain(ptr);
-        assert_eq!(ruyi_arc_ref_count(ptr), 2);
+            ruyi_arc_retain(ptr);
+            assert_eq!(ruyi_arc_ref_count(ptr), 2);
 
-        ruyi_arc_release(ptr);
-        assert_eq!(ruyi_arc_ref_count(ptr), 1);
+            ruyi_arc_release(ptr);
+            assert_eq!(ruyi_arc_ref_count(ptr), 1);
 
-        ruyi_arc_release(ptr);
-    }
+            ruyi_arc_release(ptr);
+        }
     }
 
     #[test]

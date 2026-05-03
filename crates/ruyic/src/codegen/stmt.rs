@@ -6,15 +6,14 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::BasicValueEnum;
 
-use crate::parser::ast::{Expr, Statement};
-use crate::typechecker::types::Type;
 use super::builtins::{build_ruyi_clear_pending_exception, build_ruyi_get_pending_exception};
 use super::expr::compile_expr;
 use super::generator::{CodegenContext, TryContext};
+use crate::parser::ast::{Expr, Statement};
+use crate::typechecker::types::Type;
 
 pub fn compile_stmt<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_>,
@@ -27,14 +26,20 @@ pub fn compile_stmt<'ctx>(
             Ok(())
         }
         Statement::Block(stmts) => compile_block(ctx, stmts),
-        Statement::If { condition, then_branch, else_branch } => {
-            compile_if(ctx, condition, then_branch, else_branch.as_deref())
-        }
+        Statement::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => compile_if(ctx, condition, then_branch, else_branch.as_deref()),
         Statement::While { condition, body } => compile_while(ctx, condition, body),
         Statement::Return(expr) => compile_return(ctx, expr.as_deref()),
         Statement::Declaration(decl) => super::decl::compile_declaration(ctx, decl),
         Statement::Throw(expr) => compile_throw(ctx, expr),
-        Statement::Try { body, catch, finally } => compile_try(ctx, body, catch.as_ref(), finally.as_deref()),
+        Statement::Try {
+            body,
+            catch,
+            finally,
+        } => compile_try(ctx, body, catch.as_ref(), finally.as_deref()),
         Statement::Empty => Ok(()),
         _ => Err(format!("Unsupported statement: {:?}", stmt)),
     }
@@ -73,11 +78,18 @@ fn compile_if<'ctx>(
     let else_bb = ctx.context.append_basic_block(func, "if_else");
     let merge_bb = ctx.context.append_basic_block(func, "if_merge");
 
-    ctx.builder.build_conditional_branch(cond_val, then_bb, else_bb);
+    ctx.builder
+        .build_conditional_branch(cond_val, then_bb, else_bb);
 
     ctx.builder.position_at_end(then_bb);
     compile_stmt(ctx, then_branch)?;
-    if ctx.builder.get_insert_block().unwrap().get_terminator().is_none() {
+    if ctx
+        .builder
+        .get_insert_block()
+        .unwrap()
+        .get_terminator()
+        .is_none()
+    {
         ctx.builder.build_unconditional_branch(merge_bb);
     }
 
@@ -85,7 +97,13 @@ fn compile_if<'ctx>(
     if let Some(else_stmt) = else_branch {
         compile_stmt(ctx, else_stmt)?;
     }
-    if ctx.builder.get_insert_block().unwrap().get_terminator().is_none() {
+    if ctx
+        .builder
+        .get_insert_block()
+        .unwrap()
+        .get_terminator()
+        .is_none()
+    {
         ctx.builder.build_unconditional_branch(merge_bb);
     }
 
@@ -115,11 +133,18 @@ fn compile_while<'ctx>(
         BasicValueEnum::IntValue(v) => v,
         _ => return Err("Condition must be boolean".to_string()),
     };
-    ctx.builder.build_conditional_branch(cond_val, body_bb, end_bb);
+    ctx.builder
+        .build_conditional_branch(cond_val, body_bb, end_bb);
 
     ctx.builder.position_at_end(body_bb);
     compile_stmt(ctx, body)?;
-    if ctx.builder.get_insert_block().unwrap().get_terminator().is_none() {
+    if ctx
+        .builder
+        .get_insert_block()
+        .unwrap()
+        .get_terminator()
+        .is_none()
+    {
         ctx.builder.build_unconditional_branch(cond_bb);
     }
 
@@ -157,17 +182,17 @@ fn compile_return<'ctx>(
     }
 }
 
-fn compile_throw<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
-    expr: &Expr,
-) -> Result<(), String> {
+fn compile_throw<'ctx>(ctx: &mut CodegenContext<'ctx, '_>, expr: &Expr) -> Result<(), String> {
     let exc_result = compile_expr(ctx, expr)?;
     let exc_ptr = match exc_result.value {
         BasicValueEnum::PointerValue(v) => v,
         _ => return Err("throw expression must evaluate to a pointer".to_string()),
     };
 
-    let throw_fn = ctx.module.get_function("ruyi_throw").expect("ruyi_throw not declared");
+    let throw_fn = ctx
+        .module
+        .get_function("ruyi_throw")
+        .expect("ruyi_throw not declared");
     ctx.builder.build_call(throw_fn, &[exc_ptr.into()], "throw");
 
     if let Some(try_ctx) = ctx.try_stack.last() {
@@ -188,25 +213,26 @@ fn compile_throw<'ctx>(
                 None => {
                     ctx.builder.build_return(None);
                 }
-                Some(ty) => {
-                    match ty {
-                        BasicTypeEnum::IntType(t) => {
-                            let zero = t.const_int(0, false);
-                            ctx.builder.build_return(Some(&BasicValueEnum::IntValue(zero)));
-                        }
-                        BasicTypeEnum::FloatType(t) => {
-                            let zero = t.const_float(0.0);
-                            ctx.builder.build_return(Some(&BasicValueEnum::FloatValue(zero)));
-                        }
-                        BasicTypeEnum::PointerType(t) => {
-                            let null = t.const_null();
-                            ctx.builder.build_return(Some(&BasicValueEnum::PointerValue(null)));
-                        }
-                        _ => {
-                            ctx.builder.build_return(None);
-                        }
+                Some(ty) => match ty {
+                    BasicTypeEnum::IntType(t) => {
+                        let zero = t.const_int(0, false);
+                        ctx.builder
+                            .build_return(Some(&BasicValueEnum::IntValue(zero)));
                     }
-                }
+                    BasicTypeEnum::FloatType(t) => {
+                        let zero = t.const_float(0.0);
+                        ctx.builder
+                            .build_return(Some(&BasicValueEnum::FloatValue(zero)));
+                    }
+                    BasicTypeEnum::PointerType(t) => {
+                        let null = t.const_null();
+                        ctx.builder
+                            .build_return(Some(&BasicValueEnum::PointerValue(null)));
+                    }
+                    _ => {
+                        ctx.builder.build_return(None);
+                    }
+                },
             }
         } else {
             return Err("throw outside function".to_string());
@@ -240,7 +266,9 @@ fn compile_try<'ctx>(
     let exception_ptr = ctx.builder.build_alloca(i8_ptr, "exc_ptr");
     ctx.builder.build_store(exception_ptr, i8_ptr.const_null());
 
-    let clear_fn = ctx.module.get_function("ruyi_clear_pending_exception")
+    let clear_fn = ctx
+        .module
+        .get_function("ruyi_clear_pending_exception")
         .expect("ruyi_clear_pending_exception not declared");
     ctx.builder.build_call(clear_fn, &[], "clear_exc");
 
@@ -274,13 +302,17 @@ fn compile_try<'ctx>(
 
         build_ruyi_clear_pending_exception(&ctx.builder, &ctx.module);
 
-        let exc_val = ctx.builder.build_load(exception_ptr, "exc_val").into_pointer_value();
+        let exc_val = ctx
+            .builder
+            .build_load(exception_ptr, "exc_val")
+            .into_pointer_value();
         if let Some(pattern) = &catch_clause.pattern {
             match pattern {
                 crate::parser::ast::Pattern::Identifier(name) => {
                     let local_ptr = ctx.builder.build_alloca(i8_ptr, name);
                     ctx.builder.build_store(local_ptr, exc_val);
-                    ctx.variables.insert(name.clone(), (local_ptr, Type::String));
+                    ctx.variables
+                        .insert(name.clone(), (local_ptr, Type::String));
                 }
                 _ => {}
             }
@@ -307,7 +339,10 @@ fn compile_try<'ctx>(
         let finally_end = ctx.builder.get_insert_block().unwrap();
         if finally_end.get_terminator().is_none() {
             if catch.is_none() {
-                let exc_val = ctx.builder.build_load(exception_ptr, "exc_val").into_pointer_value();
+                let exc_val = ctx
+                    .builder
+                    .build_load(exception_ptr, "exc_val")
+                    .into_pointer_value();
                 let exc_int = ctx.builder.build_ptr_to_int(exc_val, i64_ty, "exc_int");
                 let is_null = ctx.builder.build_int_compare(
                     inkwell::IntPredicate::EQ,
@@ -320,9 +355,16 @@ fn compile_try<'ctx>(
                 ctx.builder.build_conditional_branch(is_null, merge_bb, pb);
 
                 ctx.builder.position_at_end(pb);
-                let exc_val2 = ctx.builder.build_load(exception_ptr, "exc_val2").into_pointer_value();
-                let throw_fn = ctx.module.get_function("ruyi_throw").expect("ruyi_throw not declared");
-                ctx.builder.build_call(throw_fn, &[exc_val2.into()], "rethrow");
+                let exc_val2 = ctx
+                    .builder
+                    .build_load(exception_ptr, "exc_val2")
+                    .into_pointer_value();
+                let throw_fn = ctx
+                    .module
+                    .get_function("ruyi_throw")
+                    .expect("ruyi_throw not declared");
+                ctx.builder
+                    .build_call(throw_fn, &[exc_val2.into()], "rethrow");
                 ctx.emit_gc_root_removals();
                 ctx.builder.build_return(None);
             } else {
@@ -335,9 +377,7 @@ fn compile_try<'ctx>(
     Ok(())
 }
 
-fn build_exception_check<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
-) -> Result<(), String> {
+fn build_exception_check<'ctx>(ctx: &mut CodegenContext<'ctx, '_>) -> Result<(), String> {
     if ctx.try_stack.is_empty() {
         return Ok(());
     }
@@ -358,11 +398,13 @@ fn build_exception_check<'ctx>(
     let continue_bb = ctx.context.append_basic_block(func, "after_exc_check");
     let store_exc_bb = ctx.context.append_basic_block(func, "store_exc");
 
-    let dest_bb = try_ctx.catch_bb
+    let dest_bb = try_ctx
+        .catch_bb
         .or(try_ctx.finally_bb)
         .unwrap_or(try_ctx.merge_bb);
 
-    ctx.builder.build_conditional_branch(is_null, continue_bb, store_exc_bb);
+    ctx.builder
+        .build_conditional_branch(is_null, continue_bb, store_exc_bb);
 
     ctx.builder.position_at_end(store_exc_bb);
     ctx.builder.build_store(try_ctx.exception_ptr, pending);

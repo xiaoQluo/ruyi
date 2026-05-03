@@ -1,0 +1,21 @@
+// Float and arithmetic example for Ruyi
+fn main() {
+  let a: float = 3.14;
+  let b: float = 2.0;
+  print("a = ");
+  print(a);
+  print("\n");
+  print("b = ");
+  print(b);
+  print("\n");
+
+  let sum: float = a + b;
+  print("a + b = ");
+  print(sum);
+  print("\n");
+
+  let product: float = a * b;
+  print("a * b = ");
+  print(product);
+  print("\n");
+}

@@ -4,7 +4,6 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use crate::typechecker::types::Type;
 use std::fmt;
 
@@ -27,28 +26,75 @@ pub struct Diagnostic {
 /// Categorized diagnostic kinds for type errors.
 #[derive(Debug, Clone)]
 pub enum DiagnosticKind {
-    TypeMismatch { expected: Type, found: Type },
-    UnknownVariable { name: String },
-    ImmutableAssign { name: String },
-    NullableAccess { ty: Type },
-    UnsafeNullableAccess { ty: Type },
-    NotCallable { ty: Type },
-    NotIndexable { ty: Type },
-    ArgumentCount { expected: usize, found: usize },
-    MissingReturn { function: String },
+    TypeMismatch {
+        expected: Type,
+        found: Type,
+    },
+    UnknownVariable {
+        name: String,
+    },
+    ImmutableAssign {
+        name: String,
+    },
+    NullableAccess {
+        ty: Type,
+    },
+    UnsafeNullableAccess {
+        ty: Type,
+    },
+    NotCallable {
+        ty: Type,
+    },
+    NotIndexable {
+        ty: Type,
+    },
+    ArgumentCount {
+        expected: usize,
+        found: usize,
+    },
+    MissingReturn {
+        function: String,
+    },
     UnreachableCode,
-    DynCast { from: Type, to: Type },
-    RecursiveTypeAlias { name: String },
-    DuplicateDeclaration { name: String },
-    TraitNotImplemented { ty: Type, trait_name: String },
-    GenericArity { name: String, expected: usize, found: usize },
+    DynCast {
+        from: Type,
+        to: Type,
+    },
+    RecursiveTypeAlias {
+        name: String,
+    },
+    DuplicateDeclaration {
+        name: String,
+    },
+    TraitNotImplemented {
+        ty: Type,
+        trait_name: String,
+    },
+    GenericArity {
+        name: String,
+        expected: usize,
+        found: usize,
+    },
     CannotInfer,
     // Pattern matching diagnostics
-    NonExhaustiveMatch { scrutinee_type: Type, missing: Vec<String> },
-    RedundantPattern { arm: usize },
-    PatternTypeMismatch { pattern: String, expected: Type, found: Type },
-    InvalidPattern { message: String },
-    Other { message: String },
+    NonExhaustiveMatch {
+        scrutinee_type: Type,
+        missing: Vec<String>,
+    },
+    RedundantPattern {
+        arm: usize,
+    },
+    PatternTypeMismatch {
+        pattern: String,
+        expected: Type,
+        found: Type,
+    },
+    InvalidPattern {
+        message: String,
+    },
+    Other {
+        message: String,
+    },
 }
 
 impl Diagnostic {
@@ -74,7 +120,9 @@ impl Diagnostic {
         Self {
             severity: Severity::Note,
             message: msg.to_string(),
-            ty: DiagnosticKind::Other { message: msg.to_string() },
+            ty: DiagnosticKind::Other {
+                message: msg.to_string(),
+            },
         }
     }
 
@@ -99,7 +147,10 @@ impl DiagnosticKind {
     fn message(&self) -> String {
         match self {
             DiagnosticKind::TypeMismatch { expected, found } => {
-                format!("Type mismatch: expected `{}`, but found `{}`", expected, found)
+                format!(
+                    "Type mismatch: expected `{}`, but found `{}`",
+                    expected, found
+                )
             }
             DiagnosticKind::UnknownVariable { name } => {
                 format!("Unknown variable: `{}`", name)
@@ -125,9 +176,7 @@ impl DiagnosticKind {
             DiagnosticKind::MissingReturn { function } => {
                 format!("Function `{}` may not return a value", function)
             }
-            DiagnosticKind::UnreachableCode => {
-                "Unreachable code detected".to_string()
-            }
+            DiagnosticKind::UnreachableCode => "Unreachable code detected".to_string(),
             DiagnosticKind::DynCast { from, to } => {
                 format!("Runtime cast from `{}` to `{}` will be inserted", from, to)
             }
@@ -140,13 +189,21 @@ impl DiagnosticKind {
             DiagnosticKind::TraitNotImplemented { ty, trait_name } => {
                 format!("Type `{}` does not implement trait `{}`", ty, trait_name)
             }
-            DiagnosticKind::GenericArity { name, expected, found } => {
-                format!("Generic `{}` expects {} type argument(s), but found {}", name, expected, found)
+            DiagnosticKind::GenericArity {
+                name,
+                expected,
+                found,
+            } => {
+                format!(
+                    "Generic `{}` expects {} type argument(s), but found {}",
+                    name, expected, found
+                )
             }
-            DiagnosticKind::CannotInfer => {
-                "Cannot infer type; defaulting to `dyn`".to_string()
-            }
-            DiagnosticKind::NonExhaustiveMatch { scrutinee_type, missing } => {
+            DiagnosticKind::CannotInfer => "Cannot infer type; defaulting to `dyn`".to_string(),
+            DiagnosticKind::NonExhaustiveMatch {
+                scrutinee_type,
+                missing,
+            } => {
                 format!(
                     "Non-exhaustive match: type `{}` has unscovered cases: {}",
                     scrutinee_type,
@@ -156,7 +213,11 @@ impl DiagnosticKind {
             DiagnosticKind::RedundantPattern { arm } => {
                 format!("Redundant pattern at arm {}", arm)
             }
-            DiagnosticKind::PatternTypeMismatch { pattern, expected, found } => {
+            DiagnosticKind::PatternTypeMismatch {
+                pattern,
+                expected,
+                found,
+            } => {
                 format!(
                     "Pattern `{}` cannot match value of type `{}`: expected `{}`",
                     pattern, found, expected
@@ -240,7 +301,10 @@ mod tests {
             found: Type::String,
         });
         assert!(diag.is_error());
-        assert_eq!(diag.message(), "Type mismatch: expected `int`, but found `string`");
+        assert_eq!(
+            diag.message(),
+            "Type mismatch: expected `int`, but found `string`"
+        );
     }
 
     #[test]
@@ -252,7 +316,10 @@ mod tests {
     #[test]
     fn test_diagnostic_bag() {
         let mut bag = DiagnosticBag::new();
-        bag.add_error(DiagnosticKind::TypeMismatch { expected: Type::Int, found: Type::String });
+        bag.add_error(DiagnosticKind::TypeMismatch {
+            expected: Type::Int,
+            found: Type::String,
+        });
         bag.add_warning(DiagnosticKind::CannotInfer);
         assert!(bag.has_errors());
         assert!(bag.has_warnings());

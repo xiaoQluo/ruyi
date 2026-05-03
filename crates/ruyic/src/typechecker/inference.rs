@@ -9,7 +9,6 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use crate::parser::ast::{
     ArrayElement, ArrowBody, BinaryOp, Declaration, Expr, MemberProperty, ModuleItem,
     ObjectProperty, Pattern, PropertyName, Statement, UnaryOp,
@@ -18,8 +17,8 @@ use crate::typechecker::constraints::ConstraintSolver;
 use crate::typechecker::diagnostics::{DiagnosticBag, DiagnosticKind};
 use crate::typechecker::environment::TypeEnvironment;
 use crate::typechecker::generics::{
-    MonomorphizationTracker,
     make_generic_class_def, make_generic_function_def, make_generic_trait_def,
+    MonomorphizationTracker,
 };
 use crate::typechecker::traits::TraitRegistry;
 use crate::typechecker::types::{ObjectField, Type};
@@ -49,6 +48,7 @@ pub struct TypeInference {
     return_type_stack: Vec<Type>,
     tracker: MonomorphizationTracker,
     trait_registry: TraitRegistry,
+    class_stack: Vec<String>,
 }
 
 impl TypeInference {
@@ -82,6 +82,7 @@ impl TypeInference {
             return_type_stack: Vec::new(),
             tracker: MonomorphizationTracker::new(),
             trait_registry,
+            class_stack: Vec::new(),
         }
     }
 
@@ -170,7 +171,13 @@ impl TypeInference {
                 };
 
                 if !type_params.is_empty() {
-                    let generic_def = make_generic_function_def(name, type_params, &param_types, &ret_type, &mut self.tracker);
+                    let generic_def = make_generic_function_def(
+                        name,
+                        type_params,
+                        &param_types,
+                        &ret_type,
+                        &mut self.tracker,
+                    );
                     self.tracker.register_generic(generic_def);
                 }
 
@@ -179,7 +186,8 @@ impl TypeInference {
                 // Type check the function body
                 self.env.push_scope();
                 for (param, ty) in params.iter().zip(param_types.iter()) {
-                    self.env.declare_param(&pattern_name(&param.pattern), ty.clone());
+                    self.env
+                        .declare_param(&pattern_name(&param.pattern), ty.clone());
                 }
                 self.return_type_stack.push(ret_type.clone());
                 for stmt in body {
@@ -204,11 +212,13 @@ impl TypeInference {
                 let class_type = Type::Named(name.clone());
                 self.env.declare_let(name, class_type.clone());
 
+                self.class_stack.push(name.clone());
                 self.env.push_scope();
                 for element in body {
                     self.infer_class_element(element);
                 }
                 self.env.pop_scope();
+                self.class_stack.pop();
 
                 class_type
             }
@@ -239,10 +249,17 @@ impl TypeInference {
                     self.infer_class_element(element);
                 }
                 self.env.pop_scope();
-                self.env.declare_let(&format!("impl_{}_for_{}", trait_name, impl_type), impl_type.clone());
+                self.env.declare_let(
+                    &format!("impl_{}_for_{}", trait_name, impl_type),
+                    impl_type.clone(),
+                );
                 impl_type
             }
-            Declaration::TypeAlias { name, type_params: _, ty } => {
+            Declaration::TypeAlias {
+                name,
+                type_params: _,
+                ty,
+            } => {
                 let alias_type = Type::from_annotation(ty);
                 self.env.declare_let(name, alias_type.clone());
                 alias_type
@@ -300,6 +317,12 @@ impl TypeInference {
                 is_static: _,
             } => {
                 let field_name = property_name_str(prop_name);
+
+                // Detect self-referential field types
+                if let Some(annotation) = ty {
+                    self.check_self_referential_field(annotation, &field_name);
+                }
+
                 let field_type = if let Some(annotation) = ty {
                     Type::from_annotation(annotation)
                 } else if let Some(init_expr) = init {
@@ -310,6 +333,53 @@ impl TypeInference {
                 self.env.declare_let(&field_name, field_type);
             }
             crate::parser::ast::ClassElement::Empty => {}
+        }
+    }
+
+    /**
+     * Check for self-referential class field types.
+     *
+     * Non-nullable self-references (e.g. `next: ListNode`) create infinite-size types
+     * and are reported as errors. Nullable self-references (e.g. `next: ListNode?`)
+     * are structurally valid (e.g. linked lists, trees) but produce a warning.
+     *
+     * @param annotation  The type annotation on the field
+     * @param field_name  The field name for diagnostic messages
+     */
+    fn check_self_referential_field(
+        &mut self,
+        annotation: &crate::parser::ast::TypeAnnotation,
+        field_name: &str,
+    ) {
+        let current_class = match self.class_stack.last() {
+            Some(name) => name,
+            None => return,
+        };
+
+        match annotation {
+            crate::parser::ast::TypeAnnotation::Identifier(ty_name) => {
+                if ty_name == current_class {
+                    self.diagnostics.add_error(DiagnosticKind::Other {
+                        message: format!(
+                            "Non-nullable self-referential field '{}' in class '{}': creates infinite-size type",
+                            field_name, current_class,
+                        ),
+                    });
+                }
+            }
+            crate::parser::ast::TypeAnnotation::Nullable(inner) => {
+                if let crate::parser::ast::TypeAnnotation::Identifier(ty_name) = inner.as_ref() {
+                    if ty_name == current_class {
+                        self.diagnostics.add_warning(DiagnosticKind::Other {
+                            message: format!(
+                                "Self-referential field '{}' in class '{}': consider using a reference or box for non-nullable self-references",
+                                field_name, current_class,
+                            ),
+                        });
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -397,7 +467,11 @@ impl TypeInference {
                 self.env.pop_scope();
                 Type::Void
             }
-            Statement::WhileLet { pattern, value, body } => {
+            Statement::WhileLet {
+                pattern,
+                value,
+                body,
+            } => {
                 let val_ty = self.synthesize(value);
                 self.env.push_scope();
                 self.bind_pattern_type(pattern, &val_ty);
@@ -432,7 +506,11 @@ impl TypeInference {
                 self.env.pop_scope();
                 Type::Void
             }
-            Statement::ForIn { variable, iterable, body } => {
+            Statement::ForIn {
+                variable,
+                iterable,
+                body,
+            } => {
                 let iter_ty = self.synthesize(iterable);
                 self.env.push_scope();
                 self.env.declare_let(variable, Type::Dynamic);
@@ -505,24 +583,23 @@ impl TypeInference {
                 let match_ty = self.synthesize(value);
 
                 // Analyze patterns for exhaustiveness and redundancy
-                let arm_refs: Vec<(&Pattern, &Type)> = arms.iter()
-                    .map(|arm| (&arm.pattern, &match_ty))
-                    .collect();
+                let arm_refs: Vec<(&Pattern, &Type)> =
+                    arms.iter().map(|arm| (&arm.pattern, &match_ty)).collect();
                 let analysis = crate::typechecker::patterns::analyze_patterns(&arm_refs);
 
                 // Report non-exhaustive match
                 if !analysis.is_exhaustive {
-                    self.diagnostics.add_error(DiagnosticKind::NonExhaustiveMatch {
-                        scrutinee_type: match_ty.clone(),
-                        missing: analysis.missing_cases.clone(),
-                    });
+                    self.diagnostics
+                        .add_error(DiagnosticKind::NonExhaustiveMatch {
+                            scrutinee_type: match_ty.clone(),
+                            missing: analysis.missing_cases.clone(),
+                        });
                 }
 
                 // Report redundant pattern
                 if let Some(redundant_idx) = analysis.redundant_arm {
-                    self.diagnostics.add_warning(DiagnosticKind::RedundantPattern {
-                        arm: redundant_idx,
-                    });
+                    self.diagnostics
+                        .add_warning(DiagnosticKind::RedundantPattern { arm: redundant_idx });
                 }
 
                 let mut result_types = Vec::new();
@@ -564,16 +641,11 @@ impl TypeInference {
             Expr::BigIntLiteral(_) => Type::BigInt,
             Expr::BooleanLiteral(_) => Type::Bool,
             Expr::NullLiteral => Type::Null,
-            Expr::Identifier(name) => self
-                .env
-                .lookup(name)
-                .cloned()
-                .unwrap_or_else(|| {
-                    self.diagnostics.add_error(DiagnosticKind::UnknownVariable {
-                        name: name.clone(),
-                    });
-                    Type::Error
-                }),
+            Expr::Identifier(name) => self.env.lookup(name).cloned().unwrap_or_else(|| {
+                self.diagnostics
+                    .add_error(DiagnosticKind::UnknownVariable { name: name.clone() });
+                Type::Error
+            }),
             Expr::This | Expr::Super | Expr::SelfExpr => Type::Dynamic,
             Expr::TemplateLiteral(parts) => {
                 for part in parts {
@@ -663,8 +735,14 @@ impl TypeInference {
                 // Check if callee is a generic function and try to specialize
                 if let Expr::Identifier(name) = callee.as_ref() {
                     if self.tracker.is_generic(name) {
-                        if let Some(inferred_args) = self.tracker.infer_type_args(name, &arg_types, &mut self.diagnostics) {
-                            if let Some(spec) = self.tracker.specialize(name, inferred_args, &mut self.diagnostics) {
+                        if let Some(inferred_args) =
+                            self.tracker
+                                .infer_type_args(name, &arg_types, &mut self.diagnostics)
+                        {
+                            if let Some(spec) =
+                                self.tracker
+                                    .specialize(name, inferred_args, &mut self.diagnostics)
+                            {
                                 return spec.specialized_type;
                             }
                         }
@@ -672,7 +750,10 @@ impl TypeInference {
                 }
 
                 match callee_ty {
-                    Type::Function { params, return_type } => {
+                    Type::Function {
+                        params,
+                        return_type,
+                    } => {
                         if arg_types.len() != params.len() {
                             self.diagnostics.add_error(DiagnosticKind::ArgumentCount {
                                 expected: params.len(),
@@ -693,7 +774,9 @@ impl TypeInference {
                     Type::Dynamic => Type::Dynamic,
                     Type::Error => Type::Error,
                     _ => {
-                        self.diagnostics.add_error(DiagnosticKind::NotCallable { ty: callee_ty.clone() });
+                        self.diagnostics.add_error(DiagnosticKind::NotCallable {
+                            ty: callee_ty.clone(),
+                        });
                         Type::Error
                     }
                 }
@@ -759,12 +842,15 @@ impl TypeInference {
                                 });
                             }
                         } else {
-                            self.diagnostics.add_error(DiagnosticKind::UnknownVariable {
-                                name: name.clone(),
-                            });
+                            self.diagnostics
+                                .add_error(DiagnosticKind::UnknownVariable { name: name.clone() });
                         }
                     }
-                    Expr::Member { object, property, optional: _ } => {
+                    Expr::Member {
+                        object,
+                        property,
+                        optional: _,
+                    } => {
                         let _ = self.synthesize(object);
                         let _ = property;
                     }
@@ -791,7 +877,8 @@ impl TypeInference {
 
                 self.env.push_scope();
                 for (param, ty) in params.iter().zip(param_types.iter()) {
-                    self.env.declare_param(&pattern_name(&param.pattern), ty.clone());
+                    self.env
+                        .declare_param(&pattern_name(&param.pattern), ty.clone());
                 }
 
                 let ret_type = return_type
@@ -886,9 +973,7 @@ impl TypeInference {
                 for arm in arms {
                     self.env.push_scope();
                     self.bind_pattern_type(&arm.pattern, &match_ty);
-                    let arm_type = self.synthesize_expr_fresh(
-                        &Expr::Block(arm.body.clone()),
-                    );
+                    let arm_type = self.synthesize_expr_fresh(&Expr::Block(arm.body.clone()));
                     self.env.pop_scope();
                     result_types.push(arm_type);
                 }
@@ -989,17 +1074,19 @@ impl TypeInference {
             // Equality with coercion (deprecated in Ruyi, but handled)
             BinaryOp::Equals | BinaryOp::NotEquals => Type::Bool,
             // Logical: bool
-            BinaryOp::And | BinaryOp::Or => {
-                left_ty.least_upper_bound(&right_ty)
-            }
+            BinaryOp::And | BinaryOp::Or => left_ty.least_upper_bound(&right_ty),
             // Nullish coalescing
             BinaryOp::Nullish => {
                 let non_null = left_ty.non_null();
                 non_null.least_upper_bound(&right_ty)
             }
             // Bitwise: int
-            BinaryOp::Amp | BinaryOp::Pipe | BinaryOp::Caret
-            | BinaryOp::Shl | BinaryOp::Shr | BinaryOp::UShr => {
+            BinaryOp::Amp
+            | BinaryOp::Pipe
+            | BinaryOp::Caret
+            | BinaryOp::Shl
+            | BinaryOp::Shr
+            | BinaryOp::UShr => {
                 if left_ty == Type::Int && right_ty == Type::Int {
                     Type::Int
                 } else if left_ty.is_dynamic() || right_ty.is_dynamic() {
@@ -1068,7 +1155,10 @@ impl TypeInference {
             Type::Nullable(inner) => {
                 Type::Nullable(Box::new(self.substitute_self_type(inner, self_type)))
             }
-            Type::Function { params, return_type } => Type::Function {
+            Type::Function {
+                params,
+                return_type,
+            } => Type::Function {
                 params: params
                     .iter()
                     .map(|p| self.substitute_self_type(p, self_type))
@@ -1105,9 +1195,8 @@ impl TypeInference {
     fn synthesize_member_access(&mut self, obj_ty: &Type, prop_name: &str, optional: bool) -> Type {
         // Check for unsafe nullable access (non-optional member access on nullable type)
         if !optional && obj_ty.is_nullable() && !obj_ty.is_dynamic() {
-            self.diagnostics.add_error(DiagnosticKind::UnsafeNullableAccess {
-                ty: obj_ty.clone(),
-            });
+            self.diagnostics
+                .add_error(DiagnosticKind::UnsafeNullableAccess { ty: obj_ty.clone() });
         }
 
         let result = match obj_ty {
@@ -1117,11 +1206,11 @@ impl TypeInference {
                 .map(|f| f.ty.clone())
                 .unwrap_or(Type::Dynamic),
             Type::Named(ref type_name) => {
-                if let Some((_trait_name, method)) =
-                    self.trait_registry.resolve_impl_method(type_name, prop_name)
+                if let Some((_trait_name, method)) = self
+                    .trait_registry
+                    .resolve_impl_method(type_name, prop_name)
                 {
-                    let ret_ty =
-                        self.substitute_self_type(&method.return_type, obj_ty);
+                    let ret_ty = self.substitute_self_type(&method.return_type, obj_ty);
                     let param_types: Vec<Type> = if method.param_types.len() >= 1 {
                         method.param_types[1..]
                             .iter()
@@ -1142,9 +1231,8 @@ impl TypeInference {
             Type::Dynamic => Type::Dynamic,
             Type::Error => Type::Error,
             _ => {
-                self.diagnostics.add_warning(DiagnosticKind::NotIndexable {
-                    ty: obj_ty.clone(),
-                });
+                self.diagnostics
+                    .add_warning(DiagnosticKind::NotIndexable { ty: obj_ty.clone() });
                 Type::Dynamic
             }
         };
@@ -1219,7 +1307,10 @@ impl TypeInference {
                 if let Type::Object(obj_fields) = ty {
                     for field in fields {
                         match field {
-                            crate::parser::ast::ObjectPatternField::Property { key, pattern: inner } => {
+                            crate::parser::ast::ObjectPatternField::Property {
+                                key,
+                                pattern: inner,
+                            } => {
                                 let field_ty = obj_fields
                                     .iter()
                                     .find(|f| f.name == *key)
@@ -1276,7 +1367,9 @@ impl TypeInference {
         if return_types.is_empty() {
             Type::Void
         } else {
-            return_types.into_iter().fold(Type::Never, |acc, ty| acc.least_upper_bound(&ty))
+            return_types
+                .into_iter()
+                .fold(Type::Never, |acc, ty| acc.least_upper_bound(&ty))
         }
     }
 
@@ -1290,7 +1383,11 @@ impl TypeInference {
                         .unwrap_or(Type::Null);
                     return_types.push(ty);
                 }
-                Statement::If { then_branch, else_branch, .. } => {
+                Statement::If {
+                    then_branch,
+                    else_branch,
+                    ..
+                } => {
                     self.collect_return_types_from_stmt(then_branch, return_types);
                     if let Some(else_stmt) = else_branch {
                         self.collect_return_types_from_stmt(else_stmt, return_types);
@@ -1372,7 +1469,11 @@ mod tests {
         let inference = TypeInference::new(TraitRegistry::new());
         let result = inference.infer_program(&program);
         // Return the type of the first declaration's variable
-        result.typed_env.lookup("x").cloned().unwrap_or(Type::Dynamic)
+        result
+            .typed_env
+            .lookup("x")
+            .cloned()
+            .unwrap_or(Type::Dynamic)
     }
 
     #[test]

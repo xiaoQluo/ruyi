@@ -54,10 +54,7 @@ fn test_ruyi_bigint_from_str_smoke() {
         assert!(!result.is_null());
         let cstr = std::ffi::CStr::from_ptr(result);
         assert_eq!(cstr.to_str().unwrap(), "99999999999999999999");
-        dealloc(
-            result as *mut u8,
-            Layout::from_size_align(21, 1).unwrap(),
-        );
+        dealloc(result as *mut u8, Layout::from_size_align(21, 1).unwrap());
     }
 }
 

@@ -1,7 +1,7 @@
-pub mod types;
 #[cfg(feature = "inkwell")]
 pub mod landing_pad;
 pub mod runtime;
+pub mod types;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -23,7 +23,7 @@ pub fn fresh_type_id() -> TypeId {
 /// Predefined exception type IDs used by the Ruyi runtime.
 pub mod builtin_type_ids {
     use super::TypeId;
-    pub const ANY: TypeId = 0;         // catch-all (catch { })
+    pub const ANY: TypeId = 0; // catch-all (catch { })
     pub const ERROR: TypeId = 1;
     pub const TYPE_ERROR: TypeId = 2;
     pub const RANGE_ERROR: TypeId = 3;
@@ -309,10 +309,7 @@ mod tests {
         assert_eq!(entry.landing_pad, 200);
         assert!(entry.has_cleanup);
 
-        assert_eq!(
-            entry.matching_handler(builtin_type_ids::ERROR),
-            Some(300)
-        );
+        assert_eq!(entry.matching_handler(builtin_type_ids::ERROR), Some(300));
         assert_eq!(
             entry.matching_handler(builtin_type_ids::TYPE_ERROR),
             Some(400)

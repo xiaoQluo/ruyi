@@ -148,15 +148,13 @@ pub mod llvm {
         /// After the call, builds `unreachable` because `ruyi_throw` does not return.
         pub fn build_throw(&self, exception: PointerValue<'ctx>) {
             let throw_fn = self.get_throw_function();
-            self.builder.build_call(throw_fn, &[exception.into()], "ruyi.throw");
+            self.builder
+                .build_call(throw_fn, &[exception.into()], "ruyi.throw");
             self.builder.build_unreachable();
         }
 
         /// Build a call to `ruyi_begin_catch` inside a catch handler.
-        pub fn build_begin_catch(
-            &self,
-            exception_ptr: PointerValue<'ctx>,
-        ) -> PointerValue<'ctx> {
+        pub fn build_begin_catch(&self, exception_ptr: PointerValue<'ctx>) -> PointerValue<'ctx> {
             let begin_catch_fn = self.get_begin_catch_function();
             self.builder
                 .build_call(begin_catch_fn, &[exception_ptr.into()], "ruyi.begin.catch")
@@ -178,9 +176,13 @@ pub mod llvm {
             pending_exception: Option<PointerValue<'ctx>>,
         ) -> PointerValue<'ctx> {
             let finally_fn = self.get_finally_function();
-            let arg = pending_exception
-                .map(|p| p.into())
-                .unwrap_or_else(|| self.context.i8_type().ptr_type(AddressSpace::default()).const_null().into());
+            let arg = pending_exception.map(|p| p.into()).unwrap_or_else(|| {
+                self.context
+                    .i8_type()
+                    .ptr_type(AddressSpace::default())
+                    .const_null()
+                    .into()
+            });
             self.builder
                 .build_call(finally_fn, &[arg], "ruyi.finally")
                 .try_as_basic_value()
@@ -202,11 +204,9 @@ pub mod llvm {
             resume_bb: BasicBlock<'ctx>,
         ) -> BasicValueEnum<'ctx> {
             let type_ids: Vec<u64> = catch_handlers.iter().map(|(ty, _)| ty.type_id()).collect();
-            let landing_pad = self.lpad_gen.build_landing_pad(
-                &type_ids,
-                finally_block.is_some(),
-                "lpad",
-            );
+            let landing_pad =
+                self.lpad_gen
+                    .build_landing_pad(&type_ids, finally_block.is_some(), "lpad");
 
             self.lpad_gen.build_catch_dispatch(
                 landing_pad,
@@ -252,7 +252,9 @@ pub mod llvm {
         name: &str,
         fn_type: inkwell::types::FunctionType<'ctx>,
     ) -> FunctionValue<'ctx> {
-        module.get_function(name).unwrap_or_else(|| module.add_function(name, fn_type, None))
+        module
+            .get_function(name)
+            .unwrap_or_else(|| module.add_function(name, fn_type, None))
     }
 }
 

@@ -7,7 +7,6 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use std::path::PathBuf;
 use std::process;
 
@@ -89,25 +88,23 @@ fn main() {
     let mut driver = Driver::new(vec![]);
 
     match driver.compile_file(&options) {
-        Ok(result) => {
-            match emit {
-                EmitType::Check => {
-                    println!("Type checking passed.");
-                }
-                EmitType::Ast | EmitType::TypedAst => {
-                    if let Some(ir) = result.llvm_ir {
-                        println!("{}", ir);
-                    }
-                    println!("Output written to: {}", result.output_path.display());
-                }
-                EmitType::LlvmIr => {
-                    println!("LLVM IR written to: {}", result.output_path.display());
-                }
-                EmitType::Binary => {
-                    println!("Binary written to: {}", result.output_path.display());
-                }
+        Ok(result) => match emit {
+            EmitType::Check => {
+                println!("Type checking passed.");
             }
-        }
+            EmitType::Ast | EmitType::TypedAst => {
+                if let Some(ir) = result.llvm_ir {
+                    println!("{}", ir);
+                }
+                println!("Output written to: {}", result.output_path.display());
+            }
+            EmitType::LlvmIr => {
+                println!("LLVM IR written to: {}", result.output_path.display());
+            }
+            EmitType::Binary => {
+                println!("Binary written to: {}", result.output_path.display());
+            }
+        },
         Err(e) => {
             eprintln!("error: {}", e);
             process::exit(1);

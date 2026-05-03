@@ -8,7 +8,6 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use std::collections::HashMap;
 use std::fmt;
 
@@ -77,7 +76,10 @@ pub struct TypeVar {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeConstraint {
     /// Type variable must implement the given trait.
-    Implements { type_var: TypeVar, trait_name: String },
+    Implements {
+        type_var: TypeVar,
+        trait_name: String,
+    },
     /// Two types must be equal.
     Equal(Type, Type),
     /// First type must be a subtype of the second.
@@ -170,9 +172,7 @@ impl Type {
             (Type::Int, Type::Float) => true,
 
             // T <: T? (nullable supertype)
-            (t, Type::Nullable(inner)) => {
-                t.is_subtype_of(inner) || t.is_subtype_of(&Type::Null)
-            }
+            (t, Type::Nullable(inner)) => t.is_subtype_of(inner) || t.is_subtype_of(&Type::Null),
 
             // Object subtyping (structural): { more fields } <: { fewer fields }
             // Per spec: { f1: T1, ..., fn: Tn, ... } <: { f1: U1, ..., fm: Um }
@@ -245,7 +245,10 @@ impl Type {
                 }
                 // For now, require exact match on generic args
                 // (variance depends on the type constructor)
-                self_args.iter().zip(other_args.iter()).all(|(s, o)| s.is_subtype_of(o))
+                self_args
+                    .iter()
+                    .zip(other_args.iter())
+                    .all(|(s, o)| s.is_subtype_of(o))
             }
 
             // Trait subtyping: named type can be subtype of trait
@@ -317,7 +320,10 @@ impl Type {
         }
 
         // int + float = float
-        if matches!((self, other), (Type::Int, Type::Float) | (Type::Float, Type::Int)) {
+        if matches!(
+            (self, other),
+            (Type::Int, Type::Float) | (Type::Float, Type::Int)
+        ) {
             return Type::Float;
         }
 
@@ -331,15 +337,9 @@ impl Type {
 
         // Nullable types: lub(T?, U?) = lub(T, U)?
         match (self, other) {
-            (Type::Nullable(t1), Type::Nullable(t2)) => {
-                t1.least_upper_bound(t2).make_nullable()
-            }
-            (Type::Nullable(t1), t2) => {
-                t1.least_upper_bound(t2).make_nullable()
-            }
-            (t1, Type::Nullable(t2)) => {
-                t1.least_upper_bound(t2).make_nullable()
-            }
+            (Type::Nullable(t1), Type::Nullable(t2)) => t1.least_upper_bound(t2).make_nullable(),
+            (Type::Nullable(t1), t2) => t1.least_upper_bound(t2).make_nullable(),
+            (t1, Type::Nullable(t2)) => t1.least_upper_bound(t2).make_nullable(),
             _ => Type::Dynamic,
         }
     }
@@ -357,24 +357,25 @@ impl Type {
     /// Converts a TypeAnnotation from the parser into a Type.
     pub fn from_annotation(annotation: &crate::parser::ast::TypeAnnotation) -> Type {
         let result = match annotation {
-            crate::parser::ast::TypeAnnotation::Identifier(name) => {
-                match name.as_str() {
-                    "int" => Type::Int,
-                    "float" => Type::Float,
-                    "bool" => Type::Bool,
-                    "string" => Type::String,
-                    "null" => Type::Null,
-                    "void" => Type::Void,
-                    "never" => Type::Never,
-                    "bigint" => Type::BigInt,
-                    "dyn" => Type::Dynamic,
-                    _ => Type::Named(name.clone()),
-                }
-            }
+            crate::parser::ast::TypeAnnotation::Identifier(name) => match name.as_str() {
+                "int" => Type::Int,
+                "float" => Type::Float,
+                "bool" => Type::Bool,
+                "string" => Type::String,
+                "null" => Type::Null,
+                "void" => Type::Void,
+                "never" => Type::Never,
+                "bigint" => Type::BigInt,
+                "dyn" => Type::Dynamic,
+                _ => Type::Named(name.clone()),
+            },
             crate::parser::ast::TypeAnnotation::Nullable(inner) => {
                 Type::from_annotation(inner).make_nullable()
             }
-            crate::parser::ast::TypeAnnotation::Function { params, return_type } => Type::Function {
+            crate::parser::ast::TypeAnnotation::Function {
+                params,
+                return_type,
+            } => Type::Function {
                 params: params.iter().map(Type::from_annotation).collect(),
                 return_type: Box::new(Type::from_annotation(return_type)),
             },
@@ -407,13 +408,13 @@ impl Type {
                     Type::Array(Box::new(Type::Dynamic))
                 }
             }
-            crate::parser::ast::TypeAnnotation::Dyn(inner) => {
-                match inner.as_ref() {
-                    crate::parser::ast::TypeAnnotation::Identifier(name) => Type::Trait(name.clone()),
-                    crate::parser::ast::TypeAnnotation::Generic { base, .. } => Type::Trait(base.clone()),
-                    _ => Type::Dynamic,
+            crate::parser::ast::TypeAnnotation::Dyn(inner) => match inner.as_ref() {
+                crate::parser::ast::TypeAnnotation::Identifier(name) => Type::Trait(name.clone()),
+                crate::parser::ast::TypeAnnotation::Generic { base, .. } => {
+                    Type::Trait(base.clone())
                 }
-            }
+                _ => Type::Dynamic,
+            },
         };
         if let Type::Generic { base, args } = &result {
             if base == "Future" && args.len() == 1 {
@@ -451,7 +452,10 @@ impl fmt::Display for Type {
                     .collect();
                 write!(f, "{} }}", parts.join(", "))
             }
-            Type::Function { params, return_type } => {
+            Type::Function {
+                params,
+                return_type,
+            } => {
                 let param_strs: Vec<String> = params.iter().map(|p| p.to_string()).collect();
                 write!(f, "fn({}) -> {}", param_strs.join(", "), return_type)
             }
@@ -472,7 +476,10 @@ impl fmt::Display for Type {
 impl fmt::Display for TypeConstraint {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TypeConstraint::Implements { type_var, trait_name } => {
+            TypeConstraint::Implements {
+                type_var,
+                trait_name,
+            } => {
                 write!(f, "{}: {}", type_var.name, trait_name)
             }
             TypeConstraint::Equal(t1, t2) => write!(f, "{} = {}", t1, t2),
@@ -542,7 +549,10 @@ mod tests {
     #[test]
     fn test_lub_with_dyn() {
         assert_eq!(Type::Int.least_upper_bound(&Type::Dynamic), Type::Dynamic);
-        assert_eq!(Type::Dynamic.least_upper_bound(&Type::String), Type::Dynamic);
+        assert_eq!(
+            Type::Dynamic.least_upper_bound(&Type::String),
+            Type::Dynamic
+        );
     }
 
     #[test]
@@ -569,29 +579,52 @@ mod tests {
     fn test_display() {
         assert_eq!(Type::Int.to_string(), "int");
         assert_eq!(Type::Nullable(Box::new(Type::Int)).to_string(), "int?");
-        assert_eq!(Type::Array(Box::new(Type::String)).to_string(), "Array<string>");
+        assert_eq!(
+            Type::Array(Box::new(Type::String)).to_string(),
+            "Array<string>"
+        );
         assert_eq!(Type::Dynamic.to_string(), "dyn");
     }
 
     #[test]
     fn test_from_annotation_primitive() {
-        assert_eq!(Type::from_annotation(&crate::parser::ast::TypeAnnotation::Identifier("int".into())), Type::Int);
-        assert_eq!(Type::from_annotation(&crate::parser::ast::TypeAnnotation::Identifier("float".into())), Type::Float);
-        assert_eq!(Type::from_annotation(&crate::parser::ast::TypeAnnotation::Identifier("dyn".into())), Type::Dynamic);
+        assert_eq!(
+            Type::from_annotation(&crate::parser::ast::TypeAnnotation::Identifier(
+                "int".into()
+            )),
+            Type::Int
+        );
+        assert_eq!(
+            Type::from_annotation(&crate::parser::ast::TypeAnnotation::Identifier(
+                "float".into()
+            )),
+            Type::Float
+        );
+        assert_eq!(
+            Type::from_annotation(&crate::parser::ast::TypeAnnotation::Identifier(
+                "dyn".into()
+            )),
+            Type::Dynamic
+        );
     }
 
     #[test]
     fn test_from_annotation_nullable() {
         let inner = crate::parser::ast::TypeAnnotation::Identifier("int".into());
         let nullable = crate::parser::ast::TypeAnnotation::Nullable(Box::new(inner));
-        assert_eq!(Type::from_annotation(&nullable), Type::Nullable(Box::new(Type::Int)));
+        assert_eq!(
+            Type::from_annotation(&nullable),
+            Type::Nullable(Box::new(Type::Int))
+        );
     }
 
     #[test]
     fn test_from_annotation_function() {
         let fn_type = crate::parser::ast::TypeAnnotation::Function {
             params: vec![crate::parser::ast::TypeAnnotation::Identifier("int".into())],
-            return_type: Box::new(crate::parser::ast::TypeAnnotation::Identifier("string".into())),
+            return_type: Box::new(crate::parser::ast::TypeAnnotation::Identifier(
+                "string".into(),
+            )),
         };
         let result = Type::from_annotation(&fn_type);
         assert_eq!(

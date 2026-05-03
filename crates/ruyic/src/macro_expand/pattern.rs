@@ -144,9 +144,11 @@ impl PatternMatcher {
         match token {
             PatternToken::Literal(tok) => self.match_literal(tok),
             PatternToken::MetaVar { name, kind } => self.match_metavar(name, kind),
-            PatternToken::Repetition { inner, separator, mode } => {
-                self.match_repetition(inner, separator.as_ref(), *mode)
-            }
+            PatternToken::Repetition {
+                inner,
+                separator,
+                mode,
+            } => self.match_repetition(inner, separator.as_ref(), *mode),
             PatternToken::Optional { inner, separator } => {
                 self.match_optional(inner, separator.as_ref())
             }
@@ -175,10 +177,13 @@ impl PatternMatcher {
             };
 
             if let Some(tokens) = captures {
-                self.captures.insert(name.to_string(), CapturedTokens {
-                    tokens,
-                    repetitions: None,
-                });
+                self.captures.insert(
+                    name.to_string(),
+                    CapturedTokens {
+                        tokens,
+                        repetitions: None,
+                    },
+                );
                 return true;
             }
         }
@@ -193,7 +198,9 @@ impl PatternMatcher {
             match token {
                 Token::LParen | Token::LBracket | Token::LBrace => depth += 1,
                 Token::RParen | Token::RBracket | Token::RBrace => {
-                    if depth == 0 { break; }
+                    if depth == 0 {
+                        break;
+                    }
                     depth -= 1;
                 }
                 Token::SemiColon if depth == 0 => break,
@@ -221,7 +228,9 @@ impl PatternMatcher {
             match token {
                 Token::LParen | Token::LBracket | Token::LBrace => depth += 1,
                 Token::RParen | Token::RBracket | Token::RBrace => {
-                    if depth == 0 { break; }
+                    if depth == 0 {
+                        break;
+                    }
                     depth -= 1;
                 }
                 Token::Comma | Token::FatArrow if depth == 0 => break,
@@ -242,7 +251,9 @@ impl PatternMatcher {
 
         while let Some(token) = self.input.get(self.pos) {
             match token {
-                Token::Ident(_) => { self.pos += 1; }
+                Token::Ident(_) => {
+                    self.pos += 1;
+                }
                 Token::Question | Token::Less | Token::Greater | Token::Comma => {
                     self.pos += 1;
                 }
@@ -276,7 +287,9 @@ impl PatternMatcher {
         while let Some(token) = self.input.get(self.pos) {
             match token {
                 Token::Comma | Token::SemiColon | Token::RParen => break,
-                _ => { self.pos += 1; }
+                _ => {
+                    self.pos += 1;
+                }
             }
         }
 
@@ -288,7 +301,12 @@ impl PatternMatcher {
     }
 
     /// Matches a repetition pattern.
-    fn match_repetition(&mut self, inner: &[PatternToken], separator: Option<&Separator>, mode: RepetitionMode) -> bool {
+    fn match_repetition(
+        &mut self,
+        inner: &[PatternToken],
+        separator: Option<&Separator>,
+        mode: RepetitionMode,
+    ) -> bool {
         let mut matches = Vec::new();
         let mut first = true;
 
@@ -429,10 +447,7 @@ impl PatternParser {
                 let name = name.clone();
                 self.pos += 1;
                 let kind = self.parse_metavar_kind()?;
-                Ok(PatternToken::MetaVar {
-                    name,
-                    kind,
-                })
+                Ok(PatternToken::MetaVar { name, kind })
             }
             _ => Err(MacroError::InvalidInvocation {
                 macro_name: "".to_string(),

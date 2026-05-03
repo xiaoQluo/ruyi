@@ -5,8 +5,8 @@ pub mod macro_expand;
 pub mod parser;
 pub mod typechecker;
 
+use crate::macro_expand::{expand_macros, MacroRegistry};
 use crate::parser::Parser;
-use crate::macro_expand::{MacroRegistry, expand_macros};
 
 pub fn compile(source: &str) -> Result<crate::parser::ast::Program, String> {
     let mut parser = Parser::new(source).map_err(|e| e.to_string())?;

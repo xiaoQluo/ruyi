@@ -1,7 +1,7 @@
-use std::ffi::CStr;
-use std::alloc::{alloc, Layout};
-use std::sync::atomic::{AtomicPtr, Ordering};
 use crate::exception::types::ExceptionObject;
+use std::alloc::{alloc, Layout};
+use std::ffi::CStr;
+use std::sync::atomic::{AtomicPtr, Ordering};
 
 static PENDING_EXCEPTION: AtomicPtr<i8> = AtomicPtr::new(std::ptr::null_mut());
 

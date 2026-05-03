@@ -1,10 +1,10 @@
 use criterion::{black_box, Criterion, Throughput};
-use ruyic::lexer::Scanner;
-use ruyic::parser::Parser;
-use ruyic::macro_expand::{expand_macros, MacroRegistry};
-use ruyic::typechecker::TypeChecker;
 use ruyic::codegen::CodeGenerator;
 use ruyic::driver::{CompileOptions, Driver, EmitType, OptLevel};
+use ruyic::lexer::Scanner;
+use ruyic::macro_expand::{expand_macros, MacroRegistry};
+use ruyic::parser::Parser;
+use ruyic::typechecker::TypeChecker;
 use std::fs;
 
 const LEXER_SOURCE_SMALL: &str = r#"

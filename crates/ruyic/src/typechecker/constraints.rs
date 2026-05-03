@@ -8,7 +8,6 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use crate::typechecker::types::{Type, TypeConstraint, TypeVar};
 use std::collections::HashMap;
 
@@ -59,7 +58,10 @@ impl ConstraintSolver {
 
     /// Adds a trait bound constraint: type variable must implement trait.
     pub fn add_trait_bound(&mut self, type_var: TypeVar, trait_name: String) {
-        self.constraints.push(TypeConstraint::Implements { type_var, trait_name });
+        self.constraints.push(TypeConstraint::Implements {
+            type_var,
+            trait_name,
+        });
     }
 
     /// Solves all collected constraints via unification.
@@ -83,12 +85,10 @@ impl ConstraintSolver {
     /// Applies the substitution to a type, replacing type variables with their solutions.
     pub fn apply_subst(subst: &HashMap<u32, Type>, ty: &Type) -> Type {
         match ty {
-            Type::TypeVar(var) => {
-                match subst.get(&var.id) {
-                    Some(resolved) => Self::apply_subst(subst, resolved),
-                    None => ty.clone(),
-                }
-            }
+            Type::TypeVar(var) => match subst.get(&var.id) {
+                Some(resolved) => Self::apply_subst(subst, resolved),
+                None => ty.clone(),
+            },
             Type::Nullable(inner) => Type::Nullable(Box::new(Self::apply_subst(subst, inner))),
             Type::Array(elem) => Type::Array(Box::new(Self::apply_subst(subst, elem))),
             Type::Object(fields) => Type::Object(
@@ -101,7 +101,10 @@ impl ConstraintSolver {
                     })
                     .collect(),
             ),
-            Type::Function { params, return_type } => Type::Function {
+            Type::Function {
+                params,
+                return_type,
+            } => Type::Function {
                 params: params.iter().map(|p| Self::apply_subst(subst, p)).collect(),
                 return_type: Box::new(Self::apply_subst(subst, return_type)),
             },
@@ -224,7 +227,9 @@ fn unify(t1: &Type, t2: &Type, subst: &mut HashMap<u32, Type>) -> Result<(), Str
             if a1.len() != a2.len() {
                 return Err(format!(
                     "Generic argument count mismatch for {}: {} vs {}",
-                    b1, a1.len(), a2.len()
+                    b1,
+                    a1.len(),
+                    a2.len()
                 ));
             }
             for (arg1, arg2) in a1.iter().zip(a2.iter()) {
@@ -232,9 +237,7 @@ fn unify(t1: &Type, t2: &Type, subst: &mut HashMap<u32, Type>) -> Result<(), Str
             }
             Ok(())
         }
-        (Type::Object(fields1), Type::Object(fields2)) => {
-            unify_objects(fields1, fields2, subst)
-        }
+        (Type::Object(fields1), Type::Object(fields2)) => unify_objects(fields1, fields2, subst),
         // int unifies with float (widening)
         (Type::Int, Type::Float) | (Type::Float, Type::Int) => Ok(()),
         // Never unifies with anything
@@ -249,10 +252,7 @@ fn unify_objects(
     fields2: &[crate::typechecker::types::ObjectField],
     subst: &mut HashMap<u32, Type>,
 ) -> Result<(), String> {
-    let map2: HashMap<&str, &Type> = fields2
-        .iter()
-        .map(|f| (f.name.as_str(), &f.ty))
-        .collect();
+    let map2: HashMap<&str, &Type> = fields2.iter().map(|f| (f.name.as_str(), &f.ty)).collect();
 
     for f1 in fields1 {
         if let Some(f2_ty) = map2.get(f1.name.as_str()) {
@@ -270,9 +270,10 @@ fn occurs_in(var: &TypeVar, ty: &Type) -> bool {
         Type::Nullable(inner) => occurs_in(var, inner),
         Type::Array(elem) => occurs_in(var, elem),
         Type::Object(fields) => fields.iter().any(|f| occurs_in(var, &f.ty)),
-        Type::Function { params, return_type } => {
-            params.iter().any(|p| occurs_in(var, p)) || occurs_in(var, return_type)
-        }
+        Type::Function {
+            params,
+            return_type,
+        } => params.iter().any(|p| occurs_in(var, p)) || occurs_in(var, return_type),
         Type::Generic { args, .. } => args.iter().any(|a| occurs_in(var, a)),
         _ => false,
     }

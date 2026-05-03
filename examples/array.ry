@@ -1,0 +1,7 @@
+// Array literal example for Ruyi
+fn main() {
+  let arr = [1, 2, 3];
+  print("Array created\n");
+  print(arr);
+  print("\n");
+}

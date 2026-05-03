@@ -4,8 +4,8 @@
 //! collector so that the compiler frontend (LLVM code generator) can
 //! emit calls to runtime GC routines.
 
-use std::sync::Mutex;
 use once_cell::sync::Lazy;
+use std::sync::Mutex;
 
 use crate::alloc::{GcObjectHeader, TypeInfo};
 use crate::gc::generational::GenerationalCollector;
@@ -19,9 +19,8 @@ struct SendCollector(GenerationalCollector);
 // Safety: GenerationalCollector uses Mutex internally for all shared state.
 unsafe impl Send for SendCollector {}
 
-static GLOBAL_COLLECTOR: Lazy<Mutex<SendCollector>> = Lazy::new(|| {
-    Mutex::new(SendCollector(GenerationalCollector::new()))
-});
+static GLOBAL_COLLECTOR: Lazy<Mutex<SendCollector>> =
+    Lazy::new(|| Mutex::new(SendCollector(GenerationalCollector::new())));
 
 static mut DUMMY_TYPE_INFO: TypeInfo = TypeInfo {
     type_id: 0,
@@ -55,7 +54,9 @@ pub extern "C" fn ruyi_gc_collect() {
 #[no_mangle]
 pub extern "C" fn ruyi_gc_add_root(ptr: *mut u8) {
     let collector = GLOBAL_COLLECTOR.lock().unwrap();
-    unsafe { collector.0.add_root(ptr); }
+    unsafe {
+        collector.0.add_root(ptr);
+    }
 }
 
 /// Remove a previously registered stack root.
@@ -65,7 +66,9 @@ pub extern "C" fn ruyi_gc_add_root(ptr: *mut u8) {
 #[no_mangle]
 pub extern "C" fn ruyi_gc_remove_root(ptr: *mut u8) {
     let collector = GLOBAL_COLLECTOR.lock().unwrap();
-    unsafe { collector.0.remove_root(ptr); }
+    unsafe {
+        collector.0.remove_root(ptr);
+    }
 }
 
 /// Record a cross-generational reference via the write barrier.
@@ -78,8 +81,8 @@ pub extern "C" fn ruyi_gc_write_barrier(parent: *mut u8, field: *mut u8) {
     let collector = GLOBAL_COLLECTOR.lock().unwrap();
     unsafe {
         let header = GcObjectHeader::from_payload(parent);
-        collector.0.write_barrier(header, std::ptr::null_mut(), field);
+        collector
+            .0
+            .write_barrier(header, std::ptr::null_mut(), field);
     }
 }
-
-

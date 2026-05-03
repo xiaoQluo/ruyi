@@ -1,8 +1,8 @@
 use std::sync::Mutex;
 
-use crate::alloc::GcObjectHeader;
 #[cfg(test)]
 use crate::alloc::ruyi_dealloc;
+use crate::alloc::GcObjectHeader;
 
 /// Set of GC roots split into stack and global roots.
 ///
@@ -112,7 +112,7 @@ impl Default for RootSet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::alloc::{MemoryStrategy, TypeInfo, ruyi_alloc};
+    use crate::alloc::{ruyi_alloc, MemoryStrategy, TypeInfo};
 
     #[test]
     fn test_add_remove_stack_root() {

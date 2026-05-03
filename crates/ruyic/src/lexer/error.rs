@@ -4,7 +4,6 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use thiserror::Error;
 
 #[derive(Error, Debug, Clone, PartialEq)]
@@ -25,7 +24,11 @@ pub enum LexerError {
     InvalidEscape { line: usize, col: usize },
 
     #[error("Invalid numeric literal at line {line}, column {col}: {msg}")]
-    InvalidNumber { line: usize, col: usize, msg: String },
+    InvalidNumber {
+        line: usize,
+        col: usize,
+        msg: String,
+    },
 
     #[error("Unexpected end of file at line {line}, column {col}")]
     UnexpectedEof { line: usize, col: usize },

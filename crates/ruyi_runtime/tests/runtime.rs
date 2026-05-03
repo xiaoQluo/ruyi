@@ -87,10 +87,7 @@ fn test_exception_table_integration() {
 
     let entry = table.entry_for_pc(10).unwrap();
     assert!(entry.has_cleanup);
-    assert_eq!(
-        entry.matching_handler(builtin_type_ids::ERROR),
-        Some(200)
-    );
+    assert_eq!(entry.matching_handler(builtin_type_ids::ERROR), Some(200));
     assert_eq!(
         entry.matching_handler(builtin_type_ids::RUNTIME_ERROR),
         None
@@ -120,11 +117,16 @@ fn test_ruyi_context_inkwell_types() {
     assert!(matches!(int_ty, inkwell::types::BasicTypeEnum::IntType(t) if t.get_bit_width() == 64));
 
     let float_ty = ctx.ruyi_type(RuyiType::Float);
-    assert!(matches!(float_ty, inkwell::types::BasicTypeEnum::FloatType(_)));
+    assert!(matches!(
+        float_ty,
+        inkwell::types::BasicTypeEnum::FloatType(_)
+    ));
 
     let bool_ty = ctx.ruyi_type(RuyiType::Bool);
     assert!(matches!(bool_ty, inkwell::types::BasicTypeEnum::IntType(t) if t.get_bit_width() == 1));
 
     let dyn_ty = ctx.ruyi_type(RuyiType::Dyn);
-    assert!(matches!(dyn_ty, inkwell::types::BasicTypeEnum::StructType(t) if t.count_fields() == 2));
+    assert!(
+        matches!(dyn_ty, inkwell::types::BasicTypeEnum::StructType(t) if t.count_fields() == 2)
+    );
 }

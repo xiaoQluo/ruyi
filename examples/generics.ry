@@ -1,40 +1,11 @@
-// Generics example for Ruyi
-// Generic identity function
-fn identity<T>(x: T): T {
-  return x;
-}
+// Class example for Ruyi
+// Demonstrates class declaration and field layout.
 
-// Generic Pair class
-class Pair<T, U> {
-  first: T;
-  second: U;
-
-  fn new(first: T, second: U) {
-    self.first = first;
-    self.second = second;
-  }
-
-  fn swap(): Pair<U, T> {
-    return Pair.new(self.second, self.first);
-  }
+class Point {
+  x: int;
+  y: int;
 }
 
 fn main() {
-  // Test identity with different types
-  let a = identity(42);
-  let b = identity("hello");
-  let c = identity(true);
-
-  println("identity(42) = " + a);
-  println("identity(\"hello\") = " + b);
-  println("identity(true) = " + c);
-
-  // Test generic Pair
-  let pair = Pair.new(10, "world");
-  println("Pair.first = " + pair.first);
-  println("Pair.second = " + pair.second);
-
-  let swapped = pair.swap();
-  println("Swapped.first = " + swapped.first);
-  println("Swapped.second = " + swapped.second);
+  print("Point class declared with x: int, y: int\n");
 }

@@ -4,7 +4,6 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use crate::parser::ast::Pattern;
 use crate::typechecker::types::Type;
 use std::collections::HashSet;
@@ -159,7 +158,10 @@ fn find_missing_cases(scrutinee_type: &Type, covered: &HashSet<String>) -> Vec<S
             let mut missing = vec![];
             for field in fields {
                 let field_name = &field.name;
-                if !covered.iter().any(|c| c.contains(&format!("{}:", field_name))) {
+                if !covered
+                    .iter()
+                    .any(|c| c.contains(&format!("{}:", field_name)))
+                {
                     missing.push(format!(".{}", field_name));
                 }
             }
@@ -211,12 +213,11 @@ mod tests {
 
     #[test]
     fn test_bool_patterns_both_covered() {
-        let pattern_true = Pattern::Literal(Box::new(crate::parser::ast::Expr::BooleanLiteral(true)));
-        let pattern_false = Pattern::Literal(Box::new(crate::parser::ast::Expr::BooleanLiteral(false)));
-        let arms = vec![
-            (&pattern_true, &Type::Bool),
-            (&pattern_false, &Type::Bool),
-        ];
+        let pattern_true =
+            Pattern::Literal(Box::new(crate::parser::ast::Expr::BooleanLiteral(true)));
+        let pattern_false =
+            Pattern::Literal(Box::new(crate::parser::ast::Expr::BooleanLiteral(false)));
+        let arms = vec![(&pattern_true, &Type::Bool), (&pattern_false, &Type::Bool)];
         let result = analyze_patterns(&arms);
         assert!(result.is_exhaustive);
         assert!(!result.has_redundancy);
@@ -224,7 +225,8 @@ mod tests {
 
     #[test]
     fn test_bool_patterns_with_wildcard() {
-        let pattern_true = Pattern::Literal(Box::new(crate::parser::ast::Expr::BooleanLiteral(true)));
+        let pattern_true =
+            Pattern::Literal(Box::new(crate::parser::ast::Expr::BooleanLiteral(true)));
         let arms = vec![
             (&pattern_true, &Type::Bool),
             (&Pattern::Wildcard, &Type::Bool),
@@ -238,9 +240,7 @@ mod tests {
     #[test]
     fn test_null_pattern() {
         let pattern_null = Pattern::Literal(Box::new(crate::parser::ast::Expr::NullLiteral));
-        let arms = vec![
-            (&pattern_null, &Type::Null),
-        ];
+        let arms = vec![(&pattern_null, &Type::Null)];
         let result = analyze_patterns(&arms);
         assert!(result.is_exhaustive);
     }
@@ -248,12 +248,26 @@ mod tests {
     #[test]
     fn test_object_pattern_exhaustiveness() {
         let obj_type = Type::Object(vec![
-            ObjectField { name: "x".to_string(), ty: Type::Int, optional: false },
-            ObjectField { name: "y".to_string(), ty: Type::Int, optional: false },
+            ObjectField {
+                name: "x".to_string(),
+                ty: Type::Int,
+                optional: false,
+            },
+            ObjectField {
+                name: "y".to_string(),
+                ty: Type::Int,
+                optional: false,
+            },
         ]);
         let pattern = Pattern::Object(vec![
-            ObjectPatternField::Property { key: "x".to_string(), pattern: Pattern::Wildcard },
-            ObjectPatternField::Property { key: "y".to_string(), pattern: Pattern::Wildcard },
+            ObjectPatternField::Property {
+                key: "x".to_string(),
+                pattern: Pattern::Wildcard,
+            },
+            ObjectPatternField::Property {
+                key: "y".to_string(),
+                pattern: Pattern::Wildcard,
+            },
         ]);
         let cases = pattern_covered_cases(&pattern, &obj_type);
         assert!(!cases.is_empty());

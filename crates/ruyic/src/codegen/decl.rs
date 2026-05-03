@@ -6,16 +6,15 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use inkwell::values::BasicValueEnum;
 
-use crate::parser::ast::{Binding, Declaration, Pattern, ClassElement, PropertyName};
-use crate::typechecker::types::Type;
 use super::builtins::is_gc_managed;
 use super::expr::compile_expr;
 use super::generator::CodegenContext;
 use super::stmt::compile_block;
-use super::types::{ruyi_type_to_llvm, function_type_from_ruyi};
+use super::types::{function_type_from_ruyi, ruyi_type_to_llvm};
+use crate::parser::ast::{Binding, ClassElement, Declaration, Pattern, PropertyName};
+use crate::typechecker::types::Type;
 
 /// Compile a declaration.
 pub fn compile_declaration<'ctx>(
@@ -29,22 +28,34 @@ pub fn compile_declaration<'ctx>(
             }
             Ok(())
         }
-        Declaration::Function { name, params, return_type, body, is_async, .. } => {
+        Declaration::Function {
+            name,
+            params,
+            return_type,
+            body,
+            is_async,
+            ..
+        } => {
             if *is_async {
-                super::async_codegen::compile_async_function(ctx, name, params, return_type.as_ref(), body)
+                super::async_codegen::compile_async_function(
+                    ctx,
+                    name,
+                    params,
+                    return_type.as_ref(),
+                    body,
+                )
             } else {
                 compile_function(ctx, name, params, return_type.as_ref(), body)
             }
         }
-        Declaration::Class { name, body, .. } => {
-            compile_class(ctx, name, body)
-        }
-        Declaration::Impl { trait_name, for_type, body, .. } => {
-            compile_impl(ctx, trait_name, for_type, body)
-        }
-        Declaration::Trait { .. } => {
-            Ok(())
-        }
+        Declaration::Class { name, body, .. } => compile_class(ctx, name, body),
+        Declaration::Impl {
+            trait_name,
+            for_type,
+            body,
+            ..
+        } => compile_impl(ctx, trait_name, for_type, body),
+        Declaration::Trait { .. } => Ok(()),
         _ => Err(format!("Unsupported declaration: {:?}", decl)),
     }
 }
@@ -140,7 +151,8 @@ fn compile_function<'ctx>(
         let llvm_ty = ruyi_type_to_llvm(ctx.context, &param_ty);
         let ptr = ctx.builder.build_alloca(llvm_ty, &param_name);
 
-        let param_value = function.get_nth_param(i as u32)
+        let param_value = function
+            .get_nth_param(i as u32)
             .ok_or_else(|| format!("Missing parameter {}", i))?;
         ctx.builder.build_store(ptr, param_value);
 
@@ -167,7 +179,12 @@ fn compile_function<'ctx>(
                 Type::Int => BasicValueEnum::IntValue(ctx.context.i64_type().const_int(0, true)),
                 Type::Float => BasicValueEnum::FloatValue(ctx.context.f64_type().const_float(0.0)),
                 Type::Bool => BasicValueEnum::IntValue(ctx.context.bool_type().const_int(0, false)),
-                _ => BasicValueEnum::PointerValue(ctx.context.i8_type().ptr_type(Default::default()).const_null()),
+                _ => BasicValueEnum::PointerValue(
+                    ctx.context
+                        .i8_type()
+                        .ptr_type(Default::default())
+                        .const_null(),
+                ),
             };
             ctx.builder.build_return(Some(&default_val));
         }
@@ -215,7 +232,9 @@ fn compile_class<'ctx>(
                     .unwrap_or(Type::Dynamic);
                 fields.push((field_name, field_ty));
             }
-            ClassElement::Method { is_static: false, .. } => {
+            ClassElement::Method {
+                is_static: false, ..
+            } => {
                 methods.push(element);
             }
             _ => {}
@@ -241,7 +260,9 @@ fn compile_class<'ctx>(
 
             let mut method_params = vec![crate::parser::ast::Param {
                 pattern: Pattern::Identifier("self".to_string()),
-                ty: Some(crate::parser::ast::TypeAnnotation::Identifier(name.to_string())),
+                ty: Some(crate::parser::ast::TypeAnnotation::Identifier(
+                    name.to_string(),
+                )),
                 init: None,
                 is_rest: false,
             }];
@@ -306,7 +327,13 @@ fn compile_impl<'ctx>(
                     method_body,
                 )?;
             } else {
-                compile_function(ctx, &mangled_name, params, return_type.as_ref(), method_body)?;
+                compile_function(
+                    ctx,
+                    &mangled_name,
+                    params,
+                    return_type.as_ref(),
+                    method_body,
+                )?;
             }
         }
     }
