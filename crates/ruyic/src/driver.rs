@@ -245,6 +245,18 @@ impl Driver {
         self.compile_program(program, options)
     }
 
+    fn ensure_runtime_built() -> Result<(), CompileError> {
+        let status = std::process::Command::new("cargo")
+            .args(["build", "-p", "ruyi_runtime", "--lib"])
+            .status()
+            .map_err(|e| CompileError::Io(format!("Failed to build runtime: {}", e)))?;
+
+        if !status.success() {
+            return Err(CompileError::Linker("Failed to build ruyi_runtime".to_string()));
+        }
+        Ok(())
+    }
+
     /// Parse source to AST, handling imports.
     fn resolve_modules(&mut self, source: &str, input_path: &Path) -> Result<Program, CompileError> {
         // Parse the main file
@@ -333,6 +345,8 @@ impl Driver {
                 output_path: PathBuf::from(""), // No output for check mode
             });
         }
+
+        Self::ensure_runtime_built()?;
 
         // Phase 5: Code generation
         let context = inkwell::context::Context::create();

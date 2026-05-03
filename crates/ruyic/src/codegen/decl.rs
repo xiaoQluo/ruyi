@@ -57,14 +57,27 @@ fn compile_binding<'ctx>(
         _ => return Err("Complex patterns not yet supported".to_string()),
     };
 
-    let ty = if let Some(annotation) = &binding.ty {
-        Type::from_annotation(annotation)
+    // Determine type: use annotation if present, otherwise infer from init expression
+    let (ty, llvm_ty, ptr) = if let Some(annotation) = &binding.ty {
+        let ty = Type::from_annotation(annotation);
+        let llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
+        let ptr = ctx.builder.build_alloca(llvm_ty, &name);
+        (ty, llvm_ty, ptr)
+    } else if let Some(init) = &binding.init {
+        // Infer type from initialization expression
+        let init_result = compile_expr(ctx, init)?;
+        let ty = init_result.ty;
+        let llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
+        let ptr = ctx.builder.build_alloca(llvm_ty, &name);
+        ctx.builder.build_store(ptr, init_result.value);
+        ctx.variables.insert(name, (ptr, ty));
+        return Ok(());
     } else {
-        Type::Dynamic
+        let ty = Type::Dynamic;
+        let llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
+        let ptr = ctx.builder.build_alloca(llvm_ty, &name);
+        (ty, llvm_ty, ptr)
     };
-
-    let llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
-    let ptr = ctx.builder.build_alloca(llvm_ty, &name);
 
     if let Some(init) = &binding.init {
         let init_result = compile_expr(ctx, init)?;

@@ -98,8 +98,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         }
 
         let i32_ty = self.context.i32_type();
-        let main_type = i32_ty.fn_type(&[], false);
-        let main_fn = ctx.module.add_function("main", main_type, None);
+        let main_fn = ctx.module.add_function("main", i32_ty.fn_type(&[], false), None);
         let entry_bb = ctx.context.append_basic_block(main_fn, "entry");
         ctx.builder.position_at_end(entry_bb);
         ctx.current_function = Some(main_fn);
@@ -116,8 +115,14 @@ impl<'ctx> CodeGenerator<'ctx> {
             }
         }
 
+        let ruyi_main = ctx.module.get_function("main.1")
+            .or_else(|| ctx.module.get_function("_main"));
+
         let current_bb = ctx.builder.get_insert_block().unwrap();
         if current_bb.get_terminator().is_none() {
+            if let Some(func) = ruyi_main {
+                ctx.builder.build_call(func, &[], "main_call");
+            }
             let zero = i32_ty.const_int(0, false);
             ctx.builder.build_return(Some(&zero));
         }
@@ -175,10 +180,22 @@ impl<'ctx> CodeGenerator<'ctx> {
         let temp_obj = std::env::temp_dir().join("ruyi_temp.o");
         self.compile_to_object_with_opt(&temp_obj, opt_level)?;
 
+        let runtime_lib = option_env!("RUYI_RUNTIME_LIB")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                let debug_path = std::path::PathBuf::from("target/debug/libruyi_runtime.a");
+                if debug_path.exists() {
+                    debug_path
+                } else {
+                    std::path::PathBuf::from("target/release/libruyi_runtime.a")
+                }
+            });
+
         std::process::Command::new("cc")
             .arg(&temp_obj)
             .arg("-o")
             .arg(path)
+            .arg(&runtime_lib)
             .arg("-lm")
             .status()
             .map_err(|e| format!("Failed to link binary: {}", e))?;

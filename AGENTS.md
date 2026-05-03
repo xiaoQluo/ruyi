@@ -115,3 +115,7 @@ ruyic examples/hello.ry --check       # Type-check only
 - Tutorial: `docs/tutorial.md`
 - Compiler pipeline: `crates/ruyic/src/driver.rs`
 - CLI entry: `crates/ruyic/src/main.rs`
+
+## Workflow Rules
+
+- **After creating a development branch**: Update the version number in both `Cargo.toml` (workspace `version`) and `crates/ruyic/src/main.rs` (`#[command(version = "...")]`) to match the branch's target version.

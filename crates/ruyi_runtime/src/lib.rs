@@ -1,8 +1,10 @@
 pub mod alloc;
 pub mod arc;
 pub mod async_runtime;
+pub mod c_exports;
 pub mod exception;
 pub mod gc;
+pub mod gc_exports;
 
 pub use alloc::{
     allocate, deallocate, reallocate, Heap, MemoryStrategy, TypeInfo, GcObjectHeader,
