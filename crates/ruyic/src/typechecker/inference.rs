@@ -1263,6 +1263,50 @@ impl TypeInference {
                                 }
                             }
                         }
+                        // typeof x === "type" narrowing
+                        if let Expr::Unary {
+                            op: UnaryOp::Typeof,
+                            operand,
+                        } = left.as_ref()
+                        {
+                            if let Expr::StringLiteral(type_str) = right.as_ref() {
+                                if let Expr::Identifier(name) = operand.as_ref() {
+                                    let narrowed = match type_str.as_str() {
+                                        "int" | "i64" => Type::Int,
+                                        "float" | "f64" => Type::Float,
+                                        "bool" => Type::Bool,
+                                        "string" => Type::String,
+                                        "bigint" => Type::BigInt,
+                                        _ => return,
+                                    };
+                                    if true_branch {
+                                        self.env.narrow(name, narrowed);
+                                    }
+                                }
+                            }
+                        }
+                        // Handle reversed: "type" === typeof x
+                        if let Expr::Unary {
+                            op: UnaryOp::Typeof,
+                            operand,
+                        } = right.as_ref()
+                        {
+                            if let Expr::StringLiteral(type_str) = left.as_ref() {
+                                if let Expr::Identifier(name) = operand.as_ref() {
+                                    let narrowed = match type_str.as_str() {
+                                        "int" | "i64" => Type::Int,
+                                        "float" | "f64" => Type::Float,
+                                        "bool" => Type::Bool,
+                                        "string" => Type::String,
+                                        "bigint" => Type::BigInt,
+                                        _ => return,
+                                    };
+                                    if true_branch {
+                                        self.env.narrow(name, narrowed);
+                                    }
+                                }
+                            }
+                        }
                     }
                     BinaryOp::StrictNotEquals | BinaryOp::NotEquals => {
                         if true_branch {
@@ -1279,6 +1323,15 @@ impl TypeInference {
                                     if let Some(ty) = self.env.lookup(name).cloned() {
                                         self.env.narrow(name, ty.non_null());
                                     }
+                                }
+                            }
+                        }
+                    }
+                    BinaryOp::Instanceof => {
+                        if let Expr::Identifier(name) = left.as_ref() {
+                            if let Expr::Identifier(class_name) = right.as_ref() {
+                                if true_branch {
+                                    self.env.narrow(name, Type::Named(class_name.clone()));
                                 }
                             }
                         }
