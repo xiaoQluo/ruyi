@@ -1,0 +1,5 @@
+try {
+    throw "err";
+} finally {
+    print("cleanup");
+}

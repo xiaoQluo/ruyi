@@ -1,0 +1,11 @@
+fn thrower() {
+    throw "from thrower";
+}
+
+fn main() {
+    try {
+        thrower();
+    } catch (e) {
+        print(e);
+    }
+}

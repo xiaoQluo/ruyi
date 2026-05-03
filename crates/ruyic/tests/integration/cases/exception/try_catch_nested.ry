@@ -1,0 +1,10 @@
+try {
+    try {
+        throw "inner";
+    } catch (e) {
+        print("caught: " + e);
+        throw "outer";
+    }
+} catch (e) {
+    print("outer: " + e);
+}
