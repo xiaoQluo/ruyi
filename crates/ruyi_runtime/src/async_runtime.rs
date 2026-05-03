@@ -12,6 +12,7 @@
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
+use once_cell::sync::Lazy;
 
 // ── Poll / Future core types ─────────────────────────────────
 
@@ -378,15 +379,40 @@ impl AsyncException {
     }
 }
 
+/// Global scheduler instance (baseline: single worker thread).
+///
+/// Uses the same `Lazy<Mutex<…>>` pattern as `gc_exports.rs`.
+pub static GLOBAL_SCHEDULER: Lazy<Mutex<Scheduler>> =
+    Lazy::new(|| Mutex::new(Scheduler::new(1)));
+
 /// Register all active async tasks as GC roots.
 ///
 /// This should be called before each GC collection cycle so that objects
 /// reachable from suspended async functions are not collected.
 pub fn register_async_roots(collector: &mut crate::gc::MarkSweepCollector) {
-    // In a full implementation this would walk the scheduler's task table
-    // and call `add_root` for every GC pointer stored in a future's state.
-    // For now this is a no-op placeholder.
-    let _ = collector;
+    if let Ok(scheduler) = GLOBAL_SCHEDULER.try_lock() {
+        let tasks = scheduler.inner.tasks.lock().unwrap();
+        for (_, task) in tasks.iter() {
+            let future_ref: &(dyn RuyiFuture<Output = ()> + Send) = &*task.future;
+            let data_ptr =
+                future_ref as *const (dyn RuyiFuture<Output = ()> + Send) as *const u8;
+            let size = std::mem::size_of_val(future_ref);
+            let step = std::mem::size_of::<usize>();
+            if data_ptr.is_null() || size == 0 {
+                continue;
+            }
+            let mut offset = 0;
+            while offset + step <= size {
+                let word =
+                    unsafe { std::ptr::read_unaligned(data_ptr.add(offset) as *const usize) };
+                let candidate = word as *mut u8;
+                if !candidate.is_null() && collector.is_valid_payload(candidate) {
+                    unsafe { collector.add_root(candidate); }
+                }
+                offset += step;
+            }
+        }
+    }
 }
 
 // ── Combinators ──────────────────────────────────────────────

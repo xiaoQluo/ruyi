@@ -7,18 +7,7 @@
 //! @author Ruyi Team
 //! @date 2026-05-03
 
-use std::sync::Mutex;
-use once_cell::sync::Lazy;
-
-use crate::async_runtime::{Poll, RuyiFuture, Scheduler, TaskId, Waker};
-
-// ── Global singleton ─────────────────────────────────────────
-
-/// Global scheduler instance (baseline: single worker thread).
-///
-/// Uses the same `Lazy<Mutex<…>>` pattern as `gc_exports.rs`.
-static GLOBAL_SCHEDULER: Lazy<Mutex<Scheduler>> =
-    Lazy::new(|| Mutex::new(Scheduler::new(1)));
+use crate::async_runtime::{GLOBAL_SCHEDULER, Poll, RuyiFuture, TaskId, Waker};
 
 /// Wrapper that turns an opaque C future pointer into a `RuyiFuture`.
 ///

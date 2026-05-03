@@ -18,8 +18,8 @@ pub use arc::{
     CycleDetector, WeakRef, WeakTable,
 };
 pub use async_runtime::{
-    ruyi_await, JoinAll, RuyiFuture, Poll, Race, Scheduler, Task, TaskId, Waker,
-    WorkStealingDeque,
+    ruyi_await, register_async_roots, JoinAll, RuyiFuture, Poll, Race, Scheduler, Task, TaskId,
+    Waker, WorkStealingDeque, GLOBAL_SCHEDULER,
 };
 pub use exception::{
     builtin_type_ids, fresh_type_id, throw_exception, CatchClause, ExceptionTableEntry,

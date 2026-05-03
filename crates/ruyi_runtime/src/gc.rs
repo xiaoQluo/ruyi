@@ -97,6 +97,17 @@ impl MarkSweepCollector {
         self.roots.lock().unwrap().len()
     }
 
+    /// Check whether `ptr` is the payload pointer of an object currently
+    /// tracked by this collector.
+    pub fn is_valid_payload(&self, ptr: *mut u8) -> bool {
+        if ptr.is_null() {
+            return false;
+        }
+        let header_addr = (ptr as usize).wrapping_sub(std::mem::size_of::<GcObjectHeader>()) as *mut GcObjectHeader;
+        let objects = self.objects.lock().unwrap();
+        objects.iter().any(|&obj| obj == header_addr)
+    }
+
     /// Enable or disable collection.
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
