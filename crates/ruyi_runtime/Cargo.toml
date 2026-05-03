@@ -9,5 +9,8 @@ license.workspace = true
 inkwell = { workspace = true, optional = true }
 thiserror.workspace = true
 
+[lib]
+crate-type = ["rlib", "staticlib"]
+
 [features]
 default = ["inkwell"]

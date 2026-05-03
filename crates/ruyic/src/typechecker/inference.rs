@@ -59,6 +59,13 @@ impl TypeInference {
                 return_type: Box::new(Type::Void),
             },
         );
+        env.declare_let(
+            "Error",
+            Type::Function {
+                params: vec![Type::String],
+                return_type: Box::new(Type::Named("Error".to_string())),
+            },
+        );
         Self {
             env,
             diagnostics: DiagnosticBag::new(),

@@ -22,9 +22,9 @@ Thumbs.db
 *.bc
 *.ll
 
-# Klang output
-*.klc
-*.klir
+# Ruyi output
+*.ryc
+*.ryir
 
 # AI work dirs
 .sisyphus/

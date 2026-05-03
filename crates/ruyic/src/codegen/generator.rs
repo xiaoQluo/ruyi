@@ -34,6 +34,7 @@ use super::decl::compile_declaration;
 use super::monomorph::{MonomorphizationContext, MonomorphizedFunction};
 use super::stmt::compile_block;
 use super::types::{ruyi_type_to_llvm, function_type_from_ruyi};
+use super::traits::VTableRegistry;
 
 /// Context for code generation, holding LLVM constructs and variable mappings.
 pub struct CodegenContext<'ctx, 'm> {
@@ -43,10 +44,21 @@ pub struct CodegenContext<'ctx, 'm> {
     pub variables: HashMap<String, (inkwell::values::PointerValue<'ctx>, Type)>,
     pub current_function: Option<FunctionValue<'ctx>>,
     pub loop_stack: Vec<(inkwell::basic_block::BasicBlock<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)>,
+    /// Maps class name to ordered list of (field_name, field_type).
+    pub class_fields: HashMap<String, Vec<(String, Type)>>,
+    /// Stack of active exception landing-pad blocks for nested try regions.
+    pub exception_stack: Vec<inkwell::basic_block::BasicBlock<'ctx>>,
+    /// VTable registry for trait dynamic dispatch.
+    pub vtable_registry: VTableRegistry<'ctx>,
 }
 
 impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
     pub fn new(context: &'ctx Context, module: &'m Module<'ctx>, builder: Builder<'ctx>) -> Self {
+        let mut class_fields = HashMap::new();
+        class_fields.insert(
+            "Error".to_string(),
+            vec![("message".to_string(), Type::String)],
+        );
         Self {
             context,
             module,
@@ -54,6 +66,9 @@ impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
             variables: HashMap::new(),
             current_function: None,
             loop_stack: Vec::new(),
+            class_fields,
+            exception_stack: Vec::new(),
+            vtable_registry: VTableRegistry::new(),
         }
     }
 }
@@ -97,6 +112,9 @@ impl<'ctx> CodeGenerator<'ctx> {
             }
         }
 
+        // Generate vtables for trait implementations
+        ctx.vtable_registry = super::traits::generate_vtables(&mut ctx, program);
+
         let i32_ty = self.context.i32_type();
         let main_type = i32_ty.fn_type(&[], false);
         let main_fn = ctx.module.add_function("main", main_type, None);
@@ -115,6 +133,10 @@ impl<'ctx> CodeGenerator<'ctx> {
                 _ => {}
             }
         }
+
+        // Emit vtable initializers after all functions have been compiled
+        let vtable_reg = ctx.vtable_registry.clone();
+        super::traits::emit_vtable_initializers(&mut ctx, &vtable_reg);
 
         let current_bb = ctx.builder.get_insert_block().unwrap();
         if current_bb.get_terminator().is_none() {
@@ -175,12 +197,33 @@ impl<'ctx> CodeGenerator<'ctx> {
         let temp_obj = std::env::temp_dir().join("ruyi_temp.o");
         self.compile_to_object_with_opt(&temp_obj, opt_level)?;
 
-        std::process::Command::new("cc")
-            .arg(&temp_obj)
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
+        let runtime_lib = workspace_root.join("target").join("debug").join("libruyi_runtime.a");
+        let runtime_lib = if runtime_lib.exists() {
+            runtime_lib
+        } else {
+            workspace_root.join("target").join("release").join("libruyi_runtime.a")
+        };
+        // Use lean runtime build (without inkwell) if available to avoid
+        // pulling in LLVM symbols during linking.
+        let lean_runtime = std::path::PathBuf::from("/tmp/libruyi_runtime_lean.a");
+        let runtime_lib = if lean_runtime.exists() {
+            lean_runtime
+        } else {
+            runtime_lib
+        };
+
+        let mut cmd = std::process::Command::new("cc");
+        cmd.arg(&temp_obj)
             .arg("-o")
             .arg(path)
             .arg("-lm")
-            .status()
+            .arg("-lc++");
+        if runtime_lib.exists() {
+            cmd.arg(&runtime_lib);
+        }
+        cmd.status()
             .map_err(|e| format!("Failed to link binary: {}", e))?;
 
         let _ = std::fs::remove_file(&temp_obj);

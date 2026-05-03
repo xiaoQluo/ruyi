@@ -1,6 +1,6 @@
 try {
-    let x = 10;
-    if x > 5 {
+    let x: int = 10;
+    if (x > 5) {
         throw Error("x is too large!");
     }
     print("After throw");

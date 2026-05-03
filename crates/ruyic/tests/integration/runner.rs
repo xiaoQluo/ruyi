@@ -251,7 +251,8 @@ pub fn get_ruyic_path() -> PathBuf {
 }
 
 pub fn run_integration_tests(cases_dir: &Path) -> HashMap<String, TestResult> {
-let ruyic_path = get_ruyic_path();
+    let mut results = HashMap::new();
+    let ruyic_path = get_ruyic_path();
     if !ruyic_path.exists() {
         eprintln!("Warning: ruyic not found at {:?}", ruyic_path);
         eprintln!("Set KLANG_BIN environment variable or build with `cargo build`");

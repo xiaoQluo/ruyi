@@ -111,6 +111,7 @@ fn test_landing_pad_descriptor_builder() {
     assert_eq!(desc.cleanup_block, 200);
 }
 
+#[cfg(feature = "inkwell")]
 #[test]
 fn test_ruyi_context_inkwell_types() {
     let ctx = RuyiContext::new();
