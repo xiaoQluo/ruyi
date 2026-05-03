@@ -17,7 +17,7 @@ name = "ruyic"
 path = "src/lib.rs"
 
 [dependencies]
-ruyi_runtime = { path = "../ruyi_runtime", default-features = false }
+ruyi_runtime = { path = "../ruyi_runtime" }
 inkwell.workspace = true
 clap.workspace = true
 thiserror.workspace = true

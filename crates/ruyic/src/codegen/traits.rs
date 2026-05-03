@@ -61,6 +61,11 @@ impl<'ctx> VTableRegistry<'ctx> {
     pub fn has_vtable(&self, trait_name: &str, for_type: &str) -> bool {
         self.vtables.contains_key(&(trait_name.to_string(), for_type.to_string()))
     }
+
+    /// Get any vtable registered for a trait (used for method index / type layout).
+    pub fn get_trait_vtable(&self, trait_name: &str) -> Option<&VTableInfo<'ctx>> {
+        self.vtables.values().find(|v| v.trait_name == trait_name)
+    }
 }
 
 /// Generate vtables for all impl declarations in a program.
@@ -206,16 +211,13 @@ pub fn build_dynamic_dispatch<'ctx>(
     args: &[BasicValueEnum<'ctx>],
 ) -> Result<BasicValueEnum<'ctx>, String> {
     let vtable = registry
-        .get_vtable(&trait_obj.trait_name, "*")
+        .get_trait_vtable(&trait_obj.trait_name)
         .ok_or_else(|| format!("No vtable registered for trait {}", trait_obj.trait_name))?;
 
     let idx = vtable
         .method_indices
         .get(method_name)
         .ok_or_else(|| format!("Method {} not found in trait {}", method_name, trait_obj.trait_name))?;
-
-    let i32_ty = ctx.context.i32_type();
-    let idx_val = i32_ty.const_int(*idx as u64, false);
 
     let vtable_ptr_type = vtable.vtable_type.ptr_type(Default::default());
     let vtable_typed = ctx.builder.build_bitcast(trait_obj.vtable, vtable_ptr_type, "vtable_typed");
@@ -248,10 +250,11 @@ pub fn build_dynamic_dispatch<'ctx>(
         )
     };
 
-    call_site
-        .try_as_basic_value()
-        .left()
-        .ok_or_else(|| "Dynamic dispatch call returned void".to_string())
+    let value = call_site.try_as_basic_value().left();
+    match value {
+        Some(v) => Ok(v),
+        None => Ok(BasicValueEnum::IntValue(ctx.context.i8_type().const_int(0, false))),
+    }
 }
 
 fn type_annotation_to_string(annotation: &crate::parser::ast::TypeAnnotation) -> String {

@@ -1,0 +1,11 @@
+let sum: int = 0;
+for (let i: int = 0; i < 5; i = i + 1) {
+    sum = sum + i;
+}
+print(sum);
+
+let factorial: int = 1;
+for (let n: int = 1; n <= 4; n = n + 1) {
+    factorial = factorial * n;
+}
+print(factorial);

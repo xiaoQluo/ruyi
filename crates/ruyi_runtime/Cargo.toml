@@ -13,5 +13,8 @@ inkwell = { workspace = true, optional = true }
 thiserror.workspace = true
 once_cell = "1.19"
 
+[lib]
+crate-type = ["rlib", "staticlib"]
+
 [features]
 default = ["inkwell"]

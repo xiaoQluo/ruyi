@@ -1,0 +1,15 @@
+fn main() {
+    let mut count = 0;
+    let mut result = 0;
+
+    for (let i = 0; i < 10; i = i + 1) {
+        count = count + 1;
+        if (i == 3) {
+            break;
+        }
+        result = result + i;
+    }
+
+    print("count=" + count);
+    print("result=" + result);
+}
