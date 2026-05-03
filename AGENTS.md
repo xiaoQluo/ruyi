@@ -120,3 +120,8 @@ ruyic examples/hello.ry --check       # Type-check only
 
 - **After creating a development branch**: Update the version number in both `Cargo.toml` (workspace `version`) and `crates/ruyic/src/main.rs` (`#[command(version = "...")]`) to match the branch's target version.
 - **After completing a version release**: Update the roadmap status in `docs/roadmap.md` (and `docs/roadmap-zh.md`) to reflect completed tasks and current progress.
+- **After completing version development with new features**: Create example `.ry` files in `examples/` demonstrating the new features, then compile and run them to verify:
+  ```bash
+  ruyic examples/new_feature.ry -o new_feature && ./new_feature
+  ```
+  If compilation fails, fix the issue before considering the feature complete.
