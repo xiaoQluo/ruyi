@@ -39,6 +39,7 @@ pub fn compile_expr<'ctx>(
         Expr::StringLiteral(s) => compile_string_literal(ctx, s),
         Expr::NullLiteral => compile_null_literal(ctx),
         Expr::Identifier(name) => compile_identifier(ctx, name),
+        Expr::SelfExpr => compile_identifier(ctx, "self"),
         Expr::Binary { op, left, right } => compile_binary(ctx, op, left, right),
         Expr::Unary { op, operand } => compile_unary(ctx, op, operand),
         Expr::Call { callee, args } => compile_call(ctx, callee, args),
@@ -89,6 +90,7 @@ pub fn compile_expr<'ctx>(
         Expr::ArrayLiteral(elements) => compile_array_literal(ctx, elements),
         Expr::ObjectLiteral(properties) => compile_object_literal(ctx, properties),
         Expr::New { callee, args } => compile_new(ctx, callee, args),
+        Expr::Member { object, property, .. } => compile_member_access(ctx, object, property),
         _ => Err(format!("Unsupported expression: {:?}", expr)),
     }
 }
@@ -167,6 +169,95 @@ fn compile_identifier<'ctx>(
             }
         }
     }
+}
+
+fn compile_member_access<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    object: &Expr,
+    property: &crate::parser::ast::MemberProperty,
+) -> Result<ExprResult<'ctx>, String> {
+    let field_name = match property {
+        crate::parser::ast::MemberProperty::Ident(n) => n.clone(),
+        _ => return Err("Only simple field access supported".to_string()),
+    };
+
+    let (var_ptr, class_name, field_ty) = match object {
+        Expr::Identifier(name) => {
+            let (ptr, ty) = ctx
+                .variables
+                .get(name)
+                .ok_or_else(|| format!("Undefined variable: {}", name))?;
+            let class_name = match ty {
+                Type::Named(n) => n.clone(),
+                _ => return Err(format!("Cannot access field on type: {:?}", ty)),
+            };
+            let fields = ctx
+                .class_fields
+                .get(&class_name)
+                .ok_or_else(|| format!("Unknown class: {}", class_name))?;
+            let field_ty = fields
+                .iter()
+                .find(|(n, _)| n == &field_name)
+                .map(|(_, ty)| ty.clone())
+                .ok_or_else(|| format!("Unknown field: {} in class {}", field_name, class_name))?;
+            (*ptr, class_name, field_ty)
+        }
+        Expr::SelfExpr => {
+            let (ptr, ty) = ctx
+                .variables
+                .get("self")
+                .ok_or_else(|| "self not in scope".to_string())?;
+            let class_name = match ty {
+                Type::Named(n) => n.clone(),
+                _ => return Err(format!("Cannot access field on type: {:?}", ty)),
+            };
+            let fields = ctx
+                .class_fields
+                .get(&class_name)
+                .ok_or_else(|| format!("Unknown class: {}", class_name))?;
+            let field_ty = fields
+                .iter()
+                .find(|(n, _)| n == &field_name)
+                .map(|(_, ty)| ty.clone())
+                .ok_or_else(|| format!("Unknown field: {} in class {}", field_name, class_name))?;
+            (*ptr, class_name, field_ty)
+        }
+        _ => return Err("Member access only supported on identifiers".to_string()),
+    };
+
+    let obj_ptr = ctx.builder.build_load(var_ptr, "obj").into_pointer_value();
+
+    let struct_type = ctx
+        .class_struct_types
+        .get(&class_name)
+        .ok_or_else(|| format!("No struct type for class: {}", class_name))?;
+
+    let struct_ptr = unsafe {
+        ctx.builder.build_pointer_cast(
+            obj_ptr,
+            struct_type.ptr_type(Default::default()),
+            &format!("{}_cast", class_name),
+        )
+    };
+
+    let fields = ctx.class_fields.get(&class_name).unwrap();
+    let field_index = fields.iter().position(|(n, _)| n == &field_name).unwrap();
+
+    let i32_ty = ctx.context.i32_type();
+    let field_ptr = unsafe {
+        ctx.builder.build_gep(
+            struct_ptr,
+            &[
+                i32_ty.const_int(0, false),
+                i32_ty.const_int(field_index as u64, false),
+            ],
+            &format!("{}_ptr", field_name),
+        )
+    };
+
+    let llvm_ty = ruyi_type_to_llvm(ctx.context, &field_ty);
+    let value = unsafe { ctx.builder.build_load(field_ptr, &field_name) };
+    Ok(ExprResult::new(value, field_ty))
 }
 
 fn compile_binary<'ctx>(
@@ -620,8 +711,48 @@ fn compile_call<'ctx>(
     callee: &Expr,
     args: &[crate::parser::ast::Argument],
 ) -> Result<ExprResult<'ctx>, String> {
-    let name = match callee {
-        Expr::Identifier(n) => n.clone(),
+    let (name, self_arg) = match callee {
+        Expr::Identifier(n) => (n.clone(), None),
+        Expr::Member { object, property, .. } => {
+            let method_name = match property {
+                crate::parser::ast::MemberProperty::Ident(n) => n.clone(),
+                _ => return Err("Only simple method calls supported".to_string()),
+            };
+            if method_name == "new" {
+                let class_name = match object.as_ref() {
+                    Expr::Identifier(n) => n.clone(),
+                    _ => return Err("new() must be called on a class name".to_string()),
+                };
+                return compile_new(ctx, object.as_ref(), args);
+            }
+            let (obj_ptr, class_name) = match object.as_ref() {
+                Expr::Identifier(var_name) => {
+                    let (ptr, ty) = ctx
+                        .variables
+                        .get(var_name)
+                        .ok_or_else(|| format!("Undefined variable: {}", var_name))?;
+                    let class_name = match ty {
+                        Type::Named(n) => n.clone(),
+                        _ => return Err(format!("Cannot call method on type: {:?}", ty)),
+                    };
+                    (*ptr, class_name)
+                }
+                Expr::SelfExpr => {
+                    let (ptr, ty) = ctx
+                        .variables
+                        .get("self")
+                        .ok_or_else(|| "self not in scope".to_string())?;
+                    let class_name = match ty {
+                        Type::Named(n) => n.clone(),
+                        _ => return Err(format!("Cannot call method on type: {:?}", ty)),
+                    };
+                    (*ptr, class_name)
+                }
+                _ => return Err("Method calls only supported on identifiers".to_string()),
+            };
+            let func_name = format!("{}_{}", class_name, method_name);
+            (func_name, Some(obj_ptr))
+        }
         _ => return Err("Indirect calls not yet supported".to_string()),
     };
 
@@ -679,6 +810,10 @@ fn compile_call<'ctx>(
         .ok_or_else(|| format!("Function not found: {}", name))?;
 
     let mut arg_values = Vec::new();
+    if let Some(self_ptr) = self_arg {
+        let obj_ptr = ctx.builder.build_load(self_ptr, "obj").into_pointer_value();
+        arg_values.push(obj_ptr.into());
+    }
     for arg in args {
         match arg {
             crate::parser::ast::Argument::Expr(e) => {
@@ -715,23 +850,95 @@ fn compile_assignment<'ctx>(
     op: &crate::parser::ast::AssignOp,
     right: &Expr,
 ) -> Result<ExprResult<'ctx>, String> {
-    let name = match left {
-        Expr::Identifier(n) => n.clone(),
-        _ => return Err("Complex assignments not yet supported".to_string()),
-    };
-
     let right_result = compile_expr(ctx, right)?;
 
     match op {
-        crate::parser::ast::AssignOp::Assign => {
-            if let Some((ptr, _)) = ctx.variables.get(&name) {
+        crate::parser::ast::AssignOp::Assign => {}
+        _ => return Err(format!("Compound assignment not yet supported: {:?}", op)),
+    }
+
+    match left {
+        Expr::Identifier(name) => {
+            if let Some((ptr, _)) = ctx.variables.get(name) {
                 ctx.builder.build_store(*ptr, right_result.value);
                 Ok(right_result)
             } else {
                 Err(format!("Undefined variable: {}", name))
             }
         }
-        _ => Err(format!("Compound assignment not yet supported: {:?}", op)),
+        Expr::Member { object, property, .. } => {
+            let field_name = match property {
+                crate::parser::ast::MemberProperty::Ident(n) => n.clone(),
+                _ => return Err("Only simple field assignments supported".to_string()),
+            };
+
+            let (var_ptr, class_name) = match object.as_ref() {
+                Expr::Identifier(name) => {
+                    let (ptr, ty) = ctx
+                        .variables
+                        .get(name)
+                        .ok_or_else(|| format!("Undefined variable: {}", name))?;
+                    let class_name = match ty {
+                        Type::Named(n) => n.clone(),
+                        _ => return Err(format!("Cannot access field on type: {:?}", ty)),
+                    };
+                    (*ptr, class_name)
+                }
+                Expr::SelfExpr => {
+                    let (ptr, ty) = ctx
+                        .variables
+                        .get("self")
+                        .ok_or_else(|| "self not in scope".to_string())?;
+                    let class_name = match ty {
+                        Type::Named(n) => n.clone(),
+                        _ => return Err(format!("Cannot access field on type: {:?}", ty)),
+                    };
+                    (*ptr, class_name)
+                }
+                _ => return Err("Member assignment only supported on identifiers".to_string()),
+            };
+
+            let obj_ptr = ctx.builder.build_load(var_ptr, "obj").into_pointer_value();
+
+            let struct_type = ctx
+                .class_struct_types
+                .get(&class_name)
+                .ok_or_else(|| format!("No struct type for class: {}", class_name))?;
+
+            let struct_ptr = unsafe {
+                ctx.builder.build_pointer_cast(
+                    obj_ptr,
+                    struct_type.ptr_type(Default::default()),
+                    &format!("{}_cast", class_name),
+                )
+            };
+
+            let fields = ctx
+                .class_fields
+                .get(&class_name)
+                .ok_or_else(|| format!("Unknown class: {}", class_name))?;
+
+            let field_index = fields
+                .iter()
+                .position(|(n, _)| n == &field_name)
+                .ok_or_else(|| format!("Unknown field: {} in class {}", field_name, class_name))?;
+
+            let i32_ty = ctx.context.i32_type();
+            let field_ptr = unsafe {
+                ctx.builder.build_gep(
+                    struct_ptr,
+                    &[
+                        i32_ty.const_int(0, false),
+                        i32_ty.const_int(field_index as u64, false),
+                    ],
+                    &format!("{}_ptr", field_name),
+                )
+            };
+
+            ctx.builder.build_store(field_ptr, right_result.value);
+            Ok(right_result)
+        }
+        _ => Err("Complex assignments not yet supported".to_string()),
     }
 }
 

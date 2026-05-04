@@ -241,7 +241,15 @@ fn compile_class<'ctx>(
         }
     }
 
-    ctx.class_fields.insert(name.to_string(), fields);
+    ctx.class_fields.insert(name.to_string(), fields.clone());
+
+    // Create the LLVM struct type for this class
+    let field_types: Vec<_> = fields
+        .iter()
+        .map(|(_, ty)| super::types::ruyi_type_to_llvm(ctx.context, ty))
+        .collect();
+    let struct_type = ctx.context.struct_type(&field_types, false);
+    ctx.class_struct_types.insert(name.to_string(), struct_type);
 
     for element in methods {
         if let ClassElement::Method {
@@ -266,7 +274,9 @@ fn compile_class<'ctx>(
                 init: None,
                 is_rest: false,
             }];
-            method_params.extend(params.iter().cloned());
+            method_params.extend(params.iter().filter(|p| {
+                !matches!(&p.pattern, Pattern::Identifier(n) if n == "self")
+            }).cloned());
 
             if *is_async {
                 super::async_codegen::compile_async_function(
@@ -318,11 +328,23 @@ fn compile_impl<'ctx>(
                 _ => continue,
             };
             let mangled_name = format!("{}_{}_for_{}", method_name, trait_name, for_type_str);
+
+            let impl_params: Vec<_> = std::iter::once(crate::parser::ast::Param {
+                pattern: Pattern::Identifier("self".to_string()),
+                ty: Some(for_type.clone()),
+                init: None,
+                is_rest: false,
+            })
+            .chain(params.iter().filter(|p| {
+                !matches!(&p.pattern, Pattern::Identifier(n) if n == "self")
+            }).cloned())
+            .collect();
+
             if *is_async {
                 super::async_codegen::compile_async_function(
                     ctx,
                     &mangled_name,
-                    params,
+                    &impl_params,
                     return_type.as_ref(),
                     method_body,
                 )?;
@@ -330,7 +352,7 @@ fn compile_impl<'ctx>(
                 compile_function(
                     ctx,
                     &mangled_name,
-                    params,
+                    &impl_params,
                     return_type.as_ref(),
                     method_body,
                 )?;

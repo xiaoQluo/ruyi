@@ -65,6 +65,7 @@ pub struct CodegenContext<'ctx, 'm> {
     pub waker_ptr: Option<inkwell::values::PointerValue<'ctx>>,
     pub try_stack: Vec<TryContext<'ctx>>,
     pub class_fields: HashMap<String, Vec<(String, Type)>>,
+    pub class_struct_types: HashMap<String, inkwell::types::StructType<'ctx>>,
 }
 
 impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
@@ -83,6 +84,7 @@ impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
             waker_ptr: None,
             try_stack: Vec::new(),
             class_fields: HashMap::new(),
+            class_struct_types: HashMap::new(),
         }
     }
 
