@@ -1,4 +1,4 @@
-# Ruyi
+# Ruyi（如意）
 
 > A compiled, general-purpose programming language built on the syntactic foundation of JavaScript strict mode — targeting native machine code via LLVM.
 
@@ -194,8 +194,10 @@ impl Printable for Point {
 
 - [Language Specification](docs/spec.md) — Authoritative reference
 - [Tutorial](docs/tutorial.md) — Step-by-step guide
+- [Roadmap](docs/roadmap.md) — Development roadmap and future plans
 - [中文规范](docs/spec-zh.md) — 语言规范（中文版）
 - [中文教程](docs/tutorial-zh.md) — 教程（中文版）
+- [中文路线图](docs/roadmap-zh.md) — 开发路线图（中文版）
 
 ## License
 
