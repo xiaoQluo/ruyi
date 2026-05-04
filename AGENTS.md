@@ -153,10 +153,11 @@ ruyic examples/hello.ry --check       # Type-check only
 ### 版本发布流程
 
 1. 在 dev 分支完成所有功能开发和测试
-2. 创建 Pull Request 合并到 main, 确认 CI 通过
-3. 在 main 的 merge commit 上创建 annotated tag
-4. 推送 tag: `git push origin vX.Y.Z`
-5. 更新 `docs/roadmap.md` 和 `docs/roadmap-zh.md` 标记版本已发布
+2. **更新 `docs/roadmap.md` 和 `docs/roadmap-zh.md` 中的路线图状态**，标记已完成的任务和当前进度
+3. 创建 Pull Request 合并到 main, 确认 CI 通过
+4. 在 main 的 merge commit 上创建 annotated tag
+5. 推送代码和 tag: `git push origin vX.Y.Z`
+6. 在路线图中更新版本标记为"已发布"
 
 ### Commit消息规范
 
