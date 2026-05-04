@@ -118,10 +118,82 @@ ruyic examples/hello.ry --check       # Type-check only
 
 ## Workflow Rules
 
-- **After creating a development branch**: Update the version number in both `Cargo.toml` (workspace `version`) and `crates/ruyic/src/main.rs` (`#[command(version = "...")]`) to match the branch's target version.
-- **After completing a version release**: Update the roadmap status in `docs/roadmap.md` (and `docs/roadmap-zh.md`) to reflect completed tasks and current progress.
-- **After completing version development with new features**: Create example `.ry` files in `examples/` demonstrating the new features, then compile and run them to verify:
+### 版本切换检查清单
+
+切换版本前逐项确认:
+
+- [ ] 确认当前分支已合并到目标分支, 无未提交的更改
+- [ ] 运行 `cargo check --workspace` 确认代码可编译
+- [ ] 运行 `cargo test --workspace` 确认测试通过
+- [ ] 更新 `Cargo.toml` 中的 workspace `version` 字段
+- [ ] 更新 `crates/ruyic/src/main.rs` 中 `#[command(version = "...")]` 的版本号
+- [ ] 确认版本号格式为 `v{major}.{minor}.{patch}` (如 `v0.3.0`)
+- [ ] 更新 `docs/roadmap.md` 和 `docs/roadmap-zh.md` 中的版本状态
+- [ ] 为新功能创建示例 `.ry` 文件并编译验证:
   ```bash
   ruyic examples/new_feature.ry -o examples/target/new_feature && examples/target/new_feature
   ```
-  If compilation fails, fix the issue before considering the feature complete.
+- [ ] 运行 `cargo clippy --workspace` 确认无警告
+- [ ] 运行 `cargo fmt` 确认代码格式一致
+
+### 分支策略
+
+- **main**: 只接受 merge commit, 不直接推送. 每个 merge commit 对应一个已发布的版本.
+- **dev/v{major}.{minor}**: 开发分支, 从 main 创建, 永久保留. 命名示例: `dev/v0.3`.
+- 新功能在 dev 分支上开发, 完成后 merge 到 main 并发布.
+- 禁止 force push 到 main 或任何 dev 分支.
+
+### Tag规范
+
+- 格式: `vX.Y.Z` (如 `v0.3.0`, `v1.0.0`)
+- 使用 annotated tag: `git tag -a vX.Y.Z -m "Release vX.Y.Z"`
+- Tag 必须打在 main 分支的 merge commit 上, 不得打在开发分支
+- 打 tag 前确认该 commit 已通过所有测试
+
+### 版本发布流程
+
+1. 在 dev 分支完成所有功能开发和测试
+2. 创建 Pull Request 合并到 main, 确认 CI 通过
+3. 在 main 的 merge commit 上创建 annotated tag
+4. 推送 tag: `git push origin vX.Y.Z`
+5. 更新 `docs/roadmap.md` 和 `docs/roadmap-zh.md` 标记版本已发布
+
+### Commit消息规范
+
+遵循 Conventional Commits 格式:
+
+```
+<type>(<scope>): <description>
+
+[optional body]
+```
+
+常用 type:
+- `feat`: 新功能
+- `fix`: 修复 bug
+- `docs`: 文档变更
+- `refactor`: 代码重构
+- `test`: 测试相关
+- `chore`: 构建/工具链变更
+
+示例:
+```
+feat(parser): add pattern matching support
+fix(typechecker): resolve generic inference edge case
+docs: update tutorial for async/await
+```
+
+### 环境要求
+
+**有 LLVM 环境** (完整编译验证):
+```bash
+cargo build --release          # 完整构建
+cargo test --workspace         # 运行全部测试
+ruyic examples/hello.ry -o hello && ./hello  # 编译并运行示例
+```
+
+**无 LLVM 环境** (仅运行时验证):
+```bash
+cargo check -p ruyi_runtime --no-default-features  # 跳过 inkwell
+cargo check --workspace                              # 仅类型检查, 不链接
+```

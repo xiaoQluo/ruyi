@@ -14,6 +14,17 @@ Ruyi is a compiled programming language targeting native code via LLVM. This roa
 
 ---
 
+## Version Release Status
+
+| Version | Branch | Status | Release Date | Tag |
+|---------|--------|--------|-------------|-----|
+| v0.2 | dev/v0.2 | ✅ Released | 2026-05 | v0.2.0 (待补打) |
+| v0.3 | dev/v0.3 | ✅ Released | 2026-05 | v0.3.0 (待补打) |
+| v0.4 | dev/v0.4 | 🔄 In Progress | TBD | — |
+| v0.5 | — | ⏳ Planned | 2026 Q4 | — |
+
+---
+
 ## Current State Assessment
 
 ### Compiler Modules
@@ -22,12 +33,12 @@ Ruyi is a compiled programming language targeting native code via LLVM. This roa
 |--------|-------------|----------|
 | **Lexer** | ~95% | Doc comments not specially handled |
 | **Parser** | ~65% | Match guards, computed property names, generic syntax need verification |
-| **Typechecker** | ~75% | Trait bounds not enforced; supertraits unchecked; `impl Trait for Type` incomplete |
-| **Codegen** | ~45% | **No member access (`obj.prop`), no arrays/objects, no BigInt/template literals, no for/for-in/for-of, no try/catch, no break/continue, no class layout** |
+| **Typechecker** | ~90% | Trait bounds not enforced; supertraits unchecked; `impl Trait for Type` incomplete |
+| **Codegen** | ~60% | **No member access (`obj.prop`), no arrays/objects, no BigInt/template literals, no for/for-in/for-of, no try/catch, no break/continue, no class layout** |
 | **Macro Expand** | ~60% | Complex repetition patterns, hygiene edge cases |
-| **Driver** | ~80% | Runtime not linked; module system inlines rather than proper imports |
-| **GC** | Stub (compiler) / 85% (runtime) | Compiler-side GC is stub; runtime GC not wired to codegen |
-| **Runtime** | ~30% (compiler) / 70% (library) | **`ruyi_await` is no-op; async runs synchronously; no stdlib types in runtime** |
+| **Driver** | ~80% | Runtime linked; module system inlines rather than proper imports |
+| **GC** | ~70% (compiler) / 85% (runtime) | Compiler-side GC is stub; runtime GC not wired to codegen |
+| **Runtime** | ~60% (compiler) / 70% (library) | **`ruyi_await` is no-op; async runs synchronously; no stdlib types in runtime** |
 
 ### Standard Library
 
