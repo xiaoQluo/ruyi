@@ -357,6 +357,13 @@ impl Type {
     /// Converts a TypeAnnotation from the parser into a Type.
     pub fn from_annotation(annotation: &crate::parser::ast::TypeAnnotation) -> Type {
         let result = match annotation {
+            crate::parser::ast::TypeAnnotation::Builtin(name) => match name.as_str() {
+                "int" => Type::Int,
+                "float" => Type::Float,
+                "bool" => Type::Bool,
+                "string" => Type::String,
+                _ => Type::Named(name.clone()),
+            },
             crate::parser::ast::TypeAnnotation::Identifier(name) => match name.as_str() {
                 "int" => Type::Int,
                 "float" => Type::Float,

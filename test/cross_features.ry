@@ -1,0 +1,190 @@
+/**
+ * Cross-feature integration tests
+ *
+ * Tests combinations of multiple language features working together.
+ *
+ * @author test
+ * @date 2026-05-04
+ */
+
+// ============================================================================
+// Feature 1: for-in + break + optional chaining
+// ============================================================================
+
+class Item {
+    name: string;
+    fn new(name: string) {
+        self.name = name;
+    }
+}
+
+class Wrapper {
+    item: Item?;
+    fn new(item: Item?) {
+        self.item = item;
+    }
+}
+
+fn test_for_in_break_optional() {
+    let items = [
+        Wrapper.new(Item.new("a")),
+        Wrapper.new(null),
+        Wrapper.new(Item.new("c")),
+        Wrapper.new(null),
+        Wrapper.new(Item.new("e"))
+    ];
+
+    let foundCount = 0;
+    for (let i = 0; i < items.length; i = i + 1) {
+        let name = items[i]?.item?.name;
+        if (name !== null) {
+            foundCount = foundCount + 1;
+            if (foundCount >= 2) {
+                break;
+            }
+        }
+    }
+    print(`Found: ${foundCount}`);
+}
+
+// ============================================================================
+// Feature 2: match inside try-catch
+// ============================================================================
+
+fn test_match_in_try_catch(x: int): string {
+    let result = "default";
+    try {
+        let value = match (x) {
+            1 => "one",
+            2 => "two",
+            3 => "three",
+            _ => "other"
+        };
+        result = value;
+    } catch (e) {
+        result = "caught";
+    }
+    return result;
+}
+
+// ============================================================================
+// Feature 3: async fn + template literal + optional chaining
+// ============================================================================
+
+class AsyncContainer {
+    data: string;
+    fn new(data: string) {
+        self.data = data;
+    }
+}
+
+class AsyncWrapper {
+    inner: AsyncContainer?;
+    fn new(inner: AsyncContainer?) {
+        self.inner = inner;
+    }
+}
+
+async fn test_async_template_optional(): string {
+    let wrapper = AsyncWrapper.new(AsyncContainer.new("async_data"));
+    let value = wrapper?.inner?.data;
+    return `Retrieved: ${value}`;
+}
+
+// ============================================================================
+// Feature 4: template literal inside match arm
+// ============================================================================
+
+fn test_template_in_match_arm(code: int): string {
+    let result = match (code) {
+        200 => `OK - Success`,
+        404 => `Not Found`,
+        500 => `Server Error`,
+        _ => `Unknown code: ${code}`
+    };
+    return result;
+}
+
+// ============================================================================
+// Feature 5: computed member + optional chaining chain
+// ============================================================================
+
+class Config {
+    settings: {string: string};
+    fn new() {
+        self.settings = {debug: "true", mode: "production"};
+    }
+}
+
+class App {
+    config: Config?;
+    fn new(config: Config?) {
+        self.config = config;
+    }
+}
+
+fn test_computed_optional_chain(): string {
+    let app = App.new(Config.new());
+    let key = "debug";
+    let value = app?.config?.settings[key];
+    return `Setting ${key} = ${value}`;
+}
+
+// ============================================================================
+// Feature 6: for-in with match and computed member (combined)
+// ============================================================================
+
+fn test_for_match_computed_combo(items: {string: int}): string {
+    let result = "";
+    for (let k in items) {
+        let item_val: int = items[k];
+        let v = match (k) {
+            "a" => item_val + 10,
+            "b" => item_val * 2,
+            _ => item_val
+        };
+        result = result + `${k}:${v},`;
+    }
+    return result;
+}
+
+// Helper to create a {string:int} map
+fn make_map(): {string: int} {
+    let m: {string: int} = {};
+    m["a"] = 1;
+    m["b"] = 2;
+    m["c"] = 3;
+    return m;
+}
+
+// ============================================================================
+// Main entry point
+// ============================================================================
+
+fn main() {
+    // Test 1: for-in + break + optional
+    test_for_in_break_optional();
+
+    // Test 2: match in try-catch
+    let r1 = test_match_in_try_catch(1);
+    let r2 = test_match_in_try_catch(999);
+    print(`match_try: ${r1}, ${r2}`);
+
+    // Test 3: async + template + optional (call returns future)
+    let asyncResult = test_async_template_optional();
+    print(`async_template: ${asyncResult}`);
+
+    // Test 4: template in match arm
+    let m1 = test_template_in_match_arm(200);
+    let m2 = test_template_in_match_arm(404);
+    let m3 = test_template_in_match_arm(999);
+    print(`template_match: ${m1}, ${m2}, ${m3}`);
+
+    // Test 5: computed member + optional chaining
+    let comp = test_computed_optional_chain();
+    print(`computed_optional: ${comp}`);
+
+    // Test 6: for + match + computed combo
+    let combo = test_for_match_computed_combo(make_map());
+    print(`combo: ${combo}`);
+}

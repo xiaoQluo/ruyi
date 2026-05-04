@@ -1,0 +1,51 @@
+/**
+ * Impl Trait for built-in types integration test
+ *
+ * @author test
+ * @date 2026-05-04
+ */
+
+// Define a trait with a method
+trait P {
+  fn fmt(self): string;
+}
+
+// Test 1: Implement trait for string
+impl P for string {
+  fn fmt(self): string {
+    return self;
+  }
+}
+
+// Test 2: Implement trait for int
+impl P for int {
+  fn fmt(self): string {
+    return "int";
+  }
+}
+
+// Test 3: Call string's impl method
+print("hello".fmt());
+
+// Test 4: Call int's impl method
+print(42.fmt());
+
+// Test 5: Implement trait for float
+impl P for float {
+  fn fmt(self): string {
+    return "float";
+  }
+}
+
+// Test 6: Implement trait for bool
+impl P for bool {
+  fn fmt(self): string {
+    return "bool";
+  }
+}
+
+print(3.14.fmt());
+print(true.fmt());
+print(false.fmt());
+
+print("All impl trait tests passed!");

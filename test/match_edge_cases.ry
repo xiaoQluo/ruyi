@@ -1,0 +1,184 @@
+/**
+ * Match edge cases integration test
+ *
+ * Tests nested match, match with return, string matching,
+ * and pattern binding with variable shadowing.
+ */
+
+// Test nested match expressions
+fn nested_match(x: int, y: int): int {
+    return match (x) {
+        1 => match (y) {
+            1 => 11,
+            2 => 12,
+            _ => 10
+        },
+        2 => match (y) {
+            1 => 21,
+            2 => 22,
+            _ => 20
+        },
+        _ => match (y) {
+            _ => 0
+        }
+    };
+}
+
+// Test match with early return
+fn match_with_return(x: int): string {
+    match (x) {
+        1 => { return "one"; },
+        2 => { return "two"; },
+        _ => { return "other"; }
+    }
+}
+
+// Test match on strings
+fn string_match(s: string): int {
+    return match (s) {
+        "a" => 1,
+        "b" => 2,
+        "c" => 3,
+        _ => 0
+    };
+}
+
+// Test pattern binding with variable shadowing
+fn pattern_binding(x: int): int {
+    let result = match (x) {
+        1 => {
+            let x = 100;  // shadow outer x
+            x + 1;
+        },
+        2 => {
+            let x = 200;  // shadow outer x
+            x + 2;
+        },
+        _ => {
+            let x = 300;  // shadow outer x
+            x;
+        }
+    };
+    return result;
+}
+
+// Test match with multiple arms having same body
+fn multi_arm_same_body(x: int): int {
+    match (x) {
+        1 => { let a = 1; a; },
+        2 => { let a = 2; a; },
+        3 => { let a = 3; a; },
+        _ => { let a = 0; a; }
+    }
+}
+
+// Test nested match in expression context
+fn nested_in_expression(x: int): int {
+    let base = 10;
+    return base + match (x) {
+        1 => match (x) {
+            1 => 1,
+            _ => 0
+        },
+        _ => 0
+    };
+}
+
+// Test match returning different types via branches
+fn match_returns_int(x: int): int {
+    match (x) {
+        1 => 42,
+        2 => 100,
+        _ => 0
+    }
+}
+
+// Test match on result of function call
+fn get_value(): int { return 5; }
+
+fn match_on_call_result(): int {
+    return match (get_value()) {
+        5 => 1,
+        _ => 0
+    };
+}
+
+// Main entry point
+fn main() {
+    // Test nested match
+    let n1 = nested_match(1, 1);
+    let n2 = nested_match(1, 5);
+    let n3 = nested_match(3, 3);
+
+    // Test match with return (need wrapper due to early return)
+    let r1 = match_with_return(1);
+    let r2 = match_with_return(5);
+
+    // Test string match
+    let s1 = string_match("a");
+    let s2 = string_match("b");
+    let s3 = string_match("z");
+
+    // Test pattern binding
+    let b1 = pattern_binding(1);
+    let b2 = pattern_binding(2);
+    let b3 = pattern_binding(99);
+
+    // Test multi-arm same body
+    let m1 = multi_arm_same_body(1);
+    let m2 = multi_arm_same_body(5);
+
+    // Test nested in expression
+    let expr1 = nested_in_expression(1);
+    let expr2 = nested_in_expression(2);
+
+    // Test match on call result
+    let call1 = match_on_call_result();
+
+    // Print results to prevent dead code elimination
+    print("nested_match: ");
+    print(n1);
+    print(" ");
+    print(n2);
+    print(" ");
+    print(n3);
+    print("\n");
+
+    print("match_return: ");
+    print(r1);
+    print(" ");
+    print(r2);
+    print("\n");
+
+    print("string_match: ");
+    print(s1);
+    print(" ");
+    print(s2);
+    print(" ");
+    print(s3);
+    print("\n");
+
+    print("pattern_binding: ");
+    print(b1);
+    print(" ");
+    print(b2);
+    print(" ");
+    print(b3);
+    print("\n");
+
+    print("multi_arm: ");
+    print(m1);
+    print(" ");
+    print(m2);
+    print("\n");
+
+    print("nested_expr: ");
+    print(expr1);
+    print(" ");
+    print(expr2);
+    print("\n");
+
+    print("call_result: ");
+    print(call1);
+    print("\n");
+}

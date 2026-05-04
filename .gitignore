@@ -34,3 +34,6 @@ Thumbs.db
 hello
 hello_world_test
 invalid_syntax.ry
+
+# Test outputs
+test/target/

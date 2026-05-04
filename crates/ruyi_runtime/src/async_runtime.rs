@@ -10,9 +10,18 @@
 //! @date 2026-05-01
 
 use once_cell::sync::Lazy;
+use std::cell::Cell;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
+
+thread_local! {
+    static IS_WORKER_THREAD: Cell<bool> = const { Cell::new(false) };
+}
+
+fn is_worker_thread() -> bool {
+    IS_WORKER_THREAD.with(|f| f.get())
+}
 
 // ── Poll / Future core types ─────────────────────────────────
 
@@ -276,6 +285,10 @@ impl Scheduler {
         }
     }
 
+    pub fn suspend_current(&self, _task_id: TaskId) {
+        self.block_on_all();
+    }
+
     /// Shut down the scheduler and wait for workers to finish.
     pub fn shutdown(self) {
         self.inner.shutdown.store(1, Ordering::SeqCst);
@@ -302,6 +315,7 @@ impl Scheduler {
 
 /// Worker thread main loop.
 fn worker_loop(scheduler: Arc<SchedulerInner>, worker_id: usize) {
+    IS_WORKER_THREAD.set(true);
     loop {
         if scheduler.is_shutdown() {
             break;
@@ -342,20 +356,46 @@ fn worker_loop(scheduler: Arc<SchedulerInner>, worker_id: usize) {
     }
 }
 
+struct RawFuture {
+    ptr: *mut u8,
+}
+
+unsafe impl Send for RawFuture {}
+
+impl RuyiFuture for RawFuture {
+    type Output = ();
+
+    fn poll(&mut self, waker: &Waker) -> Poll<Self::Output> {
+        type PollFn = unsafe extern "C" fn(*mut u8, *mut u8) -> i32;
+        let poll_fn_ptr = unsafe {
+            let ptr_val = std::ptr::read::<*mut u8>(self.ptr as *const *mut u8);
+            std::mem::transmute::<*mut u8, PollFn>(ptr_val)
+        };
+        let waker_ptr = waker as *const Waker as *mut u8;
+        let result = unsafe { poll_fn_ptr(self.ptr, waker_ptr) };
+        if result == 1 {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
 // ── GC integration ───────────────────────────────────────────
 
-/// Synchronously await a future by repeatedly polling it until ready.
-///
-/// This is the runtime backing for `await expr` in the baseline codegen.
-/// In a full implementation this would yield to the scheduler instead of
-/// busy-waiting.
-/// C-compatible runtime helper for `await expr`.
-///
-/// In the baseline implementation this is a no-op pass-through.
-/// Full async lowering would schedule the future on the green-thread
-/// scheduler and suspend the caller.
 #[no_mangle]
 pub extern "C" fn ruyi_await(future: *mut u8) -> *mut u8 {
+    if future.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    if is_worker_thread() {
+        return future;
+    }
+
+    let scheduler = GLOBAL_SCHEDULER.lock().unwrap();
+    let task_id = scheduler.spawn(RawFuture { ptr: future });
+    scheduler.suspend_current(task_id);
     future
 }
 

@@ -210,6 +210,7 @@ impl RuyiException {
 }
 
 /// One frame in a Ruyi stack trace.
+#[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StackFrame {
     pub function_name: String,

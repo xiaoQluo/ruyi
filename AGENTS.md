@@ -197,3 +197,47 @@ ruyic examples/hello.ry -o hello && ./hello  # 编译并运行示例
 cargo check -p ruyi_runtime --no-default-features  # 跳过 inkwell
 cargo check --workspace                              # 仅类型检查, 不链接
 ```
+
+### 计划执行邮件通知
+
+**每次计划开始和结束时, 必须向 `feather.lzg@foxmail.com` 发送邮件通知.**
+
+#### 计划开始时
+- 在创建 TODO 列表后, 立即发送 "计划开始" 邮件
+- 邮件主题格式: `[Ruyi] 计划开始: {计划名称}`
+- 邮件内容包含: 计划名称、任务列表概览、开始时间
+
+#### 计划结束时
+- 在所有任务完成且 Final Verification Wave 通过后, 发送 "计划完成" 邮件
+- 邮件主题格式: `[Ruyi] 计划完成: {计划名称}`
+- 邮件内容包含: 计划名称、完成的任务数、修改的文件列表、结束时间、验证结果
+
+#### 邮件发送方式
+- 使用 Resend API 发送邮件 (加载 `resend` skill)
+- API Key 从环境变量 `RESEND_API_KEY` 获取
+- 发件人使用: `Ruyi Agent <onboarding@resend.dev>` (或已验证的域名)
+- 必须包含幂等键防止重复发送: `plan-{plan-name}-{start|end}-{timestamp}`
+- 邮件发送失败时记录日志, 不阻塞计划执行流程
+
+#### 示例代码 (Node.js)
+```typescript
+import { Resend } from 'resend';
+
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+// 计划开始通知
+const { data: startData, error: startError } = await resend.emails.send({
+  from: 'Ruyi Agent <onboarding@resend.dev>',
+  to: ['feather.lzg@foxmail.com'],
+  subject: '[Ruyi] 计划开始: {plan-name}',
+  html: `<h2>计划开始通知</h2><p>计划: {plan-name}</p><p>开始时间: {timestamp}</p><p>任务列表: {tasks}</p>`,
+}, { idempotencyKey: `plan-{plan-name}-start-{date}` });
+
+// 计划完成通知
+const { data: endData, error: endError } = await resend.emails.send({
+  from: 'Ruyi Agent <onboarding@resend.dev>',
+  to: ['feather.lzg@foxmail.com'],
+  subject: '[Ruyi] 计划完成: {plan-name}',
+  html: `<h2>计划完成通知</h2><p>计划: {plan-name}</p><p>完成时间: {timestamp}</p><p>完成任务: {completed}/{total}</p><p>验证结果: {verification}</p>`,
+}, { idempotencyKey: `plan-{plan-name}-end-{date}` });
+```

@@ -27,9 +27,14 @@ pub fn declare_builtins<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     declare_ruyi_begin_catch(context, module);
     declare_ruyi_end_catch(context, module);
     declare_ruyi_async_poll(context, module);
+    declare_ruyi_await(context, module);
     declare_ruyi_spawn(context, module);
     declare_ruyi_wake_task(context, module);
     declare_ruyi_run_scheduler(context, module);
+    declare_ruyi_obj_keys(context, module);
+    declare_ruyi_iter_next(context, module);
+    declare_ruyi_bigint_from_str(context, module);
+    declare_ruyi_obj_get(context, module);
 }
 
 fn declare_printf<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
@@ -352,6 +357,12 @@ fn declare_ruyi_async_poll<'ctx>(context: &'ctx Context, module: &Module<'ctx>) 
     module.add_function("ruyi_async_poll", fn_type, None);
 }
 
+fn declare_ruyi_await<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
+    module.add_function("ruyi_await", fn_type, None);
+}
+
 fn declare_ruyi_spawn<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     let i8_ptr = context.i8_type().ptr_type(Default::default());
     let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
@@ -371,6 +382,18 @@ fn declare_ruyi_run_scheduler<'ctx>(context: &'ctx Context, module: &Module<'ctx
     module.add_function("ruyi_run_scheduler", fn_type, None);
 }
 
+fn declare_ruyi_obj_keys<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
+    module.add_function("ruyi_obj_keys", fn_type, None);
+}
+
+fn declare_ruyi_iter_next<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
+    module.add_function("ruyi_iter_next", fn_type, None);
+}
+
 /// Build a call to `ruyi_async_poll`.
 pub fn build_ruyi_async_poll<'ctx>(
     builder: &inkwell::builder::Builder<'ctx>,
@@ -387,6 +410,22 @@ pub fn build_ruyi_async_poll<'ctx>(
         .left()
         .unwrap()
         .into_int_value()
+}
+
+pub fn build_ruyi_await<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    future: inkwell::values::PointerValue<'ctx>,
+) -> inkwell::values::PointerValue<'ctx> {
+    let fn_val = module
+        .get_function("ruyi_await")
+        .expect("ruyi_await not declared");
+    builder
+        .build_call(fn_val, &[future.into()], "await")
+        .try_as_basic_value()
+        .left()
+        .unwrap()
+        .into_pointer_value()
 }
 
 /// Build a call to `ruyi_spawn`.
@@ -420,4 +459,50 @@ pub fn is_gc_managed(ty: &crate::typechecker::types::Type) -> bool {
         Type::Nullable(inner) => is_gc_managed(inner),
         _ => true,
     }
+}
+
+fn declare_ruyi_bigint_from_str<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
+    module.add_function("ruyi_bigint_from_str", fn_type, None);
+}
+
+pub fn build_ruyi_bigint_from_str<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    string_ptr: inkwell::values::PointerValue<'ctx>,
+) -> Result<inkwell::values::PointerValue<'ctx>, String> {
+    let fn_val = module
+        .get_function("ruyi_bigint_from_str")
+        .ok_or("ruyi_bigint_from_str not declared")?;
+    let result = builder
+        .build_call(fn_val, &[string_ptr.into()], "bigint_from_str")
+        .try_as_basic_value()
+        .left()
+        .unwrap()
+        .into_pointer_value();
+    Ok(result)
+}
+
+fn declare_ruyi_obj_get<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+    module.add_function("ruyi_obj_get", fn_type, None);
+}
+
+pub fn build_ruyi_obj_get<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    obj: inkwell::values::PointerValue<'ctx>,
+    key: inkwell::values::PointerValue<'ctx>,
+) -> inkwell::values::PointerValue<'ctx> {
+    let fn_val = module
+        .get_function("ruyi_obj_get")
+        .expect("ruyi_obj_get not declared");
+    builder
+        .build_call(fn_val, &[obj.into(), key.into()], "obj_get")
+        .try_as_basic_value()
+        .left()
+        .unwrap()
+        .into_pointer_value()
 }

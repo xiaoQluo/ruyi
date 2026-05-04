@@ -1,0 +1,48 @@
+/**
+ * Optional chaining integration test
+ *
+ * @author test
+ * @date 2026-05-04
+ */
+
+class Container {
+    prop: string;
+    fn new(prop: string) {
+        self.prop = prop;
+    }
+}
+
+class Inner {
+    value: string;
+    fn new(value: string) {
+        self.value = value;
+    }
+}
+
+class Outer {
+    inner: Inner?;
+    fn new(inner: Inner?) {
+        self.inner = inner;
+    }
+}
+
+// Test 1: null object -> null result
+let obj: Container? = null;
+print(obj?.prop);
+
+// Test 2: valid object -> correct property
+let obj2 = Container.new("value");
+print(obj2?.prop);
+
+// Test 3: deep chain short-circuit (inner is null)
+let out = Outer.new(null);
+print(out?.inner?.value);
+
+// Test 4: null at start of chain
+let nullStart: Container? = null;
+print(nullStart?.prop);
+
+// Test 5: valid deep chain
+let validInner = Inner.new("deep");
+let validOut = Outer.new(validInner);
+print(validOut?.inner?.value);

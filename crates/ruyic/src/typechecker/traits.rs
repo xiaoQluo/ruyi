@@ -175,6 +175,9 @@ impl TraitRegistry {
             Type::Named(name) | Type::Generic { base: name, .. } => self
                 .type_trait_impls
                 .contains_key(&(name.clone(), trait_name.to_string())),
+            Type::String | Type::Int | Type::Float | Type::Bool => self
+                .type_trait_impls
+                .contains_key(&(ty.to_string(), trait_name.to_string())),
             Type::Dynamic | Type::Error => true,
             _ => false,
         }
@@ -186,6 +189,10 @@ impl TraitRegistry {
             Type::Named(name) | Type::Generic { base: name, .. } => self
                 .type_trait_impls
                 .get(&(name.clone(), trait_name.to_string()))
+                .copied(),
+            Type::String | Type::Int | Type::Float | Type::Bool => self
+                .type_trait_impls
+                .get(&(ty.to_string(), trait_name.to_string()))
                 .copied(),
             _ => None,
         }
@@ -314,6 +321,7 @@ impl TraitRegistry {
 fn type_annotation_name(annotation: &TypeAnnotation) -> String {
     match annotation {
         TypeAnnotation::Identifier(name) => name.clone(),
+        TypeAnnotation::Builtin(name) => name.clone(),
         TypeAnnotation::Generic { base, .. } => base.clone(),
         _ => String::new(),
     }

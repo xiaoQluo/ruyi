@@ -449,6 +449,7 @@ pub enum ArrayPatternElement {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeAnnotation {
     Identifier(String),
+    Builtin(String), // string, int, float, bool, etc.
     Nullable(Box<TypeAnnotation>),
     Function {
         params: Vec<TypeAnnotation>,

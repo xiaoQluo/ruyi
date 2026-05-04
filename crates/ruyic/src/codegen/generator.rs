@@ -41,6 +41,7 @@ pub struct TryContext<'ctx> {
     pub catch_bb: Option<inkwell::basic_block::BasicBlock<'ctx>>,
     pub finally_bb: Option<inkwell::basic_block::BasicBlock<'ctx>>,
     pub merge_bb: inkwell::basic_block::BasicBlock<'ctx>,
+    pub landing_pad_bb: Option<inkwell::basic_block::BasicBlock<'ctx>>,
 }
 
 /// Context for code generation, holding LLVM constructs and variable mappings.

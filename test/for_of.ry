@@ -1,0 +1,20 @@
+// For-of loop integration test
+// Tests iterator protocol for arrays and strings
+
+// Basic array iteration
+let arr = [10, 20, 30];
+for (let item of arr) {
+    print(item);
+}
+
+// Empty array - should produce no output
+let empty = [];
+for (let item of empty) {
+    print("FAIL");
+}
+
+// String iteration via for-of
+let s = "hello";
+for (let ch of s) {
+    print(ch);
+}

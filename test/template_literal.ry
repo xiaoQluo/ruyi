@@ -1,0 +1,27 @@
+/**
+ * Template literal integration test
+ *
+ * @author test
+ * @date 2026-05-04
+ */
+
+// Test 1: Single interpolation
+let name = "Ruyi";
+print(`Hello ${name}!`);
+
+// Test 2: Multiple interpolations
+let a = 1;
+let b = 2;
+print(`${a} + ${b} = ${a + b}`);
+
+// Test 3: Pure string (no interpolation)
+print(`plain text`);
+
+// Test 4: Empty template
+let empty = ``;
+print(empty);
+
+// Test 5: String concat in interpolation
+let prefix = "Result: ";
+let value = 42;
+print(`${prefix}${value}`);

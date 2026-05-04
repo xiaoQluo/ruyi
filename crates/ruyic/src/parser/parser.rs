@@ -70,6 +70,10 @@ impl Parser {
         matches!(self.current_token(), Some(Token::Ident(n)) if n == name)
     }
 
+    fn is_builtin_type(name: &str) -> bool {
+        matches!(name, "string" | "int" | "float" | "bool")
+    }
+
     fn match_ident(&mut self, name: &str) -> bool {
         if self.check_ident(name) {
             self.advance();
@@ -1649,6 +1653,8 @@ impl Parser {
                     // Generic type
                     let args = self.parse_type_args()?;
                     Ok(TypeAnnotation::Generic { base: name, args })
+                } else if Self::is_builtin_type(&name) {
+                    Ok(TypeAnnotation::Builtin(name))
                 } else {
                     Ok(TypeAnnotation::Identifier(name))
                 }

@@ -68,9 +68,20 @@ fn pattern_covered_cases(pattern: &Pattern, scrutinee_type: &Type) -> HashSet<St
         }
         Pattern::Identifier(name) => {
             cases.insert(name.clone());
+            // Identifier patterns are exhaustive (bind any value)
+            cases.insert("_".to_string());
         }
         Pattern::Literal(expr) => {
-            cases.insert(format!("{:?}", expr));
+            let case = match expr.as_ref() {
+                crate::parser::ast::Expr::BooleanLiteral(true) => "true".to_string(),
+                crate::parser::ast::Expr::BooleanLiteral(false) => "false".to_string(),
+                crate::parser::ast::Expr::NullLiteral => "null".to_string(),
+                crate::parser::ast::Expr::IntLiteral(n) => format!("int:{}", n),
+                crate::parser::ast::Expr::StringLiteral(s) => format!("string:{}", s),
+                crate::parser::ast::Expr::FloatLiteral(f) => format!("float:{}", f),
+                _ => format!("{:?}", expr),
+            };
+            cases.insert(case);
         }
         Pattern::Or(patterns) => {
             for p in patterns {
@@ -123,11 +134,25 @@ fn pattern_covered_cases(pattern: &Pattern, scrutinee_type: &Type) -> HashSet<St
 /// Finds missing cases for exhaustiveness checking.
 fn find_missing_cases(scrutinee_type: &Type, covered: &HashSet<String>) -> Vec<String> {
     match scrutinee_type {
-        Type::Int | Type::Float | Type::String | Type::BigInt => {
+        Type::Int | Type::BigInt => {
             if covered.contains("_") || covered.is_empty() {
                 vec![]
             } else {
-                vec!["<other numeric/string value>".to_string()]
+                vec!["<other int value>".to_string()]
+            }
+        }
+        Type::Float => {
+            if covered.contains("_") || covered.is_empty() {
+                vec![]
+            } else {
+                vec!["<other float value>".to_string()]
+            }
+        }
+        Type::String => {
+            if covered.contains("_") || covered.is_empty() {
+                vec![]
+            } else {
+                vec!["<other string value>".to_string()]
             }
         }
         Type::Bool => {

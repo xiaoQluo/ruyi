@@ -274,9 +274,12 @@ fn compile_class<'ctx>(
                 init: None,
                 is_rest: false,
             }];
-            method_params.extend(params.iter().filter(|p| {
-                !matches!(&p.pattern, Pattern::Identifier(n) if n == "self")
-            }).cloned());
+            method_params.extend(
+                params
+                    .iter()
+                    .filter(|p| !matches!(&p.pattern, Pattern::Identifier(n) if n == "self"))
+                    .cloned(),
+            );
 
             if *is_async {
                 super::async_codegen::compile_async_function(
@@ -335,9 +338,12 @@ fn compile_impl<'ctx>(
                 init: None,
                 is_rest: false,
             })
-            .chain(params.iter().filter(|p| {
-                !matches!(&p.pattern, Pattern::Identifier(n) if n == "self")
-            }).cloned())
+            .chain(
+                params
+                    .iter()
+                    .filter(|p| !matches!(&p.pattern, Pattern::Identifier(n) if n == "self"))
+                    .cloned(),
+            )
             .collect();
 
             if *is_async {

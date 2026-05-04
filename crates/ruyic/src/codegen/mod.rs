@@ -5,6 +5,7 @@ pub mod decl;
 pub mod expr;
 pub mod generator;
 pub mod monomorph;
+pub mod patterns;
 pub mod stmt;
 pub mod traits;
 pub mod types;

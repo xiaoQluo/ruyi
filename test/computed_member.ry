@@ -1,0 +1,25 @@
+// Computed member access integration test
+// Tests dynamic key and numeric index access via [] operator
+
+// Test 1: String key lookup on object
+let key = "name";
+let obj = {name: "Ruyi", version: "0.3.0"};
+print(obj[key]);
+
+// Test 2: Integer index lookup on array
+let arr = ["a", "b", "c"];
+let i = 1;
+print(arr[i]);
+
+// Test 3: Another string key
+let field = "version";
+print(obj[field]);
+
+// Test 4: Another numeric index
+let idx = 2;
+print(arr[idx]);
+
+// Test 5: Invalid key returns null
+let invalidKey = "nonexistent";
+let result = obj[invalidKey];
+print(result);

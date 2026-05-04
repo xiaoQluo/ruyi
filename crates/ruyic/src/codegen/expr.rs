@@ -12,7 +12,7 @@ use inkwell::IntPredicate;
 
 use super::generator::CodegenContext;
 use super::types::ruyi_type_to_llvm;
-use crate::parser::ast::{BinaryOp, Expr, UnaryOp};
+use crate::parser::ast::{BinaryOp, Expr, TemplatePart, UnaryOp};
 use crate::typechecker::types::Type;
 
 /// Result of compiling an expression.
@@ -38,6 +38,8 @@ pub fn compile_expr<'ctx>(
         Expr::BooleanLiteral(b) => compile_bool_literal(ctx, *b),
         Expr::StringLiteral(s) => compile_string_literal(ctx, s),
         Expr::NullLiteral => compile_null_literal(ctx),
+        Expr::BigIntLiteral(n) => compile_bigint_literal(ctx, n),
+        Expr::TemplateLiteral(parts) => compile_template_literal(ctx, parts),
         Expr::Identifier(name) => compile_identifier(ctx, name),
         Expr::SelfExpr => compile_identifier(ctx, "self"),
         Expr::Binary { op, left, right } => compile_binary(ctx, op, left, right),
@@ -90,7 +92,11 @@ pub fn compile_expr<'ctx>(
         Expr::ArrayLiteral(elements) => compile_array_literal(ctx, elements),
         Expr::ObjectLiteral(properties) => compile_object_literal(ctx, properties),
         Expr::New { callee, args } => compile_new(ctx, callee, args),
-        Expr::Member { object, property, .. } => compile_member_access(ctx, object, property),
+        Expr::Member {
+            object,
+            property,
+            optional,
+        } => compile_member_access(ctx, object, property, *optional),
         _ => Err(format!("Unsupported expression: {:?}", expr)),
     }
 }
@@ -133,6 +139,73 @@ fn compile_string_literal<'ctx>(
     ))
 }
 
+fn compile_template_literal<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    parts: &[TemplatePart],
+) -> Result<ExprResult<'ctx>, String> {
+    if parts.is_empty() {
+        return compile_string_literal(ctx, "");
+    }
+
+    if parts.len() == 1 {
+        match &parts[0] {
+            TemplatePart::String(s) => return compile_string_literal(ctx, s),
+            TemplatePart::Expr(_) => {}
+        }
+    }
+
+    let concat_fn = ctx
+        .module
+        .get_function("ruyi_str_concat")
+        .expect("ruyi_str_concat not declared");
+
+    let mut result_ptr: Option<inkwell::values::PointerValue<'ctx>> = None;
+
+    for part in parts {
+        match part {
+            TemplatePart::String(s) => {
+                let global = ctx.builder.build_global_string_ptr(s, "tmpl_str");
+                let str_ptr = global.as_pointer_value();
+                match result_ptr {
+                    None => result_ptr = Some(str_ptr),
+                    Some(prev) => {
+                        let res = ctx
+                            .builder
+                            .build_call(concat_fn, &[prev.into(), str_ptr.into()], "str_concat")
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap()
+                            .into_pointer_value();
+                        result_ptr = Some(res);
+                    }
+                }
+            }
+            TemplatePart::Expr(expr) => {
+                let expr_result = compile_expr(ctx, expr)?;
+                let expr_ptr = value_to_i8_ptr(ctx, &expr_result.value)?;
+                match result_ptr {
+                    None => result_ptr = Some(expr_ptr),
+                    Some(prev) => {
+                        let res = ctx
+                            .builder
+                            .build_call(concat_fn, &[prev.into(), expr_ptr.into()], "str_concat")
+                            .try_as_basic_value()
+                            .left()
+                            .unwrap()
+                            .into_pointer_value();
+                        result_ptr = Some(res);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(ExprResult::new(
+        BasicValueEnum::PointerValue(result_ptr.unwrap()),
+        Type::String,
+    ))
+}
+
 fn compile_null_literal<'ctx>(ctx: &CodegenContext<'ctx, '_>) -> Result<ExprResult<'ctx>, String> {
     let null_ptr = ctx
         .context
@@ -142,6 +215,20 @@ fn compile_null_literal<'ctx>(ctx: &CodegenContext<'ctx, '_>) -> Result<ExprResu
     Ok(ExprResult::new(
         BasicValueEnum::PointerValue(null_ptr),
         Type::Null,
+    ))
+}
+
+fn compile_bigint_literal<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    n: &str,
+) -> Result<ExprResult<'ctx>, String> {
+    let global = ctx.builder.build_global_string_ptr(n, "bigint_lit");
+    let str_ptr = global.as_pointer_value();
+    let bigint_ptr =
+        super::builtins::build_ruyi_bigint_from_str(&ctx.builder, &ctx.module, str_ptr)?;
+    Ok(ExprResult::new(
+        BasicValueEnum::PointerValue(bigint_ptr),
+        Type::BigInt,
     ))
 }
 
@@ -175,12 +262,52 @@ fn compile_member_access<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_>,
     object: &Expr,
     property: &crate::parser::ast::MemberProperty,
+    optional: bool,
 ) -> Result<ExprResult<'ctx>, String> {
-    let field_name = match property {
-        crate::parser::ast::MemberProperty::Ident(n) => n.clone(),
-        _ => return Err("Only simple field access supported".to_string()),
-    };
+    match property {
+        crate::parser::ast::MemberProperty::Expr(key_expr) => {
+            let obj_result = compile_expr(ctx, object)?;
+            let key_result = compile_expr(ctx, key_expr)?;
+            let obj_ptr = value_to_i8_ptr(ctx, &obj_result.value)?;
+            let key_ptr = value_to_i8_ptr(ctx, &key_result.value)?;
+            let result =
+                super::builtins::build_ruyi_obj_get(&ctx.builder, &ctx.module, obj_ptr, key_ptr);
+            Ok(ExprResult::new(
+                BasicValueEnum::PointerValue(result),
+                Type::Dynamic,
+            ))
+        }
+        crate::parser::ast::MemberProperty::Ident(field_name) => {
+            if optional {
+                compile_optional_member_access(ctx, object, field_name)
+            } else {
+                compile_simple_member_access(ctx, object, field_name)
+            }
+        }
+    }
+}
 
+fn value_to_i8_ptr<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    value: &BasicValueEnum<'ctx>,
+) -> Result<inkwell::values::PointerValue<'ctx>, String> {
+    let i8_ptr_ty = ctx.context.i8_type().ptr_type(Default::default());
+    match value {
+        BasicValueEnum::PointerValue(p) => {
+            Ok(unsafe { ctx.builder.build_pointer_cast(*p, i8_ptr_ty, "cast_i8_ptr") })
+        }
+        BasicValueEnum::IntValue(v) => {
+            Ok(ctx.builder.build_int_to_ptr(*v, i8_ptr_ty, "int_to_ptr"))
+        }
+        _ => Err("Cannot convert value to i8* for runtime call".to_string()),
+    }
+}
+
+fn compile_simple_member_access<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    object: &Expr,
+    field_name: &str,
+) -> Result<ExprResult<'ctx>, String> {
     let (var_ptr, class_name, field_ty) = match object {
         Expr::Identifier(name) => {
             let (ptr, ty) = ctx
@@ -197,7 +324,7 @@ fn compile_member_access<'ctx>(
                 .ok_or_else(|| format!("Unknown class: {}", class_name))?;
             let field_ty = fields
                 .iter()
-                .find(|(n, _)| n == &field_name)
+                .find(|(n, _)| n == field_name)
                 .map(|(_, ty)| ty.clone())
                 .ok_or_else(|| format!("Unknown field: {} in class {}", field_name, class_name))?;
             (*ptr, class_name, field_ty)
@@ -217,7 +344,7 @@ fn compile_member_access<'ctx>(
                 .ok_or_else(|| format!("Unknown class: {}", class_name))?;
             let field_ty = fields
                 .iter()
-                .find(|(n, _)| n == &field_name)
+                .find(|(n, _)| n == field_name)
                 .map(|(_, ty)| ty.clone())
                 .ok_or_else(|| format!("Unknown field: {} in class {}", field_name, class_name))?;
             (*ptr, class_name, field_ty)
@@ -241,7 +368,7 @@ fn compile_member_access<'ctx>(
     };
 
     let fields = ctx.class_fields.get(&class_name).unwrap();
-    let field_index = fields.iter().position(|(n, _)| n == &field_name).unwrap();
+    let field_index = fields.iter().position(|(n, _)| n == field_name).unwrap();
 
     let i32_ty = ctx.context.i32_type();
     let field_ptr = unsafe {
@@ -256,8 +383,110 @@ fn compile_member_access<'ctx>(
     };
 
     let llvm_ty = ruyi_type_to_llvm(ctx.context, &field_ty);
-    let value = unsafe { ctx.builder.build_load(field_ptr, &field_name) };
+    let value = unsafe { ctx.builder.build_load(field_ptr, field_name) };
     Ok(ExprResult::new(value, field_ty))
+}
+
+fn compile_optional_member_access<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    object: &Expr,
+    field_name: &str,
+) -> Result<ExprResult<'ctx>, String> {
+    let obj_result = compile_expr(ctx, object)?;
+    let obj_ptr = obj_result.value.into_pointer_value();
+
+    let class_name = match &obj_result.ty {
+        Type::Named(n) => n.clone(),
+        Type::Nullable(inner) => match inner.as_ref() {
+            Type::Named(n) => n.clone(),
+            _ => return Err("Optional chaining only supported on class instances".to_string()),
+        },
+        _ => return Err("Optional chaining only supported on class instances".to_string()),
+    };
+
+    let fields = ctx
+        .class_fields
+        .get(&class_name)
+        .ok_or_else(|| format!("Unknown class: {}", class_name))?;
+    let field_ty = fields
+        .iter()
+        .find(|(n, _)| n == field_name)
+        .map(|(_, ty)| ty.clone())
+        .ok_or_else(|| format!("Unknown field: {} in class {}", field_name, class_name))?;
+
+    let func = ctx.current_function.ok_or("No current function")?;
+    let i64_ty = ctx.context.i64_type();
+    let obj_int = ctx.builder.build_ptr_to_int(obj_ptr, i64_ty, "obj_int");
+    let is_null = ctx.builder.build_int_compare(
+        inkwell::IntPredicate::EQ,
+        obj_int,
+        i64_ty.const_int(0, false),
+        "is_null",
+    );
+
+    let non_null_bb = ctx.context.append_basic_block(func, "opt_non_null");
+    let null_bb = ctx.context.append_basic_block(func, "opt_null");
+    let merge_bb = ctx.context.append_basic_block(func, "opt_merge");
+
+    ctx.builder
+        .build_conditional_branch(is_null, null_bb, non_null_bb);
+
+    ctx.builder.position_at_end(null_bb);
+    let llvm_ty = ruyi_type_to_llvm(ctx.context, &field_ty);
+    let null_val = build_zero_value(llvm_ty);
+    ctx.builder.build_unconditional_branch(merge_bb);
+
+    ctx.builder.position_at_end(non_null_bb);
+    let struct_type = ctx
+        .class_struct_types
+        .get(&class_name)
+        .ok_or_else(|| format!("No struct type for class: {}", class_name))?;
+    let struct_ptr = unsafe {
+        ctx.builder.build_pointer_cast(
+            obj_ptr,
+            struct_type.ptr_type(Default::default()),
+            &format!("{}_cast", class_name),
+        )
+    };
+    let field_index = fields.iter().position(|(n, _)| n == field_name).unwrap();
+    let i32_ty = ctx.context.i32_type();
+    let field_ptr = unsafe {
+        ctx.builder.build_gep(
+            struct_ptr,
+            &[
+                i32_ty.const_int(0, false),
+                i32_ty.const_int(field_index as u64, false),
+            ],
+            &format!("{}_ptr", field_name),
+        )
+    };
+    let value = unsafe { ctx.builder.build_load(field_ptr, field_name) };
+    ctx.builder.build_unconditional_branch(merge_bb);
+    let non_null_bb_end = ctx.builder.get_insert_block().unwrap();
+
+    ctx.builder.position_at_end(merge_bb);
+    let phi = ctx.builder.build_phi(llvm_ty, "opt_phi");
+    phi.add_incoming(&[(&null_val, null_bb), (&value, non_null_bb_end)]);
+
+    let result_ty = field_ty.make_nullable();
+    Ok(ExprResult::new(phi.as_basic_value(), result_ty))
+}
+
+fn build_zero_value<'ctx>(ty: inkwell::types::BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
+    match ty {
+        inkwell::types::BasicTypeEnum::IntType(t) => {
+            BasicValueEnum::IntValue(t.const_int(0, false))
+        }
+        inkwell::types::BasicTypeEnum::FloatType(t) => {
+            BasicValueEnum::FloatValue(t.const_float(0.0))
+        }
+        inkwell::types::BasicTypeEnum::PointerType(t) => {
+            BasicValueEnum::PointerValue(t.const_null())
+        }
+        inkwell::types::BasicTypeEnum::StructType(t) => BasicValueEnum::StructValue(t.const_zero()),
+        inkwell::types::BasicTypeEnum::ArrayType(t) => BasicValueEnum::ArrayValue(t.const_zero()),
+        inkwell::types::BasicTypeEnum::VectorType(t) => BasicValueEnum::VectorValue(t.const_zero()),
+    }
 }
 
 fn compile_binary<'ctx>(
@@ -713,7 +942,9 @@ fn compile_call<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     let (name, self_arg) = match callee {
         Expr::Identifier(n) => (n.clone(), None),
-        Expr::Member { object, property, .. } => {
+        Expr::Member {
+            object, property, ..
+        } => {
             let method_name = match property {
                 crate::parser::ast::MemberProperty::Ident(n) => n.clone(),
                 _ => return Err("Only simple method calls supported".to_string()),
@@ -866,7 +1097,9 @@ fn compile_assignment<'ctx>(
                 Err(format!("Undefined variable: {}", name))
             }
         }
-        Expr::Member { object, property, .. } => {
+        Expr::Member {
+            object, property, ..
+        } => {
             let field_name = match property {
                 crate::parser::ast::MemberProperty::Ident(n) => n.clone(),
                 _ => return Err("Only simple field assignments supported".to_string()),

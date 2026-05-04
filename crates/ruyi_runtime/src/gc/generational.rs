@@ -93,6 +93,49 @@ impl GenerationalCollector {
         self.roots.remove_global_root(ptr);
     }
 
+    /// Check whether `ptr` is a valid GC payload in either generation.
+    fn is_valid_payload(&self, ptr: *mut u8) -> bool {
+        if ptr.is_null() {
+            return false;
+        }
+        let header_addr = (ptr as usize).wrapping_sub(std::mem::size_of::<GcObjectHeader>())
+            as *mut GcObjectHeader;
+        let young_objs = self.young.objects();
+        let old_objs = self.old.objects();
+        young_objs.iter().any(|&h| h == header_addr) || old_objs.iter().any(|&h| h == header_addr)
+    }
+
+    /// Register all active async tasks as GC roots.
+    ///
+    /// This should be called before each full GC collection cycle so that
+    /// objects reachable from suspended async functions are not collected.
+    ///
+    /// # Arguments
+    ///
+    /// * `tasks` - Slice of (TaskId, Task) pairs to scan for GC pointers.
+    pub fn register_async_roots(&mut self, tasks: &[(crate::async_runtime::TaskId, crate::async_runtime::Task)]) {
+        let step = std::mem::size_of::<usize>();
+        for (_, task) in tasks {
+            let future_ref: &(dyn crate::async_runtime::RuyiFuture<Output = ()> + Send) = &*task.future;
+            let data_ptr = future_ref as *const (dyn crate::async_runtime::RuyiFuture<Output = ()> + Send) as *const u8;
+            let size = std::mem::size_of_val(future_ref);
+            if data_ptr.is_null() || size == 0 {
+                continue;
+            }
+            let mut offset = 0;
+            while offset + step <= size {
+                let word = unsafe { std::ptr::read_unaligned(data_ptr.add(offset) as *const usize) };
+                let candidate = word as *mut u8;
+                if !candidate.is_null() && self.is_valid_payload(candidate) {
+                    unsafe {
+                        self.add_root(candidate);
+                    }
+                }
+                offset += step;
+            }
+        }
+    }
+
     /// Run a minor collection (young generation only).
     pub fn collect_young(&self) {
         if !self.enabled {

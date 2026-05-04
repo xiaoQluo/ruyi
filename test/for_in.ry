@@ -1,0 +1,24 @@
+// For-in loop integration test
+// Tests object key iteration
+
+// Basic for-in loop
+let obj = {a: 1, b: 2, c: 3};
+for (let k in obj) {
+    print(k);
+}
+
+// Empty object - should produce no output
+let empty = {};
+for (let k in empty) {
+    print("FAIL");
+}
+
+// Nested for-in loops
+let outer = {x: 10, y: 20};
+let inner = {p: 1, q: 2};
+for (let ok in outer) {
+    print(ok);
+    for (let ik in inner) {
+        print(ik);
+    }
+}

@@ -309,61 +309,6 @@ pub extern "C" fn ruyi_array_pop(arr: *mut i8) -> *mut i8 {
     }
 }
 
-/// C-compatible wrapper for `ruyi_throw`.
-///
-/// Uses the C++ exception ABI (`__cxa_throw`) so that LLVM landing pads
-/// with `__gxx_personality_v0` can catch the exception.
-#[no_mangle]
-pub extern "C-unwind" fn ruyi_throw(exception: *mut crate::exception::types::ExceptionObject) -> ! {
-        extern "C" {
-            fn __cxa_allocate_exception(thrown_size: usize) -> *mut std::ffi::c_void;
-            fn __cxa_throw(
-                thrown_exception: *mut std::ffi::c_void,
-                tinfo: *mut std::ffi::c_void,
-                dest: *mut std::ffi::c_void,
-            );
-        }
-        unsafe {
-            let obj = __cxa_allocate_exception(std::mem::size_of::<crate::exception::types::ExceptionObject>());
-            std::ptr::copy_nonoverlapping(
-                exception as *const _,
-                obj as *mut crate::exception::types::ExceptionObject,
-                1,
-            );
-            __cxa_throw(obj, std::ptr::null_mut(), std::ptr::null_mut());
-            std::hint::unreachable_unchecked()
-        }
-}
-
-/// C-compatible wrapper for `ruyi_begin_catch`.
-///
-/// Calls `__cxa_begin_catch` to unwrap the C++ exception object and
-/// return the user payload pointer.
-#[no_mangle]
-pub extern "C" fn ruyi_begin_catch(exception_ptr: *mut u8) -> *mut crate::exception::types::ExceptionObject {
-    extern "C" {
-        fn __cxa_begin_catch(unwind_exception: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
-    }
-    unsafe { __cxa_begin_catch(exception_ptr as *mut _) as *mut crate::exception::types::ExceptionObject }
-}
-
-/// C-compatible wrapper for `ruyi_end_catch`.
-///
-/// Calls `__cxa_end_catch` to release C++ exception resources.
-#[no_mangle]
-pub extern "C" fn ruyi_end_catch() {
-    extern "C" {
-        fn __cxa_end_catch();
-    }
-    unsafe { __cxa_end_catch() }
-}
-
-/// C-compatible wrapper for `ruyi_finally`.
-#[no_mangle]
-pub extern "C" fn ruyi_finally(pending_exception: *mut crate::exception::types::ExceptionObject) -> *mut crate::exception::types::ExceptionObject {
-    unsafe { crate::exception::runtime::ruyi_finally(pending_exception) }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

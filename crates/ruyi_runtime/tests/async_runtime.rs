@@ -101,9 +101,24 @@ fn test_yielding_future() {
 
 #[test]
 fn test_ruyi_await() {
-    let ptr: *mut u8 = 0x1234 as *mut u8;
+    unsafe extern "C" fn immediate_poll(_ptr: *mut u8, _waker: *mut u8) -> i32 {
+        1
+    }
+
+    let layout = std::alloc::Layout::from_size_align(16, 8).unwrap();
+    let ptr = unsafe { std::alloc::alloc(layout) };
+    assert!(!ptr.is_null());
+
+    unsafe {
+        std::ptr::write(ptr as *mut *mut u8, immediate_poll as *mut u8);
+    }
+
     let result = ruyi_await(ptr);
     assert_eq!(result, ptr);
+
+    unsafe {
+        std::alloc::dealloc(ptr, layout);
+    }
 }
 
 #[test]

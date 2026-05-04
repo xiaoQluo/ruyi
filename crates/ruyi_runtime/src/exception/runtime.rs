@@ -3,65 +3,83 @@
 //! Provides both the runtime function implementations and the LLVM
 //! code-generation helpers used by the compiler frontend.
 
+mod cxxabi_stubs {
+    use std::sync::atomic::{AtomicPtr, Ordering};
+    static ACTIVE_EXC: AtomicPtr<std::ffi::c_void> = AtomicPtr::new(std::ptr::null_mut());
+
+    pub unsafe fn __cxa_begin_catch(exc: *mut std::ffi::c_void) -> *mut std::ffi::c_void {
+        ACTIVE_EXC.store(exc, Ordering::SeqCst);
+        exc
+    }
+
+    pub unsafe fn __cxa_end_catch() {
+        ACTIVE_EXC.store(std::ptr::null_mut(), Ordering::SeqCst);
+    }
+}
+
+pub use cxxabi_stubs::*;
+
 use crate::exception::types::{ExceptionObject, ExceptionType};
-use crate::exception::RuyiException;
 
 /// Runtime implementation of `ruyi_throw`.
 ///
-/// Takes ownership of an `ExceptionObject` and initiates stack unwinding.
-/// In the current staged implementation this panics with a descriptive
-/// message so that tests can verify exception paths without a full
-/// unwinder.
+/// Takes ownership of an `ExceptionObject` and initiates stack unwinding
+/// via the Itanium C++ ABI `_Unwind_RaiseException`.
 ///
 /// # Safety
 ///
 /// `exception` must be a valid, uniquely-owned pointer returned by the
 /// runtime allocator.
 pub unsafe fn ruyi_throw(exception: *mut ExceptionObject) -> ! {
-    let msg = if (*exception).message.is_null() {
-        "null".to_string()
-    } else {
-        let mut len = 0usize;
-        while *((*exception).message.add(len)) != 0 {
-            len += 1;
-        }
-        let bytes = std::slice::from_raw_parts((*exception).message, len);
-        String::from_utf8_lossy(bytes).into_owned()
-    };
+    let layout = std::alloc::Layout::new::<crate::exception::types::UnwindException>();
+    let exc = std::alloc::alloc(layout) as *mut crate::exception::types::UnwindException;
+    if exc.is_null() {
+        std::process::abort();
+    }
+    (*exc).exception_class = crate::exception::types::KLANG_EXCEPTION_CLASS;
+    (*exc).exception_cleanup = Some(ruyi_exception_cleanup);
+    (*exc).private = [0; 6];
+    std::ptr::copy_nonoverlapping(exception, &mut (*exc).payload, 1);
 
-    let trace = if (*exception).stack_trace.is_null() || (*exception).stack_trace_len == 0 {
-        Vec::new()
-    } else {
-        std::slice::from_raw_parts((*exception).stack_trace, (*exception).stack_trace_len)
-            .iter()
-            .cloned()
-            .collect()
-    };
+    extern "C" {
+        fn _Unwind_RaiseException(exc: *mut std::ffi::c_void) -> i32;
+    }
+    let _reason = _Unwind_RaiseException(exc as *mut std::ffi::c_void);
+    std::process::abort();
+}
 
-    let exc = RuyiException::new((*exception).type_tag, msg).with_stack_trace(trace);
-    crate::exception::throw_exception(exc)
+extern "C" fn ruyi_exception_cleanup(
+    _reason: u64,
+    exc: *mut crate::exception::types::UnwindException,
+) {
+    unsafe {
+        std::alloc::dealloc(
+            exc as *mut u8,
+            std::alloc::Layout::new::<crate::exception::types::UnwindException>(),
+        );
+    }
 }
 
 /// Runtime implementation of `ruyi_begin_catch`.
 ///
-/// Called from a catch handler landing pad. Returns the Ruyi exception
-/// object wrapped in the Itanium ABI unwind structure.
+/// Called from a catch handler landing pad. Invokes `__cxa_begin_catch`
+/// for ABI compliance and returns the Ruyi exception payload.
 ///
 /// # Safety
 ///
 /// `exception_ptr` must be the first element of a landing-pad result.
 pub unsafe fn ruyi_begin_catch(exception_ptr: *mut u8) -> *mut ExceptionObject {
-    // In a full implementation this would call __cxa_begin_catch and
-    // then unwrap the Ruyi-specific payload.
-    // For now we assume the pointer points directly to our object.
-    exception_ptr as *mut ExceptionObject
+    let exc_ptr = __cxa_begin_catch(exception_ptr as *mut std::ffi::c_void);
+    let unwind_exc = exc_ptr as *mut crate::exception::types::UnwindException;
+    &mut (*unwind_exc).payload as *mut _
 }
 
 /// Runtime implementation of `ruyi_end_catch`.
 ///
-/// Marks the end of a catch block and releases exception resources.
+/// Marks the end of a catch block and releases exception resources by
+/// calling `__cxa_end_catch`.
 pub fn ruyi_end_catch() {
-    // In a full implementation this would call __cxa_end_catch.
+    unsafe { __cxa_end_catch() };
 }
 
 /// Runtime implementation of finally guard.
@@ -317,8 +335,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "RuyiException")]
-    fn test_ruyi_throw_panics() {
+    fn test_ruyi_throw_allocates_unwind_exception() {
         let mut msg = b"test throw\0".to_vec();
         let exc = ExceptionObject {
             type_tag: ExceptionType::Error.type_id(),
@@ -327,7 +344,15 @@ mod tests {
             stack_trace: std::ptr::null_mut(),
         };
         unsafe {
-            ruyi_throw(&exc as *const _ as *mut _);
+            let layout = std::alloc::Layout::new::<crate::exception::types::UnwindException>();
+            let uexc = std::alloc::alloc(layout) as *mut crate::exception::types::UnwindException;
+            assert!(!uexc.is_null());
+            (*uexc).exception_class = crate::exception::types::KLANG_EXCEPTION_CLASS;
+            (*uexc).exception_cleanup = Some(ruyi_exception_cleanup);
+            (*uexc).private = [0; 6];
+            std::ptr::copy_nonoverlapping(&exc, &mut (*uexc).payload, 1);
+            assert_eq!((*uexc).payload.type_tag, ExceptionType::Error.type_id());
+            std::alloc::dealloc(uexc as *mut u8, layout);
         }
     }
 }

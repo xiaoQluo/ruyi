@@ -2,7 +2,8 @@ pub mod alloc;
 pub mod arc;
 pub mod async_exports;
 pub mod async_runtime;
-pub mod c_exports;
+pub mod builtins;
+mod c_exports;
 pub mod exception;
 pub mod gc;
 pub mod gc_exports;
@@ -19,6 +20,11 @@ pub use arc::{
 pub use async_runtime::{
     register_async_roots, ruyi_await, JoinAll, Poll, Race, RuyiFuture, Scheduler, Task, TaskId,
     Waker, WorkStealingDeque, GLOBAL_SCHEDULER,
+};
+pub use builtins::{
+    ruyi_array_alloc, ruyi_array_get, ruyi_array_length, ruyi_array_pop, ruyi_array_push,
+    ruyi_array_set, ruyi_bigint_from_str, ruyi_float_to_string, ruyi_int_to_string,
+    ruyi_member_access, ruyi_object_alloc, ruyi_string_concat,
 };
 #[cfg(feature = "inkwell")]
 pub use exception::landing_pad::llvm::LandingPadGenerator;
