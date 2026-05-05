@@ -75,8 +75,6 @@ pub enum Token {
     Delete,
     /// `as` keyword
     As,
-    /// `from` keyword
-    From,
     /// `extends` keyword
     Extends,
     /// `impl` keyword
@@ -97,6 +95,8 @@ pub enum Token {
     Break,
     /// `continue` keyword
     Continue,
+    /// `yield` keyword (generators)
+    Yield,
     /// `_` wildcard
     Underscore,
 
@@ -301,7 +301,6 @@ impl Token {
             Token::Void => "keyword 'void'".into(),
             Token::Delete => "keyword 'delete'".into(),
             Token::As => "keyword 'as'".into(),
-            Token::From => "keyword 'from'".into(),
             Token::Extends => "keyword 'extends'".into(),
             Token::Static => "keyword 'static'".into(),
             Token::Get => "keyword 'get'".into(),
@@ -310,6 +309,7 @@ impl Token {
             Token::Of => "keyword 'of'".into(),
             Token::Break => "keyword 'break'".into(),
             Token::Continue => "keyword 'continue'".into(),
+            Token::Yield => "keyword 'yield'".into(),
             Token::Underscore => "'_'".into(),
             Token::Ident(_) => "identifier".into(),
             Token::Int(_) => "integer literal".into(),
@@ -423,7 +423,6 @@ impl Token {
                 | Token::Void
                 | Token::Delete
                 | Token::As
-                | Token::From
                 | Token::Extends
                 | Token::Static
                 | Token::Get

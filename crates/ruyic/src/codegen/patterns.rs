@@ -35,9 +35,7 @@ pub fn compile_match_stmt<'ctx>(
         Type::Int | Type::BigInt => compile_int_match(ctx, &scrutinee, arms, merge_bb),
         Type::Bool => compile_bool_match(ctx, &scrutinee, arms, merge_bb),
         Type::String => compile_string_match(ctx, &scrutinee, arms, merge_bb),
-        Type::Nullable(_) | Type::Null => {
-            compile_nullable_match(ctx, &scrutinee, arms, merge_bb)
-        }
+        Type::Nullable(_) | Type::Null => compile_nullable_match(ctx, &scrutinee, arms, merge_bb),
         _ => compile_generic_match(ctx, &scrutinee, arms, merge_bb),
     }
 }
@@ -56,7 +54,8 @@ fn bind_pattern<'ctx>(
             let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &scrutinee.ty);
             let ptr = ctx.builder.build_alloca(llvm_ty, name);
             ctx.builder.build_store(ptr, scrutinee.value);
-            ctx.variables.insert(name.clone(), (ptr, scrutinee.ty.clone()));
+            ctx.variables
+                .insert(name.clone(), (ptr, scrutinee.ty.clone()));
             Ok(())
         }
         Pattern::Wildcard => Ok(()),
@@ -65,7 +64,8 @@ fn bind_pattern<'ctx>(
             let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &scrutinee.ty);
             let ptr = ctx.builder.build_alloca(llvm_ty, alias);
             ctx.builder.build_store(ptr, scrutinee.value);
-            ctx.variables.insert(alias.clone(), (ptr, scrutinee.ty.clone()));
+            ctx.variables
+                .insert(alias.clone(), (ptr, scrutinee.ty.clone()));
             Ok(())
         }
         Pattern::Literal(_) => Ok(()),
@@ -116,20 +116,21 @@ fn compile_int_match<'ctx>(
     let func = ctx.current_function.ok_or("No current function")?;
 
     let mut arm_bbs = Vec::with_capacity(arms.len());
-    let mut cases: Vec<(inkwell::values::IntValue<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)> =
-        Vec::new();
+    let mut cases: Vec<(
+        inkwell::values::IntValue<'ctx>,
+        inkwell::basic_block::BasicBlock<'ctx>,
+    )> = Vec::new();
     let mut default_bb: Option<inkwell::basic_block::BasicBlock<'ctx>> = None;
 
     for (i, arm) in arms.iter().enumerate() {
-        let bb = ctx.context.append_basic_block(func, &format!("int_arm_{}", i));
+        let bb = ctx
+            .context
+            .append_basic_block(func, &format!("int_arm_{}", i));
         arm_bbs.push(bb);
         match &arm.pattern {
             Pattern::Literal(lit) => {
                 if let Expr::IntLiteral(n) = lit.as_ref() {
-                    cases.push((
-                        ctx.context.i64_type().const_int(*n as u64, true),
-                        bb,
-                    ));
+                    cases.push((ctx.context.i64_type().const_int(*n as u64, true), bb));
                 }
             }
             Pattern::Wildcard | Pattern::Identifier(_) => {
@@ -153,7 +154,8 @@ fn compile_int_match<'ctx>(
         _ => return Err("Int match requires integer scrutinee".to_string()),
     };
 
-    ctx.builder.build_switch(scrutinee_int, default_block, &cases);
+    ctx.builder
+        .build_switch(scrutinee_int, default_block, &cases);
 
     compile_arm_bodies(ctx, arms, &arm_bbs, merge_bb, scrutinee)
 }
@@ -176,7 +178,9 @@ fn compile_bool_match<'ctx>(
     let mut default_bb: Option<inkwell::basic_block::BasicBlock<'ctx>> = None;
 
     for (i, arm) in arms.iter().enumerate() {
-        let bb = ctx.context.append_basic_block(func, &format!("bool_arm_{}", i));
+        let bb = ctx
+            .context
+            .append_basic_block(func, &format!("bool_arm_{}", i));
         arm_bbs.push(bb);
         match &arm.pattern {
             Pattern::Literal(lit) => {
@@ -229,7 +233,9 @@ fn compile_string_match<'ctx>(
     let mut default_bb: Option<inkwell::basic_block::BasicBlock<'ctx>> = None;
 
     for (i, arm) in arms.iter().enumerate() {
-        let bb = ctx.context.append_basic_block(func, &format!("str_arm_{}", i));
+        let bb = ctx
+            .context
+            .append_basic_block(func, &format!("str_arm_{}", i));
         arm_bbs.push(bb);
         match &arm.pattern {
             Pattern::Literal(lit) => {
@@ -253,21 +259,19 @@ fn compile_string_match<'ctx>(
 
     // Build a chain of strcmp calls for each literal arm
     let i32_ty = ctx.context.i32_type();
-    let strcmp_fn = ctx
-        .module
-        .get_function("strcmp")
-        .unwrap_or_else(|| {
-            let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
-            let fn_type = i32_ty.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
-            ctx.module.add_function("strcmp", fn_type, None)
-        });
+    let strcmp_fn = ctx.module.get_function("strcmp").unwrap_or_else(|| {
+        let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
+        let fn_type = i32_ty.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+        ctx.module.add_function("strcmp", fn_type, None)
+    });
 
     let mut check_bbs: Vec<inkwell::basic_block::BasicBlock<'ctx>> = Vec::new();
     for (i, (s, target_bb)) in literal_arms.iter().enumerate() {
         let check_bb = if i == 0 {
             ctx.builder.get_insert_block().unwrap()
         } else {
-            ctx.context.append_basic_block(func, &format!("str_check_{}", i))
+            ctx.context
+                .append_basic_block(func, &format!("str_check_{}", i))
         };
         if i > 0 {
             check_bbs.push(check_bb);
@@ -294,12 +298,14 @@ fn compile_string_match<'ctx>(
         );
 
         let next_bb = if i + 1 < literal_arms.len() {
-            ctx.context.append_basic_block(func, &format!("str_check_{}", i + 1))
+            ctx.context
+                .append_basic_block(func, &format!("str_check_{}", i + 1))
         } else {
             default_bb.unwrap_or(merge_bb)
         };
 
-        ctx.builder.build_conditional_branch(is_equal, *target_bb, next_bb);
+        ctx.builder
+            .build_conditional_branch(is_equal, *target_bb, next_bb);
     }
 
     compile_arm_bodies(ctx, arms, &arm_bbs, merge_bb, scrutinee)
@@ -324,7 +330,9 @@ fn compile_nullable_match<'ctx>(
     let mut default_bb: Option<inkwell::basic_block::BasicBlock<'ctx>> = None;
 
     for (i, arm) in arms.iter().enumerate() {
-        let bb = ctx.context.append_basic_block(func, &format!("null_arm_{}", i));
+        let bb = ctx
+            .context
+            .append_basic_block(func, &format!("null_arm_{}", i));
         arm_bbs.push(bb);
         match &arm.pattern {
             Pattern::Literal(lit) => {
@@ -370,11 +378,7 @@ fn compile_nullable_match<'ctx>(
                 "is_null_int",
             )
         }
-        _ => {
-            return Err(
-                "Nullable match requires pointer or integer scrutinee".to_string(),
-            )
-        }
+        _ => return Err("Nullable match requires pointer or integer scrutinee".to_string()),
     };
 
     let null_target = null_bb.or(default_bb).unwrap_or(merge_bb);
@@ -400,7 +404,9 @@ fn compile_generic_match<'ctx>(
 
     let mut arm_bbs = Vec::with_capacity(arms.len());
     for (i, _) in arms.iter().enumerate() {
-        let bb = ctx.context.append_basic_block(func, &format!("match_arm_{}", i));
+        let bb = ctx
+            .context
+            .append_basic_block(func, &format!("match_arm_{}", i));
         arm_bbs.push(bb);
     }
 

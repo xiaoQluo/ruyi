@@ -1,3 +1,4 @@
+use inkwell::types::BasicType;
 /**
  * Expression code generation for Ruyi.
  *
@@ -11,8 +12,10 @@ use inkwell::FloatPredicate;
 use inkwell::IntPredicate;
 
 use super::generator::CodegenContext;
-use super::types::ruyi_type_to_llvm;
-use crate::parser::ast::{BinaryOp, Expr, TemplatePart, UnaryOp};
+use super::types::{function_type_from_ruyi, ruyi_type_to_llvm};
+use crate::parser::ast::{
+    ArrowBody, BinaryOp, Expr, Param, Pattern, Statement, TemplatePart, UnaryOp,
+};
 use crate::typechecker::types::Type;
 
 /// Result of compiling an expression.
@@ -24,6 +27,270 @@ pub struct ExprResult<'ctx> {
 impl<'ctx> ExprResult<'ctx> {
     pub fn new(value: BasicValueEnum<'ctx>, ty: Type) -> Self {
         Self { value, ty }
+    }
+}
+
+/// Infer the type of an expression for arrow-function return-type deduction.
+/// Only handles the common literal/identifier/binary cases needed for codegen.
+fn infer_expr_type(expr: &Expr, param_types: &std::collections::HashMap<String, Type>) -> Type {
+    match expr {
+        Expr::IntLiteral(_) => Type::Int,
+        Expr::FloatLiteral(_) => Type::Float,
+        Expr::BooleanLiteral(_) => Type::Bool,
+        Expr::StringLiteral(_) => Type::String,
+        Expr::NullLiteral => Type::Null,
+        Expr::BigIntLiteral(_) => Type::BigInt,
+        Expr::Identifier(name) => param_types.get(name).cloned().unwrap_or(Type::Dynamic),
+        Expr::Binary { op, left, right } => {
+            let left_ty = infer_expr_type(left, param_types);
+            let right_ty = infer_expr_type(right, param_types);
+            match op {
+                BinaryOp::Plus => {
+                    if left_ty == Type::String || right_ty == Type::String {
+                        Type::String
+                    } else if left_ty == Type::Float || right_ty == Type::Float {
+                        Type::Float
+                    } else {
+                        Type::Int
+                    }
+                }
+                BinaryOp::Minus | BinaryOp::Star | BinaryOp::Slash | BinaryOp::Percent => {
+                    if left_ty == Type::Float || right_ty == Type::Float {
+                        Type::Float
+                    } else {
+                        Type::Int
+                    }
+                }
+                BinaryOp::StrictEquals
+                | BinaryOp::StrictNotEquals
+                | BinaryOp::Less
+                | BinaryOp::Greater
+                | BinaryOp::LessEq
+                | BinaryOp::GreaterEq
+                | BinaryOp::And
+                | BinaryOp::Or => Type::Bool,
+                _ => Type::Dynamic,
+            }
+        }
+        Expr::Unary { op, operand } => match op {
+            UnaryOp::Minus => infer_expr_type(operand, param_types),
+            UnaryOp::Not => Type::Bool,
+            UnaryOp::Tilde => Type::Int,
+            _ => Type::Dynamic,
+        },
+        Expr::Conditional {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            let then_ty = infer_expr_type(then_branch, param_types);
+            let else_ty = infer_expr_type(else_branch, param_types);
+            then_ty.least_upper_bound(&else_ty)
+        }
+        Expr::Grouping(inner) => infer_expr_type(inner, param_types),
+        _ => Type::Dynamic,
+    }
+}
+
+/// Infer parameter types for an arrow function from its body.
+fn infer_arrow_param_types(params: &[Param], body: &ArrowBody) -> Vec<Type> {
+    let mut param_map: std::collections::HashMap<String, Type> = std::collections::HashMap::new();
+    for param in params {
+        if let Pattern::Identifier(name) = &param.pattern {
+            param_map.insert(name.clone(), Type::Dynamic);
+        }
+    }
+
+    match body {
+        ArrowBody::Expr(expr) => infer_param_types_expr(expr, &mut param_map),
+        ArrowBody::Block(stmts) => {
+            for stmt in stmts {
+                infer_param_types_stmt(stmt, &mut param_map);
+            }
+        }
+    }
+
+    params
+        .iter()
+        .map(|p| {
+            p.ty.as_ref().map(Type::from_annotation).unwrap_or_else(|| {
+                if let Pattern::Identifier(name) = &p.pattern {
+                    param_map.get(name).cloned().unwrap_or(Type::Dynamic)
+                } else {
+                    Type::Dynamic
+                }
+            })
+        })
+        .collect()
+}
+
+fn infer_param_types_expr(expr: &Expr, param_map: &mut std::collections::HashMap<String, Type>) {
+    match expr {
+        Expr::Binary { op, left, right } => {
+            if matches!(
+                op,
+                BinaryOp::Plus
+                    | BinaryOp::Minus
+                    | BinaryOp::Star
+                    | BinaryOp::Slash
+                    | BinaryOp::Percent
+            ) {
+                if is_int_literal(left) && is_param_identifier(right) {
+                    if let Some(name) = get_identifier_name(right) {
+                        param_map.insert(name, Type::Int);
+                    }
+                }
+                if is_int_literal(right) && is_param_identifier(left) {
+                    if let Some(name) = get_identifier_name(left) {
+                        param_map.insert(name, Type::Int);
+                    }
+                }
+                if is_float_literal(left) && is_param_identifier(right) {
+                    if let Some(name) = get_identifier_name(right) {
+                        param_map.insert(name, Type::Float);
+                    }
+                }
+                if is_float_literal(right) && is_param_identifier(left) {
+                    if let Some(name) = get_identifier_name(left) {
+                        param_map.insert(name, Type::Float);
+                    }
+                }
+                if is_param_identifier(left) && is_param_identifier(right) {
+                    if let (Some(lname), Some(rname)) =
+                        (get_identifier_name(left), get_identifier_name(right))
+                    {
+                        if lname == rname {
+                            if matches!(
+                                op,
+                                BinaryOp::Star
+                                    | BinaryOp::Minus
+                                    | BinaryOp::Slash
+                                    | BinaryOp::Percent
+                            ) {
+                                param_map.insert(lname, Type::Int);
+                            }
+                        }
+                    }
+                }
+            }
+            if *op == BinaryOp::Plus {
+                if is_string_literal(left) && is_param_identifier(right) {
+                    if let Some(name) = get_identifier_name(right) {
+                        param_map.insert(name, Type::String);
+                    }
+                }
+                if is_string_literal(right) && is_param_identifier(left) {
+                    if let Some(name) = get_identifier_name(left) {
+                        param_map.insert(name, Type::String);
+                    }
+                }
+            }
+            infer_param_types_expr(left, param_map);
+            infer_param_types_expr(right, param_map);
+        }
+        Expr::Call { callee, args } => {
+            if let Expr::Identifier(callee_name) = callee.as_ref() {
+                if callee_name == "print" {
+                    for arg in args {
+                        if let crate::parser::ast::Argument::Expr(arg_expr) = arg {
+                            if is_param_identifier(arg_expr) {
+                                if let Some(name) = get_identifier_name(arg_expr) {
+                                    if param_map.get(&name) == Some(&Type::Dynamic) {
+                                        param_map.insert(name, Type::String);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            for arg in args {
+                if let crate::parser::ast::Argument::Expr(e) = arg {
+                    infer_param_types_expr(e, param_map);
+                }
+            }
+        }
+        Expr::Unary { operand, .. } => infer_param_types_expr(operand, param_map),
+        Expr::Conditional {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            infer_param_types_expr(condition, param_map);
+            infer_param_types_expr(then_branch, param_map);
+            infer_param_types_expr(else_branch, param_map);
+        }
+        Expr::Grouping(inner) => infer_param_types_expr(inner, param_map),
+        _ => {}
+    }
+}
+
+fn infer_param_types_stmt(
+    stmt: &Statement,
+    param_map: &mut std::collections::HashMap<String, Type>,
+) {
+    match stmt {
+        Statement::Expression(expr) => infer_param_types_expr(expr, param_map),
+        Statement::Return(Some(expr)) => infer_param_types_expr(expr, param_map),
+        Statement::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            infer_param_types_expr(condition, param_map);
+            infer_param_types_stmt(then_branch, param_map);
+            if let Some(else_b) = else_branch {
+                infer_param_types_stmt(else_b, param_map);
+            }
+        }
+        Statement::Block(stmts) => {
+            for s in stmts {
+                infer_param_types_stmt(s, param_map);
+            }
+        }
+        Statement::For {
+            body, init, update, ..
+        } => {
+            if let Some(crate::parser::ast::ForInit::Expr(init_expr)) = init {
+                infer_param_types_expr(init_expr, param_map);
+            }
+            if let Some(update_expr) = update {
+                infer_param_types_expr(update_expr, param_map);
+            }
+            infer_param_types_stmt(body, param_map);
+        }
+        Statement::ForOf { body, .. } => {
+            infer_param_types_stmt(body, param_map);
+        }
+        Statement::While { condition, body } => {
+            infer_param_types_expr(condition, param_map);
+            infer_param_types_stmt(body, param_map);
+        }
+        _ => {}
+    }
+}
+
+fn is_int_literal(expr: &Expr) -> bool {
+    matches!(expr, Expr::IntLiteral(_))
+}
+
+fn is_float_literal(expr: &Expr) -> bool {
+    matches!(expr, Expr::FloatLiteral(_))
+}
+
+fn is_string_literal(expr: &Expr) -> bool {
+    matches!(expr, Expr::StringLiteral(_))
+}
+
+fn is_param_identifier(expr: &Expr) -> bool {
+    matches!(expr, Expr::Identifier(_))
+}
+
+fn get_identifier_name(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Identifier(name) => Some(name.clone()),
+        _ => None,
     }
 }
 
@@ -44,6 +311,7 @@ pub fn compile_expr<'ctx>(
         Expr::SelfExpr => compile_identifier(ctx, "self"),
         Expr::Binary { op, left, right } => compile_binary(ctx, op, left, right),
         Expr::Unary { op, operand } => compile_unary(ctx, op, operand),
+        Expr::NullAssert(expr) => compile_expr(ctx, expr),
         Expr::Call { callee, args } => compile_call(ctx, callee, args),
         Expr::Assignment { left, op, right } => compile_assignment(ctx, left, op, right),
         Expr::Conditional {
@@ -51,6 +319,11 @@ pub fn compile_expr<'ctx>(
             then_branch,
             else_branch,
         } => compile_conditional(ctx, condition, then_branch, else_branch),
+        Expr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => compile_if_expr(ctx, condition, then_branch, else_branch.as_deref()),
         Expr::Grouping(inner) => compile_expr(ctx, inner),
         Expr::Await(inner) => super::async_codegen::compile_await(ctx, inner),
         Expr::Function {
@@ -87,6 +360,70 @@ pub fn compile_expr<'ctx>(
                 }
             } else {
                 Err("Anonymous functions not yet supported".to_string())
+            }
+        }
+        Expr::ArrowFunction {
+            params,
+            return_type,
+            body,
+            is_async,
+        } => {
+            if *is_async {
+                return Err("Async arrow functions not yet supported".to_string());
+            }
+            let name = format!("__arrow_{}", ctx.arrow_counter);
+            ctx.arrow_counter += 1;
+
+            let body_stmts = match body {
+                ArrowBody::Expr(expr) => {
+                    vec![Statement::Return(Some(expr.clone()))]
+                }
+                ArrowBody::Block(stmts) => stmts.clone(),
+            };
+
+            let inferred_param_types = infer_arrow_param_types(params, body);
+
+            // Infer return type from body when not annotated
+            let inferred_ret_type = return_type
+                .as_ref()
+                .map(Type::from_annotation)
+                .unwrap_or_else(|| {
+                    let mut param_types_map = std::collections::HashMap::new();
+                    for (param, ty) in params.iter().zip(inferred_param_types.iter()) {
+                        if let crate::parser::ast::Pattern::Identifier(param_name) = &param.pattern
+                        {
+                            param_types_map.insert(param_name.clone(), ty.clone());
+                        }
+                    }
+                    match body {
+                        ArrowBody::Expr(expr) => infer_expr_type(expr, &param_types_map),
+                        ArrowBody::Block(_) => Type::Void,
+                    }
+                });
+
+            super::decl::compile_function(
+                ctx,
+                &name,
+                params,
+                return_type.as_ref(),
+                Some(&inferred_param_types),
+                Some(&inferred_ret_type),
+                &body_stmts,
+            )?;
+
+            if let Some(func) = ctx.module.get_function(&name) {
+                Ok(ExprResult::new(
+                    BasicValueEnum::PointerValue(func.as_global_value().as_pointer_value()),
+                    Type::Function {
+                        params: inferred_param_types,
+                        return_type: Box::new(inferred_ret_type),
+                    },
+                ))
+            } else {
+                Err(format!(
+                    "Arrow function not found after compilation: {}",
+                    name
+                ))
             }
         }
         Expr::ArrayLiteral(elements) => compile_array_literal(ctx, elements),
@@ -294,7 +631,7 @@ fn value_to_i8_ptr<'ctx>(
     let i8_ptr_ty = ctx.context.i8_type().ptr_type(Default::default());
     match value {
         BasicValueEnum::PointerValue(p) => {
-            Ok(unsafe { ctx.builder.build_pointer_cast(*p, i8_ptr_ty, "cast_i8_ptr") })
+            Ok(ctx.builder.build_pointer_cast(*p, i8_ptr_ty, "cast_i8_ptr"))
         }
         BasicValueEnum::IntValue(v) => {
             Ok(ctx.builder.build_int_to_ptr(*v, i8_ptr_ty, "int_to_ptr"))
@@ -308,26 +645,39 @@ fn compile_simple_member_access<'ctx>(
     object: &Expr,
     field_name: &str,
 ) -> Result<ExprResult<'ctx>, String> {
-    let (var_ptr, class_name, field_ty) = match object {
+    let (var_ptr, field_ty, field_index) = match object {
         Expr::Identifier(name) => {
             let (ptr, ty) = ctx
                 .variables
                 .get(name)
                 .ok_or_else(|| format!("Undefined variable: {}", name))?;
-            let class_name = match ty {
-                Type::Named(n) => n.clone(),
+            match ty {
+                Type::Named(class_name) => {
+                    let class_name = class_name.clone();
+                    let fields = ctx
+                        .class_fields
+                        .get(&class_name)
+                        .ok_or_else(|| format!("Unknown class: {}", class_name))?;
+                    let field_ty = fields
+                        .iter()
+                        .find(|(n, _)| n == field_name)
+                        .map(|(_, ty)| ty.clone())
+                        .ok_or_else(|| {
+                            format!("Unknown field: {} in class {}", field_name, class_name)
+                        })?;
+                    let field_index = fields.iter().position(|(n, _)| n == field_name).unwrap();
+                    (*ptr, field_ty, field_index)
+                }
+                Type::Object(fields) => {
+                    let field = fields
+                        .iter()
+                        .find(|f| f.name == field_name)
+                        .ok_or_else(|| format!("Unknown field: {} in object", field_name))?;
+                    let field_index = fields.iter().position(|f| f.name == field_name).unwrap();
+                    (*ptr, field.ty.clone(), field_index)
+                }
                 _ => return Err(format!("Cannot access field on type: {:?}", ty)),
-            };
-            let fields = ctx
-                .class_fields
-                .get(&class_name)
-                .ok_or_else(|| format!("Unknown class: {}", class_name))?;
-            let field_ty = fields
-                .iter()
-                .find(|(n, _)| n == field_name)
-                .map(|(_, ty)| ty.clone())
-                .ok_or_else(|| format!("Unknown field: {} in class {}", field_name, class_name))?;
-            (*ptr, class_name, field_ty)
+            }
         }
         Expr::SelfExpr => {
             let (ptr, ty) = ctx
@@ -347,43 +697,53 @@ fn compile_simple_member_access<'ctx>(
                 .find(|(n, _)| n == field_name)
                 .map(|(_, ty)| ty.clone())
                 .ok_or_else(|| format!("Unknown field: {} in class {}", field_name, class_name))?;
-            (*ptr, class_name, field_ty)
+            let field_index = fields.iter().position(|(n, _)| n == field_name).unwrap();
+            (*ptr, field_ty, field_index)
         }
         _ => return Err("Member access only supported on identifiers".to_string()),
     };
 
     let obj_ptr = ctx.builder.build_load(var_ptr, "obj").into_pointer_value();
 
-    let struct_type = ctx
-        .class_struct_types
-        .get(&class_name)
-        .ok_or_else(|| format!("No struct type for class: {}", class_name))?;
-
-    let struct_ptr = unsafe {
-        ctx.builder.build_pointer_cast(
-            obj_ptr,
-            struct_type.ptr_type(Default::default()),
-            &format!("{}_cast", class_name),
-        )
-    };
-
-    let fields = ctx.class_fields.get(&class_name).unwrap();
-    let field_index = fields.iter().position(|(n, _)| n == field_name).unwrap();
-
-    let i32_ty = ctx.context.i32_type();
+    let offset = ctx
+        .context
+        .i32_type()
+        .const_int((field_index * 8) as u64, false);
     let field_ptr = unsafe {
-        ctx.builder.build_gep(
-            struct_ptr,
-            &[
-                i32_ty.const_int(0, false),
-                i32_ty.const_int(field_index as u64, false),
-            ],
-            &format!("{}_ptr", field_name),
-        )
+        ctx.builder
+            .build_gep(obj_ptr, &[offset], &format!("{}_ptr", field_name))
     };
 
-    let llvm_ty = ruyi_type_to_llvm(ctx.context, &field_ty);
-    let value = unsafe { ctx.builder.build_load(field_ptr, field_name) };
+    let value = match field_ty {
+        Type::Float => {
+            let i64_ptr = ctx
+                .builder
+                .build_bitcast(
+                    field_ptr,
+                    ctx.context.i64_type().ptr_type(Default::default()),
+                    "field_i64_ptr",
+                )
+                .into_pointer_value();
+            let loaded = ctx.builder.build_load(i64_ptr, field_name).into_int_value();
+            let float_val =
+                ctx.builder
+                    .build_bitcast(loaded, ctx.context.f64_type(), "field_float");
+            BasicValueEnum::FloatValue(float_val.into_float_value())
+        }
+        _ => {
+            let llvm_ty = ruyi_type_to_llvm(ctx.context, &field_ty);
+            let typed_ptr = ctx
+                .builder
+                .build_bitcast(
+                    field_ptr,
+                    llvm_ty.ptr_type(Default::default()),
+                    "field_typed_ptr",
+                )
+                .into_pointer_value();
+            ctx.builder.build_load(typed_ptr, field_name)
+        }
+    };
+
     Ok(ExprResult::new(value, field_ty))
 }
 
@@ -441,13 +801,11 @@ fn compile_optional_member_access<'ctx>(
         .class_struct_types
         .get(&class_name)
         .ok_or_else(|| format!("No struct type for class: {}", class_name))?;
-    let struct_ptr = unsafe {
-        ctx.builder.build_pointer_cast(
-            obj_ptr,
-            struct_type.ptr_type(Default::default()),
-            &format!("{}_cast", class_name),
-        )
-    };
+    let struct_ptr = ctx.builder.build_pointer_cast(
+        obj_ptr,
+        struct_type.ptr_type(Default::default()),
+        &format!("{}_cast", class_name),
+    );
     let field_index = fields.iter().position(|(n, _)| n == field_name).unwrap();
     let i32_ty = ctx.context.i32_type();
     let field_ptr = unsafe {
@@ -460,7 +818,7 @@ fn compile_optional_member_access<'ctx>(
             &format!("{}_ptr", field_name),
         )
     };
-    let value = unsafe { ctx.builder.build_load(field_ptr, field_name) };
+    let value = ctx.builder.build_load(field_ptr, field_name);
     ctx.builder.build_unconditional_branch(merge_bb);
     let non_null_bb_end = ctx.builder.get_insert_block().unwrap();
 
@@ -519,6 +877,7 @@ fn compile_binary<'ctx>(
         BinaryOp::Caret => compile_bitwise_xor(ctx, &left_result, &right_result),
         BinaryOp::Shl => compile_shl(ctx, &left_result, &right_result),
         BinaryOp::Shr => compile_shr(ctx, &left_result, &right_result),
+        BinaryOp::Nullish => compile_nullish(ctx, left, right, &left_result, &right_result),
         _ => Err(format!("Unsupported binary operator: {:?}", op)),
     }
 }
@@ -547,6 +906,135 @@ fn compile_add<'ctx>(
             Type::String,
         ));
     }
+
+    // String + Int: convert int to string, then concat
+    if left.ty == Type::String && right.ty == Type::Int {
+        let l = left.value.into_pointer_value();
+        let r_int = right.value.into_int_value();
+        let int_to_str_fn = ctx
+            .module
+            .get_function("ruyi_int_to_string")
+            .expect("ruyi_int_to_string not declared");
+        let r_str = ctx
+            .builder
+            .build_call(int_to_str_fn, &[r_int.into()], "int_to_str")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_pointer_value();
+        let concat_fn = ctx
+            .module
+            .get_function("ruyi_str_concat")
+            .expect("ruyi_str_concat not declared");
+        let res = ctx
+            .builder
+            .build_call(concat_fn, &[l.into(), r_str.into()], "str_concat")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_pointer_value();
+        return Ok(ExprResult::new(
+            BasicValueEnum::PointerValue(res),
+            Type::String,
+        ));
+    }
+
+    // String + Float: convert float to string, then concat
+    if left.ty == Type::String && right.ty == Type::Float {
+        let l = left.value.into_pointer_value();
+        let r_float = right.value.into_float_value();
+        let float_to_str_fn = ctx
+            .module
+            .get_function("ruyi_float_to_string")
+            .expect("ruyi_float_to_string not declared");
+        let r_str = ctx
+            .builder
+            .build_call(float_to_str_fn, &[r_float.into()], "float_to_str")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_pointer_value();
+        let concat_fn = ctx
+            .module
+            .get_function("ruyi_str_concat")
+            .expect("ruyi_str_concat not declared");
+        let res = ctx
+            .builder
+            .build_call(concat_fn, &[l.into(), r_str.into()], "str_concat")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_pointer_value();
+        return Ok(ExprResult::new(
+            BasicValueEnum::PointerValue(res),
+            Type::String,
+        ));
+    }
+
+    // Int + String: convert int to string, then concat
+    if left.ty == Type::Int && right.ty == Type::String {
+        let l_int = left.value.into_int_value();
+        let r = right.value.into_pointer_value();
+        let int_to_str_fn = ctx
+            .module
+            .get_function("ruyi_int_to_string")
+            .expect("ruyi_int_to_string not declared");
+        let l_str = ctx
+            .builder
+            .build_call(int_to_str_fn, &[l_int.into()], "int_to_str")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_pointer_value();
+        let concat_fn = ctx
+            .module
+            .get_function("ruyi_str_concat")
+            .expect("ruyi_str_concat not declared");
+        let res = ctx
+            .builder
+            .build_call(concat_fn, &[l_str.into(), r.into()], "str_concat")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_pointer_value();
+        return Ok(ExprResult::new(
+            BasicValueEnum::PointerValue(res),
+            Type::String,
+        ));
+    }
+
+    // Float + String: convert float to string, then concat
+    if left.ty == Type::Float && right.ty == Type::String {
+        let l_float = left.value.into_float_value();
+        let r = right.value.into_pointer_value();
+        let float_to_str_fn = ctx
+            .module
+            .get_function("ruyi_float_to_string")
+            .expect("ruyi_float_to_string not declared");
+        let l_str = ctx
+            .builder
+            .build_call(float_to_str_fn, &[l_float.into()], "float_to_str")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_pointer_value();
+        let concat_fn = ctx
+            .module
+            .get_function("ruyi_str_concat")
+            .expect("ruyi_str_concat not declared");
+        let res = ctx
+            .builder
+            .build_call(concat_fn, &[l_str.into(), r.into()], "str_concat")
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_pointer_value();
+        return Ok(ExprResult::new(
+            BasicValueEnum::PointerValue(res),
+            Type::String,
+        ));
+    }
+
     match (&left.value, &right.value) {
         (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
             let res = ctx.builder.build_int_add(*l, *r, "add");
@@ -678,6 +1166,18 @@ fn compile_eq<'ctx>(
                 .build_float_compare(FloatPredicate::OEQ, *l, *r, "feq");
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
+        (BasicValueEnum::PointerValue(l), BasicValueEnum::PointerValue(r)) => {
+            let l_int = ctx
+                .builder
+                .build_ptr_to_int(*l, ctx.context.i64_type(), "l_ptr_int");
+            let r_int = ctx
+                .builder
+                .build_ptr_to_int(*r, ctx.context.i64_type(), "r_ptr_int");
+            let res = ctx
+                .builder
+                .build_int_compare(IntPredicate::EQ, l_int, r_int, "ptr_eq");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
         _ => Err("Invalid operands for ===".to_string()),
     }
 }
@@ -698,6 +1198,18 @@ fn compile_ne<'ctx>(
             let res = ctx
                 .builder
                 .build_float_compare(FloatPredicate::ONE, *l, *r, "fne");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
+        (BasicValueEnum::PointerValue(l), BasicValueEnum::PointerValue(r)) => {
+            let l_int = ctx
+                .builder
+                .build_ptr_to_int(*l, ctx.context.i64_type(), "l_ptr_int");
+            let r_int = ctx
+                .builder
+                .build_ptr_to_int(*r, ctx.context.i64_type(), "r_ptr_int");
+            let res = ctx
+                .builder
+                .build_int_compare(IntPredicate::NE, l_int, r_int, "ptr_ne");
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         _ => Err("Invalid operands for !==".to_string()),
@@ -890,6 +1402,55 @@ fn compile_shr<'ctx>(
     }
 }
 
+fn compile_nullish<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    left_expr: &Expr,
+    right_expr: &Expr,
+    _left: &ExprResult<'ctx>,
+    _right: &ExprResult<'ctx>,
+) -> Result<ExprResult<'ctx>, String> {
+    let left_result = compile_expr(ctx, left_expr)?;
+
+    if let BasicValueEnum::PointerValue(ptr) = left_result.value {
+        let is_null = ctx
+            .builder
+            .build_ptr_to_int(ptr, ctx.context.i64_type(), "ptr_to_int");
+        let zero = ctx.context.i64_type().const_int(0, false);
+        let cond = ctx
+            .builder
+            .build_int_compare(IntPredicate::EQ, is_null, zero, "is_null");
+
+        let current_bb = ctx.builder.get_insert_block().unwrap();
+        let func = current_bb.get_parent().unwrap();
+        let then_bb = ctx.context.append_basic_block(func, "nullish_then");
+        let else_bb = ctx.context.append_basic_block(func, "nullish_else");
+        let merge_bb = ctx.context.append_basic_block(func, "nullish_merge");
+
+        ctx.builder.build_conditional_branch(cond, then_bb, else_bb);
+
+        ctx.builder.position_at_end(then_bb);
+        let right_result = compile_expr(ctx, right_expr)?;
+        ctx.builder.build_unconditional_branch(merge_bb);
+        let then_bb_end = ctx.builder.get_insert_block().unwrap();
+
+        ctx.builder.position_at_end(else_bb);
+        ctx.builder.build_unconditional_branch(merge_bb);
+
+        ctx.builder.position_at_end(merge_bb);
+        let phi = ctx
+            .builder
+            .build_phi(left_result.value.get_type(), "nullish_phi");
+        phi.add_incoming(&[
+            (&right_result.value, then_bb_end),
+            (&left_result.value, else_bb),
+        ]);
+
+        return Ok(ExprResult::new(phi.as_basic_value(), right_result.ty));
+    }
+
+    Ok(left_result)
+}
+
 fn compile_unary<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_>,
     op: &UnaryOp,
@@ -950,7 +1511,7 @@ fn compile_call<'ctx>(
                 _ => return Err("Only simple method calls supported".to_string()),
             };
             if method_name == "new" {
-                let class_name = match object.as_ref() {
+                let _class_name = match object.as_ref() {
                     Expr::Identifier(n) => n.clone(),
                     _ => return Err("new() must be called on a class name".to_string()),
                 };
@@ -982,6 +1543,20 @@ fn compile_call<'ctx>(
                 _ => return Err("Method calls only supported on identifiers".to_string()),
             };
             let func_name = format!("{}_{}", class_name, method_name);
+            let func_name = if ctx.module.get_function(&func_name).is_some() {
+                func_name
+            } else {
+                let trait_pattern = format!("{}_for_{}", method_name, class_name);
+                let mut found = None;
+                for func in ctx.module.get_functions() {
+                    let fname = func.get_name().to_string_lossy().to_string();
+                    if fname.contains(&trait_pattern) {
+                        found = Some(fname);
+                        break;
+                    }
+                }
+                found.unwrap_or(func_name)
+            };
             (func_name, Some(obj_ptr))
         }
         _ => return Err("Indirect calls not yet supported".to_string()),
@@ -1035,6 +1610,52 @@ fn compile_call<'ctx>(
         }
     }
 
+    // Check if name refers to a local variable holding a function pointer
+    if self_arg.is_none() {
+        if let Some((ptr, ty)) = ctx.variables.get(&name).map(|(p, t)| (*p, t.clone())) {
+            if let Type::Function {
+                params: fn_params,
+                return_type: fn_ret,
+            } = ty
+            {
+                let func_ptr_val = ctx.builder.build_load(ptr, "func_ptr");
+                let func_ptr = func_ptr_val.into_pointer_value();
+
+                let mut arg_values = Vec::new();
+                for arg in args {
+                    match arg {
+                        crate::parser::ast::Argument::Expr(e) => {
+                            let result = compile_expr(ctx, e)?;
+                            arg_values.push(result.value.into());
+                        }
+                        _ => return Err("Spread arguments not yet supported".to_string()),
+                    }
+                }
+
+                let fn_type = function_type_from_ruyi(ctx.context, &fn_params, &fn_ret);
+                let fn_ptr_type = fn_type.ptr_type(Default::default());
+                let casted_ptr = ctx
+                    .builder
+                    .build_bitcast(func_ptr, fn_ptr_type, "fn_cast")
+                    .into_pointer_value();
+                let callable: inkwell::values::CallableValue<'ctx> = casted_ptr
+                    .try_into()
+                    .map_err(|_| "Failed to create callable from function pointer".to_string())?;
+
+                let call_site = ctx.builder.build_call(callable, &arg_values, "call");
+                let value = call_site.try_as_basic_value().left();
+
+                return match value {
+                    Some(v) => Ok(ExprResult::new(v, *fn_ret)),
+                    None => Ok(ExprResult::new(
+                        BasicValueEnum::IntValue(ctx.context.i64_type().const_int(0, false)),
+                        Type::Void,
+                    )),
+                };
+            }
+        }
+    }
+
     let func = ctx
         .module
         .get_function(&name)
@@ -1062,6 +1683,8 @@ fn compile_call<'ctx>(
 
     let ret_ty = if is_async {
         Type::Future(Box::new(Type::Int))
+    } else if let Some(Type::Function { return_type, .. }) = ctx.function_types.get(&name) {
+        *return_type.clone()
     } else {
         Type::Dynamic
     };
@@ -1138,13 +1761,11 @@ fn compile_assignment<'ctx>(
                 .get(&class_name)
                 .ok_or_else(|| format!("No struct type for class: {}", class_name))?;
 
-            let struct_ptr = unsafe {
-                ctx.builder.build_pointer_cast(
-                    obj_ptr,
-                    struct_type.ptr_type(Default::default()),
-                    &format!("{}_cast", class_name),
-                )
-            };
+            let struct_ptr = ctx.builder.build_pointer_cast(
+                obj_ptr,
+                struct_type.ptr_type(Default::default()),
+                &format!("{}_cast", class_name),
+            );
 
             let fields = ctx
                 .class_fields
@@ -1196,23 +1817,71 @@ fn compile_conditional<'ctx>(
     ctx.builder
         .build_conditional_branch(cond_val, then_bb, else_bb);
 
-    // Then branch
     ctx.builder.position_at_end(then_bb);
     let then_result = compile_expr(ctx, then_branch)?;
     ctx.builder.build_unconditional_branch(merge_bb);
     let then_bb_end = ctx.builder.get_insert_block().unwrap();
 
-    // Else branch
     ctx.builder.position_at_end(else_bb);
     let else_result = compile_expr(ctx, else_branch)?;
     ctx.builder.build_unconditional_branch(merge_bb);
     let else_bb_end = ctx.builder.get_insert_block().unwrap();
 
-    // Merge
     ctx.builder.position_at_end(merge_bb);
 
     let phi_ty = ruyi_type_to_llvm(ctx.context, &then_result.ty);
     let phi = ctx.builder.build_phi(phi_ty, "cond_phi");
+    phi.add_incoming(&[
+        (&then_result.value, then_bb_end),
+        (&else_result.value, else_bb_end),
+    ]);
+
+    let result_ty = then_result.ty.least_upper_bound(&else_result.ty);
+    Ok(ExprResult::new(phi.as_basic_value(), result_ty))
+}
+
+fn compile_if_expr<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    condition: &Expr,
+    then_branch: &Expr,
+    else_branch: Option<&Expr>,
+) -> Result<ExprResult<'ctx>, String> {
+    let cond_result = compile_expr(ctx, condition)?;
+    let cond_val = match cond_result.value {
+        BasicValueEnum::IntValue(v) => v,
+        _ => return Err("Condition must be boolean".to_string()),
+    };
+
+    let func = ctx.current_function.ok_or("No current function")?;
+
+    let then_bb = ctx.context.append_basic_block(func, "then");
+    let else_bb = ctx.context.append_basic_block(func, "else");
+    let merge_bb = ctx.context.append_basic_block(func, "merge");
+
+    ctx.builder
+        .build_conditional_branch(cond_val, then_bb, else_bb);
+
+    ctx.builder.position_at_end(then_bb);
+    let then_result = compile_expr(ctx, then_branch)?;
+    ctx.builder.build_unconditional_branch(merge_bb);
+    let then_bb_end = ctx.builder.get_insert_block().unwrap();
+
+    ctx.builder.position_at_end(else_bb);
+    let else_result = if let Some(else_expr) = else_branch {
+        compile_expr(ctx, else_expr)?
+    } else {
+        ExprResult::new(
+            BasicValueEnum::IntValue(ctx.context.i64_type().const_int(0, false)),
+            Type::Void,
+        )
+    };
+    ctx.builder.build_unconditional_branch(merge_bb);
+    let else_bb_end = ctx.builder.get_insert_block().unwrap();
+
+    ctx.builder.position_at_end(merge_bb);
+
+    let phi_ty = ruyi_type_to_llvm(ctx.context, &then_result.ty);
+    let phi = ctx.builder.build_phi(phi_ty, "if_phi");
     phi.add_incoming(&[
         (&then_result.value, then_bb_end),
         (&else_result.value, else_bb_end),
@@ -1291,9 +1960,10 @@ fn compile_object_literal<'ctx>(
     let total_size = ctx.context.i64_type().const_int(len * 8, false);
     let ptr = super::builtins::build_gc_alloc(&ctx.builder, &ctx.module, total_size);
 
+    let mut fields = Vec::new();
     for (i, prop) in properties.iter().enumerate() {
         match prop {
-            crate::parser::ast::ObjectProperty::Property { value, .. } => {
+            crate::parser::ast::ObjectProperty::Property { key, value } => {
                 let val = compile_expr(ctx, value)?;
                 let offset = ctx.context.i32_type().const_int((i * 8) as u64, false);
                 let field_ptr = unsafe { ctx.builder.build_gep(ptr, &[offset], "field_ptr") };
@@ -1322,6 +1992,37 @@ fn compile_object_literal<'ctx>(
                         super::builtins::build_gc_write_barrier(&ctx.builder, &ctx.module, ptr, pv);
                     }
                 }
+
+                let name = match key {
+                    crate::parser::ast::PropertyName::Ident(n) => n.clone(),
+                    crate::parser::ast::PropertyName::String(n) => n.clone(),
+                    crate::parser::ast::PropertyName::Number(n) => format!("{}", n),
+                    crate::parser::ast::PropertyName::Computed(_) => format!("[computed]"),
+                };
+                fields.push(crate::typechecker::types::ObjectField {
+                    name,
+                    ty: val.ty,
+                    optional: false,
+                });
+            }
+            crate::parser::ast::ObjectProperty::Shorthand(name) => {
+                let val = compile_expr(ctx, &Expr::Identifier(name.clone()))?;
+                let offset = ctx.context.i32_type().const_int((i * 8) as u64, false);
+                let field_ptr = unsafe { ctx.builder.build_gep(ptr, &[offset], "field_ptr") };
+                let i64_ptr = ctx
+                    .builder
+                    .build_bitcast(
+                        field_ptr,
+                        ctx.context.i64_type().ptr_type(Default::default()),
+                        "field_i64_ptr",
+                    )
+                    .into_pointer_value();
+                ctx.builder.build_store(i64_ptr, val.value);
+                fields.push(crate::typechecker::types::ObjectField {
+                    name: name.clone(),
+                    ty: val.ty,
+                    optional: false,
+                });
             }
             _ => return Err("Unsupported object property".to_string()),
         }
@@ -1329,7 +2030,7 @@ fn compile_object_literal<'ctx>(
 
     Ok(ExprResult::new(
         BasicValueEnum::PointerValue(ptr),
-        Type::Object(vec![]),
+        Type::Object(fields),
     ))
 }
 

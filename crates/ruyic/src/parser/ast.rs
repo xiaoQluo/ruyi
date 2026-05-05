@@ -136,7 +136,7 @@ pub enum Statement {
     Throw(Box<Expr>),
     Try {
         body: Vec<Statement>,
-        catch: Option<CatchClause>,
+        catch: Vec<CatchClause>,
         finally: Option<Vec<Statement>>,
     },
     Match {
@@ -145,6 +145,11 @@ pub enum Statement {
     },
     Break(Option<String>),
     Continue(Option<String>),
+    Yield(Option<Box<Expr>>),
+    Labeled {
+        label: String,
+        body: Box<Statement>,
+    },
     Declaration(Declaration),
     Empty,
 }
@@ -224,6 +229,9 @@ pub enum Expr {
         body: ArrowBody,
         is_async: bool,
     },
+    /// Intermediate representation for arrow function typed parameters.
+    /// Used during parsing to capture `(x: int, y: string)` before conversion to `ArrowFunction`.
+    ArrowParams(Vec<(String, Option<TypeAnnotation>)>),
     Await(Box<Expr>),
     Sequence(Vec<Expr>),
     Function {
@@ -256,6 +264,7 @@ pub enum Expr {
     },
     Grouping(Box<Expr>),
     Block(Vec<Statement>),
+    NullAssert(Box<Expr>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -1,0 +1,18 @@
+// v05_tests.ry — v0.5 test framework demo
+// Compile with: ruyic v05_tests.ry --test -o v05_tests
+
+@test fn test_add() {
+  assert_eq(1 + 1, 2);
+  assert_eq(0 + 0, 0);
+  assert_eq(-1 + 1, 0);
+}
+
+@test fn test_sub() {
+  assert_eq(5 - 3, 2);
+  assert_eq(0 - 0, 0);
+}
+
+@test fn test_mul() {
+  assert_eq(2 * 3, 6);
+  assert_eq(0 * 100, 0);
+}

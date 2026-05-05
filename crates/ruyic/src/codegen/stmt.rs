@@ -62,8 +62,12 @@ pub fn compile_stmt<'ctx>(
             body,
             catch,
             finally,
-        } => compile_try(ctx, body, catch.as_ref(), finally.as_deref()),
+        } => compile_try(ctx, body, catch, finally.as_deref()),
         Statement::Empty => Ok(()),
+        Statement::Yield(_) => {
+            // Generators not yet fully implemented — yield is a no-op for now
+            Ok(())
+        }
         Statement::Break(_) => {
             let (end_bb, _) = ctx
                 .loop_stack
@@ -80,9 +84,8 @@ pub fn compile_stmt<'ctx>(
             ctx.builder.build_unconditional_branch(*cond_bb);
             Ok(())
         }
-        Statement::Match { value, arms } => {
-            super::patterns::compile_match_stmt(ctx, value, arms)
-        }
+        Statement::Match { value, arms } => super::patterns::compile_match_stmt(ctx, value, arms),
+        Statement::Labeled { body, .. } => compile_stmt(ctx, body),
         _ => Err(format!("Unsupported statement: {:?}", stmt)),
     }
 }
@@ -622,10 +625,14 @@ fn compile_throw<'ctx>(ctx: &mut CodegenContext<'ctx, '_>, expr: &Expr) -> Resul
     if let Some(try_ctx) = ctx.try_stack.last() {
         if let Some(lpad_bb) = try_ctx.landing_pad_bb {
             let func = ctx.current_function.ok_or("No current function")?;
-            let unreachable_bb =
-                ctx.context.append_basic_block(func, "throw_unreachable");
-            ctx.builder
-                .build_invoke(throw_fn, &[exc_ptr.into()], unreachable_bb, lpad_bb, "throw");
+            let unreachable_bb = ctx.context.append_basic_block(func, "throw_unreachable");
+            ctx.builder.build_invoke(
+                throw_fn,
+                &[exc_ptr.into()],
+                unreachable_bb,
+                lpad_bb,
+                "throw",
+            );
             ctx.builder.position_at_end(unreachable_bb);
             ctx.builder.build_unreachable();
         } else {
@@ -681,7 +688,7 @@ fn compile_throw<'ctx>(ctx: &mut CodegenContext<'ctx, '_>, expr: &Expr) -> Resul
 fn compile_try<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_>,
     body: &[Statement],
-    catch: Option<&crate::parser::ast::CatchClause>,
+    catch: &[crate::parser::ast::CatchClause],
     finally: Option<&[Statement]>,
 ) -> Result<(), String> {
     let func = ctx.current_function.ok_or("No current function")?;
@@ -691,14 +698,18 @@ fn compile_try<'ctx>(
     let try_body_bb = ctx.context.append_basic_block(func, "try_body");
     let merge_bb = ctx.context.append_basic_block(func, "try_merge");
 
-    let catch_bb = catch.map(|_| ctx.context.append_basic_block(func, "try_catch"));
+    let catch_bb = if !catch.is_empty() {
+        Some(ctx.context.append_basic_block(func, "try_catch"))
+    } else {
+        None
+    };
     let finally_bb = finally.map(|_| ctx.context.append_basic_block(func, "try_finally"));
-    let propagate_bb = if finally.is_some() && catch.is_none() {
+    let propagate_bb = if finally.is_some() && catch.is_empty() {
         Some(ctx.context.append_basic_block(func, "try_propagate"))
     } else {
         None
     };
-    let landing_pad_bb = if catch.is_some() || finally.is_some() {
+    let landing_pad_bb = if !catch.is_empty() || finally.is_some() {
         Some(ctx.context.append_basic_block(func, "try_lpad"))
     } else {
         None
@@ -741,12 +752,17 @@ fn compile_try<'ctx>(
     if let Some(lpad_bb) = landing_pad_bb {
         ctx.builder.position_at_end(lpad_bb);
         let i32_ty = ctx.context.i32_type();
-        let lpad_ty = ctx.context.struct_type(&[i8_ptr.into(), i32_ty.into()], false);
+        let lpad_ty = ctx
+            .context
+            .struct_type(&[i8_ptr.into(), i32_ty.into()], false);
         let personality_ty = i32_ty.fn_type(&[], false);
         let personality = ctx
             .module
             .get_function("__gxx_personality_v0")
-            .unwrap_or_else(|| ctx.module.add_function("__gxx_personality_v0", personality_ty, None));
+            .unwrap_or_else(|| {
+                ctx.module
+                    .add_function("__gxx_personality_v0", personality_ty, None)
+            });
         let null_clause = i8_ptr.const_null().as_basic_value_enum();
         let lpad = ctx.builder.build_landing_pad(
             lpad_ty,
@@ -770,7 +786,7 @@ fn compile_try<'ctx>(
         }
     }
 
-    if let Some(catch_clause) = catch {
+    for catch_clause in catch {
         let cb = catch_bb.unwrap();
         ctx.builder.position_at_end(cb);
 
@@ -812,7 +828,7 @@ fn compile_try<'ctx>(
 
         let finally_end = ctx.builder.get_insert_block().unwrap();
         if finally_end.get_terminator().is_none() {
-            if catch.is_none() {
+            if catch.is_empty() {
                 let exc_val = ctx
                     .builder
                     .build_load(exception_ptr, "exc_val")

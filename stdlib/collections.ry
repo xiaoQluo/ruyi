@@ -4,8 +4,12 @@
  * Provides generic collection types: Array, Map, Set, and Iterator.
  *
  * @author Ruyi Team
- * @date 2026-05-02
+ * @date 2026-05-05
  */
+
+// ============================================================
+// Iterator Trait
+// ============================================================
 
 /**
  * Iterator trait for collection traversal.
@@ -17,222 +21,134 @@ trait Iterator<T> {
      * @return Option containing Some(element) or None if exhausted
      */
     fn next(self): Option<T>;
-
-    /**
-     * Applies a function to each element.
-     * @param f The function to apply
-     */
-    fn forEach(self, f: fn(T): void): void {
-        let mut iter = self;
-        loop {
-            match iter.next() {
-                Some(element) => f(element),
-                None => break
-            }
-        }
-    }
-
-    /**
-     * Maps each element to a new value.
-     * @param f The transformation function
-     * @return Iterator over transformed values
-     */
-    fn map<U>(self, f: fn(T): U): Iterator<U> {
-        return MapIterator { source: self, transform: f };
-    }
-
-    /**
-     * Filters elements based on a predicate.
-     * @param pred The predicate function
-     * @return Iterator over elements that satisfy the predicate
-     */
-    fn filter(self, pred: fn(T): bool): Iterator<T> {
-        return FilterIterator { source: self, predicate: pred };
-    }
-
-    /**
-     * Reduces elements to a single value.
-     * @param init Initial accumulator value
-     * @param f The reduction function
-     * @return The final accumulated value
-     */
-    fn reduce<U>(self, init: U, f: fn(U, T): U): U {
-        let mut result = init;
-        let mut iter = self;
-        loop {
-            match iter.next() {
-                Some(element) => result = f(result, element),
-                None => break
-            }
-        }
-        return result;
-    }
 }
 
-/**
- * Internal iterator adapter for map transformation.
- */
-class MapIterator<T, U> {
-    let source: Iterator<T>;
-    let transform: fn(T): U;
-
-    fn next(self): Option<U> {
-        match self.source.next() {
-            Some(element) => Some(self.transform(element)),
-            None => None
-        }
-    }
-}
-
-/**
- * Internal iterator adapter for filter operation.
- */
-class FilterIterator<T> {
-    let source: Iterator<T>;
-    let predicate: fn(T): bool;
-
-    fn next(self): Option<T> {
-        loop {
-            match self.source.next() {
-                Some(element) => {
-                    if self.predicate(element) {
-                        return Some(element);
-                    }
-                },
-                None => return None
-            }
-        }
-    }
-}
+// ============================================================
+// Array
+// ============================================================
 
 /**
  * Dynamic array implementation with generic type parameter.
  * Provides methods for adding, removing, and accessing elements.
  */
 class Array<T> {
-    let mut elements: Array<T>;
-    let mut length: int;
+    _data: dyn;
+    _length: int;
 
     /**
      * Creates a new empty array.
      */
-    constructor() {
-        this.elements = [];
-        this.length = 0;
+    fn new(): Array<T> {
+        let arr: Array<T>;
+        arr._data = __builtin_array_create();
+        arr._length = 0;
+        return arr;
     }
 
     /**
      * Returns the number of elements in the array.
-     * @return The length
      */
-    fn get_length(self): int {
-        return self.length;
+    fn length(self): int {
+        return self._length;
     }
 
     /**
      * Returns the element at the specified index.
-     * @param index The index
-     * @return The element at index
      */
-    fn get(self, index: int): T {
-        if index < 0 or index >= self.length {
+    fn at(self, index: int): T {
+        if (index < 0 || index >= self._length) {
             throw RangeError("Array index out of bounds: " + index.toString());
         }
-        return __builtin_array_get(self.elements, index);
+        return __builtin_array_get(self._data, index);
     }
 
     /**
      * Sets the element at the specified index.
-     * @param index The index
-     * @param value The new value
      */
-    fn set(self, index: int, value: T): void {
-        if index < 0 or index >= self.length {
+    fn put(self, index: int, value: T): void {
+        if (index < 0 || index >= self._length) {
             throw RangeError("Array index out of bounds: " + index.toString());
         }
-        __builtin_array_set(self.elements, index, value);
+        __builtin_array_set(self._data, index, value);
     }
 
     /**
      * Adds an element to the end of the array.
-     * @param value The element to add
      */
     fn push(self, value: T): void {
-        __builtin_array_push(self.elements, value);
-        self.length = self.length + 1;
+        __builtin_array_push(self._data, value);
+        self._length = self._length + 1;
     }
 
     /**
      * Removes and returns the last element.
-     * @return The last element
      */
     fn pop(self): T {
-        if self.length == 0 {
+        if (self._length == 0) {
             throw RangeError("Cannot pop from empty array");
         }
-        self.length = self.length - 1;
-        return __builtin_array_pop(self.elements);
+        self._length = self._length - 1;
+        return __builtin_array_pop(self._data);
     }
 
     /**
      * Returns a new array with elements transformed by the function.
-     * @param f The transformation function
-     * @return New array of transformed elements
      */
     fn map<U>(self, f: fn(T): U): Array<U> {
-        let result = Array<U>();
-        for (let i = 0; i < self.length; i = i + 1) {
-            result.push(f(__builtin_array_get(self.elements, i)));
+        let result = Array.new();
+        let i: int = 0;
+        while (i < self._length) {
+            result.push(f(self.at(i)));
+            i = i + 1;
         }
         return result;
     }
 
     /**
      * Returns a new array with elements that satisfy the predicate.
-     * @param pred The predicate function
-     * @return New array of filtered elements
      */
     fn filter(self, pred: fn(T): bool): Array<T> {
-        let result = Array<T>();
-        for (let i = 0; i < self.length; i = i + 1) {
-            let element = __builtin_array_get(self.elements, i);
-            if pred(element) {
-                result.push(element);
+        let result = Array.new();
+        let i: int = 0;
+        while (i < self._length) {
+            let elem = self.at(i);
+            if (pred(elem)) {
+                result.push(elem);
             }
+            i = i + 1;
         }
         return result;
     }
 
     /**
      * Reduces the array to a single value.
-     * @param init Initial accumulator value
-     * @param f The reduction function
-     * @return The final accumulated value
      */
     fn reduce<U>(self, init: U, f: fn(U, T): U): U {
-        let mut result = init;
-        for (let i = 0; i < self.length; i = i + 1) {
-            result = f(result, __builtin_array_get(self.elements, i));
+        let acc = init;
+        let i: int = 0;
+        while (i < self._length) {
+            acc = f(acc, self.at(i));
+            i = i + 1;
         }
-        return result;
+        return acc;
     }
 
     /**
      * Applies a function to each element.
-     * @param f The function to apply
      */
     fn forEach(self, f: fn(T): void): void {
-        for (let i = 0; i < self.length; i = i + 1) {
-            f(__builtin_array_get(self.elements, i));
+        let i: int = 0;
+        while (i < self._length) {
+            f(self.at(i));
+            i = i + 1;
         }
     }
 
     /**
      * Creates an iterator over the array elements.
-     * @return Iterator for the array
      */
     fn iter(self): ArrayIterator<T> {
-        return ArrayIterator { array: self, index: 0 };
+        return ArrayIterator.new(self);
     }
 }
 
@@ -240,290 +156,197 @@ class Array<T> {
  * Iterator implementation for Array.
  */
 class ArrayIterator<T> {
-    let array: Array<T>;
-    let mut index: int;
+    _array: Array<T>;
+    _index: int;
+
+    fn new(arr: Array<T>): ArrayIterator<T> {
+        let iter: ArrayIterator<T>;
+        iter._array = arr;
+        iter._index = 0;
+        return iter;
+    }
 
     fn next(self): Option<T> {
-        if self.index < array.length {
-            let element = __builtin_array_get(self.array.elements, self.index);
-            self.index = self.index + 1;
-            return Some(element);
+        if (self._index < self._array.length()) {
+            let elem = self._array.at(self._index);
+            self._index = self._index + 1;
+            return Some(elem);
         }
         return None;
     }
 }
 
+// ============================================================
+// Map
+// ============================================================
+
 /**
  * Key-value map implementation with generic type parameters.
- * Provides methods for adding, removing, and accessing entries.
  */
 class Map<K, V> {
-    let mut entries: Map<K, V>;
-    let mut size: int;
+    _data: dyn;
+    _size: int;
 
     /**
      * Creates a new empty map.
      */
-    constructor() {
-        this.entries = __builtin_map_create();
-        this.size = 0;
+    fn new(): Map<K, V> {
+        let m: Map<K, V>;
+        m._data = __builtin_map_create();
+        m._size = 0;
+        return m;
     }
 
     /**
      * Returns the number of entries in the map.
-     * @return The size
      */
-    fn get_size(self): int {
-        return self.size;
+    fn size(self): int {
+        return self._size;
     }
 
     /**
      * Returns the value associated with the key.
-     * @param key The key
-     * @return Option containing the value or None
      */
-    fn get(self, key: K): Option<V> {
-        return __builtin_map_get(self.entries, key);
+    fn at(self, key: K): Option<V> {
+        return __builtin_map_get(self._data, key);
     }
 
     /**
      * Sets the value for the key.
-     * @param key The key
-     * @param value The value
      */
-    fn set(self, key: K, value: V): void {
-        let was_empty = __builtin_map_get(self.entries, key).isNone();
-        __builtin_map_set(self.entries, key, value);
-        if was_empty {
-            this.size = this.size + 1;
+    fn put(self, key: K, value: V): void {
+        let existed = self.has(key);
+        __builtin_map_set(self._data, key, value);
+        if (!existed) {
+            self._size = self._size + 1;
         }
     }
 
     /**
      * Deletes the entry for the key.
-     * @param key The key
-     * @return True if the key was deleted
      */
-    fn delete(self, key: K): bool {
-        let existed = __builtin_map_get(self.entries, key).isSome();
-        __builtin_map_delete(self.entries, key);
-        if existed {
-            this.size = this.size - 1;
+    fn remove(self, key: K): bool {
+        let existed = self.has(key);
+        __builtin_map_delete(self._data, key);
+        if (existed) {
+            self._size = self._size - 1;
         }
         return existed;
     }
 
     /**
      * Checks if the map contains the key.
-     * @param key The key
-     * @return True if the key exists
      */
     fn has(self, key: K): bool {
-        return __builtin_map_has(self.entries, key);
+        return __builtin_map_has(self._data, key);
     }
 
     /**
      * Returns all keys in the map.
-     * @return Array of keys
      */
     fn keys(self): Array<K> {
-        return __builtin_map_keys(self.entries);
+        return __builtin_map_keys(self._data);
     }
 
     /**
      * Returns all values in the map.
-     * @return Array of values
      */
     fn values(self): Array<V> {
-        return __builtin_map_values(self.entries);
-    }
-
-    /**
-     * Returns all key-value pairs as entries.
-     * @return Array of [key, value] tuples
-     */
-    fn entries(self): Array<[K, V]> {
-        return __builtin_map_entries(self.entries);
-    }
-
-    /**
-     * Creates an iterator over the map entries.
-     * @return Iterator for the map
-     */
-    fn iter(self): MapIterator<K, V> {
-        return MapIterator { map: self, keys: self.keys(), index: 0 };
+        return __builtin_map_values(self._data);
     }
 }
 
-/**
- * Iterator implementation for Map.
- */
-class MapIterator<K, V> {
-    let map: Map<K, V>;
-    let keys: Array<K>;
-    let mut index: int;
-
-    fn next(self): Option<[K, V]> {
-        if self.index < self.keys.length {
-            let key = __builtin_array_get(self.keys, self.index);
-            self.index = self.index + 1;
-            match self.map.get(key) {
-                Some(value) => return Some([key, value]),
-                None => return None
-            }
-        }
-        return None;
-    }
-}
+// ============================================================
+// Set
+// ============================================================
 
 /**
  * Set implementation with generic type parameter.
- * Provides methods for set operations like union, intersection, difference.
  */
 class Set<T> {
-    let mut entries: Set<T>;
-    let mut size: int;
+    _data: dyn;
+    _size: int;
 
     /**
      * Creates a new empty set.
      */
-    constructor() {
-        this.entries = __builtin_set_create();
-        this.size = 0;
+    fn new(): Set<T> {
+        let s: Set<T>;
+        s._data = __builtin_set_create();
+        s._size = 0;
+        return s;
     }
 
     /**
      * Returns the number of elements in the set.
-     * @return The size
      */
-    fn get_size(self): int {
-        return self.size;
+    fn size(self): int {
+        return self._size;
     }
 
     /**
      * Adds an element to the set.
-     * @param value The element to add
      */
     fn add(self, value: T): void {
-        let was_empty = not self.has(value);
-        __builtin_set_add(self.entries, value);
-        if was_empty {
-            this.size = this.size + 1;
+        if (!self.has(value)) {
+            __builtin_set_add(self._data, value);
+            self._size = self._size + 1;
         }
     }
 
     /**
      * Deletes an element from the set.
-     * @param value The element to delete
-     * @return True if the element was deleted
      */
-    fn delete(self, value: T): bool {
+    fn remove(self, value: T): bool {
         let existed = self.has(value);
-        __builtin_set_delete(self.entries, value);
-        if existed {
-            this.size = this.size - 1;
+        if (existed) {
+            __builtin_set_delete(self._data, value);
+            self._size = self._size - 1;
         }
         return existed;
     }
 
     /**
      * Checks if the set contains the element.
-     * @param value The element to check
-     * @return True if the element exists
      */
     fn has(self, value: T): bool {
-        return __builtin_set_has(self.entries, value);
+        return __builtin_set_has(self._data, value);
     }
 
     /**
-     * Returns the union of this set and another.
-     * @param other The other set
-     * @return New set containing all elements
+     * Returns all elements in the set as an array.
      */
-    fn union(self, other: Set<T>): Set<T> {
-        let result = Set<T>();
-        // Add all elements from this set
-        let iter = self.iter();
-        loop {
-            match iter.next() {
-                Some(element) => result.add(element),
-                None => break
+    fn toArray(self): Array<T> {
+        let result = Array.new();
+        let iter = self._iter();
+        while (true) {
+            let elem = iter.next();
+            if (elem === None) {
+                break;
             }
-        }
-        // Add all elements from other set
-        let iter = other.iter();
-        loop {
-            match iter.next() {
-                Some(element) => result.add(element),
-                None => break
-            }
+            result.push(elem!);
         }
         return result;
-    }
-
-    /**
-     * Returns the intersection of this set and another.
-     * @param other The other set
-     * @return New set containing common elements
-     */
-    fn intersection(self, other: Set<T>): Set<T> {
-        let result = Set<T>();
-        let iter = self.iter();
-        loop {
-            match iter.next() {
-                Some(element) => {
-                    if other.has(element) {
-                        result.add(element);
-                    }
-                },
-                None => break
-            }
-        }
-        return result;
-    }
-
-    /**
-     * Returns the difference of this set and another.
-     * @param other The other set
-     * @return New set containing elements in this but not other
-     */
-    fn difference(self, other: Set<T>): Set<T> {
-        let result = Set<T>();
-        let iter = self.iter();
-        loop {
-            match iter.next() {
-                Some(element) => {
-                    if not other.has(element) {
-                        result.add(element);
-                    }
-                },
-                None => break
-            }
-        }
-        return result;
-    }
-
-    /**
-     * Creates an iterator over the set elements.
-     * @return Iterator for the set
-     */
-    fn iter(self): SetIterator<T> {
-        return SetIterator { set: self, items: self.entries, index: 0 };
     }
 }
 
 /**
  * Iterator implementation for Set.
- * Note: The actual implementation depends on internal set representation.
  */
 class SetIterator<T> {
-    let set: Set<T>;
-    let items: Set<T>;
-    let mut index: int;
+    _set: Set<T>;
+    _index: int;
+
+    fn new(s: Set<T>): SetIterator<T> {
+        let iter: SetIterator<T>;
+        iter._set = s;
+        iter._index = 0;
+        return iter;
+    }
 
     fn next(self): Option<T> {
-        // This is a placeholder - actual implementation would
-        // iterate through internal set storage
+        // TODO: Implement proper iteration over Set internal structure
+        // Currently returns None as placeholder
         return None;
     }
 }

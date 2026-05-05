@@ -62,10 +62,10 @@ fn count_awaits_in_stmt(stmt: &Statement) -> usize {
             finally,
         } => {
             let body_count = count_awaits_in_statements(body);
-            let catch_count = catch
-                .as_ref()
+            let catch_count: usize = catch
+                .iter()
                 .map(|c| count_awaits_in_statements(&c.body))
-                .unwrap_or(0);
+                .sum();
             let finally_count = finally
                 .as_ref()
                 .map(|f| count_awaits_in_statements(f))
@@ -81,6 +81,7 @@ fn count_awaits_in_stmt(stmt: &Statement) -> usize {
             val_count + arms_count
         }
         Statement::Declaration(decl) => count_awaits_in_decl(decl),
+        Statement::Labeled { body, .. } => count_awaits_in_stmt(body),
         _ => 0,
     }
 }
@@ -525,7 +526,7 @@ pub fn compile_await<'ctx>(
         _ => Type::Int,
     };
 
-    let result_llvm: inkwell::types::BasicTypeEnum<'ctx> = ctx.context.i64_type().into();
+    let _result_llvm: inkwell::types::BasicTypeEnum<'ctx> = ctx.context.i64_type().into();
     let result_val = if matches!(inner_result.ty, Type::Future(_)) {
         let state_as_i8_ptr = ctx
             .builder

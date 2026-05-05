@@ -10,7 +10,6 @@
  * @author Ruyi Team
  * @date 2026-05-02
  */
-
 use std::alloc::{alloc, Layout};
 use std::ffi::CStr;
 
@@ -105,18 +104,15 @@ pub extern "C" fn ruyi_array_alloc(capacity: i64) -> *mut i8 {
         let cap = if capacity < 0 { 0 } else { capacity as usize };
         let header_size = std::mem::size_of::<i64>() * 2;
         let data_size = cap * std::mem::size_of::<*mut i8>();
-        let layout = Layout::from_size_align(
-            header_size + data_size,
-            std::mem::align_of::<i64>(),
-        )
-        .unwrap();
+        let layout =
+            Layout::from_size_align(header_size + data_size, std::mem::align_of::<i64>()).unwrap();
         let ptr = alloc(layout) as *mut i8;
         if ptr.is_null() {
             return std::ptr::null_mut();
         }
         *(ptr as *mut i64) = 0; // len
         *(ptr.add(std::mem::size_of::<i64>()) as *mut i64) = cap as i64; // cap
-        // Zero-initialize the data slots.
+                                                                         // Zero-initialize the data slots.
         std::ptr::write_bytes(ptr.add(header_size), 0, data_size);
         ptr
     }
@@ -131,14 +127,15 @@ pub extern "C" fn ruyi_array_alloc(capacity: i64) -> *mut i8 {
 #[no_mangle]
 pub extern "C" fn ruyi_object_alloc(field_count: i64) -> *mut i8 {
     unsafe {
-        let count = if field_count < 0 { 0 } else { field_count as usize };
+        let count = if field_count < 0 {
+            0
+        } else {
+            field_count as usize
+        };
         let header_size = std::mem::size_of::<i64>();
         let data_size = count * std::mem::size_of::<*mut i8>();
-        let layout = Layout::from_size_align(
-            header_size + data_size,
-            std::mem::align_of::<i64>(),
-        )
-        .unwrap();
+        let layout =
+            Layout::from_size_align(header_size + data_size, std::mem::align_of::<i64>()).unwrap();
         let ptr = alloc(layout) as *mut i8;
         if ptr.is_null() {
             return std::ptr::null_mut();
@@ -268,7 +265,8 @@ pub extern "C" fn ruyi_array_push(arr: *mut i8, value: *mut i8) -> *mut i8 {
             let header_size = std::mem::size_of::<i64>() * 2;
             let old_size = header_size + cap as usize * std::mem::size_of::<*mut i8>();
             let new_size = header_size + new_cap as usize * std::mem::size_of::<*mut i8>();
-            let old_layout = Layout::from_size_align(old_size, std::mem::align_of::<i64>()).unwrap();
+            let old_layout =
+                Layout::from_size_align(old_size, std::mem::align_of::<i64>()).unwrap();
 
             let new_ptr = std::alloc::realloc(arr as *mut u8, old_layout, new_size);
             if new_ptr.is_null() {
@@ -404,11 +402,9 @@ mod tests {
             let obj = ruyi_object_alloc(-1);
             assert!(!obj.is_null());
             assert_eq!(*(obj as *mut i64), 0i64);
-            let layout = Layout::from_size_align(
-                std::mem::size_of::<i64>(),
-                std::mem::align_of::<i64>(),
-            )
-            .unwrap();
+            let layout =
+                Layout::from_size_align(std::mem::size_of::<i64>(), std::mem::align_of::<i64>())
+                    .unwrap();
             dealloc(obj as *mut u8, layout);
         }
     }
@@ -421,10 +417,7 @@ mod tests {
             assert!(!result.is_null());
             let cstr = CStr::from_ptr(result);
             assert_eq!(cstr.to_str().unwrap(), "12345678901234567890");
-            dealloc(
-                result as *mut u8,
-                Layout::from_size_align(21, 1).unwrap(),
-            );
+            dealloc(result as *mut u8, Layout::from_size_align(21, 1).unwrap());
         }
     }
 

@@ -137,7 +137,7 @@ impl TypeEnvironment {
         for scope in self.scopes.iter_mut().rev() {
             if let Some(binding) = scope.lookup_mut(name) {
                 if binding.mutable {
-                    binding.ty = new_ty;
+                    binding.ty = binding.ty.least_upper_bound(&new_ty);
                     return true;
                 }
                 return false;

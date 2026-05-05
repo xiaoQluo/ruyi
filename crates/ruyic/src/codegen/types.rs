@@ -146,7 +146,7 @@ impl<'ctx> LlvmTypes<'ctx> {
 
     /// Get the LLVM type for a Ruyi object (class instance).
     /// Struct layout: [type_tag: i64, field_count: i64, field_storage: i8*]
-    pub fn ruyi_object_type(&self, field_count: u32) -> StructType<'ctx> {
+    pub fn ruyi_object_type(&self, _field_count: u32) -> StructType<'ctx> {
         self.context.struct_type(
             &[
                 self.context.i64_type().into(), // type_tag (gc vtable pointer)

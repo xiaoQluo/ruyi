@@ -470,7 +470,7 @@ impl Scanner {
             "void" => Token::Void,
             "delete" => Token::Delete,
             "as" => Token::As,
-            "from" => Token::From,
+
             "extends" => Token::Extends,
             "static" => Token::Static,
             "get" => Token::Get,
@@ -479,6 +479,7 @@ impl Scanner {
             "of" => Token::Of,
             "break" => Token::Break,
             "continue" => Token::Continue,
+            "yield" => Token::Yield,
             "_" => Token::Underscore,
             _ => Token::Ident(ident.to_string()),
         }

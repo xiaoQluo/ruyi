@@ -16,7 +16,7 @@ use inkwell::module::Module;
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
 };
-use inkwell::values::FunctionValue;
+use inkwell::values::{BasicValueEnum, FunctionValue};
 use inkwell::OptimizationLevel;
 
 fn opt_level_to_inkwell(level: OptLevel) -> OptimizationLevel {
@@ -67,6 +67,9 @@ pub struct CodegenContext<'ctx, 'm> {
     pub try_stack: Vec<TryContext<'ctx>>,
     pub class_fields: HashMap<String, Vec<(String, Type)>>,
     pub class_struct_types: HashMap<String, inkwell::types::StructType<'ctx>>,
+    /// Counter for generating unique anonymous arrow function names.
+    pub arrow_counter: u64,
+    pub function_types: HashMap<String, Type>,
 }
 
 impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
@@ -86,6 +89,8 @@ impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
             try_stack: Vec::new(),
             class_fields: HashMap::new(),
             class_struct_types: HashMap::new(),
+            arrow_counter: 0,
+            function_types: HashMap::new(),
         }
     }
 
@@ -97,12 +102,15 @@ impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
     /// Emit `ruyi_gc_remove_root` calls for every root in the current scope.
     pub fn emit_gc_root_removals(&self) {
         if let Some(roots) = self.gc_roots.last() {
-            for (ptr, _) in roots {
-                let loaded = self
-                    .builder
-                    .build_load(*ptr, "root_val")
-                    .into_pointer_value();
-                super::builtins::build_gc_remove_root(&self.builder, &self.module, loaded);
+            for (ptr, ty) in roots {
+                let llvm_ty = super::types::ruyi_type_to_llvm(self.context, ty);
+                if llvm_ty.is_pointer_type() {
+                    let loaded = self
+                        .builder
+                        .build_load(*ptr, "root_val")
+                        .into_pointer_value();
+                    super::builtins::build_gc_remove_root(&self.builder, &self.module, loaded);
+                }
             }
         }
     }
@@ -116,16 +124,20 @@ impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
     pub fn add_gc_root(&mut self, ptr: inkwell::values::PointerValue<'ctx>, ty: Type) {
         if let Some(scope) = self.gc_roots.last_mut() {
             scope.push((ptr, ty.clone()));
-            let loaded = self
-                .builder
-                .build_load(ptr, "root_val")
-                .into_pointer_value();
-            super::builtins::build_gc_add_root(&self.builder, &self.module, loaded);
+            let llvm_ty = super::types::ruyi_type_to_llvm(self.context, &ty);
+            if llvm_ty.is_pointer_type() {
+                let loaded = self
+                    .builder
+                    .build_load(ptr, "root_val")
+                    .into_pointer_value();
+                super::builtins::build_gc_add_root(&self.builder, &self.module, loaded);
+            }
         }
     }
 }
 
 /// Main code generator for Ruyi programs.
+#[allow(dead_code)]
 pub struct CodeGenerator<'ctx> {
     context: &'ctx Context,
     module: Module<'ctx>,
@@ -193,9 +205,50 @@ impl<'ctx> CodeGenerator<'ctx> {
         ctx.builder.position_at_end(entry_bb);
         ctx.current_function = Some(main_fn);
 
+        // Save entry block position before compiling declarations
+        let main_entry_bb = entry_bb;
+
+        // Collect the main function body to compile into the entry point
+        let mut main_body: Option<&[crate::parser::ast::Statement]> = None;
+        let mut main_params: Option<&[crate::parser::ast::Param]> = None;
+
+        for item in &program.items {
+            if let crate::parser::ast::ModuleItem::Declaration(decl) = item {
+                if let crate::parser::ast::Declaration::Function {
+                    name,
+                    params,
+                    return_type,
+                    is_async,
+                    ..
+                } = decl
+                {
+                    if name == "main" && !*is_async {
+                        if let crate::parser::ast::Declaration::Function { params, body, .. } = decl
+                        {
+                            main_body = Some(body);
+                            main_params = Some(params);
+                        }
+                    } else if !*is_async {
+                        super::decl::predeclare_function(
+                            &mut ctx,
+                            name,
+                            params,
+                            return_type.as_ref(),
+                        );
+                    }
+                }
+            }
+        }
+
         for item in &program.items {
             match item {
                 crate::parser::ast::ModuleItem::Declaration(decl) => {
+                    // Skip main function - it will be compiled into the entry point
+                    if let crate::parser::ast::Declaration::Function { name, is_async, .. } = decl {
+                        if name == "main" && !*is_async {
+                            continue;
+                        }
+                    }
                     compile_declaration(&mut ctx, decl)?;
                 }
                 crate::parser::ast::ModuleItem::Statement(stmt) => {
@@ -203,6 +256,55 @@ impl<'ctx> CodeGenerator<'ctx> {
                 }
                 _ => {}
             }
+        }
+
+        // Restore builder position to entry main block
+        ctx.builder.position_at_end(main_entry_bb);
+        ctx.current_function = Some(main_fn);
+
+        // Declare main function parameters as local variables
+        if let Some(params) = main_params {
+            for (i, param) in params.iter().enumerate() {
+                let param_name = match &param.pattern {
+                    crate::parser::ast::Pattern::Identifier(n) => n.clone(),
+                    _ => format!("param_{}", i),
+                };
+                let param_ty = param
+                    .ty
+                    .as_ref()
+                    .map(Type::from_annotation)
+                    .unwrap_or(Type::Dynamic);
+                let llvm_ty = ruyi_type_to_llvm(ctx.context, &param_ty);
+                let ptr = ctx.builder.build_alloca(llvm_ty, &param_name);
+                // Main has no external params, so just initialize with zero
+                let zero = match param_ty {
+                    Type::Int => {
+                        BasicValueEnum::IntValue(ctx.context.i64_type().const_int(0, true))
+                    }
+                    Type::Float => {
+                        BasicValueEnum::FloatValue(ctx.context.f64_type().const_float(0.0))
+                    }
+                    Type::Bool => {
+                        BasicValueEnum::IntValue(ctx.context.bool_type().const_int(0, false))
+                    }
+                    _ => BasicValueEnum::PointerValue(
+                        ctx.context
+                            .i8_type()
+                            .ptr_type(Default::default())
+                            .const_null(),
+                    ),
+                };
+                ctx.builder.build_store(ptr, zero);
+                if crate::codegen::builtins::is_gc_managed(&param_ty) {
+                    ctx.add_gc_root(ptr, param_ty.clone());
+                }
+                ctx.variables.insert(param_name, (ptr, param_ty));
+            }
+        }
+
+        // Compile main function body
+        if let Some(body) = main_body {
+            compile_block(&mut ctx, body)?;
         }
 
         let current_bb = ctx.builder.get_insert_block().unwrap();
@@ -226,14 +328,6 @@ impl<'ctx> CodeGenerator<'ctx> {
                         .get_function("ruyi_run_scheduler")
                         .expect("ruyi_run_scheduler not declared");
                     ctx.builder.build_call(scheduler_fn, &[], "run_scheduler");
-                }
-            } else {
-                let ruyi_main = ctx
-                    .module
-                    .get_function("main.1")
-                    .or_else(|| ctx.module.get_function("_main"));
-                if let Some(func) = ruyi_main {
-                    ctx.builder.build_call(func, &[], "main_call");
                 }
             }
             let zero = i32_ty.const_int(0, false);
@@ -318,6 +412,11 @@ impl<'ctx> CodeGenerator<'ctx> {
             .arg(path)
             .arg(&runtime_lib)
             .arg("-lm")
+            .arg(if std::env::consts::OS == "macos" {
+                "-lc++"
+            } else {
+                "-lstdc++"
+            })
             .status()
             .map_err(|e| format!("Failed to link binary: {}", e))?;
 

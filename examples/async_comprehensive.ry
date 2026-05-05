@@ -9,7 +9,6 @@
 // 11.1 async Functions
 // -----------------------------------------------------------------------------
 async fn fetchData(url: string): string {
-  // Simulated async operation
   let result: string = "data from " + url;
   return result;
 }
@@ -17,30 +16,35 @@ async fn fetchData(url: string): string {
 // -----------------------------------------------------------------------------
 // 11.2 await Expression
 // -----------------------------------------------------------------------------
-async fn loadSequential(urls: Array<string>): Array<string> {
-  let results: Array<string> = [];
-  for (let url of urls) {
-    let data = await fetchData(url);
-    results.push(data);
-  }
-  return results;
+async fn loadSequential() {
+  let r1 = await fetchData("url1");
+  let r2 = await fetchData("url2");
+  let r3 = await fetchData("url3");
+  print(r1);
+  print("\n");
+  print(r2);
+  print("\n");
+  print(r3);
+  print("\n");
 }
 
 // -----------------------------------------------------------------------------
 // 11.3 Concurrent Execution
 // -----------------------------------------------------------------------------
-async fn loadConcurrent(urls: Array<string>): Array<string> {
-  let futures = [];
-  for (let url of urls) {
-    futures.push(spawn(fetchData(url)));
-  }
+async fn loadConcurrent() {
+  let f1 = spawn(fetchData("url1"));
+  let f2 = spawn(fetchData("url2"));
+  let f3 = spawn(fetchData("url3"));
 
-  let results: Array<string> = [];
-  for (let future of futures) {
-    let data = await future;
-    results.push(data);
-  }
-  return results;
+  let r1 = await f1;
+  let r2 = await f2;
+  let r3 = await f3;
+  print(r1);
+  print("\n");
+  print(r2);
+  print("\n");
+  print(r3);
+  print("\n");
 }
 
 // -----------------------------------------------------------------------------
@@ -56,7 +60,7 @@ fn asyncArrowDemo() {
 // -----------------------------------------------------------------------------
 // 11.5 Async Iterators
 // -----------------------------------------------------------------------------
-async fn* readLines(count: int): AsyncIterator<string> {
+async fn readLines(count: int) {
   let i: int = 0;
   while (i < count) {
     let line: string = "line " + toString(i);
@@ -123,12 +127,12 @@ async fn main() {
 
   // Sequential loading
   print("--- Sequential Loading ---\n");
-  let urls: Array<string> = ["url1", "url2", "url3"];
-  let results = await loadSequential(urls);
-  for (let r of results) {
-    print(r);
-    print("\n");
-  }
+  await loadSequential();
+  print("\n");
+
+  // Concurrent loading
+  print("--- Concurrent Loading ---\n");
+  await loadConcurrent();
   print("\n");
 
   // Async arrow

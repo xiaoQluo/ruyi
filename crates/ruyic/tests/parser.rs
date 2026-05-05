@@ -779,9 +779,9 @@ fn test_try_catch() {
             finally,
         } => {
             assert_eq!(body.len(), 1);
-            assert!(catch.is_some());
+            assert!(!catch.is_empty());
             assert_eq!(finally, None);
-            let c = catch.unwrap();
+            let c = &catch[0];
             assert!(c.pattern.is_some());
         }
         _ => panic!("expected try statement"),
@@ -798,7 +798,7 @@ fn test_try_catch_finally() {
             finally,
         } => {
             assert_eq!(body.len(), 0);
-            assert!(catch.is_some());
+            assert!(!catch.is_empty());
             assert!(finally.is_some());
             assert_eq!(finally.unwrap().len(), 1);
         }
@@ -811,7 +811,7 @@ fn test_try_catch_typed() {
     let stmt = single_stmt("try { } catch (e: Error) { }");
     match stmt {
         Statement::Try { catch, .. } => {
-            let c = catch.unwrap();
+            let c = &catch[0];
             assert_eq!(c.ty, Some(TypeAnnotation::Identifier("Error".into())));
         }
         _ => panic!("expected try statement"),
@@ -828,7 +828,7 @@ fn test_try_finally_only() {
             finally,
         } => {
             assert_eq!(body.len(), 0);
-            assert_eq!(catch, None);
+            assert!(catch.is_empty());
             assert!(finally.is_some());
         }
         _ => panic!("expected try statement"),

@@ -45,7 +45,7 @@ pub fn compile_declaration<'ctx>(
                     body,
                 )
             } else {
-                compile_function(ctx, name, params, return_type.as_ref(), body)
+                compile_function(ctx, name, params, return_type.as_ref(), None, None, body)
             }
         }
         Declaration::Class { name, body, .. } => compile_class(ctx, name, body),
@@ -70,11 +70,11 @@ fn compile_binding<'ctx>(
     };
 
     // Determine type: use annotation if present, otherwise infer from init expression
-    let (ty, llvm_ty, ptr) = if let Some(annotation) = &binding.ty {
+    let (ty, _llvm_ty, ptr) = if let Some(annotation) = &binding.ty {
         let ty = Type::from_annotation(annotation);
-        let llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
-        let ptr = ctx.builder.build_alloca(llvm_ty, &name);
-        (ty, llvm_ty, ptr)
+        let _llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
+        let ptr = ctx.builder.build_alloca(_llvm_ty, &name);
+        (ty, _llvm_ty, ptr)
     } else if let Some(init) = &binding.init {
         // Infer type from initialization expression
         let init_result = compile_expr(ctx, init)?;
@@ -86,9 +86,9 @@ fn compile_binding<'ctx>(
         return Ok(());
     } else {
         let ty = Type::Dynamic;
-        let llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
-        let ptr = ctx.builder.build_alloca(llvm_ty, &name);
-        (ty, llvm_ty, ptr)
+        let _llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
+        let ptr = ctx.builder.build_alloca(_llvm_ty, &name);
+        (ty, _llvm_ty, ptr)
     };
 
     if let Some(init) = &binding.init {
@@ -104,13 +104,12 @@ fn compile_binding<'ctx>(
     Ok(())
 }
 
-fn compile_function<'ctx>(
+pub fn predeclare_function<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_>,
     name: &str,
     params: &[crate::parser::ast::Param],
     return_type: Option<&crate::parser::ast::TypeAnnotation>,
-    body: &[crate::parser::ast::Statement],
-) -> Result<(), String> {
+) {
     let param_types: Vec<Type> = params
         .iter()
         .map(|p| {
@@ -124,7 +123,55 @@ fn compile_function<'ctx>(
 
     let fn_type = function_type_from_ruyi(ctx.context, &param_types, &ret_type);
 
-    let function = ctx.module.add_function(name, fn_type, None);
+    let ruyi_fn_type = Type::Function {
+        params: param_types,
+        return_type: Box::new(ret_type),
+    };
+    ctx.function_types.insert(name.to_string(), ruyi_fn_type);
+
+    ctx.module.add_function(name, fn_type, None);
+}
+
+pub fn compile_function<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    name: &str,
+    params: &[crate::parser::ast::Param],
+    return_type: Option<&crate::parser::ast::TypeAnnotation>,
+    inferred_param_types: Option<&[Type]>,
+    inferred_return_type: Option<&Type>,
+    body: &[crate::parser::ast::Statement],
+) -> Result<(), String> {
+    let param_types: Vec<Type> = inferred_param_types
+        .map(|types| types.to_vec())
+        .unwrap_or_else(|| {
+            params
+                .iter()
+                .map(|p| {
+                    p.ty.as_ref()
+                        .map(Type::from_annotation)
+                        .unwrap_or(Type::Dynamic)
+                })
+                .collect()
+        });
+
+    let ret_type = inferred_return_type
+        .cloned()
+        .or_else(|| return_type.map(Type::from_annotation))
+        .unwrap_or(Type::Void);
+
+    let fn_type = function_type_from_ruyi(ctx.context, &param_types, &ret_type);
+
+    let ruyi_fn_type = Type::Function {
+        params: param_types.clone(),
+        return_type: Box::new(ret_type.clone()),
+    };
+    ctx.function_types.insert(name.to_string(), ruyi_fn_type);
+
+    let function = if let Some(existing) = ctx.module.get_function(name) {
+        existing
+    } else {
+        ctx.module.add_function(name, fn_type, None)
+    };
 
     // Save current function and builder position
     let prev_function = ctx.current_function;
@@ -295,6 +342,8 @@ fn compile_class<'ctx>(
                     &method_name,
                     &method_params,
                     return_type.as_ref(),
+                    None,
+                    None,
                     method_body,
                 )?;
             }
@@ -360,6 +409,8 @@ fn compile_impl<'ctx>(
                     &mangled_name,
                     &impl_params,
                     return_type.as_ref(),
+                    None,
+                    None,
                     method_body,
                 )?;
             }
