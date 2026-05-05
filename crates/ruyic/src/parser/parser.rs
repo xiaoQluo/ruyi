@@ -29,10 +29,12 @@ impl Parser {
         self.current().map(|t| &t.token)
     }
 
+    #[allow(dead_code)]
     fn peek(&self, offset: usize) -> Option<&TokenWithLocation> {
         self.tokens.get(self.pos + offset)
     }
 
+    #[allow(dead_code)]
     fn peek_token(&self, offset: usize) -> Option<&Token> {
         self.peek(offset).map(|t| &t.token)
     }
@@ -80,6 +82,24 @@ impl Parser {
             true
         } else {
             false
+        }
+    }
+
+    fn expect_keyword_ident(&mut self, name: &'static str) -> Result<(), ParseError> {
+        if self.match_ident(name) {
+            Ok(())
+        } else {
+            let loc = self.location();
+            let found = self
+                .current_token()
+                .map(|t| t.name())
+                .unwrap_or_else(|| "end of file".into());
+            Err(ParseError::ExpectedToken {
+                expected: format!("keyword '{name}'"),
+                found,
+                line: loc.line,
+                col: loc.col,
+            })
         }
     }
 
@@ -225,7 +245,7 @@ impl Parser {
             if self.match_token(&Token::Comma) {
                 // import X, { ... } from "..."
             } else {
-                self.expect(Token::From)?;
+                self.expect_keyword_ident("from")?;
                 source = self.expect_string()?;
                 self.expect(Token::SemiColon)?;
                 return Ok(ImportDecl {
@@ -240,7 +260,7 @@ impl Parser {
         if self.match_token(&Token::Star) {
             self.expect(Token::As)?;
             namespace = Some(self.expect_ident()?);
-            self.expect(Token::From)?;
+            self.expect_keyword_ident("from")?;
             source = self.expect_string()?;
             self.expect(Token::SemiColon)?;
             return Ok(ImportDecl {
@@ -265,7 +285,7 @@ impl Parser {
             }
         }
         self.expect(Token::RBrace)?;
-        self.expect(Token::From)?;
+        self.expect_keyword_ident("from")?;
         source = self.expect_string()?;
         self.expect(Token::SemiColon)?;
         Ok(ImportDecl {
@@ -328,7 +348,7 @@ impl Parser {
         }
 
         if self.match_token(&Token::Star) {
-            self.expect(Token::From)?;
+            self.expect_keyword_ident("from")?;
             let source = self.expect_string()?;
             self.expect(Token::SemiColon)?;
             return Ok(ExportDecl::ReExportAll { source });
@@ -350,7 +370,7 @@ impl Parser {
                 }
             }
             self.expect(Token::RBrace)?;
-            if self.match_token(&Token::From) {
+            if self.match_ident("from") {
                 let source = self.expect_string()?;
                 self.expect(Token::SemiColon)?;
                 return Ok(ExportDecl::ReExportNamed { items, source });
@@ -418,6 +438,8 @@ impl Parser {
     fn parse_fn_declaration(&mut self) -> Result<Declaration, ParseError> {
         let is_async = self.match_token(&Token::Async);
         self.expect(Token::Fn)?;
+        // Skip generator marker `*` if present: `fn* name()`
+        self.match_token(&Token::Star);
         let name = self.expect_ident()?;
         let type_params = self.parse_type_params()?;
         self.expect(Token::LParen)?;
@@ -769,6 +791,7 @@ impl Parser {
             Some(Token::For) => self.parse_for_statement(),
             Some(Token::Return) => self.parse_return_statement(),
             Some(Token::Throw) => self.parse_throw_statement(),
+            Some(Token::Yield) => self.parse_yield_statement(),
             Some(Token::Try) => self.parse_try_statement(),
             Some(Token::Match) => self.parse_match_statement(),
             Some(Token::SemiColon) => {
@@ -778,6 +801,24 @@ impl Parser {
             Some(Token::Let) | Some(Token::Const) => {
                 let decl = self.parse_declaration()?;
                 Ok(Statement::Declaration(decl))
+            }
+            Some(Token::Ident(_)) => {
+                let name = match self.current_token() {
+                    Some(Token::Ident(n)) => n.clone(),
+                    _ => unreachable!(),
+                };
+                self.advance();
+                if self.check(&Token::Colon) {
+                    self.advance();
+                    let body = self.parse_statement()?;
+                    Ok(Statement::Labeled {
+                        label: name,
+                        body: Box::new(body),
+                    })
+                } else {
+                    self.pos -= 1;
+                    self.parse_expression_statement()
+                }
             }
             _ => {
                 if self.check(&Token::Break) {
@@ -803,7 +844,10 @@ impl Parser {
 
     fn parse_expression_statement(&mut self) -> Result<Statement, ParseError> {
         let expr = self.parse_expression()?;
-        self.expect(Token::SemiColon)?;
+        // Semicolon is optional if followed by '}' (e.g., in if-expression blocks)
+        if !self.check(&Token::RBrace) {
+            self.expect(Token::SemiColon)?;
+        }
         Ok(Statement::Expression(Box::new(expr)))
     }
 
@@ -867,6 +911,7 @@ impl Parser {
 
     fn parse_for_statement(&mut self) -> Result<Statement, ParseError> {
         self.expect(Token::For)?;
+        let is_for_await = self.match_token(&Token::Await);
         self.expect(Token::LParen)?;
 
         if self.check(&Token::Let) {
@@ -890,7 +935,7 @@ impl Parser {
                         });
                     }
                     if self.match_token(&Token::Of) {
-                        let is_async = self.match_token(&Token::Async);
+                        let is_async = is_for_await || self.match_token(&Token::Async);
                         let iterable = self.parse_expression()?;
                         self.expect(Token::RParen)?;
                         let body = Box::new(self.parse_statement()?);
@@ -949,6 +994,18 @@ impl Parser {
         Ok(Statement::Return(value))
     }
 
+    fn parse_yield_statement(&mut self) -> Result<Statement, ParseError> {
+        self.expect(Token::Yield)?;
+        let value =
+            if self.check(&Token::SemiColon) || self.check(&Token::RBrace) || self.is_at_end() {
+                None
+            } else {
+                Some(Box::new(self.parse_expression()?))
+            };
+        self.expect(Token::SemiColon)?;
+        Ok(Statement::Yield(value))
+    }
+
     fn parse_throw_statement(&mut self) -> Result<Statement, ParseError> {
         self.expect(Token::Throw)?;
         let value = self.parse_expression()?;
@@ -962,7 +1019,8 @@ impl Parser {
         let body = self.parse_function_body()?;
         self.expect(Token::RBrace)?;
 
-        let catch = if self.match_token(&Token::Catch) {
+        let mut catches = Vec::new();
+        while self.match_token(&Token::Catch) {
             let pattern = if self.match_token(&Token::LParen) {
                 let pat = self.parse_pattern()?;
                 let ty = if self.check(&Token::Colon) {
@@ -978,14 +1036,12 @@ impl Parser {
             self.expect(Token::LBrace)?;
             let catch_body = self.parse_function_body()?;
             self.expect(Token::RBrace)?;
-            Some(CatchClause {
+            catches.push(CatchClause {
                 pattern: pattern.as_ref().map(|(p, _)| p.clone()),
                 ty: pattern.and_then(|(_, t)| t),
                 body: catch_body,
-            })
-        } else {
-            None
-        };
+            });
+        }
 
         let finally = if self.match_token(&Token::Finally) {
             self.expect(Token::LBrace)?;
@@ -998,7 +1054,7 @@ impl Parser {
 
         Ok(Statement::Try {
             body,
-            catch,
+            catch: catches,
             finally,
         })
     }
@@ -1036,7 +1092,36 @@ impl Parser {
         self.expect(Token::FatArrow)?;
         let body = if self.check(&Token::LBrace) {
             self.advance();
-            let stmts = self.parse_function_body()?;
+            let mut stmts = Vec::new();
+            while !self.check(&Token::RBrace) && !self.is_at_end() {
+                match self.current_token() {
+                    // Tokens that start keyword-based statements (delegate to parse_statement)
+                    Some(Token::LBrace)
+                    | Some(Token::If)
+                    | Some(Token::While)
+                    | Some(Token::For)
+                    | Some(Token::Return)
+                    | Some(Token::Throw)
+                    | Some(Token::Try)
+                    | Some(Token::Match)
+                    | Some(Token::SemiColon)
+                    | Some(Token::Let)
+                    | Some(Token::Const)
+                    | Some(Token::Break)
+                    | Some(Token::Continue) => {
+                        stmts.push(self.parse_statement()?);
+                    }
+                    // Everything else is an expression; semicolon is optional
+                    // so that the last expression in a match arm block can omit it
+                    _ => {
+                        let expr = self.parse_expression()?;
+                        if self.check(&Token::SemiColon) {
+                            self.advance();
+                        }
+                        stmts.push(Statement::Expression(Box::new(expr)));
+                    }
+                }
+            }
             self.expect(Token::RBrace)?;
             stmts
         } else {
@@ -1093,6 +1178,12 @@ impl Parser {
         let mut lhs = self.parse_prefix()?;
 
         loop {
+            if self.check(&Token::Not) {
+                self.advance();
+                lhs = Expr::NullAssert(Box::new(lhs));
+                continue;
+            }
+
             let op = match self.current_token() {
                 Some(t) => t.clone(),
                 None => break,
@@ -1348,8 +1439,35 @@ impl Parser {
                 self.advance();
                 if self.check(&Token::Fn) {
                     self.parse_async_function_expression()
+                } else if self.check(&Token::LParen) {
+                    // async arrow: async (params) => body
+                    let params_expr = self.parse_primary()?;
+                    if self.match_token(&Token::FatArrow) {
+                        let params = expr_to_arrow_params(params_expr)?;
+                        let return_type = if self.check(&Token::Colon) {
+                            Some(self.parse_type_annotation()?)
+                        } else {
+                            None
+                        };
+                        let body = if self.check(&Token::LBrace) {
+                            self.advance();
+                            let stmts = self.parse_function_body()?;
+                            self.expect(Token::RBrace)?;
+                            ArrowBody::Block(stmts)
+                        } else {
+                            ArrowBody::Expr(Box::new(self.parse_expression()?))
+                        };
+                        Ok(Expr::ArrowFunction {
+                            params,
+                            return_type,
+                            body,
+                            is_async: true,
+                        })
+                    } else {
+                        Err(self.error("expected '=>' after async parameters"))
+                    }
                 } else {
-                    Err(self.error("expected 'fn' after 'async'"))
+                    Err(self.error("expected 'fn' or '(' after 'async'"))
                 }
             }
             _ => {
@@ -1438,6 +1556,57 @@ impl Parser {
 
     fn parse_grouping_or_arrow(&mut self) -> Result<Expr, ParseError> {
         self.expect(Token::LParen)?;
+        if self.check(&Token::RParen) {
+            self.advance();
+            return Ok(Expr::Sequence(vec![]));
+        }
+
+        // Check if this is typed arrow function parameters: (x: int, y: string)
+        if let Some(Token::Ident(_)) = self.current_token() {
+            let saved_pos = self.pos;
+            let first_name = match self.current_token() {
+                Some(Token::Ident(n)) => n.clone(),
+                _ => unreachable!(),
+            };
+            self.advance();
+
+            // If identifier is followed by ':', we're parsing typed params
+            if self.check(&Token::Colon) {
+                self.advance();
+                let first_type = Some(self.parse_type()?);
+                let mut params = vec![(first_name, first_type)];
+
+                while self.check(&Token::Comma) {
+                    self.advance();
+                    let name = match self.current_token() {
+                        Some(Token::Ident(n)) => n.clone(),
+                        _ => {
+                            self.pos = saved_pos;
+                            let expr = self.parse_expression()?;
+                            self.expect(Token::RParen)?;
+                            return Ok(Expr::Grouping(Box::new(expr)));
+                        }
+                    };
+                    self.advance();
+                    let ty = if self.check(&Token::Colon) {
+                        self.advance();
+                        Some(self.parse_type()?)
+                    } else {
+                        None
+                    };
+                    params.push((name, ty));
+                }
+
+                if self.check(&Token::RParen) {
+                    self.advance();
+                    return Ok(Expr::ArrowParams(params));
+                }
+            }
+
+            // Not typed params, backtrack and parse as expression
+            self.pos = saved_pos;
+        }
+
         let expr = self.parse_expression()?;
         self.expect(Token::RParen)?;
         Ok(Expr::Grouping(Box::new(expr)))
@@ -1643,8 +1812,26 @@ impl Parser {
             }
             Some(Token::Dyn) => {
                 self.advance();
-                let inner = self.parse_type()?;
-                Ok(TypeAnnotation::Dyn(Box::new(inner)))
+                // Check if next token could start a type (for `dyn Trait` syntax).
+                // If not, treat as bare `dyn` (any dynamic type).
+                if matches!(
+                    self.current_token(),
+                    Some(Token::Ident(_))
+                        | Some(Token::Fn)
+                        | Some(Token::LBrace)
+                        | Some(Token::LBracket)
+                        | Some(Token::LParen)
+                        | Some(Token::Void)
+                        | Some(Token::Null)
+                ) {
+                    let inner = self.parse_type()?;
+                    Ok(TypeAnnotation::Dyn(Box::new(inner)))
+                } else {
+                    // Bare dyn — represents any dynamic type
+                    Ok(TypeAnnotation::Dyn(Box::new(TypeAnnotation::Builtin(
+                        "dyn".to_string(),
+                    ))))
+                }
             }
             Some(Token::Ident(name)) => {
                 let name = name.clone();
@@ -1670,8 +1857,10 @@ impl Parser {
                     }
                 }
                 self.expect(Token::RParen)?;
-                // Note: lexer tokenizes -> as FatArrow due to a bug, so we use FatArrow here
-                self.expect(Token::FatArrow)?;
+                // Accept both `->` (FatArrow) and `:` as return type separator
+                if !self.match_token(&Token::FatArrow) && !self.match_token(&Token::Colon) {
+                    return Err(self.error("expected '->' or ':' after function type parameters"));
+                }
                 let return_type = Box::new(self.parse_type()?);
                 Ok(TypeAnnotation::Function {
                     params,
@@ -2048,6 +2237,27 @@ fn expr_to_arrow_params(expr: Expr) -> Result<Vec<Param>, ParseError> {
             init: None,
             is_rest: false,
         }]),
+        Expr::Sequence(exprs) => {
+            let mut params = Vec::new();
+            for e in exprs {
+                match e {
+                    Expr::Identifier(name) => params.push(Param {
+                        pattern: Pattern::Identifier(name),
+                        ty: None,
+                        init: None,
+                        is_rest: false,
+                    }),
+                    _ => {
+                        return Err(ParseError::SyntaxError {
+                            message: "invalid arrow function parameter".into(),
+                            line: 0,
+                            col: 0,
+                        })
+                    }
+                }
+            }
+            Ok(params)
+        }
         Expr::Grouping(boxed) => match *boxed {
             Expr::Sequence(exprs) => {
                 let mut params = Vec::new();
@@ -2082,6 +2292,15 @@ fn expr_to_arrow_params(expr: Expr) -> Result<Vec<Param>, ParseError> {
                 col: 0,
             }),
         },
+        Expr::ArrowParams(params) => Ok(params
+            .into_iter()
+            .map(|(name, ty)| Param {
+                pattern: Pattern::Identifier(name),
+                ty,
+                init: None,
+                is_rest: false,
+            })
+            .collect()),
         _ => Err(ParseError::SyntaxError {
             message: "invalid arrow function parameters".into(),
             line: 0,

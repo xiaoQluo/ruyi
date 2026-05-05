@@ -11,11 +11,11 @@ use std::path::PathBuf;
 use std::process;
 
 use clap::Parser;
-use ruyic::driver::{CompileError, CompileOptions, Driver, EmitType, OptLevel};
+use ruyic::driver::{CompileOptions, Driver, EmitType, OptLevel};
 
 #[derive(Parser, Debug)]
 #[command(name = "ruyic")]
-#[command(version = "0.4.1")]
+#[command(version = "0.5.1")]
 #[command(about = "Ruyi compiler - compiles .ry source files to native binaries")]
 struct Args {
     #[arg(help = "Input file to compile")]

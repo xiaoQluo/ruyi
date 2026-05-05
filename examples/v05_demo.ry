@@ -1,0 +1,12 @@
+// v05_demo.ry — v0.5 feature demo: Timestamp, Random
+// Note: These features are WIP. Compilation may fail.
+
+// Timestamp demo
+let ts = Timestamp.now();
+print("Current timestamp: " + ts.toString());
+
+// Random with fixed seed for deterministic output
+let rng = Random(42);
+print("Random int: " + rng.nextInt(100));
+print("Random float: " + rng.nextFloat());
+print("Random bool: " + rng.nextBool());

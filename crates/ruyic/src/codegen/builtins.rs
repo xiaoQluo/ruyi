@@ -35,6 +35,8 @@ pub fn declare_builtins<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     declare_ruyi_iter_next(context, module);
     declare_ruyi_bigint_from_str(context, module);
     declare_ruyi_obj_get(context, module);
+    declare_ruyi_int_to_string(context, module);
+    declare_ruyi_float_to_string(context, module);
 }
 
 fn declare_printf<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
@@ -101,6 +103,20 @@ fn declare_ruyi_str_concat<'ctx>(context: &'ctx Context, module: &Module<'ctx>) 
     let i8_ptr = context.i8_type().ptr_type(Default::default());
     let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
     module.add_function("ruyi_str_concat", fn_type, None);
+}
+
+fn declare_ruyi_int_to_string<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i64_ty = context.i64_type();
+    let fn_type = i8_ptr.fn_type(&[i64_ty.into()], false);
+    module.add_function("ruyi_int_to_string", fn_type, None);
+}
+
+fn declare_ruyi_float_to_string<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let f64_ty = context.f64_type();
+    let fn_type = i8_ptr.fn_type(&[f64_ty.into()], false);
+    module.add_function("ruyi_float_to_string", fn_type, None);
 }
 
 pub fn build_ruyi_get_pending_exception<'ctx>(
@@ -455,7 +471,9 @@ pub fn is_gc_managed(ty: &crate::typechecker::types::Type) -> bool {
         | Type::Null
         | Type::Void
         | Type::Never
-        | Type::Error => false,
+        | Type::Error
+        | Type::String
+        | Type::Function { .. } => false,
         Type::Nullable(inner) => is_gc_managed(inner),
         _ => true,
     }

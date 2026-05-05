@@ -145,18 +145,19 @@ impl MacroExpander {
             } => {
                 let body_expanded: Result<Vec<Statement>, MacroError> =
                     body.iter().map(|s| self.expand_statement(s)).collect();
-                let catch_expanded = catch
-                    .as_ref()
-                    .map(|c| -> Result<crate::parser::ast::CatchClause, MacroError> {
-                        let body: Result<Vec<Statement>, MacroError> =
-                            c.body.iter().map(|s| self.expand_statement(s)).collect();
-                        Ok(crate::parser::ast::CatchClause {
-                            pattern: c.pattern.clone(),
-                            ty: c.ty.clone(),
-                            body: body?,
+                let catch_expanded: Result<Vec<crate::parser::ast::CatchClause>, MacroError> =
+                    catch
+                        .iter()
+                        .map(|c| -> Result<crate::parser::ast::CatchClause, MacroError> {
+                            let body: Result<Vec<Statement>, MacroError> =
+                                c.body.iter().map(|s| self.expand_statement(s)).collect();
+                            Ok(crate::parser::ast::CatchClause {
+                                pattern: c.pattern.clone(),
+                                ty: c.ty.clone(),
+                                body: body?,
+                            })
                         })
-                    })
-                    .transpose()?;
+                        .collect();
                 let finally_expanded = finally
                     .as_ref()
                     .map(|f| -> Result<Vec<Statement>, MacroError> {
@@ -165,7 +166,7 @@ impl MacroExpander {
                     .transpose()?;
                 Ok(Statement::Try {
                     body: body_expanded?,
-                    catch: catch_expanded,
+                    catch: catch_expanded?,
                     finally: finally_expanded,
                 })
             }

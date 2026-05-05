@@ -75,6 +75,22 @@ impl TypeInference {
                 return_type: Box::new(Type::Void),
             },
         );
+        // Pre-declare common stdlib functions
+        env.declare_let(
+            "toString",
+            Type::Function {
+                params: vec![Type::Dynamic],
+                return_type: Box::new(Type::String),
+            },
+        );
+        // Pre-declare Error class type
+        env.declare_let(
+            "Error",
+            Type::Function {
+                params: vec![Type::String],
+                return_type: Box::new(Type::Named("Error".into())),
+            },
+        );
         Self {
             env,
             diagnostics: DiagnosticBag::new(),
@@ -87,6 +103,56 @@ impl TypeInference {
     }
 
     pub fn infer_program(mut self, program: &crate::parser::ast::Program) -> InferenceResult {
+        // Pass 1: Collect all function declarations (signatures only)
+        // This enables forward references - functions can call other functions defined later
+        for item in &program.items {
+            if let ModuleItem::Declaration(decl) = item {
+                if let Declaration::Function {
+                    name,
+                    type_params,
+                    params,
+                    return_type,
+                    is_async,
+                    ..
+                } = decl
+                {
+                    let param_types: Vec<Type> = params
+                        .iter()
+                        .map(|p| {
+                            p.ty.as_ref()
+                                .map(Type::from_annotation)
+                                .unwrap_or(Type::Dynamic)
+                        })
+                        .collect();
+                    let ret_type = return_type
+                        .as_ref()
+                        .map(Type::from_annotation)
+                        .unwrap_or(Type::Dynamic);
+                    let fn_ret_type = if *is_async {
+                        Type::Future(Box::new(ret_type.clone()))
+                    } else {
+                        ret_type.clone()
+                    };
+                    let fn_type = Type::Function {
+                        params: param_types.clone(),
+                        return_type: Box::new(fn_ret_type),
+                    };
+                    if !type_params.is_empty() {
+                        let generic_def = make_generic_function_def(
+                            name,
+                            type_params,
+                            &param_types,
+                            &ret_type,
+                            &mut self.tracker,
+                        );
+                        self.tracker.register_generic(generic_def);
+                    }
+                    self.env.declare_let(name, fn_type);
+                }
+            }
+        }
+
+        // Pass 2: Full type inference (bodies, statements, etc.)
         for item in &program.items {
             self.infer_module_item(item);
         }
@@ -154,6 +220,14 @@ impl TypeInference {
                             .unwrap_or(Type::Dynamic)
                     })
                     .collect();
+
+                // Phase 1: Infer return type (needs parameters in scope)
+                self.env.push_scope();
+                for (param, ty) in params.iter().zip(param_types.iter()) {
+                    self.env
+                        .declare_param(&pattern_name(&param.pattern), ty.clone());
+                }
+
                 let ret_type = return_type
                     .as_ref()
                     .map(Type::from_annotation)
@@ -181,9 +255,13 @@ impl TypeInference {
                     self.tracker.register_generic(generic_def);
                 }
 
+                // Pop the temporary scope used for return type inference
+                self.env.pop_scope();
+
+                // Phase 2: Declare function name in outer (global) scope
                 self.env.declare_let(name, fn_type.clone());
 
-                // Type check the function body
+                // Phase 3: Type check the function body
                 self.env.push_scope();
                 for (param, ty) in params.iter().zip(param_types.iter()) {
                     self.env
@@ -553,7 +631,7 @@ impl TypeInference {
                 }
                 self.env.pop_scope();
 
-                if let Some(catch_clause) = catch {
+                for catch_clause in catch {
                     self.env.push_scope();
                     if let Some(pattern) = &catch_clause.pattern {
                         let catch_type = catch_clause
@@ -627,6 +705,13 @@ impl TypeInference {
                 last_ty
             }
             Statement::Break(_) | Statement::Continue(_) => Type::Never,
+            Statement::Yield(expr) => {
+                if let Some(e) = expr {
+                    self.synthesize(e);
+                }
+                Type::Void
+            }
+            Statement::Labeled { body, .. } => self.infer_statement(body),
             Statement::Declaration(decl) => self.infer_declaration(decl),
             Statement::Empty => Type::Void,
         }
@@ -716,6 +801,22 @@ impl TypeInference {
                 let operand_ty = self.synthesize(operand);
                 self.synthesize_unary(op, operand_ty)
             }
+            Expr::NullAssert(expr) => {
+                let ty = self.synthesize(expr);
+                match &ty {
+                    Type::Nullable(inner) => *inner.clone(),
+                    Type::Null => Type::Never,
+                    _ => {
+                        self.diagnostics.add_error(DiagnosticKind::Other {
+                            message: format!(
+                                "cannot use null assertion on non-nullable type `{}`",
+                                ty
+                            ),
+                        });
+                        ty
+                    }
+                }
+            }
             Expr::Call { callee, args } => {
                 let callee_ty = self.synthesize(callee);
                 let arg_types: Vec<Type> = args
@@ -754,19 +855,62 @@ impl TypeInference {
                         params,
                         return_type,
                     } => {
-                        if arg_types.len() != params.len() {
+                        // Support default params: allow fewer args (missing args have defaults)
+                        // Support rest params: allow more args when last param is Array<T>
+                        let has_rest = params
+                            .last()
+                            .map(|p| match p {
+                                Type::Array(_) => true,
+                                Type::Generic { base, .. } if base == "Array" => true,
+                                _ => false,
+                            })
+                            .unwrap_or(false);
+                        let min_args = 0; // Allow all args to have defaults
+                        let max_args = if has_rest { usize::MAX } else { params.len() };
+                        if arg_types.len() < min_args || arg_types.len() > max_args {
                             self.diagnostics.add_error(DiagnosticKind::ArgumentCount {
                                 expected: params.len(),
                                 found: arg_types.len(),
                             });
                         }
-                        for (i, (arg, param)) in arg_types.iter().zip(params.iter()).enumerate() {
-                            if !arg.is_consistent_with(param) {
-                                self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
-                                    expected: param.clone(),
-                                    found: arg.clone(),
-                                });
-                                let _ = i;
+                        if has_rest {
+                            // Regular params before rest
+                            let regular_count = params.len().saturating_sub(1);
+                            for (i, (arg, param)) in arg_types
+                                .iter()
+                                .zip(params.iter())
+                                .enumerate()
+                                .take(regular_count)
+                            {
+                                if !arg.is_consistent_with(param) {
+                                    self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
+                                        expected: param.clone(),
+                                        found: arg.clone(),
+                                    });
+                                    let _ = i;
+                                }
+                            }
+                            // Rest param: all remaining args must match element type
+                            if let Some(Type::Array(elem)) = params.last() {
+                                for arg in arg_types.iter().skip(regular_count) {
+                                    if !arg.is_consistent_with(elem) {
+                                        self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
+                                            expected: *elem.clone(),
+                                            found: arg.clone(),
+                                        });
+                                    }
+                                }
+                            }
+                        } else {
+                            for (i, (arg, param)) in arg_types.iter().zip(params.iter()).enumerate()
+                            {
+                                if !arg.is_consistent_with(param) {
+                                    self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
+                                        expected: param.clone(),
+                                        found: arg.clone(),
+                                    });
+                                    let _ = i;
+                                }
                             }
                         }
                         *return_type
@@ -886,8 +1030,20 @@ impl TypeInference {
                     .map(Type::from_annotation)
                     .unwrap_or_else(|| match body {
                         ArrowBody::Expr(e) => self.synthesize_expr_fresh(e),
-                        ArrowBody::Block(stmts) => self.infer_block_return_type(stmts),
+                        ArrowBody::Block(stmts) => self.infer_return_type(stmts),
                     });
+
+                if let ArrowBody::Block(stmts) = body {
+                    let expected_ret = return_type
+                        .as_ref()
+                        .map(Type::from_annotation)
+                        .unwrap_or_else(|| ret_type.clone());
+                    self.return_type_stack.push(expected_ret);
+                    for stmt in stmts {
+                        let _ = self.infer_statement(stmt);
+                    }
+                    self.return_type_stack.pop();
+                }
 
                 self.env.pop_scope();
 
@@ -996,6 +1152,11 @@ impl TypeInference {
             }
             Expr::Grouping(inner) => self.synthesize(inner),
             Expr::Block(stmts) => self.infer_block_return_type(stmts),
+            Expr::ArrowParams(_) => {
+                unreachable!(
+                    "ArrowParams should be converted to ArrowFunction before typechecking"
+                );
+            }
         }
     }
 
@@ -1009,6 +1170,14 @@ impl TypeInference {
                 to: expected.clone(),
             });
             return expected.clone();
+        }
+
+        // Special case: concrete type -> dyn Trait coercion
+        // Allow concrete-to-trait assignment when the concrete type implements the trait
+        if let Type::Trait(trait_name) = expected {
+            if self.trait_registry.implements(&synthesized, trait_name) {
+                return synthesized;
+            }
         }
 
         if !synthesized.is_consistent_with(expected) {
@@ -1227,6 +1396,7 @@ impl TypeInference {
                     Type::Dynamic
                 }
             }
+            Type::Array(_) => Type::Dynamic,
             Type::Generic { .. } => Type::Dynamic,
             Type::Dynamic => Type::Dynamic,
             Type::Error => Type::Error,

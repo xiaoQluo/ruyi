@@ -166,7 +166,7 @@ impl PatternMatcher {
     }
 
     fn match_metavar(&mut self, name: &str, kind: &MetaVarKind) -> bool {
-        if let Some(actual) = self.input.get(self.pos) {
+        if let Some(_actual) = self.input.get(self.pos) {
             let captures = match kind {
                 MetaVarKind::Expr => self.capture_expr(),
                 MetaVarKind::Stmt => self.capture_stmt(),
@@ -325,7 +325,7 @@ impl PatternMatcher {
             }
 
             // Try to match inner pattern
-            let start = self.pos;
+            let _start = self.pos;
             let mut inner_matcher = PatternMatcher {
                 pattern: ParsedPattern {
                     tokens: inner.to_vec(),

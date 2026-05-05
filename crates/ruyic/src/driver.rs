@@ -152,6 +152,8 @@ pub struct ModuleResolver {
     search_paths: Vec<PathBuf>,
     /// Already loaded modules (path -> AST)
     loaded_modules: HashMap<PathBuf, Program>,
+    /// RUYI_HOME directory for stdlib resolution
+    ruyi_home: Option<PathBuf>,
 }
 
 impl ModuleResolver {
@@ -159,6 +161,7 @@ impl ModuleResolver {
         Self {
             search_paths,
             loaded_modules: HashMap::new(),
+            ruyi_home: std::env::var("RUYI_HOME").ok().map(PathBuf::from),
         }
     }
 
@@ -168,7 +171,7 @@ impl ModuleResolver {
     }
 
     /// Resolve a module path to an absolute path.
-    /// Looks in stdlib/ directory and project directories.
+    /// Looks in RUYI_HOME/stdlib, search paths, and project directories.
     pub fn resolve(&self, source: &str) -> Result<PathBuf, CompileError> {
         // Remove quotes from the source path
         let module_name = source.trim_matches('"');
@@ -182,8 +185,17 @@ impl ModuleResolver {
             return Err(CompileError::ModuleNotFound(source.to_string()));
         }
 
-        // Try relative to current directory first
         let relative_path = PathBuf::from(format!("{}.ry", module_name));
+
+        // Try RUYI_HOME/stdlib first (for stdlib modules)
+        if let Some(ref home) = self.ruyi_home {
+            let stdlib_candidate = home.join("stdlib").join(&relative_path);
+            if stdlib_candidate.exists() {
+                return Ok(stdlib_candidate);
+            }
+        }
+
+        // Try relative to current directory
         if relative_path.exists() {
             return Ok(relative_path);
         }
@@ -196,10 +208,10 @@ impl ModuleResolver {
             }
         }
 
-        // Try stdlib directory
-        let stdlib_path = PathBuf::from("stdlib").join(&relative_path);
-        if stdlib_path.exists() {
-            return Ok(stdlib_path);
+        // Fallback: try local stdlib/ directory (for development)
+        let local_stdlib = PathBuf::from("stdlib").join(&relative_path);
+        if local_stdlib.exists() {
+            return Ok(local_stdlib);
         }
 
         Err(CompileError::ModuleNotFound(source.to_string()))

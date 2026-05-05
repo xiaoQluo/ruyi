@@ -206,7 +206,10 @@ fn test_multiple_tasks_each_have_independent_roots() {
         ]
     };
 
-    while !polled1.load(Ordering::SeqCst) || !polled2.load(Ordering::SeqCst) || !polled3.load(Ordering::SeqCst) {
+    while !polled1.load(Ordering::SeqCst)
+        || !polled2.load(Ordering::SeqCst)
+        || !polled3.load(Ordering::SeqCst)
+    {
         std::thread::yield_now();
     }
     std::thread::sleep(std::time::Duration::from_millis(50));

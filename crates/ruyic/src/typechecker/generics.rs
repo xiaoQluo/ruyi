@@ -307,7 +307,18 @@ impl MonomorphizationTracker {
             .collect();
 
         // Add equality constraints between expected and actual argument types
-        if arg_types.len() != expected_param_types.len() {
+        // Support default params and rest params (Array<T>)
+        let has_rest = expected_param_types
+            .last()
+            .map(|p| if let Type::Array(_) = p { true } else { false })
+            .unwrap_or(false);
+        let min_args = expected_param_types.len();
+        let max_args = if has_rest {
+            usize::MAX
+        } else {
+            expected_param_types.len()
+        };
+        if arg_types.len() < min_args || arg_types.len() > max_args {
             diagnostics.add_error(DiagnosticKind::ArgumentCount {
                 expected: expected_param_types.len(),
                 found: arg_types.len(),

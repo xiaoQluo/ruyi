@@ -2,9 +2,9 @@
 
 ## 词法与语法规范
 
-> **版本**: 0.1.0-draft
-> **日期**: 2026-05-01
-> **状态**: Working Draft
+> **版本**: 0.5.1-draft
+> **日期**: 2026-05-05
+> **状态**: Working Draft — 与当前实现对齐
 
 ---
 
@@ -106,12 +106,17 @@ InputElement ::
 ```
 Keyword :: one of
   let         const       fn          class
-  trait       match       if          else
-  for         while       return      throw
-  try         catch       finally     async
-  await       import      export      macro
-  type        true        false       null
-  self        super       this
+  trait       impl        match       if
+  else        for         while       return
+  throw       try         catch       finally
+  async       await       import      export
+  macro       type        true        false
+  null        self        super       this
+  in          instanceof  typeof      void
+  delete      as          extends     dyn
+  static      get         set         new
+  of          break       continue    yield
+  _
 ```
 
 **关键字说明**:
@@ -123,8 +128,9 @@ Keyword :: one of
 | `fn` | 函数声明 |
 | `class` | 类声明 |
 | `trait` | 特征 (Trait) 声明 |
+| `impl` | 特征实现块 |
 | `match` | 模式匹配表达式 |
-| `if` | 条件语句 |
+| `if` | 条件语句/表达式 |
 | `else` | 条件分支的替代分支 |
 | `for` | 循环语句 |
 | `while` | 条件循环语句 |
@@ -145,6 +151,23 @@ Keyword :: one of
 | `self` | 引用当前实例（在方法中） |
 | `super` | 引用父类 |
 | `this` | 引用当前上下文 |
+| `in` | 键成员检查 / for-in 循环 |
+| `instanceof` | 类型检查运算符 |
+| `typeof` | 运行时类型检查运算符 |
+| `void` | void 表达式运算符 |
+| `delete` | 属性删除运算符（已解析，代码生成有限） |
+| `as` | 类型转换 / 模式别名 |
+| `extends` | 类继承 / 特征超特征 |
+| `dyn` | 动态分发 / 特征对象 |
+| `static` | 静态类成员 |
+| `get` | getter 方法定义 |
+| `set` | setter 方法定义 |
+| `new` | 对象实例化 |
+| `of` | 值迭代 / for-of 循环 |
+| `break` | 退出封闭循环 |
+| `continue` | 跳过到下一次循环迭代 |
+| `yield` | 生成器 yield（已解析；代码生成为 no-op） |
+| `_` | 通配符模式（match/解构） |
 
 ### 2.5 标识符
 
@@ -433,12 +456,13 @@ Operator :: one of
   ++  --
   in  instanceof
   typeof  void  delete
+  yield
 
 Punctuator :: one of
   {  }  (  )  [  ]
   .  ,  ;  :  ?
-  @  #  ...
-  <  >
+  @  #  ...  ::
+  <  >  $
 ```
 
 **运算符优先级**（从高到低）:
@@ -446,7 +470,7 @@ Punctuator :: one of
 | 优先级 | 运算符 | 结合性 |
 |------------|-----------|---------------|
 | 18 | `?.` `.` `()` `[]` | 从左到右 |
-| 17 | `++` `--` `!` `~` `+` (一元) `-` (一元) `typeof` `void` `delete` `await` | 从右到左 |
+| 17 | `++` `--` `!`（前缀）`~` `+`（一元）`-`（一元）`typeof` `void` `delete` `await` | 从右到左 |
 | 16 | `**` | 从右到左 |
 | 15 | `*` `/` `%` | 从左到右 |
 | 14 | `+` `-` | 从左到右 |
@@ -459,10 +483,18 @@ Punctuator :: one of
 | 7 | `&&` | 从左到右 |
 | 6 | `\|\|` | 从左到右 |
 | 5 | `??` | 从左到右 |
-| 4 | `?:` (三元) | 从右到左 |
+| 4 | `?:`（三元） | 从右到左 |
 | 3 | `=>` | 从右到左 |
 | 2 | `=` `+=` `-=` `*=` `/=` `%=` `**=` `&=` `\|=` `^=` `<<=` `>>=` `>>>=` `&&=` `\|\|=` `??=` | 从右到左 |
 | 1 | `,` | 从左到右 |
+
+**后缀运算符**（最高优先级，在上述所有运算符之后应用）:
+
+| 运算符 | 说明 |
+|----------|-------------|
+| `!` | 非空断言：`e!` 断言 `e` 不为 null |
+| `++` | 后自增（已解析；代码生成通过前缀实现） |
+| `--` | 后自减（已解析；代码生成通过前缀实现） |
 
 **Ruyi 关键运算符**:
 
@@ -470,8 +502,11 @@ Punctuator :: one of
 |----------|------|-------------|
 | `===` | 严格相等 | 值与类型均相等（无强制转换） |
 | `!==` | 严格不等 | 严格相等的否定 |
+| `==` | 遗留相等 | 已解析；代码生成映射到 `===` 行为 |
+| `!=` | 遗留不等 | 已解析；代码生成映射到 `!==` 行为 |
 | `?.` | 可选链 | 对可空值进行安全的属性访问 |
 | `??` | 空值合并 | 若左操作数为 null，则返回右操作数 |
+| `!`（后缀） | 非空断言 | 断言可空值不为 null；若为 null 则在运行时抛出 |
 | `=>` | 箭头 | 定义箭头函数与 match 分支 |
 | `...` | 展开/剩余 | 展开元素或收集剩余参数 |
 | `**` | 幂运算 | 幂运算符 |
@@ -548,6 +583,7 @@ Declaration ::
   FunctionDeclaration
   ClassDeclaration
   TraitDeclaration
+  ImplDeclaration
   TypeAliasDeclaration
   MacroDeclaration
 
@@ -680,7 +716,11 @@ let fetch = async (url) => await http.get(url);
 
 ```
 ClassDeclaration ::
-  class BindingIdentifier TypeParametersopt ClassHeritageopt { ClassBodyopt }
+  Annotations? class BindingIdentifier TypeParametersopt ClassHeritageopt { ClassBodyopt }
+
+Annotations ::
+  @ IdentifierName
+  Annotations @ IdentifierName
 
 ClassHeritage ::
   extends LeftHandSideExpression
@@ -704,6 +744,7 @@ MethodDefinition ::
   async PropertyName ( FormalParameterListopt ) ReturnTypeAnnotationopt { FunctionBodyStatementListopt }
   get PropertyName ( ) ReturnTypeAnnotationopt { FunctionBodyStatementListopt }
   set PropertyName ( FormalParameter ) { FunctionBodyStatementListopt }
+  fn PropertyName TypeParametersopt ( FormalParameterListopt ) ReturnTypeAnnotationopt { FunctionBodyStatementListopt }
 
 FieldDefinition ::
   PropertyName TypeAnnotationopt Initializeropt ;
@@ -852,6 +893,37 @@ macro vec {
 }
 ```
 
+#### 3.3.8 特征实现声明
+
+Impl 块提供特定类型的特征实现：
+
+```
+ImplDeclaration ::
+  impl TypeParametersopt TraitName TypeArgs? for TypeAnnotation { ClassBodyopt }
+
+TypeArgs ::
+  < TypeList >
+```
+
+**示例**:
+```ruyi
+impl Printable for Point {
+  fn format(self): string {
+    return "(" + self.x + ", " + self.y + ")";
+  }
+}
+
+impl<T: Printable> Printable for Array<T> {
+  fn format(self): string {
+    let result = "[";
+    for (let item of self) {
+      result = result + item.format();
+    }
+    return result + "]";
+  }
+}
+```
+
 ### 3.4 语句
 
 ```
@@ -859,7 +931,9 @@ Statement ::
   BlockStatement
   ExpressionStatement
   IfStatement
+  IfLetStatement
   WhileStatement
+  WhileLetStatement
   ForStatement
   ForInStatement
   ForOfStatement
@@ -869,6 +943,8 @@ Statement ::
   MatchStatement
   BreakStatement
   ContinueStatement
+  YieldStatement
+  LabeledStatement
   EmptyStatement
 ```
 
@@ -1093,9 +1169,56 @@ ContinueStatement ::
   continue IdentifierName ;
 ```
 
-`break` 退出最内层封闭的循环或 switch。`continue` 跳过当前迭代，进入下一次迭代。
+`break` 退出最内层封闭的循环。带标签时，退出标签语句。`continue` 跳过到最内层封闭循环的下一次迭代。
 
-#### 3.4.13 空语句
+**示例**:
+```ruyi
+outer: for (let i = 0; i < 10; i = i + 1) {
+  for (let j = 0; j < 10; j = j + 1) {
+    if (j > 5) {
+      break outer;
+    }
+  }
+}
+```
+
+#### 3.4.13 Yield 语句
+
+```
+YieldStatement ::
+  yield Expressionopt ;
+```
+
+`yield` 语句挂起生成器函数并产生一个值。当前作为语句解析；代码生成将其视为 no-op。
+
+**示例**:
+```ruyi
+fn* countUp(limit: int) {
+  for (let i = 0; i < limit; i = i + 1) {
+    yield i;
+  }
+}
+```
+
+#### 3.4.14 标签语句
+
+```
+LabeledStatement ::
+  IdentifierName : Statement
+```
+
+标记语句以供 `break` 和 `continue` 使用。
+
+**示例**:
+```ruyi
+loop: while (true) {
+  if (done) {
+    break loop;
+  }
+}
+```
+
+#### 3.4.15 空语句
 
 ```
 EmptyStatement ::
@@ -1224,6 +1347,10 @@ PrimaryExpression ::
   ( Expression )
   ThisExpression
   TemplateLiteral
+  IfExpression
+  MatchExpression
+  NewExpression
+  NullAssertExpression
 
 ThisExpression ::
   this
@@ -1304,6 +1431,86 @@ async fn loadAll(urls: Array<string>): Array<string> {
 }
 ```
 
+### 3.5.4 If 表达式
+
+`if` 结构可用作求值为值的表达式：
+
+```
+IfExpression ::
+  if ( Expression ) Expression ElseExpressionopt
+
+ElseExpression ::
+  else Expression
+```
+
+与 `if` 语句不同，`if` 表达式的分支不使用大括号，且始终产生一个值。如果未提供 `else` 分支且条件为假，则表达式求值为 `null`。
+
+**示例**:
+```ruyi
+let result = if (x > 0) { "positive" } else { "non-positive" };
+let max = if (a > b) { a } else { b };
+let msg = if (ready) { "go" };  // msg 是 string?（未就绪时为 null）
+```
+
+### 3.5.5 Match 表达式
+
+`match` 结构可用作表达式：
+
+```
+MatchExpression ::
+  match ( Expression ) { MatchArmsopt }
+```
+
+match 表达式求值为匹配分支体的值。所有分支必须产生兼容的类型。
+
+**示例**:
+```ruyi
+let label = match (n) {
+  0 => "zero",
+  1 => "one",
+  _ => "many",
+};
+
+let result = match (response) {
+  { status: 200, body } => body,
+  { status: 404 } => "not found",
+  _ => "error",
+};
+```
+
+### 3.5.6 New 表达式
+
+`new` 运算符创建类的实例：
+
+```
+NewExpression ::
+  new MemberExpression Arguments
+```
+
+**示例**:
+```ruyi
+let point = new Point(1.0, 2.0);
+let config = new Config({ debug: true });
+```
+
+### 3.5.7 非空断言表达式
+
+后缀 `!` 运算符断言可空值不为 null：
+
+```
+NullAssertExpression ::
+  Expression !
+```
+
+在运行时，如果值为 `null`，则抛出运行时错误。结果类型是表达式类型的非可空形式。
+
+**示例**:
+```ruyi
+let name: string? = getUser();
+let safe: string = name!;  // 若 name 为 null 则抛出
+let len = name!.length;    // 安全：name! 是 string
+```
+
 ### 3.6 模式
 
 ```
@@ -1369,6 +1576,7 @@ Type ::
   NullableType
   FunctionType
   GenericType
+  DynType
 
 PrimaryType ::
   Identifier
@@ -1395,6 +1603,10 @@ FunctionType ::
 
 GenericType ::
   Identifier < TypeList >
+
+DynType ::
+  dyn Identifier
+  dyn Identifier < TypeList >
 ```
 
 **内置类型名称**:
@@ -1409,6 +1621,15 @@ GenericType ::
 | `void` | 无返回值 |
 | `dyn` | 动态类型（运行时检查） |
 | `never` | 底类型（不可达） |
+| `bigint` | 任意精度整数 |
+
+**特殊类型**:
+
+| 类型 | 说明 |
+|------|-------------|
+| `Future<T>` | 表示产生 `T` 的异步计算 |
+| `dyn TraitName` | 用于动态分发的特征对象 |
+| `Array<T>` | 元素类型为 `T` 的数组（从 `[T]` 脱糖） |
 
 **示例**:
 ```ruyi
@@ -1417,6 +1638,8 @@ let name: string? = null;
 let fn: fn(int, int) -> int = add;
 let items: Array<string> = [];
 let point: { x: float, y: float } = { x: 0.0, y: 0.0 };
+let printable: dyn Printable = getPrintable();
+let future: Future<string> = fetchData(url);
 ```
 
 ### 3.8 模块
@@ -1796,7 +2019,7 @@ Ruyi 移除了以下 JavaScript 特性。每一项移除都包含理由及 Ruyi 
 |------------|--------|-------------------|-----------|
 | `undefined` | **已移除** | `null` | 两个类似 null 的值会造成混淆。Ruyi 使用单一的 `null` 值。 |
 | `var` | **已移除** | `let`, `const` | `var` 的函数作用域提升会导致 bug。块级作用域的 `let`/`const` 更安全。 |
-| `==` 和 `!=` | **已移除** | `===` 和 `!==` | `==` 的隐式类型强制转换会导致意外结果（`[] == false` 为 true）。严格相等总是正确的。 |
+| `==` 和 `!=` | **已映射** | `===` 和 `!==` | 为兼容性而解析；代码生成映射到 `===`/`!==` 行为。无隐式强制转换。 |
 | 隐式类型强制转换 | **已移除** | 显式转换 | `"5" + 3` 得到 `"53"`，而 `"5" - 3` 得到 `2`，这是不一致的。Ruyi 要求显式类型转换。 |
 | 原型链 | **已移除** | `class`, `trait` | 基于原型的继承令人困惑。基于类的继承更清晰、更熟悉。 |
 | `with` 语句 | **已移除** | 无 | `with` 使静态分析变得不可能，并引入作用域歧义。 |
@@ -1804,11 +2027,11 @@ Ruyi 移除了以下 JavaScript 特性。每一项移除都包含理由及 Ruyi 
 | 自动分号插入的边界情况 | **已减少** | 更清晰的 ASI 规则 | Ruyi 简化了 ASI 以避免最令人惊讶的情况。 |
 | 以 `0` 开头的八进制字面量 | **已移除** | `0o` 前缀 | `0777` 是八进制而 `0999` 是十进制，这很混乱。显式的 `0o` 前缀更清晰。 |
 | `function` 关键字 | **已移除** | `fn` | 更短，与其他声明一致。 |
-| `function*` / 生成器 | **已移除** | `async`/`await`, 迭代器 | 生成器被 async/await 和显式迭代器协议取代。 |
+| `function*` / 生成器 | **部分** | `yield` 关键字已解析 | `yield` 已解析为关键字和语句；代码生成将其视为 no-op。完整的生成器支持计划中。 |
 | `this` 绑定复杂性 | **已简化** | 词法 `self` | 箭头函数词法捕获 `self`。方法显式使用 `self`。 |
 | 任意字符串的动态属性访问 | **已限制** | 索引签名 | Ruyi 将动态属性访问限制为带类型的索引签名。 |
 | `eval()` | **已移除** | 无 | `eval` 是安全风险并阻止优化。 |
-| 对象属性上的 `delete` | **已移除** | 赋值为 `null` | 删除属性会在运行时改变对象形状，阻止优化。 |
+| 对象属性上的 `delete` | **有限** | 赋值为 `null` | `delete` 已解析为一元运算符；完整的代码生成支持有限。推荐使用 `obj.prop = null`。 |
 | `typeof` 对 `null` 返回 `"object"` | **已修复** | `typeof null` 返回 `"null"` | 修正了 JS 中 `typeof null === "object"` 的 bug。 |
 | 稀疏数组 | **已移除** | 以 `null` 填充的密集数组 | 稀疏数组有不可见的空洞。Ruyi 数组始终是密集的。 |
 | `Number`, `String`, `Boolean` 包装对象 | **已移除** | 仅原始类型 | 包装对象会产生令人困惑的同一性行为（`new String("a") !== "a"`）。 |
@@ -1871,6 +2094,8 @@ Ruyi 完全移除了 `==` 和 `!=`。只存在 `===`（严格相等）和 `!==`�
 null === null    // true
 ```
 
+注意：`==` 和 `!=` 为兼容性目的仍被解析器接受，但代码生成会将其映射到 `===`/`!==` 行为，不会产生隐式类型强制转换。
+
 #### 7.2.4 隐式强制转换 → 显式转换
 
 JavaScript 在许多上下文中静默转换类型：
@@ -1930,13 +2155,26 @@ class Dog extends Animal {
 ### A.1 关键字词法单元
 
 ```
-let, const, fn, class, trait, match, if, else, for, while,
+let, const, fn, class, trait, impl, dyn, match, if, else, for, while,
 return, throw, try, catch, finally, async, await, import,
-export, macro, type, true, false, null, self, super, this
+export, macro, type, true, false, null, self, super, this,
+in, instanceof, typeof, void, delete, as, extends, static,
+get, set, new, of, break, continue, yield, _
 ```
 
 ### A.2 运算符词法单元
 
+```
+===, !==, ==, !=, <, >, <=, >=,
++, -, *, /, %, **,
+&, |, ^, ~, <<, >>, >>>,
+&&, ||, ??,
+!, ?.,
+=, +=, -=, *=, /=, %=, **=,
+&, |=, ^=, <<=, >>=, >>>=,
+&&=, ||=, ??=,
+=>, ++, --,
+in, instanceof, typeof, void, delete, yield
 ```
 ===, !==, ==, !=, <, >, <=, >=,
 +, -, *, /, %, **,
@@ -1955,7 +2193,7 @@ in, instanceof, typeof, void, delete
 ```
 {, }, (, ), [, ],
 ., ,, ;, :, ?,
-@, #, ...,
+@, #, ..., ::, $,
 <, >
 ```
 
@@ -1975,11 +2213,12 @@ null, true, false
 
 ```
 Declaration     → LexicalDeclaration | FunctionDeclaration | ClassDeclaration
-                | TraitDeclaration | TypeAliasDeclaration | MacroDeclaration
+                | TraitDeclaration | ImplDeclaration | TypeAliasDeclaration | MacroDeclaration
 LexicalDecl     → let BindingList ; | const BindingList ;
 FunctionDecl    → fn Identifier TypeParams? ( Params? ) ReturnType? { Body }
-ClassDecl       → class Identifier TypeParams? extends Expr? { ClassBody }
+ClassDecl       → @Annot* class Identifier TypeParams? extends Expr? { ClassBody }
 TraitDecl       → trait Identifier TypeParams? { TraitBody }
+ImplDecl        → impl TypeParams? TraitName TypeArgs? for Type { ClassBody }
 TypeAlias       → type Identifier TypeParams? = Type ;
 MacroDecl       → macro Identifier { MacroRules }
 ```
@@ -1987,18 +2226,25 @@ MacroDecl       → macro Identifier { MacroRules }
 ### B.2 语句文法
 
 ```
-Statement       → Block | IfStmt | WhileStmt | ForStmt | ForInStmt | ForOfStmt
-                | ReturnStmt | ThrowStmt | TryStmt | MatchStmt | BreakStmt
-                | ContinueStmt | ExprStmt | EmptyStmt
+Statement       → Block | IfStmt | IfLetStmt | WhileStmt | WhileLetStmt
+                | ForStmt | ForInStmt | ForOfStmt | ReturnStmt | ThrowStmt
+                | TryStmt | MatchStmt | BreakStmt | ContinueStmt | YieldStmt
+                | LabeledStmt | ExprStmt | EmptyStmt
 IfStmt          → if ( Expr ) Stmt else Stmt?
+IfLetStmt       → if let Pattern = Expr Block else Stmt?
 WhileStmt       → while ( Expr ) Stmt
+WhileLetStmt    → while let Pattern = Expr Block
 ForStmt         → for ( Init? ; Expr? ; Update? ) Stmt
 ForInStmt       → for ( let Identifier in Expr ) Stmt
-ForOfStmt       → for ( let Identifier of Expr ) Stmt
+ForOfStmt       → for ( let Identifier of [async] Expr ) Stmt
 ReturnStmt      → return Expr? ;
 ThrowStmt       → throw Expr ;
 TryStmt         → try Block catch ( Pattern ) Block? finally Block?
 MatchStmt       → match ( Expr ) { MatchArms }
+BreakStmt       → break Identifier? ;
+ContinueStmt    → continue Identifier? ;
+YieldStmt       → yield Expr? ;
+LabeledStmt     → Identifier : Stmt
 ```
 
 ### B.3 表达式文法
@@ -2017,6 +2263,8 @@ Multiplicative  → ExponentiationExpr ( * ExponentiationExpr | / Exponentiation
 Exponentiation  → UnaryExpr ( ** ExponentiationExpr )?
 UnaryExpr       → LeftHandSideExpr | ++ UnaryExpr | -- UnaryExpr | + UnaryExpr
                 | - UnaryExpr | ~ UnaryExpr | ! UnaryExpr | await UnaryExpr
+                | typeof UnaryExpr | void UnaryExpr | delete UnaryExpr
+PostfixExpr     → LeftHandSideExpr !          (非空断言)
 LeftHandSide    → CallExpr | MemberExpr
 CallExpr        → MemberExpr Arguments | CallExpr Arguments | CallExpr [ Expr ]
                 | CallExpr . Identifier | CallExpr ?. Identifier
@@ -2024,6 +2272,9 @@ MemberExpr      → PrimaryExpr | MemberExpr [ Expr ] | MemberExpr . Identifier
                 | MemberExpr ?. Identifier | MemberExpr TemplateLiteral
 PrimaryExpr     → Identifier | Literal | ArrayLiteral | ObjectLiteral
                 | FunctionExpr | ClassExpr | ( Expr ) | this | TemplateLiteral
+                | if ( Expr ) Expr else Expr  (if 表达式)
+                | match ( Expr ) { Arms }     (match 表达式)
+                | new MemberExpr Arguments    (new 表达式)
 ```
 
 ### B.4 模式文法
@@ -2038,7 +2289,7 @@ Pattern         → Identifier | Literal | { ObjectPatternFields }
 
 ```
 Type            → Identifier | Type? | fn ( Types ) -> Type | Identifier < Types >
-                | { TypeFields } | [ Type ]
+                | { TypeFields } | [ Type ] | dyn Identifier | dyn Identifier < Types >
 ```
 
 ### B.6 模块文法
@@ -2061,7 +2312,7 @@ ExportDecl      → export { NamedExports } ;
 | 优先级 | 运算符 | 说明 | 结合性 |
 |------------|----------|-------------|---------------|
 | 18 | `.` `?.` `()` `[]` | 成员访问、调用、索引 | 左 |
-| 17 | `++` `--` `!` `~` `+` `-` `await` `typeof` `void` `delete` | 一元 | 右 |
+| 17 | `++` `--` `!`（前缀）`~` `+` `-` `await` `typeof` `void` `delete` | 一元 | 右 |
 | 16 | `**` | 幂运算 | 右 |
 | 15 | `*` `/` `%` | 乘法类 | 左 |
 | 14 | `+` `-` | 加法类 | 左 |
@@ -2078,6 +2329,12 @@ ExportDecl      → export { NamedExports } ;
 | 3 | `=>` | 箭头函数 | 右 |
 | 2 | `=` `+=` `-=` `*=` `/=` `%=` `**=` `&=` `\|=` `^=` `<<=` `>>=` `>>>=` `&&=` `\|\|=` `??=` | 赋值 | 右 |
 | 1 | `,` | 序列 | 左 |
+
+**后缀运算符**（在上述所有运算符之后应用）:
+
+| 运算符 | 说明 |
+|----------|-------------|
+| `!` | 非空断言：`e!` 断言 `e` 不为 null |
 
 ---
 
@@ -3411,6 +3668,59 @@ import HttpClient from "./http/client";
 2. 检查文件是否存在。
 3. 若未找到，检查该名称目录下的 `index.ry`。
 4. 若仍未找到，报告模块解析错误。
+
+### 15.2.1 标准库 (stdlib)
+
+Ruyi 附带标准库（`stdlib/`），提供核心类型、数据结构和系统工具。stdlib 位于 `$RUYI_HOME/stdlib`。
+
+**RUYI_HOME**:
+
+Ruyi 使用 `RUYI_HOME` 环境变量定位安装目录：
+
+| 路径 | 说明 |
+|------|------|
+| `$RUYI_HOME/bin` | 编译器二进制文件（`ruyic` 等） |
+| `$RUYI_HOME/stdlib` | 标准库模块 |
+
+如果未设置 `RUYI_HOME`，编译器会回退到在当前工作目录的相对路径下查找 `stdlib/` 目录（适用于开发环境）。
+
+**stdlib 模块布局**：
+
+| 模块 | 说明 |
+|------|------|
+| `core` | 基础类型方法（`String`、`Int`、`Float`、`Bool`） |
+| `option` | `Option<T>` 枚举（`Some`/`None`）用于可空值处理 |
+| `result` | `Result<T, E>` 枚举（`Ok`/`Err`）用于错误处理 |
+| `error` | 错误层次结构（`Error`、`TypeError`、`RuntimeError`、`RangeError`、`AssertionError`、`ArgumentError`、`NullError`、`ArithmeticError`、`IteratorError`、`ParseError`）以及 `assert()` 和 `assertNotNull()` |
+| `collections` | 泛型集合（`Array<T>`、`Map<K, V>`、`Set<T>`）和 `Iterator<T>` 特征 |
+| `string` | 扩展字符串工具（`split`、`join`、`startsWith`、`endsWith`、`contains`、`indexOf`、`substring`、`replace`、`padStart`、`padEnd`、`repeat`、`reverse`、`trim`、`matches` 等） |
+| `io` | 控制台 I/O（`print`、`println`、`readLine`）和文件操作（`File.readText`、`File.writeText`、`File.readLines`、`File.exists`、`File.mkdir` 等），含异步变体 |
+| `path` | 路径操作（`Path.join`、`Path.basename`、`Path.dirname`、`Path.extname`、`Path.isAbsolute`、`Path.normalize`、`Path.resolve` 等） |
+| `process` | 进程管理（`Process.exec`、`Process.spawn`、`Process.create`）、环境变量（`getEnv`、`setEnv`）和系统信息（`getPID`、`getPlatform`、`getCPUCount` 等） |
+
+**导入 stdlib 模块**：
+
+```ruyi
+// 通过文件名导入 stdlib 模块
+import { print, println, File } from "./io";
+import { Path } from "./path";
+import { Process, getEnv } from "./process";
+import { assert, assertNotNull } from "./error";
+import { Option, Some, None } from "./option";
+import { Result, Ok, Err } from "./result";
+import { Array, Map, Set, Iterator } from "./collections";
+```
+
+**预声明的内置符号**：
+
+以下符号无需导入即可使用（由类型检查器预声明）：
+
+| 符号 | 类型 | 说明 |
+|------|------|------|
+| `print` | `fn(dyn): void` | 输出到 stdout |
+| `spawn` | `fn(dyn): dyn` | 生成异步任务 |
+| `toString` | `fn(dyn): string` | 将任意值转换为字符串 |
+| `Error` | `fn(string): Error` | Error 构造函数 |
 
 ### 15.3 循环依赖检测
 

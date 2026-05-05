@@ -113,18 +113,25 @@ impl GenerationalCollector {
     /// # Arguments
     ///
     /// * `tasks` - Slice of (TaskId, Task) pairs to scan for GC pointers.
-    pub fn register_async_roots(&mut self, tasks: &[(crate::async_runtime::TaskId, crate::async_runtime::Task)]) {
+    pub fn register_async_roots(
+        &mut self,
+        tasks: &[(crate::async_runtime::TaskId, crate::async_runtime::Task)],
+    ) {
         let step = std::mem::size_of::<usize>();
         for (_, task) in tasks {
-            let future_ref: &(dyn crate::async_runtime::RuyiFuture<Output = ()> + Send) = &*task.future;
-            let data_ptr = future_ref as *const (dyn crate::async_runtime::RuyiFuture<Output = ()> + Send) as *const u8;
+            let future_ref: &(dyn crate::async_runtime::RuyiFuture<Output = ()> + Send) =
+                &*task.future;
+            let data_ptr = future_ref
+                as *const (dyn crate::async_runtime::RuyiFuture<Output = ()> + Send)
+                as *const u8;
             let size = std::mem::size_of_val(future_ref);
             if data_ptr.is_null() || size == 0 {
                 continue;
             }
             let mut offset = 0;
             while offset + step <= size {
-                let word = unsafe { std::ptr::read_unaligned(data_ptr.add(offset) as *const usize) };
+                let word =
+                    unsafe { std::ptr::read_unaligned(data_ptr.add(offset) as *const usize) };
                 let candidate = word as *mut u8;
                 if !candidate.is_null() && self.is_valid_payload(candidate) {
                     unsafe {

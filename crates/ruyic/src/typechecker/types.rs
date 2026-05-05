@@ -386,10 +386,16 @@ impl Type {
                 params: params.iter().map(Type::from_annotation).collect(),
                 return_type: Box::new(Type::from_annotation(return_type)),
             },
-            crate::parser::ast::TypeAnnotation::Generic { base, args } => Type::Generic {
-                base: base.clone(),
-                args: args.iter().map(Type::from_annotation).collect(),
-            },
+            crate::parser::ast::TypeAnnotation::Generic { base, args } => {
+                if base == "Array" && args.len() == 1 {
+                    Type::Array(Box::new(Type::from_annotation(&args[0])))
+                } else {
+                    Type::Generic {
+                        base: base.clone(),
+                        args: args.iter().map(Type::from_annotation).collect(),
+                    }
+                }
+            }
             crate::parser::ast::TypeAnnotation::Object(fields) => Type::Object(
                 fields
                     .iter()

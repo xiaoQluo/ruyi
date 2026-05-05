@@ -5,10 +5,12 @@
 //!
 //! These tests run without the inkwell feature (no LLVM linking required).
 
-use ruyi_runtime::{ExceptionObject, ExceptionTableEntry, ExceptionTableRegistry,
-    ExceptionType, FunctionExceptionTable, LandingPadAction, LandingPadDescriptor,
-    RuyiException, StackFrame, TypeId, UnwindException, builtin_type_ids, throw_exception,
-    ruyi_finally, ruyi_match_exception, ruyi_throw, ruyi_end_catch, KLANG_EXCEPTION_CLASS};
+use ruyi_runtime::{
+    builtin_type_ids, ruyi_end_catch, ruyi_finally, ruyi_match_exception, ruyi_throw,
+    throw_exception, ExceptionObject, ExceptionTableEntry, ExceptionTableRegistry, ExceptionType,
+    FunctionExceptionTable, LandingPadAction, LandingPadDescriptor, RuyiException, StackFrame,
+    TypeId, UnwindException, KLANG_EXCEPTION_CLASS,
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -140,9 +142,17 @@ fn test_ruyi_match_exception_exact_match() {
 
     let result = ruyi_match_exception(
         &exc,
-        &[ExceptionType::Error, ExceptionType::TypeError, ExceptionType::RangeError],
+        &[
+            ExceptionType::Error,
+            ExceptionType::TypeError,
+            ExceptionType::RangeError,
+        ],
     );
-    assert_eq!(result, Some(0), "Error at index 0 catches all subtypes including TypeError");
+    assert_eq!(
+        result,
+        Some(0),
+        "Error at index 0 catches all subtypes including TypeError"
+    );
 }
 
 #[test]
@@ -179,13 +189,19 @@ fn test_ruyi_match_exception_no_match() {
 fn test_ruyi_finally_passes_through_exception() {
     let exc = make_test_exception(builtin_type_ids::ERROR, "finally test");
     let result = unsafe { ruyi_finally(exc) };
-    assert_eq!(result, exc, "ruyi_finally should return the exception unchanged");
+    assert_eq!(
+        result, exc,
+        "ruyi_finally should return the exception unchanged"
+    );
 }
 
 #[test]
 fn test_ruyi_finally_with_null() {
     let result = unsafe { ruyi_finally(std::ptr::null_mut()) };
-    assert!(result.is_null(), "null exception should pass through as null");
+    assert!(
+        result.is_null(),
+        "null exception should pass through as null"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -272,7 +288,10 @@ fn test_function_exception_table_multiple_entries() {
     assert_eq!(mid.landing_pad, 200);
 
     // PC 90 is outside all protected ranges.
-    assert!(table.entry_for_pc(90).is_none(), "PC 90 should be unprotected");
+    assert!(
+        table.entry_for_pc(90).is_none(),
+        "PC 90 should be unprotected"
+    );
 }
 
 #[test]
@@ -394,9 +413,11 @@ fn test_exception_object_carries_correct_type_tag() {
         // Verify ExceptionType round-trips correctly through type_id.
         let recovered = ExceptionType::from_type_id(expected_id);
         assert_eq!(
-            recovered, Some(exc_type),
+            recovered,
+            Some(exc_type),
             "type_id {} must round-trip to {:?}",
-            expected_id, exc_type
+            expected_id,
+            exc_type
         );
     }
 }
@@ -410,10 +431,7 @@ fn test_exception_table_registry_insert_and_retrieve() {
     let mut registry = ExceptionTableRegistry::new();
 
     let mut table_a = FunctionExceptionTable::new("func_a");
-    table_a.add_entry(
-        ExceptionTableEntry::new(0, 50, 100)
-            .catch(builtin_type_ids::ERROR, 110),
-    );
+    table_a.add_entry(ExceptionTableEntry::new(0, 50, 100).catch(builtin_type_ids::ERROR, 110));
 
     let mut table_b = FunctionExceptionTable::new("func_b");
     table_b.add_entry(
@@ -432,9 +450,7 @@ fn test_exception_table_registry_insert_and_retrieve() {
     assert_eq!(entry.matching_handler(builtin_type_ids::ERROR), Some(110));
 
     let retrieved_b = registry.get("func_b").expect("func_b must be registered");
-    let entry_b = retrieved_b
-        .entry_for_pc(20)
-        .expect("PC 20 must be covered");
+    let entry_b = retrieved_b.entry_for_pc(20).expect("PC 20 must be covered");
     assert_eq!(
         entry_b.matching_handler(builtin_type_ids::TYPE_ERROR),
         Some(210)
@@ -488,10 +504,7 @@ fn test_nested_try_catch_inner_handles() {
     let mut table = FunctionExceptionTable::new("nested");
 
     // Inner try: PC 10..50 -> landing pad 100
-    table.add_entry(
-        ExceptionTableEntry::new(10, 50, 100)
-            .catch(builtin_type_ids::TYPE_ERROR, 110),
-    );
+    table.add_entry(ExceptionTableEntry::new(10, 50, 100).catch(builtin_type_ids::TYPE_ERROR, 110));
 
     // Outer try: PC 0..100 -> landing pad 200
     table.add_entry(
@@ -517,16 +530,10 @@ fn test_nested_try_catch_propagates_to_outer() {
     let mut table = FunctionExceptionTable::new("nested_prop");
 
     // Inner try: PC 10..50 -> landing pad 100, catches only TYPE_ERROR
-    table.add_entry(
-        ExceptionTableEntry::new(10, 50, 100)
-            .catch(builtin_type_ids::TYPE_ERROR, 110),
-    );
+    table.add_entry(ExceptionTableEntry::new(10, 50, 100).catch(builtin_type_ids::TYPE_ERROR, 110));
 
     // Outer try: PC 0..100 -> landing pad 200, catches all Errors
-    table.add_entry(
-        ExceptionTableEntry::new(0, 100, 200)
-            .catch(builtin_type_ids::ERROR, 210),
-    );
+    table.add_entry(ExceptionTableEntry::new(0, 100, 200).catch(builtin_type_ids::ERROR, 210));
 
     // PC 30 is in inner range but handler is TYPE_ERROR only.
     let inner_entry = table.entry_for_pc(30).expect("PC 30 must be covered");
@@ -556,15 +563,9 @@ fn test_nested_try_catch_propagates_to_outer() {
 fn test_most_specific_entry_selected() {
     let mut table = FunctionExceptionTable::new("specific");
 
-    table.add_entry(
-        ExceptionTableEntry::new(0, 100, 200)
-            .catch(builtin_type_ids::ERROR, 210),
-    );
+    table.add_entry(ExceptionTableEntry::new(0, 100, 200).catch(builtin_type_ids::ERROR, 210));
 
-    table.add_entry(
-        ExceptionTableEntry::new(20, 80, 300)
-            .catch(builtin_type_ids::TYPE_ERROR, 310),
-    );
+    table.add_entry(ExceptionTableEntry::new(20, 80, 300).catch(builtin_type_ids::TYPE_ERROR, 310));
 
     // PC 50 is in both ranges; implementation-dependent which is returned.
     // Both are valid — the test just verifies the table is consulted.
@@ -582,8 +583,5 @@ fn test_most_specific_entry_selected() {
 #[test]
 #[should_panic(expected = "RuyiException(type_id=1, message=test throw)")]
 fn test_throw_exception_helper_panics_with_type_id_and_message() {
-    throw_exception(RuyiException::new(
-        builtin_type_ids::ERROR,
-        "test throw",
-    ));
+    throw_exception(RuyiException::new(builtin_type_ids::ERROR, "test throw"));
 }

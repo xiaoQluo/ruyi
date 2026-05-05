@@ -2,9 +2,9 @@
 
 ## Lexical and Syntax Specification
 
-> **Version**: 0.1.0-draft
-> **Date**: 2026-05-01
-> **Status**: Working Draft
+> **Version**: 0.5.1-draft
+> **Date**: 2026-05-05
+> **Status**: Working Draft — aligned with current implementation
 
 ---
 
@@ -106,12 +106,17 @@ Keywords are reserved identifiers that carry special syntactic meaning. They can
 ```
 Keyword :: one of
   let         const       fn          class
-  trait       match       if          else
-  for         while       return      throw
-  try         catch       finally     async
-  await       import      export      macro
-  type        true        false       null
-  self        super       this
+  trait       impl        match       if
+  else        for         while       return
+  throw       try         catch       finally
+  async       await       import      export
+  macro       type        true        false
+  null        self        super       this
+  in          instanceof  typeof      void
+  delete      as          extends     dyn
+  static      get         set         new
+  of          break       continue    yield
+  _
 ```
 
 **Keyword descriptions**:
@@ -123,8 +128,9 @@ Keyword :: one of
 | `fn` | Function declaration |
 | `class` | Class declaration |
 | `trait` | Trait (interface) declaration |
+| `impl` | Trait implementation block |
 | `match` | Pattern matching expression |
-| `if` | Conditional statement |
+| `if` | Conditional statement/expression |
 | `else` | Alternative branch of conditional |
 | `for` | Loop statement |
 | `while` | Conditional loop statement |
@@ -145,6 +151,23 @@ Keyword :: one of
 | `self` | Reference to current instance (in methods) |
 | `super` | Reference to parent class |
 | `this` | Reference to current context |
+| `in` | Key membership / for-in loop |
+| `instanceof` | Type check operator |
+| `typeof` | Runtime type inspection operator |
+| `void` | Void expression operator |
+| `delete` | Property deletion operator (parsed, limited codegen) |
+| `as` | Type cast / pattern alias |
+| `extends` | Class inheritance / trait supertraits |
+| `dyn` | Dynamic dispatch / trait object |
+| `static` | Static class member |
+| `get` | Getter method definition |
+| `set` | Setter method definition |
+| `new` | Object instantiation |
+| `of` | Value iteration / for-of loop |
+| `break` | Exit enclosing loop |
+| `continue` | Skip to next loop iteration |
+| `yield` | Generator yield (parsed; codegen is no-op) |
+| `_` | Wildcard pattern (match/destructuring) |
 
 ### 2.5 Identifiers
 
@@ -433,12 +456,13 @@ Operator :: one of
   ++  --
   in  instanceof
   typeof  void  delete
+  yield
 
 Punctuator :: one of
   {  }  (  )  [  ]
   .  ,  ;  :  ?
-  @  #  ...
-  <  >
+  @  #  ...  ::
+  <  >  $
 ```
 
 **Operator precedence** (highest to lowest):
@@ -446,7 +470,7 @@ Punctuator :: one of
 | Precedence | Operators | Associativity |
 |------------|-----------|---------------|
 | 18 | `?.` `.` `()` `[]` | left-to-right |
-| 17 | `++` `--` `!` `~` `+` (unary) `-` (unary) `typeof` `void` `delete` `await` | right-to-left |
+| 17 | `++` `--` `!` (prefix) `~` `+` (unary) `-` (unary) `typeof` `void` `delete` `await` | right-to-left |
 | 16 | `**` | right-to-left |
 | 15 | `*` `/` `%` | left-to-right |
 | 14 | `+` `-` | left-to-right |
@@ -455,7 +479,7 @@ Punctuator :: one of
 | 11 | `===` `!==` `==` `!=` | left-to-right |
 | 10 | `&` | left-to-right |
 | 9 | `^` | left-to-right |
-| 8 | `|` | left-to-right |
+| 8 | `\|` | left-to-right |
 | 7 | `&&` | left-to-right |
 | 6 | `\|\|` | left-to-right |
 | 5 | `??` | left-to-right |
@@ -464,14 +488,25 @@ Punctuator :: one of
 | 2 | `=` `+=` `-=` `*=` `/=` `%=` `**=` `&=` `\|=` `^=` `<<=` `>>=` `>>>=` `&&=` `\|\|=` `??=` | right-to-left |
 | 1 | `,` | left-to-right |
 
+**Postfix operators** (highest precedence, applied after all above):
+
+| Operator | Description |
+|----------|-------------|
+| `!` | Null assertion: `e!` asserts `e` is not null |
+| `++` | Post-increment (parsed; codegen via prefix) |
+| `--` | Post-decrement (parsed; codegen via prefix) |
+
 **Key Ruyi operators**:
 
 | Operator | Name | Description |
 |----------|------|-------------|
 | `===` | Strict equality | Value and type equality (no coercion) |
 | `!==` | Strict inequality | Negation of strict equality |
+| `==` | Legacy equality | Parsed; codegen maps to `===` behavior |
+| `!=` | Legacy inequality | Parsed; codegen maps to `!==` behavior |
 | `?.` | Optional chaining | Safe property access on nullable values |
 | `??` | Nullish coalescing | Returns right operand if left is null |
+| `!` (postfix) | Null assertion | Asserts nullable value is not null; throws at runtime if null |
 | `=>` | Arrow | Defines arrow functions and match arms |
 | `...` | Spread/rest | Spreads elements or collects rest parameters |
 | `**` | Exponentiation | Power operator |
@@ -548,6 +583,7 @@ Declaration ::
   FunctionDeclaration
   ClassDeclaration
   TraitDeclaration
+  ImplDeclaration
   TypeAliasDeclaration
   MacroDeclaration
 
@@ -680,7 +716,11 @@ let fetch = async (url) => await http.get(url);
 
 ```
 ClassDeclaration ::
-  class BindingIdentifier TypeParametersopt ClassHeritageopt { ClassBodyopt }
+  Annotations? class BindingIdentifier TypeParametersopt ClassHeritageopt { ClassBodyopt }
+
+Annotations ::
+  @ IdentifierName
+  Annotations @ IdentifierName
 
 ClassHeritage ::
   extends LeftHandSideExpression
@@ -704,6 +744,7 @@ MethodDefinition ::
   async PropertyName ( FormalParameterListopt ) ReturnTypeAnnotationopt { FunctionBodyStatementListopt }
   get PropertyName ( ) ReturnTypeAnnotationopt { FunctionBodyStatementListopt }
   set PropertyName ( FormalParameter ) { FunctionBodyStatementListopt }
+  fn PropertyName TypeParametersopt ( FormalParameterListopt ) ReturnTypeAnnotationopt { FunctionBodyStatementListopt }
 
 FieldDefinition ::
   PropertyName TypeAnnotationopt Initializeropt ;
@@ -800,7 +841,38 @@ type Callback<T> = fn(T) -> void;
 type Point2D = { x: float, y: float };
 ```
 
-#### 3.3.7 Macro Declarations
+#### 3.3.7 Impl Declarations
+
+Impl blocks provide trait implementations for specific types:
+
+```
+ImplDeclaration ::
+  impl TypeParametersopt TraitName TypeArgs? for TypeAnnotation { ClassBodyopt }
+
+TypeArgs ::
+  < TypeList >
+```
+
+**Examples**:
+```ruyi
+impl Printable for Point {
+  fn format(self): string {
+    return "(" + self.x + ", " + self.y + ")";
+  }
+}
+
+impl<T: Printable> Printable for Array<T> {
+  fn format(self): string {
+    let result = "[";
+    for (let item of self) {
+      result = result + item.format();
+    }
+    return result + "]";
+  }
+}
+```
+
+#### 3.3.8 Macro Declarations
 
 ```
 MacroDeclaration ::
@@ -859,7 +931,9 @@ Statement ::
   BlockStatement
   ExpressionStatement
   IfStatement
+  IfLetStatement
   WhileStatement
+  WhileLetStatement
   ForStatement
   ForInStatement
   ForOfStatement
@@ -869,6 +943,8 @@ Statement ::
   MatchStatement
   BreakStatement
   ContinueStatement
+  YieldStatement
+  LabeledStatement
   EmptyStatement
 ```
 
@@ -1093,9 +1169,56 @@ ContinueStatement ::
   continue IdentifierName ;
 ```
 
-`break` exits the innermost enclosing loop or switch. `continue` skips to the next iteration.
+`break` exits the innermost enclosing loop. With a label, it exits the labeled statement. `continue` skips to the next iteration of the innermost enclosing loop.
 
-#### 3.4.13 Empty Statement
+**Examples**:
+```ruyi
+outer: for (let i = 0; i < 10; i = i + 1) {
+  for (let j = 0; j < 10; j = j + 1) {
+    if (j > 5) {
+      break outer;
+    }
+  }
+}
+```
+
+#### 3.4.13 Yield Statement
+
+```
+YieldStatement ::
+  yield Expressionopt ;
+```
+
+The `yield` statement suspends a generator function and produces a value. Currently parsed as a statement; codegen treats it as a no-op.
+
+**Examples**:
+```ruyi
+fn* countUp(limit: int) {
+  for (let i = 0; i < limit; i = i + 1) {
+    yield i;
+  }
+}
+```
+
+#### 3.4.14 Labeled Statement
+
+```
+LabeledStatement ::
+  IdentifierName : Statement
+```
+
+Labels a statement for use with `break` and `continue`.
+
+**Examples**:
+```ruyi
+loop: while (true) {
+  if (done) {
+    break loop;
+  }
+}
+```
+
+#### 3.4.15 Empty Statement
 
 ```
 EmptyStatement ::
@@ -1224,6 +1347,10 @@ PrimaryExpression ::
   ( Expression )
   ThisExpression
   TemplateLiteral
+  IfExpression
+  MatchExpression
+  NewExpression
+  NullAssertExpression
 
 ThisExpression ::
   this
@@ -1304,6 +1431,86 @@ async fn loadAll(urls: Array<string>): Array<string> {
 }
 ```
 
+### 3.5.4 If Expression
+
+The `if` construct can be used as an expression that evaluates to a value:
+
+```
+IfExpression ::
+  if ( Expression ) Expression ElseExpressionopt
+
+ElseExpression ::
+  else Expression
+```
+
+Unlike the `if` statement, the `if` expression does not use braces for its branches and always produces a value. If no `else` branch is provided and the condition is false, the expression evaluates to `null`.
+
+**Examples**:
+```ruyi
+let result = if (x > 0) { "positive" } else { "non-positive" };
+let max = if (a > b) { a } else { b };
+let msg = if (ready) { "go" };  // msg is string? (null if not ready)
+```
+
+### 3.5.5 Match Expression
+
+The `match` construct can be used as an expression:
+
+```
+MatchExpression ::
+  match ( Expression ) { MatchArmsopt }
+```
+
+The match expression evaluates to the value of the matched arm's body. All arms must produce compatible types.
+
+**Examples**:
+```ruyi
+let label = match (n) {
+  0 => "zero",
+  1 => "one",
+  _ => "many",
+};
+
+let result = match (response) {
+  { status: 200, body } => body,
+  { status: 404 } => "not found",
+  _ => "error",
+};
+```
+
+### 3.5.6 New Expression
+
+The `new` operator creates an instance of a class:
+
+```
+NewExpression ::
+  new MemberExpression Arguments
+```
+
+**Examples**:
+```ruyi
+let point = new Point(1.0, 2.0);
+let config = new Config({ debug: true });
+```
+
+### 3.5.7 Null Assert Expression
+
+The postfix `!` operator asserts that a nullable value is not null:
+
+```
+NullAssertExpression ::
+  Expression !
+```
+
+At runtime, if the value is `null`, a runtime error is thrown. The resulting type is the non-nullable form of the expression's type.
+
+**Examples**:
+```ruyi
+let name: string? = getUser();
+let safe: string = name!;  // throws if name is null
+let len = name!.length;    // safe: name! is string
+```
+
 ### 3.6 Patterns
 
 ```
@@ -1369,6 +1576,7 @@ Type ::
   NullableType
   FunctionType
   GenericType
+  DynType
 
 PrimaryType ::
   Identifier
@@ -1395,6 +1603,10 @@ FunctionType ::
 
 GenericType ::
   Identifier < TypeList >
+
+DynType ::
+  dyn Identifier
+  dyn Identifier < TypeList >
 ```
 
 **Built-in type names**:
@@ -1409,6 +1621,15 @@ GenericType ::
 | `void` | No return value |
 | `dyn` | Dynamic type (runtime checked) |
 | `never` | Bottom type (unreachable) |
+| `bigint` | Arbitrary precision integer |
+
+**Special types**:
+
+| Type | Description |
+|------|-------------|
+| `Future<T>` | Represents an async computation producing `T` |
+| `dyn TraitName` | Trait object for dynamic dispatch |
+| `Array<T>` | Array of elements of type `T` (desugars from `[T]`) |
 
 **Examples**:
 ```ruyi
@@ -1417,6 +1638,8 @@ let name: string? = null;
 let fn: fn(int, int) -> int = add;
 let items: Array<string> = [];
 let point: { x: float, y: float } = { x: 0.0, y: 0.0 };
+let printable: dyn Printable = getPrintable();
+let future: Future<string> = fetchData(url);
 ```
 
 ### 3.8 Modules
@@ -1669,20 +1892,24 @@ class Map<K, V> {
 }
 ```
 
-### 5.4 Generic Traits
+### 5.4 Trait Implementations
+
+Types implement traits via `impl` blocks:
 
 ```ruyi
-trait From<T> {
-  fn from(value: T): self;
+impl Printable for Point {
+  fn format(self): string {
+    return "(" + self.x + ", " + self.y + ")";
+  }
 }
 
-trait Into<T> {
-  fn into(self): T;
-}
-
-impl From<int> for string {
-  fn from(value: int): string {
-    return toString(value);
+impl<T: Printable> Printable for Array<T> {
+  fn format(self): string {
+    let result = "[";
+    for (let item of self) {
+      result = result + item.format();
+    }
+    return result + "]";
   }
 }
 ```
@@ -1792,11 +2019,11 @@ Ruyi removes the following JavaScript features. Each removal includes the ration
 
 ### 7.1 Removed Features
 
-| JS Feature | Status | Ruyi Alternative | Rationale |
+| JS feature | Status | Ruyi Alternative | Rationale |
 |------------|--------|-------------------|-----------|
 | `undefined` | **Removed** | `null` | Two null-like values cause confusion. Ruyi uses a single `null` value. |
 | `var` | **Removed** | `let`, `const` | `var` has function-scoped hoisting that causes bugs. Block-scoped `let`/`const` are safer. |
-| `==` and `!=` | **Removed** | `===` and `!==` | Implicit type coercion in `==` leads to surprising results (`[] == false` is true). Strict equality is always correct. |
+| `==` and `!=` | **Mapped** | `===` and `!==` | Parsed for compatibility; codegen maps to `===`/`!==` behavior. No implicit coercion. |
 | Implicit type coercion | **Removed** | Explicit conversion | `"5" + 3` producing `"53"` while `"5" - 3` produces `2` is inconsistent. Ruyi requires explicit type conversion. |
 | Prototype chain | **Removed** | `class`, `trait` | Prototype-based inheritance is confusing. Class-based inheritance is clearer and more familiar. |
 | `with` statement | **Removed** | None | `with` makes static analysis impossible and introduces scope ambiguity. |
@@ -1804,11 +2031,11 @@ Ruyi removes the following JavaScript features. Each removal includes the ration
 | Automatic semicolon insertion edge cases | **Reduced** | Clearer ASI rules | Ruyi simplifies ASI to avoid the most surprising cases. |
 | Octal literals with leading `0` | **Removed** | `0o` prefix | `0777` being octal but `0999` being decimal is confusing. Explicit `0o` prefix is clear. |
 | `function` keyword | **Removed** | `fn` | Shorter, consistent with other declarations. |
-| `function*` / generators | **Removed** | `async`/`await`, iterators | Generators are replaced by async/await and explicit iterator protocols. |
+| `function*` / generators | **Partial** | `yield` keyword parsed | `yield` is parsed as a keyword and statement; codegen treats it as a no-op. Full generator support is planned. |
 | `this` binding complexity | **Simplified** | Lexical `self` | Arrow functions capture `self` lexically. Methods use `self` explicitly. |
 | Dynamic property access with arbitrary strings | **Restricted** | Index signatures | Ruyi restricts dynamic property access to typed index signatures. |
 | `eval()` | **Removed** | None | `eval` is a security risk and prevents optimization. |
-| `delete` on object properties | **Removed** | `null` assignment | Deleting properties changes object shape at runtime, preventing optimization. |
+| `delete` on object properties | **Limited** | `null` assignment | `delete` is parsed as a unary operator; full codegen support is limited. Prefer `obj.prop = null`. |
 | `typeof` returning `"object"` for `null` | **Fixed** | `typeof null` returns `"null"` | The JS bug where `typeof null === "object"` is corrected. |
 | Sparse arrays | **Removed** | Dense arrays with `null` | Sparse arrays have invisible holes. Ruyi arrays are always dense. |
 | `Number`, `String`, `Boolean` wrapper objects | **Removed** | Primitive types only | Wrapper objects create confusing identity behavior (`new String("a") !== "a"`). |
@@ -1930,6 +2157,44 @@ class Dog extends Animal {
 ### A.1 Keyword Tokens
 
 ```
+let, const, fn, class, trait, impl, dyn, match, if, else, for, while,
+return, throw, try, catch, finally, async, await, import,
+export, macro, type, true, false, null, self, super, this,
+in, instanceof, typeof, void, delete, as, extends, static,
+get, set, new, of, break, continue, yield, _
+```
+
+### A.2 Operator Tokens
+
+```
+===, !==, ==, !=, <, >, <=, >=,
++, -, *, /, %, **,
+&, |, ^, ~, <<, >>, >>>,
+&&, ||, ??,
+!, ?.,
+=, +=, -=, *=, /=, %=, **=,
+&, |=, ^=, <<=, >>=, >>>=,
+&&=, ||=, ??=,
+=>, ++, --,
+in, instanceof, typeof, void, delete, yield
+```
+
+### A.3 Punctuator Tokens
+
+```
+{, }, (, ), [, ],
+., ,, ;, :, ?,
+@, #, ..., ::, $,
+<, >
+```
+
+### A.4 Literal Forms
+
+```
+null, true, false
+42, 3.14, 1e10, 0xFF, 0o77, 0b1010, 100n
+"hello", 'world', `template ${expr}`
+```
 let, const, fn, class, trait, match, if, else, for, while,
 return, throw, try, catch, finally, async, await, import,
 export, macro, type, true, false, null, self, super, this
@@ -1975,11 +2240,12 @@ null, true, false
 
 ```
 Declaration     → LexicalDeclaration | FunctionDeclaration | ClassDeclaration
-                | TraitDeclaration | TypeAliasDeclaration | MacroDeclaration
+                | TraitDeclaration | ImplDeclaration | TypeAliasDeclaration | MacroDeclaration
 LexicalDecl     → let BindingList ; | const BindingList ;
 FunctionDecl    → fn Identifier TypeParams? ( Params? ) ReturnType? { Body }
-ClassDecl       → class Identifier TypeParams? extends Expr? { ClassBody }
-TraitDecl       → trait Identifier TypeParams? { TraitBody }
+ClassDecl       → @Annot* class Identifier TypeParams? extends Expr? { ClassBody }
+TraitDecl       → trait Identifier TypeParams? extends TraitList? { TraitBody }
+ImplDecl        → impl TypeParams? TraitName TypeArgs? for Type { ClassBody }
 TypeAlias       → type Identifier TypeParams? = Type ;
 MacroDecl       → macro Identifier { MacroRules }
 ```
@@ -1987,18 +2253,25 @@ MacroDecl       → macro Identifier { MacroRules }
 ### B.2 Statement Grammar
 
 ```
-Statement       → Block | IfStmt | WhileStmt | ForStmt | ForInStmt | ForOfStmt
-                | ReturnStmt | ThrowStmt | TryStmt | MatchStmt | BreakStmt
-                | ContinueStmt | ExprStmt | EmptyStmt
+Statement       → Block | IfStmt | IfLetStmt | WhileStmt | WhileLetStmt
+                | ForStmt | ForInStmt | ForOfStmt | ReturnStmt | ThrowStmt
+                | TryStmt | MatchStmt | BreakStmt | ContinueStmt | YieldStmt
+                | LabeledStmt | ExprStmt | EmptyStmt
 IfStmt          → if ( Expr ) Stmt else Stmt?
+IfLetStmt       → if let Pattern = Expr Block else Stmt?
 WhileStmt       → while ( Expr ) Stmt
+WhileLetStmt    → while let Pattern = Expr Block
 ForStmt         → for ( Init? ; Expr? ; Update? ) Stmt
 ForInStmt       → for ( let Identifier in Expr ) Stmt
-ForOfStmt       → for ( let Identifier of Expr ) Stmt
+ForOfStmt       → for ( let Identifier of [async] Expr ) Stmt
 ReturnStmt      → return Expr? ;
 ThrowStmt       → throw Expr ;
 TryStmt         → try Block catch ( Pattern ) Block? finally Block?
 MatchStmt       → match ( Expr ) { MatchArms }
+BreakStmt       → break Identifier? ;
+ContinueStmt    → continue Identifier? ;
+YieldStmt       → yield Expr? ;
+LabeledStmt     → Identifier : Stmt
 ```
 
 ### B.3 Expression Grammar
@@ -2017,6 +2290,8 @@ Multiplicative  → ExponentiationExpr ( * ExponentiationExpr | / Exponentiation
 Exponentiation  → UnaryExpr ( ** ExponentiationExpr )?
 UnaryExpr       → LeftHandSideExpr | ++ UnaryExpr | -- UnaryExpr | + UnaryExpr
                 | - UnaryExpr | ~ UnaryExpr | ! UnaryExpr | await UnaryExpr
+                | typeof UnaryExpr | void UnaryExpr | delete UnaryExpr
+PostfixExpr     → LeftHandSideExpr !          (null assertion)
 LeftHandSide    → CallExpr | MemberExpr
 CallExpr        → MemberExpr Arguments | CallExpr Arguments | CallExpr [ Expr ]
                 | CallExpr . Identifier | CallExpr ?. Identifier
@@ -2024,6 +2299,9 @@ MemberExpr      → PrimaryExpr | MemberExpr [ Expr ] | MemberExpr . Identifier
                 | MemberExpr ?. Identifier | MemberExpr TemplateLiteral
 PrimaryExpr     → Identifier | Literal | ArrayLiteral | ObjectLiteral
                 | FunctionExpr | ClassExpr | ( Expr ) | this | TemplateLiteral
+                | if ( Expr ) Expr else Expr  (if-expression)
+                | match ( Expr ) { Arms }     (match-expression)
+                | new MemberExpr Arguments    (new-expression)
 ```
 
 ### B.4 Pattern Grammar
@@ -2038,7 +2316,7 @@ Pattern         → Identifier | Literal | { ObjectPatternFields }
 
 ```
 Type            → Identifier | Type? | fn ( Types ) -> Type | Identifier < Types >
-                | { TypeFields } | [ Type ]
+                | { TypeFields } | [ Type ] | dyn Identifier | dyn Identifier < Types >
 ```
 
 ### B.6 Module Grammar
@@ -2061,7 +2339,7 @@ ExportDecl      → export { NamedExports } ;
 | Precedence | Operator | Description | Associativity |
 |------------|----------|-------------|---------------|
 | 18 | `.` `?.` `()` `[]` | Member access, call, index | Left |
-| 17 | `++` `--` `!` `~` `+` `-` `await` `typeof` `void` `delete` | Unary | Right |
+| 17 | `++` `--` `!` (prefix) `~` `+` `-` `await` `typeof` `void` `delete` | Unary | Right |
 | 16 | `**` | Exponentiation | Right |
 | 15 | `*` `/` `%` | Multiplicative | Left |
 | 14 | `+` `-` | Additive | Left |
@@ -2078,6 +2356,12 @@ ExportDecl      → export { NamedExports } ;
 | 3 | `=>` | Arrow function | Right |
 | 2 | `=` `+=` `-=` `*=` `/=` `%=` `**=` `&=` `\|=` `^=` `<<=` `>>=` `>>>=` `&&=` `\|\|=` `??=` | Assignment | Right |
 | 1 | `,` | Sequence | Left |
+
+**Postfix operators** (applied after all above):
+
+| Operator | Description |
+|----------|-------------|
+| `!` | Null assertion: `e!` asserts `e` is not null |
 
 ---
 
@@ -2703,9 +2987,9 @@ trait Comparable<T> {
 **Trait semantics**:
 
 1. A trait declaration defines a **contract**, not an implementation.
-2. Trait methods have no bodies (signatures only).
+2. Trait methods may have bodies (default implementations) or be signatures only.
 3. Traits can be generic (type parameters on the trait itself).
-4. Traits can have **default method implementations** (see Section 11.4).
+4. Traits can have **supertraits** via the `extends` clause.
 
 ### 11.2 Trait Implementations
 
@@ -3411,6 +3695,59 @@ import HttpClient from "./http/client";
 2. Check if the file exists.
 3. If not found, check for an `index.ry` in a directory with that name.
 4. If still not found, report a module resolution error.
+
+### 15.2.1 Standard Library (stdlib)
+
+Ruyi ships with a standard library (`stdlib/`) that provides core types, data structures, and system utilities. The stdlib is located at `$RUYI_HOME/stdlib`.
+
+**RUYI_HOME**:
+
+Ruyi uses the `RUYI_HOME` environment variable to locate its installation directory:
+
+| Path | Description |
+|------|-------------|
+| `$RUYI_HOME/bin` | Compiler binaries (`ruyic`, etc.) |
+| `$RUYI_HOME/stdlib` | Standard library modules |
+
+If `RUYI_HOME` is not set, the compiler falls back to looking for a local `stdlib/` directory relative to the current working directory (useful for development).
+
+**stdlib module layout**:
+
+| Module | Description |
+|--------|-------------|
+| `core` | Fundamental type methods (`String`, `Int`, `Float`, `Bool`) |
+| `option` | `Option<T>` enum (`Some`/`None`) for nullable value handling |
+| `result` | `Result<T, E>` enum (`Ok`/`Err`) for error handling |
+| `error` | Error hierarchy (`Error`, `TypeError`, `RuntimeError`, `RangeError`, `AssertionError`, `ArgumentError`, `NullError`, `ArithmeticError`, `IteratorError`, `ParseError`) plus `assert()` and `assertNotNull()` |
+| `collections` | Generic collections (`Array<T>`, `Map<K, V>`, `Set<T>`) and `Iterator<T>` trait |
+| `string` | Extended string utilities (`split`, `join`, `startsWith`, `endsWith`, `contains`, `indexOf`, `substring`, `replace`, `padStart`, `padEnd`, `repeat`, `reverse`, `trim`, `matches`, etc.) |
+| `io` | Console I/O (`print`, `println`, `readLine`) and file operations (`File.readText`, `File.writeText`, `File.readLines`, `File.exists`, `File.mkdir`, etc.) with async variants |
+| `path` | Path manipulation (`Path.join`, `Path.basename`, `Path.dirname`, `Path.extname`, `Path.isAbsolute`, `Path.normalize`, `Path.resolve`, etc.) |
+| `process` | Process management (`Process.exec`, `Process.spawn`, `Process.create`), environment variables (`getEnv`, `setEnv`), and system info (`getPID`, `getPlatform`, `getCPUCount`, etc.) |
+
+**Importing stdlib modules**:
+
+```ruyi
+// Import stdlib modules by their file name
+import { print, println, File } from "./io";
+import { Path } from "./path";
+import { Process, getEnv } from "./process";
+import { assert, assertNotNull } from "./error";
+import { Option, Some, None } from "./option";
+import { Result, Ok, Err } from "./result";
+import { Array, Map, Set, Iterator } from "./collections";
+```
+
+**Pre-declared built-in symbols**:
+
+The following symbols are available without any import (pre-declared by the type checker):
+
+| Symbol | Type | Description |
+|--------|------|-------------|
+| `print` | `fn(dyn): void` | Print to stdout (codegen builtin) |
+| `spawn` | `fn(dyn): dyn` | Spawn async task |
+| `toString` | `fn(dyn): string` | Convert any value to string |
+| `Error` | `fn(string): Error` | Error constructor |
 
 ### 15.3 Circular Dependency Detection
 
