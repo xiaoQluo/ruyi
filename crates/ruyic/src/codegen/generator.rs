@@ -67,6 +67,8 @@ pub struct CodegenContext<'ctx, 'm> {
     pub try_stack: Vec<TryContext<'ctx>>,
     pub class_fields: HashMap<String, Vec<(String, Type)>>,
     pub class_struct_types: HashMap<String, inkwell::types::StructType<'ctx>>,
+    /// Maps child class name to parent class name (for super.new() support)
+    pub class_extends: HashMap<String, String>,
     /// Counter for generating unique anonymous arrow function names.
     pub arrow_counter: u64,
     pub function_types: HashMap<String, Type>,
@@ -89,6 +91,7 @@ impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
             try_stack: Vec::new(),
             class_fields: HashMap::new(),
             class_struct_types: HashMap::new(),
+            class_extends: HashMap::new(),
             arrow_counter: 0,
             function_types: HashMap::new(),
         }
