@@ -54,7 +54,7 @@ fn infer_expr_type(expr: &Expr, param_types: &std::collections::HashMap<String, 
                         Type::Int
                     }
                 }
-                BinaryOp::Minus | BinaryOp::Star | BinaryOp::Slash | BinaryOp::Percent => {
+                BinaryOp::Minus | BinaryOp::Star | BinaryOp::Slash | BinaryOp::Percent | BinaryOp::Power => {
                     if left_ty == Type::Float || right_ty == Type::Float {
                         Type::Float
                     } else {
@@ -878,6 +878,7 @@ fn compile_binary<'ctx>(
         BinaryOp::Shl => compile_shl(ctx, &left_result, &right_result),
         BinaryOp::Shr => compile_shr(ctx, &left_result, &right_result),
         BinaryOp::Nullish => compile_nullish(ctx, left, right, &left_result, &right_result),
+        BinaryOp::Power => compile_power(ctx, &left_result, &right_result),
         _ => Err(format!("Unsupported binary operator: {:?}", op)),
     }
 }
@@ -1145,6 +1146,73 @@ fn compile_rem<'ctx>(
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
         }
         _ => Err("Invalid operands for %".to_string()),
+    }
+}
+
+fn compile_power<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    left: &ExprResult<'ctx>,
+    right: &ExprResult<'ctx>,
+) -> Result<ExprResult<'ctx>, String> {
+    let pow_fn = ctx.module.get_function("pow").expect("pow not declared");
+
+    match (&left.value, &right.value) {
+        (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
+            let l_f = ctx
+                .builder
+                .build_signed_int_to_float(*l, ctx.context.f64_type(), "itof");
+            let r_f = ctx
+                .builder
+                .build_signed_int_to_float(*r, ctx.context.f64_type(), "itof");
+            let res = ctx
+                .builder
+                .build_call(pow_fn, &[l_f.into(), r_f.into()], "pow")
+                .try_as_basic_value()
+                .left()
+                .unwrap()
+                .into_float_value();
+            let res_int = ctx
+                .builder
+                .build_float_to_signed_int(res, ctx.context.i64_type(), "ftoi");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res_int), Type::Int))
+        }
+        (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
+            let res = ctx
+                .builder
+                .build_call(pow_fn, &[(*l).into(), (*r).into()], "pow")
+                .try_as_basic_value()
+                .left()
+                .unwrap()
+                .into_float_value();
+            Ok(ExprResult::new(BasicValueEnum::FloatValue(res), Type::Float))
+        }
+        (BasicValueEnum::IntValue(l), BasicValueEnum::FloatValue(r)) => {
+            let l_f = ctx
+                .builder
+                .build_signed_int_to_float(*l, ctx.context.f64_type(), "itof");
+            let res = ctx
+                .builder
+                .build_call(pow_fn, &[l_f.into(), (*r).into()], "pow")
+                .try_as_basic_value()
+                .left()
+                .unwrap()
+                .into_float_value();
+            Ok(ExprResult::new(BasicValueEnum::FloatValue(res), Type::Float))
+        }
+        (BasicValueEnum::FloatValue(l), BasicValueEnum::IntValue(r)) => {
+            let r_f = ctx
+                .builder
+                .build_signed_int_to_float(*r, ctx.context.f64_type(), "itof");
+            let res = ctx
+                .builder
+                .build_call(pow_fn, &[(*l).into(), r_f.into()], "pow")
+                .try_as_basic_value()
+                .left()
+                .unwrap()
+                .into_float_value();
+            Ok(ExprResult::new(BasicValueEnum::FloatValue(res), Type::Float))
+        }
+        _ => Err("Invalid operands for **".to_string()),
     }
 }
 
@@ -1511,23 +1579,29 @@ fn compile_call<'ctx>(
                 _ => return Err("Only simple method calls supported".to_string()),
             };
             if method_name == "new" {
-                let _class_name = match object.as_ref() {
-                    Expr::Identifier(n) => n.clone(),
-                    _ => return Err("new() must be called on a class name".to_string()),
-                };
-                return compile_new(ctx, object.as_ref(), args);
+                match object.as_ref() {
+                    Expr::Identifier(_n) => {
+                        return compile_new(ctx, object.as_ref(), args);
+                    }
+                    Expr::Super => {
+                        return compile_super_new(ctx, args);
+                    }
+                    _ => return Err("new() must be called on a class name or super".to_string()),
+                }
             }
             let (obj_ptr, class_name) = match object.as_ref() {
                 Expr::Identifier(var_name) => {
-                    let (ptr, ty) = ctx
-                        .variables
-                        .get(var_name)
-                        .ok_or_else(|| format!("Undefined variable: {}", var_name))?;
-                    let class_name = match ty {
-                        Type::Named(n) => n.clone(),
-                        _ => return Err(format!("Cannot call method on type: {:?}", ty)),
-                    };
-                    (*ptr, class_name)
+                    if let Some((ptr, ty)) = ctx.variables.get(var_name) {
+                        let class_name = match ty {
+                            Type::Named(n) => n.clone(),
+                            _ => return Err(format!("Cannot call method on type: {:?}", ty)),
+                        };
+                        (Some(*ptr), class_name)
+                    } else if ctx.class_struct_types.contains_key(var_name) {
+                        (None, var_name.clone())
+                    } else {
+                        return Err(format!("Undefined variable: {}", var_name));
+                    }
                 }
                 Expr::SelfExpr => {
                     let (ptr, ty) = ctx
@@ -1538,7 +1612,7 @@ fn compile_call<'ctx>(
                         Type::Named(n) => n.clone(),
                         _ => return Err(format!("Cannot call method on type: {:?}", ty)),
                     };
-                    (*ptr, class_name)
+                    (Some(*ptr), class_name)
                 }
                 _ => return Err("Method calls only supported on identifiers".to_string()),
             };
@@ -1557,7 +1631,7 @@ fn compile_call<'ctx>(
                 }
                 found.unwrap_or(func_name)
             };
-            (func_name, Some(obj_ptr))
+            (func_name, obj_ptr)
         }
         _ => return Err("Indirect calls not yet supported".to_string()),
     };
@@ -2065,5 +2139,54 @@ fn compile_new<'ctx>(
     Ok(ExprResult::new(
         BasicValueEnum::PointerValue(ptr),
         Type::Named(class_name),
+    ))
+}
+
+fn compile_super_new<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    args: &[crate::parser::ast::Argument],
+) -> Result<ExprResult<'ctx>, String> {
+    let func = ctx
+        .current_function
+        .ok_or("super.new() can only be called within a method")?;
+    let func_name = func.get_name().to_string_lossy().to_string();
+
+    let current_class = func_name
+        .split('_')
+        .next()
+        .ok_or("Cannot determine current class from function name")?;
+
+    let parent_class = ctx
+        .class_extends
+        .get(current_class)
+        .ok_or_else(|| format!("Class '{}' has no parent class", current_class))?
+        .clone();
+
+    let (self_ptr, self_ty) = ctx
+        .variables
+        .get("self")
+        .ok_or_else(|| "self not in scope".to_string())?;
+    let self_ptr_copy = *self_ptr;
+    let self_ty_copy = self_ty.clone();
+
+    let ctor_name = format!("{}_new", parent_class);
+    if let Some(ctor) = ctx.module.get_function(&ctor_name) {
+        let self_loaded = ctx.builder.build_load(self_ptr_copy, "super_self");
+        let mut arg_values = vec![self_loaded.into()];
+        for arg in args {
+            match arg {
+                crate::parser::ast::Argument::Expr(e) => {
+                    let result = compile_expr(ctx, e)?;
+                    arg_values.push(result.value.into());
+                }
+                _ => return Err("Spread arguments not yet supported".to_string()),
+            }
+        }
+        ctx.builder.build_call(ctor, &arg_values, "super_ctor_call");
+    }
+
+    Ok(ExprResult::new(
+        BasicValueEnum::PointerValue(self_ptr_copy),
+        self_ty_copy,
     ))
 }

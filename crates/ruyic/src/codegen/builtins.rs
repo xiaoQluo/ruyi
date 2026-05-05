@@ -37,6 +37,7 @@ pub fn declare_builtins<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     declare_ruyi_obj_get(context, module);
     declare_ruyi_int_to_string(context, module);
     declare_ruyi_float_to_string(context, module);
+    declare_pow(context, module);
 }
 
 fn declare_printf<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
@@ -117,6 +118,12 @@ fn declare_ruyi_float_to_string<'ctx>(context: &'ctx Context, module: &Module<'c
     let f64_ty = context.f64_type();
     let fn_type = i8_ptr.fn_type(&[f64_ty.into()], false);
     module.add_function("ruyi_float_to_string", fn_type, None);
+}
+
+fn declare_pow<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let f64_ty = context.f64_type();
+    let fn_type = f64_ty.fn_type(&[f64_ty.into(), f64_ty.into()], false);
+    module.add_function("pow", fn_type, None);
 }
 
 pub fn build_ruyi_get_pending_exception<'ctx>(

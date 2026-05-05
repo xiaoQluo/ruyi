@@ -13,7 +13,7 @@ use super::expr::compile_expr;
 use super::generator::CodegenContext;
 use super::stmt::compile_block;
 use super::types::{function_type_from_ruyi, ruyi_type_to_llvm};
-use crate::parser::ast::{Binding, ClassElement, Declaration, Pattern, PropertyName};
+use crate::parser::ast::{Binding, ClassElement, Declaration, Expr, Pattern, PropertyName};
 use crate::typechecker::types::Type;
 
 /// Compile a declaration.
@@ -48,7 +48,7 @@ pub fn compile_declaration<'ctx>(
                 compile_function(ctx, name, params, return_type.as_ref(), None, None, body)
             }
         }
-        Declaration::Class { name, body, .. } => compile_class(ctx, name, body),
+        Declaration::Class { name, extends, body, .. } => compile_class(ctx, name, extends.as_deref(), body),
         Declaration::Impl {
             trait_name,
             for_type,
@@ -253,13 +253,32 @@ pub fn compile_function<'ctx>(
     result
 }
 
+fn build_combined_fields<'ctx>(
+    ctx: &CodegenContext<'ctx, '_>,
+    class_name: &str,
+    own_fields: &[(String, Type)],
+) -> Vec<(String, Type)> {
+    let mut combined: Vec<(String, Type)> = Vec::new();
+
+    if let Some(parent_name) = ctx.class_extends.get(class_name) {
+        if let Some(parent_fields) = ctx.class_fields.get(parent_name) {
+            combined.extend(parent_fields.iter().cloned());
+        }
+    }
+
+    combined.extend(own_fields.iter().cloned());
+    combined
+}
+
 fn compile_class<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_>,
     name: &str,
+    extends: Option<&Expr>,
     body: &[ClassElement],
 ) -> Result<(), String> {
     let mut fields: Vec<(String, Type)> = Vec::new();
     let mut methods: Vec<&ClassElement> = Vec::new();
+    let mut static_methods: Vec<&ClassElement> = Vec::new();
 
     for element in body {
         match element {
@@ -284,14 +303,25 @@ fn compile_class<'ctx>(
             } => {
                 methods.push(element);
             }
+            ClassElement::Method {
+                is_static: true, ..
+            } => {
+                static_methods.push(element);
+            }
             _ => {}
         }
     }
 
-    ctx.class_fields.insert(name.to_string(), fields.clone());
+    if let Some(extends_expr) = extends {
+        if let crate::parser::ast::Expr::Identifier(parent_name) = extends_expr {
+            ctx.class_extends.insert(name.to_string(), parent_name.clone());
+        }
+    }
 
-    // Create the LLVM struct type for this class
-    let field_types: Vec<_> = fields
+    let combined_fields = build_combined_fields(ctx, name, &fields);
+    ctx.class_fields.insert(name.to_string(), combined_fields.clone());
+
+    let field_types: Vec<_> = combined_fields
         .iter()
         .map(|(_, ty)| super::types::ruyi_type_to_llvm(ctx.context, ty))
         .collect();
@@ -327,6 +357,49 @@ fn compile_class<'ctx>(
                     .filter(|p| !matches!(&p.pattern, Pattern::Identifier(n) if n == "self"))
                     .cloned(),
             );
+
+            if *is_async {
+                super::async_codegen::compile_async_function(
+                    ctx,
+                    &method_name,
+                    &method_params,
+                    return_type.as_ref(),
+                    method_body,
+                )?;
+            } else {
+                compile_function(
+                    ctx,
+                    &method_name,
+                    &method_params,
+                    return_type.as_ref(),
+                    None,
+                    None,
+                    method_body,
+                )?;
+            }
+        }
+    }
+
+    for element in static_methods {
+        if let ClassElement::Method {
+            name: prop_name,
+            params,
+            return_type,
+            body: method_body,
+            is_async,
+            ..
+        } = element
+        {
+            let method_name = match prop_name {
+                PropertyName::Ident(n) => format!("{}_{}", name, n),
+                _ => continue,
+            };
+
+            let method_params = params
+                .iter()
+                .filter(|p| !matches!(&p.pattern, Pattern::Identifier(n) if n == "self"))
+                .cloned()
+                .collect::<Vec<_>>();
 
             if *is_async {
                 super::async_codegen::compile_async_function(
