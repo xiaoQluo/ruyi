@@ -314,11 +314,18 @@ class Set<T> {
     }
 
     /**
+     * Creates an iterator over the set elements.
+     */
+    fn iter(self): SetIterator<T> {
+        return SetIterator.new(self);
+    }
+
+    /**
      * Returns all elements in the set as an array.
      */
     fn toArray(self): Array<T> {
         let result = Array.new();
-        let iter = self._iter();
+        let iter = self.iter();
         while (true) {
             let elem = iter.next();
             if (elem === None) {

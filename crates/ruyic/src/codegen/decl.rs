@@ -328,6 +328,40 @@ fn compile_class<'ctx>(
     let struct_type = ctx.context.struct_type(&field_types, false);
     ctx.class_struct_types.insert(name.to_string(), struct_type);
 
+    // First pass: predeclare all methods to allow forward references
+    for element in &methods {
+        if let ClassElement::Method {
+            name: prop_name,
+            params,
+            return_type,
+            is_async,
+            ..
+        } = element
+        {
+            let method_name = match prop_name {
+                PropertyName::Ident(n) => format!("{}_{}", name, n),
+                _ => continue,
+            };
+            let mut method_params = vec![crate::parser::ast::Param {
+                pattern: Pattern::Identifier("self".to_string()),
+                ty: Some(crate::parser::ast::TypeAnnotation::Identifier(
+                    name.to_string(),
+                )),
+                init: None,
+                is_rest: false,
+            }];
+            method_params.extend(
+                params
+                    .iter()
+                    .filter(|p| !matches!(&p.pattern, Pattern::Identifier(n) if n == "self"))
+                    .cloned(),
+            );
+            if !*is_async {
+                predeclare_function(ctx, &method_name, &method_params, return_type.as_ref());
+            }
+        }
+    }
+
     for element in methods {
         if let ClassElement::Method {
             name: prop_name,

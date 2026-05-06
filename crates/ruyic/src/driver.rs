@@ -293,10 +293,50 @@ impl Driver {
         let mut parser = RuyiParser::new(source)?;
         let mut program = parser.parse()?;
 
+        // Auto-load stdlib modules (error, collections, etc.)
+        self.auto_load_stdlib()?;
+
         // Process imports recursively
         program = self.resolve_imports(program, input_path)?;
 
+        // Prepend auto-loaded stdlib modules before main program items
+        let mut all_items: Vec<crate::parser::ast::ModuleItem> = Vec::new();
+        for (_, module) in &self.resolver.loaded_modules {
+            for module_item in &module.items {
+                all_items.push(module_item.clone());
+            }
+        }
+        all_items.extend(program.items);
+        program.items = all_items;
+
         Ok(program)
+    }
+
+    /// Auto-load essential stdlib modules.
+    fn auto_load_stdlib(&mut self) -> Result<(), CompileError> {
+        let stdlib_modules = ["error"];
+
+        for module_name in &stdlib_modules {
+            let module_path = PathBuf::from(format!("stdlib/{}.ry", module_name));
+            if !module_path.exists() {
+                continue;
+            }
+
+            let canonical = self.resolver.canonical_path(&module_path);
+            if self.resolver.loaded_modules.contains_key(&canonical) {
+                continue;
+            }
+
+            let module_source = fs::read_to_string(&module_path)?;
+            let mut module_parser = RuyiParser::new(&module_source)?;
+            let mut module_ast = module_parser.parse()?;
+            module_ast = self.resolve_imports(module_ast, &module_path)?;
+            self.resolver
+                .loaded_modules
+                .insert(canonical, module_ast);
+        }
+
+        Ok(())
     }
 
     /// Recursively resolve imports in a program.
@@ -325,9 +365,12 @@ impl Driver {
                             .insert(canonical.clone(), module_ast);
                     }
 
-                    // For now, we just skip the import item since we're
-                    // inlining everything. In a full implementation,
-                    // we'd track what's imported and build a proper module table.
+                    // Merge imported module items into the main program
+                    if let Some(module) = self.resolver.loaded_modules.get(&canonical) {
+                        for module_item in &module.items {
+                            program.items.push(module_item.clone());
+                        }
+                    }
                 }
                 _ => {
                     program.items.push(item);

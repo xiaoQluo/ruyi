@@ -307,6 +307,92 @@ pub extern "C" fn ruyi_array_pop(arr: *mut i8) -> *mut i8 {
     }
 }
 
+// ============================================================
+// __builtin_array_* — stdlib/collections.ry entry points
+// ============================================================
+
+#[no_mangle]
+pub extern "C" fn __builtin_array_create() -> *mut i8 {
+    ruyi_array_alloc(0)
+}
+
+#[no_mangle]
+pub extern "C" fn __builtin_array_get(arr: *mut i8, index: i64) -> *mut i8 {
+    ruyi_array_get(arr, index)
+}
+
+#[no_mangle]
+pub extern "C" fn __builtin_array_set(arr: *mut i8, index: i64, value: *mut i8) {
+    ruyi_array_set(arr, index, value)
+}
+
+#[no_mangle]
+pub extern "C" fn __builtin_array_push(arr: *mut i8, value: *mut i8) -> *mut i8 {
+    ruyi_array_push(arr, value)
+}
+
+#[no_mangle]
+pub extern "C" fn __builtin_array_pop(arr: *mut i8) -> *mut i8 {
+    ruyi_array_pop(arr)
+}
+
+// ============================================================
+// __builtin_map_* — placeholder implementations
+// ============================================================
+
+#[no_mangle]
+pub extern "C" fn __builtin_map_create() -> *mut i8 {
+    std::ptr::null_mut()
+}
+
+#[no_mangle]
+pub extern "C" fn __builtin_map_get(_data: *mut i8, _key: *mut i8) -> *mut i8 {
+    std::ptr::null_mut()
+}
+
+#[no_mangle]
+pub extern "C" fn __builtin_map_set(_data: *mut i8, _key: *mut i8, _value: *mut i8) {}
+
+#[no_mangle]
+pub extern "C" fn __builtin_map_delete(_data: *mut i8, _key: *mut i8) {}
+
+#[no_mangle]
+pub extern "C" fn __builtin_map_has(_data: *mut i8, _key: *mut i8) -> bool {
+    false
+}
+
+#[no_mangle]
+pub extern "C" fn __builtin_map_keys(_data: *mut i8) -> *mut i8 {
+    std::ptr::null_mut()
+}
+
+#[no_mangle]
+pub extern "C" fn __builtin_map_values(_data: *mut i8) -> *mut i8 {
+    std::ptr::null_mut()
+}
+
+// ============================================================
+// __builtin_set_* — placeholder implementations
+// ============================================================
+
+#[no_mangle]
+pub extern "C" fn __builtin_set_create() -> *mut i8 {
+    std::ptr::null_mut()
+}
+
+#[no_mangle]
+pub extern "C" fn __builtin_set_add(_data: *mut i8, _value: *mut i8) {}
+
+#[no_mangle]
+pub extern "C" fn __builtin_set_delete(_data: *mut i8, _value: *mut i8) -> bool {
+    false
+}
+
+#[no_mangle]
+pub extern "C" fn __builtin_set_has(_data: *mut i8, _value: *mut i8) -> bool {
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

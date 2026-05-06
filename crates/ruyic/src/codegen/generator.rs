@@ -67,6 +67,7 @@ pub struct CodegenContext<'ctx, 'm> {
     pub try_stack: Vec<TryContext<'ctx>>,
     pub class_fields: HashMap<String, Vec<(String, Type)>>,
     pub class_struct_types: HashMap<String, inkwell::types::StructType<'ctx>>,
+    pub enum_struct_types: HashMap<String, inkwell::types::StructType<'ctx>>,
     /// Maps child class name to parent class name (for super.new() support)
     pub class_extends: HashMap<String, String>,
     /// Counter for generating unique anonymous arrow function names.
@@ -91,6 +92,7 @@ impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
             try_stack: Vec::new(),
             class_fields: HashMap::new(),
             class_struct_types: HashMap::new(),
+            enum_struct_types: HashMap::new(),
             class_extends: HashMap::new(),
             arrow_counter: 0,
             function_types: HashMap::new(),
@@ -238,6 +240,73 @@ impl<'ctx> CodeGenerator<'ctx> {
                             params,
                             return_type.as_ref(),
                         );
+                    }
+                }
+            }
+        }
+
+        // First pass: predeclare class struct types and method signatures for forward references
+        for item in &program.items {
+            if let crate::parser::ast::ModuleItem::Declaration(
+                crate::parser::ast::Declaration::Class { name, body, .. },
+            ) = item
+            {
+                // Predeclare struct type
+                let mut fields: Vec<(String, crate::typechecker::types::Type)> = Vec::new();
+                for element in body {
+                    if let crate::parser::ast::ClassElement::Field {
+                        name: prop_name,
+                        ty,
+                        is_static: false,
+                        ..
+                    } = element
+                    {
+                        if let crate::parser::ast::PropertyName::Ident(n) = prop_name {
+                            let field_ty = ty
+                                .as_ref()
+                                .map(crate::typechecker::types::Type::from_annotation)
+                                .unwrap_or(crate::typechecker::types::Type::Dynamic);
+                            fields.push((n.clone(), field_ty));
+                        }
+                    }
+                }
+                let field_types: Vec<_> = fields
+                    .iter()
+                    .map(|(_, ty)| super::types::ruyi_type_to_llvm(ctx.context, ty))
+                    .collect();
+                let struct_type = ctx.context.struct_type(&field_types, false);
+                ctx.class_struct_types.insert(name.clone(), struct_type);
+                ctx.class_fields.insert(name.clone(), fields);
+
+                // Predeclare methods
+                for element in body {
+                    if let crate::parser::ast::ClassElement::Method {
+                        name: prop_name,
+                        params,
+                        return_type,
+                        is_static: false,
+                        is_async: false,
+                        ..
+                    } = element
+                    {
+                        if let crate::parser::ast::PropertyName::Ident(method) = prop_name {
+                            let method_name = format!("{}_{}", name, method);
+                            let mut method_params = vec![crate::parser::ast::Param {
+                                pattern: crate::parser::ast::Pattern::Identifier("self".to_string()),
+                                ty: Some(crate::parser::ast::TypeAnnotation::Identifier(
+                                    name.clone(),
+                                )),
+                                init: None,
+                                is_rest: false,
+                            }];
+                            method_params.extend(
+                                params
+                                    .iter()
+                                    .filter(|p| !matches!(&p.pattern, crate::parser::ast::Pattern::Identifier(n) if n == "self"))
+                                    .cloned(),
+                            );
+                            super::decl::predeclare_function(&mut ctx, &method_name, &method_params, return_type.as_ref());
+                        }
                     }
                 }
             }

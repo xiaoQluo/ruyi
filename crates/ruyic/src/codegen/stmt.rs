@@ -611,7 +611,25 @@ fn compile_return<'ctx>(
 }
 
 fn compile_throw<'ctx>(ctx: &mut CodegenContext<'ctx, '_>, expr: &Expr) -> Result<(), String> {
-    let exc_result = compile_expr(ctx, expr)?;
+    // Handle `throw ClassName(...)` as `throw new ClassName(...)`
+    let exc_result = match expr {
+        Expr::Call { callee, args } => {
+            if let Expr::Identifier(name) = callee.as_ref() {
+                // Check if it's a known class, or looks like one (starts with uppercase)
+                let is_class = ctx.class_struct_types.contains_key(name)
+                    || name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false);
+                if is_class {
+                    let class_expr = Expr::Identifier(name.clone());
+                    super::expr::compile_new(ctx, &class_expr, args)?
+                } else {
+                    compile_expr(ctx, expr)?
+                }
+            } else {
+                compile_expr(ctx, expr)?
+            }
+        }
+        _ => compile_expr(ctx, expr)?,
+    };
     let exc_ptr = match exc_result.value {
         BasicValueEnum::PointerValue(v) => v,
         _ => return Err("throw expression must evaluate to a pointer".to_string()),
@@ -623,28 +641,14 @@ fn compile_throw<'ctx>(ctx: &mut CodegenContext<'ctx, '_>, expr: &Expr) -> Resul
         .expect("ruyi_throw not declared");
 
     if let Some(try_ctx) = ctx.try_stack.last() {
-        if let Some(lpad_bb) = try_ctx.landing_pad_bb {
-            let func = ctx.current_function.ok_or("No current function")?;
-            let unreachable_bb = ctx.context.append_basic_block(func, "throw_unreachable");
-            ctx.builder.build_invoke(
-                throw_fn,
-                &[exc_ptr.into()],
-                unreachable_bb,
-                lpad_bb,
-                "throw",
-            );
-            ctx.builder.position_at_end(unreachable_bb);
-            ctx.builder.build_unreachable();
+        ctx.builder.build_call(throw_fn, &[exc_ptr.into()], "throw");
+        ctx.builder.build_store(try_ctx.exception_ptr, exc_ptr);
+        if let Some(catch_bb) = try_ctx.catch_bb {
+            ctx.builder.build_unconditional_branch(catch_bb);
+        } else if let Some(finally_bb) = try_ctx.finally_bb {
+            ctx.builder.build_unconditional_branch(finally_bb);
         } else {
-            ctx.builder.build_call(throw_fn, &[exc_ptr.into()], "throw");
-            ctx.builder.build_store(try_ctx.exception_ptr, exc_ptr);
-            if let Some(catch_bb) = try_ctx.catch_bb {
-                ctx.builder.build_unconditional_branch(catch_bb);
-            } else if let Some(finally_bb) = try_ctx.finally_bb {
-                ctx.builder.build_unconditional_branch(finally_bb);
-            } else {
-                ctx.builder.build_unconditional_branch(try_ctx.merge_bb);
-            }
+            ctx.builder.build_unconditional_branch(try_ctx.merge_bb);
         }
     } else {
         ctx.builder.build_call(throw_fn, &[exc_ptr.into()], "throw");
@@ -709,11 +713,6 @@ fn compile_try<'ctx>(
     } else {
         None
     };
-    let landing_pad_bb = if !catch.is_empty() || finally.is_some() {
-        Some(ctx.context.append_basic_block(func, "try_lpad"))
-    } else {
-        None
-    };
 
     let exception_ptr = ctx.builder.build_alloca(i8_ptr, "exc_ptr");
     ctx.builder.build_store(exception_ptr, i8_ptr.const_null());
@@ -732,7 +731,7 @@ fn compile_try<'ctx>(
         catch_bb,
         finally_bb,
         merge_bb,
-        landing_pad_bb,
+        landing_pad_bb: None,
     };
     ctx.try_stack.push(try_ctx);
 
@@ -749,43 +748,6 @@ fn compile_try<'ctx>(
 
     ctx.try_stack.pop();
 
-    if let Some(lpad_bb) = landing_pad_bb {
-        ctx.builder.position_at_end(lpad_bb);
-        let i32_ty = ctx.context.i32_type();
-        let lpad_ty = ctx
-            .context
-            .struct_type(&[i8_ptr.into(), i32_ty.into()], false);
-        let personality_ty = i32_ty.fn_type(&[], false);
-        let personality = ctx
-            .module
-            .get_function("__gxx_personality_v0")
-            .unwrap_or_else(|| {
-                ctx.module
-                    .add_function("__gxx_personality_v0", personality_ty, None)
-            });
-        let null_clause = i8_ptr.const_null().as_basic_value_enum();
-        let lpad = ctx.builder.build_landing_pad(
-            lpad_ty,
-            personality,
-            &[null_clause],
-            finally.is_some(),
-            "lpad",
-        );
-        let exc_val = ctx
-            .builder
-            .build_extract_value(lpad.into_struct_value(), 0, "exc_val")
-            .unwrap()
-            .into_pointer_value();
-        ctx.builder.build_store(exception_ptr, exc_val);
-        if let Some(cb) = catch_bb {
-            ctx.builder.build_unconditional_branch(cb);
-        } else if let Some(fb) = finally_bb {
-            ctx.builder.build_unconditional_branch(fb);
-        } else {
-            ctx.builder.build_unconditional_branch(merge_bb);
-        }
-    }
-
     for catch_clause in catch {
         let cb = catch_bb.unwrap();
         ctx.builder.position_at_end(cb);
@@ -801,8 +763,13 @@ fn compile_try<'ctx>(
                 crate::parser::ast::Pattern::Identifier(name) => {
                     let local_ptr = ctx.builder.build_alloca(i8_ptr, name);
                     ctx.builder.build_store(local_ptr, exc_val);
+                    let var_ty = catch_clause
+                        .ty
+                        .as_ref()
+                        .map(Type::from_annotation)
+                        .unwrap_or(Type::Dynamic);
                     ctx.variables
-                        .insert(name.clone(), (local_ptr, Type::String));
+                        .insert(name.clone(), (local_ptr, var_ty));
                 }
                 _ => {}
             }
