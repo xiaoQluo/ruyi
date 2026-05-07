@@ -7,7 +7,7 @@ use inkwell::types::BasicType;
  * @author Ruyi Team
  * @date 2026-05-01
  */
-use inkwell::values::{BasicValue, BasicValueEnum};
+use inkwell::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum};
 use inkwell::FloatPredicate;
 use inkwell::IntPredicate;
 
@@ -54,7 +54,11 @@ fn infer_expr_type(expr: &Expr, param_types: &std::collections::HashMap<String, 
                         Type::Int
                     }
                 }
-                BinaryOp::Minus | BinaryOp::Star | BinaryOp::Slash | BinaryOp::Percent | BinaryOp::Power => {
+                BinaryOp::Minus
+                | BinaryOp::Star
+                | BinaryOp::Slash
+                | BinaryOp::Percent
+                | BinaryOp::Power => {
                     if left_ty == Type::Float || right_ty == Type::Float {
                         Type::Float
                     } else {
@@ -441,6 +445,7 @@ pub fn compile_expr<'ctx>(
             property,
             optional,
         } => compile_member_access(ctx, object, property, *optional),
+        Expr::Match { value, arms } => compile_match_expr(ctx, value, arms),
         _ => Err(format!("Unsupported expression: {:?}", expr)),
     }
 }
@@ -551,15 +556,25 @@ fn compile_template_literal<'ctx>(
 }
 
 fn compile_null_literal<'ctx>(ctx: &CodegenContext<'ctx, '_>) -> Result<ExprResult<'ctx>, String> {
-    let null_ptr = ctx
-        .context
-        .i8_type()
-        .ptr_type(Default::default())
-        .const_null();
-    Ok(ExprResult::new(
-        BasicValueEnum::PointerValue(null_ptr),
-        Type::Null,
-    ))
+    let is_nullable_int = matches!(ctx.expected_expr_type, Some(Type::Nullable(ref inner)) if **inner == Type::Int)
+        || matches!(ctx.current_return_type, Some(Type::Nullable(ref inner)) if **inner == Type::Int);
+    if is_nullable_int {
+        let sentinel = ctx.context.i64_type().const_all_ones();
+        Ok(ExprResult::new(
+            BasicValueEnum::IntValue(sentinel),
+            Type::Nullable(Box::new(Type::Int)),
+        ))
+    } else {
+        let null_ptr = ctx
+            .context
+            .i8_type()
+            .ptr_type(Default::default())
+            .const_null();
+        Ok(ExprResult::new(
+            BasicValueEnum::PointerValue(null_ptr),
+            Type::Null,
+        ))
+    }
 }
 
 fn compile_bigint_literal<'ctx>(
@@ -1216,10 +1231,13 @@ fn compile_power<'ctx>(
                 .left()
                 .unwrap()
                 .into_float_value();
-            let res_int = ctx
-                .builder
-                .build_float_to_signed_int(res, ctx.context.i64_type(), "ftoi");
-            Ok(ExprResult::new(BasicValueEnum::IntValue(res_int), Type::Int))
+            let res_int =
+                ctx.builder
+                    .build_float_to_signed_int(res, ctx.context.i64_type(), "ftoi");
+            Ok(ExprResult::new(
+                BasicValueEnum::IntValue(res_int),
+                Type::Int,
+            ))
         }
         (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
             let res = ctx
@@ -1229,7 +1247,10 @@ fn compile_power<'ctx>(
                 .left()
                 .unwrap()
                 .into_float_value();
-            Ok(ExprResult::new(BasicValueEnum::FloatValue(res), Type::Float))
+            Ok(ExprResult::new(
+                BasicValueEnum::FloatValue(res),
+                Type::Float,
+            ))
         }
         (BasicValueEnum::IntValue(l), BasicValueEnum::FloatValue(r)) => {
             let l_f = ctx
@@ -1242,7 +1263,10 @@ fn compile_power<'ctx>(
                 .left()
                 .unwrap()
                 .into_float_value();
-            Ok(ExprResult::new(BasicValueEnum::FloatValue(res), Type::Float))
+            Ok(ExprResult::new(
+                BasicValueEnum::FloatValue(res),
+                Type::Float,
+            ))
         }
         (BasicValueEnum::FloatValue(l), BasicValueEnum::IntValue(r)) => {
             let r_f = ctx
@@ -1255,7 +1279,10 @@ fn compile_power<'ctx>(
                 .left()
                 .unwrap()
                 .into_float_value();
-            Ok(ExprResult::new(BasicValueEnum::FloatValue(res), Type::Float))
+            Ok(ExprResult::new(
+                BasicValueEnum::FloatValue(res),
+                Type::Float,
+            ))
         }
         _ => Err("Invalid operands for **".to_string()),
     }
@@ -1280,7 +1307,8 @@ fn compile_eq<'ctx>(
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         (BasicValueEnum::PointerValue(l), BasicValueEnum::PointerValue(r))
-            if matches!(&left.ty, Type::Generic { .. }) && matches!(&right.ty, Type::Generic { .. }) =>
+            if matches!(&left.ty, Type::Generic { .. })
+                && matches!(&right.ty, Type::Generic { .. }) =>
         {
             let l_struct = ctx.builder.build_load(*l, "l_enum_loaded");
             let r_struct = ctx.builder.build_load(*r, "r_enum_loaded");
@@ -1292,58 +1320,150 @@ fn compile_eq<'ctx>(
                 BasicValueEnum::StructValue(s) => s,
                 _ => return Err(format!("Enum pointer loaded to {:?}, not struct", r_struct)),
             };
-            let l_tag = ctx.builder.build_extract_value(l_struct, 0, "l_tag").unwrap().into_int_value();
-            let r_tag = ctx.builder.build_extract_value(r_struct, 0, "r_tag").unwrap().into_int_value();
-            let tag_eq = ctx.builder.build_int_compare(IntPredicate::EQ, l_tag, r_tag, "tag_eq");
-            let l_val = ctx.builder.build_extract_value(l_struct, 1, "l_val").unwrap().into_pointer_value();
-            let r_val = ctx.builder.build_extract_value(r_struct, 1, "r_val").unwrap().into_pointer_value();
-            let li = ctx.builder.build_ptr_to_int(l_val, ctx.context.i64_type(), "l_val_int");
-            let ri = ctx.builder.build_ptr_to_int(r_val, ctx.context.i64_type(), "r_val_int");
-            let val_eq = ctx.builder.build_int_compare(IntPredicate::EQ, li, ri, "val_eq");
+            let l_tag = ctx
+                .builder
+                .build_extract_value(l_struct, 0, "l_tag")
+                .unwrap()
+                .into_int_value();
+            let r_tag = ctx
+                .builder
+                .build_extract_value(r_struct, 0, "r_tag")
+                .unwrap()
+                .into_int_value();
+            let tag_eq = ctx
+                .builder
+                .build_int_compare(IntPredicate::EQ, l_tag, r_tag, "tag_eq");
+            let l_val = ctx
+                .builder
+                .build_extract_value(l_struct, 1, "l_val")
+                .unwrap()
+                .into_pointer_value();
+            let r_val = ctx
+                .builder
+                .build_extract_value(r_struct, 1, "r_val")
+                .unwrap()
+                .into_pointer_value();
+            let li = ctx
+                .builder
+                .build_ptr_to_int(l_val, ctx.context.i64_type(), "l_val_int");
+            let ri = ctx
+                .builder
+                .build_ptr_to_int(r_val, ctx.context.i64_type(), "r_val_int");
+            let val_eq = ctx
+                .builder
+                .build_int_compare(IntPredicate::EQ, li, ri, "val_eq");
             let result = ctx.builder.build_and(tag_eq, val_eq, "enum_eq");
-            Ok(ExprResult::new(BasicValueEnum::IntValue(result), Type::Bool))
+            Ok(ExprResult::new(
+                BasicValueEnum::IntValue(result),
+                Type::Bool,
+            ))
         }
         (BasicValueEnum::PointerValue(l), BasicValueEnum::StructValue(r))
-            if matches!(&left.ty, Type::Generic { .. }) && matches!(&right.ty, Type::Generic { .. }) =>
+            if matches!(&left.ty, Type::Generic { .. })
+                && matches!(&right.ty, Type::Generic { .. }) =>
         {
             let i8_ty = ctx.context.i8_type();
             let i8_ptr_ty = i8_ty.ptr_type(Default::default());
-            let option_struct = ctx.context.struct_type(&[i8_ty.into(), i8_ptr_ty.into()], false);
-            let l_struct_ptr = ctx.builder.build_bitcast(*l, option_struct.ptr_type(Default::default()), "l_struct_ptr").into_pointer_value();
+            let option_struct = ctx
+                .context
+                .struct_type(&[i8_ty.into(), i8_ptr_ty.into()], false);
+            let l_struct_ptr = ctx
+                .builder
+                .build_bitcast(
+                    *l,
+                    option_struct.ptr_type(Default::default()),
+                    "l_struct_ptr",
+                )
+                .into_pointer_value();
             let l_struct = ctx.builder.build_load(l_struct_ptr, "l_enum_loaded");
             let l_struct = match l_struct {
                 BasicValueEnum::StructValue(s) => s,
                 _ => return Err(format!("Enum pointer loaded to {:?}, not struct", l_struct)),
             };
-            let l_tag = ctx.builder.build_extract_value(l_struct, 0, "l_tag").unwrap().into_int_value();
-            let r_tag = ctx.builder.build_extract_value(*r, 0, "r_tag").unwrap().into_int_value();
-            let tag_eq = ctx.builder.build_int_compare(IntPredicate::EQ, l_tag, r_tag, "tag_eq");
-            let l_val = ctx.builder.build_extract_value(l_struct, 1, "l_val").unwrap().into_pointer_value();
-            let r_val = ctx.builder.build_extract_value(*r, 1, "r_val").unwrap().into_pointer_value();
-            let li = ctx.builder.build_ptr_to_int(l_val, ctx.context.i64_type(), "l_val_int");
-            let ri = ctx.builder.build_ptr_to_int(r_val, ctx.context.i64_type(), "r_val_int");
-            let val_eq = ctx.builder.build_int_compare(IntPredicate::EQ, li, ri, "val_eq");
+            let l_tag = ctx
+                .builder
+                .build_extract_value(l_struct, 0, "l_tag")
+                .unwrap()
+                .into_int_value();
+            let r_tag = ctx
+                .builder
+                .build_extract_value(*r, 0, "r_tag")
+                .unwrap()
+                .into_int_value();
+            let tag_eq = ctx
+                .builder
+                .build_int_compare(IntPredicate::EQ, l_tag, r_tag, "tag_eq");
+            let l_val = ctx
+                .builder
+                .build_extract_value(l_struct, 1, "l_val")
+                .unwrap()
+                .into_pointer_value();
+            let r_val = ctx
+                .builder
+                .build_extract_value(*r, 1, "r_val")
+                .unwrap()
+                .into_pointer_value();
+            let li = ctx
+                .builder
+                .build_ptr_to_int(l_val, ctx.context.i64_type(), "l_val_int");
+            let ri = ctx
+                .builder
+                .build_ptr_to_int(r_val, ctx.context.i64_type(), "r_val_int");
+            let val_eq = ctx
+                .builder
+                .build_int_compare(IntPredicate::EQ, li, ri, "val_eq");
             let result = ctx.builder.build_and(tag_eq, val_eq, "enum_eq");
-            Ok(ExprResult::new(BasicValueEnum::IntValue(result), Type::Bool))
+            Ok(ExprResult::new(
+                BasicValueEnum::IntValue(result),
+                Type::Bool,
+            ))
         }
         (BasicValueEnum::StructValue(l), BasicValueEnum::PointerValue(r))
-            if matches!(&left.ty, Type::Generic { .. }) && matches!(&right.ty, Type::Generic { .. }) =>
+            if matches!(&left.ty, Type::Generic { .. })
+                && matches!(&right.ty, Type::Generic { .. }) =>
         {
             let r_struct = ctx.builder.build_load(*r, "r_enum_loaded");
             let r_struct = match r_struct {
                 BasicValueEnum::StructValue(s) => s,
                 _ => return Err(format!("Enum pointer loaded to {:?}, not struct", r_struct)),
             };
-            let l_tag = ctx.builder.build_extract_value(*l, 0, "l_tag").unwrap().into_int_value();
-            let r_tag = ctx.builder.build_extract_value(r_struct, 0, "r_tag").unwrap().into_int_value();
-            let tag_eq = ctx.builder.build_int_compare(IntPredicate::EQ, l_tag, r_tag, "tag_eq");
-            let l_val = ctx.builder.build_extract_value(*l, 1, "l_val").unwrap().into_pointer_value();
-            let r_val = ctx.builder.build_extract_value(r_struct, 1, "r_val").unwrap().into_pointer_value();
-            let li = ctx.builder.build_ptr_to_int(l_val, ctx.context.i64_type(), "l_val_int");
-            let ri = ctx.builder.build_ptr_to_int(r_val, ctx.context.i64_type(), "r_val_int");
-            let val_eq = ctx.builder.build_int_compare(IntPredicate::EQ, li, ri, "val_eq");
+            let l_tag = ctx
+                .builder
+                .build_extract_value(*l, 0, "l_tag")
+                .unwrap()
+                .into_int_value();
+            let r_tag = ctx
+                .builder
+                .build_extract_value(r_struct, 0, "r_tag")
+                .unwrap()
+                .into_int_value();
+            let tag_eq = ctx
+                .builder
+                .build_int_compare(IntPredicate::EQ, l_tag, r_tag, "tag_eq");
+            let l_val = ctx
+                .builder
+                .build_extract_value(*l, 1, "l_val")
+                .unwrap()
+                .into_pointer_value();
+            let r_val = ctx
+                .builder
+                .build_extract_value(r_struct, 1, "r_val")
+                .unwrap()
+                .into_pointer_value();
+            let li = ctx
+                .builder
+                .build_ptr_to_int(l_val, ctx.context.i64_type(), "l_val_int");
+            let ri = ctx
+                .builder
+                .build_ptr_to_int(r_val, ctx.context.i64_type(), "r_val_int");
+            let val_eq = ctx
+                .builder
+                .build_int_compare(IntPredicate::EQ, li, ri, "val_eq");
             let result = ctx.builder.build_and(tag_eq, val_eq, "enum_eq");
-            Ok(ExprResult::new(BasicValueEnum::IntValue(result), Type::Bool))
+            Ok(ExprResult::new(
+                BasicValueEnum::IntValue(result),
+                Type::Bool,
+            ))
         }
         (BasicValueEnum::PointerValue(l), BasicValueEnum::PointerValue(r)) => {
             let l_int = ctx
@@ -1363,24 +1483,51 @@ fn compile_eq<'ctx>(
             let count = struct_ty.count_fields();
             let mut result = ctx.context.bool_type().const_int(1, false);
             for i in 0..count {
-                let l_field = ctx.builder.build_extract_value(*l, i, &format!("l_field_{}", i)).unwrap();
-                let r_field = ctx.builder.build_extract_value(*r, i, &format!("r_field_{}", i)).unwrap();
+                let l_field = ctx
+                    .builder
+                    .build_extract_value(*l, i, &format!("l_field_{}", i))
+                    .unwrap();
+                let r_field = ctx
+                    .builder
+                    .build_extract_value(*r, i, &format!("r_field_{}", i))
+                    .unwrap();
                 let field_eq = match (l_field, r_field) {
-                    (BasicValueEnum::IntValue(lv), BasicValueEnum::IntValue(rv)) => {
-                        ctx.builder.build_int_compare(IntPredicate::EQ, lv, rv, &format!("field_eq_{}", i))
-                    }
+                    (BasicValueEnum::IntValue(lv), BasicValueEnum::IntValue(rv)) => ctx
+                        .builder
+                        .build_int_compare(IntPredicate::EQ, lv, rv, &format!("field_eq_{}", i)),
                     (BasicValueEnum::PointerValue(lp), BasicValueEnum::PointerValue(rp)) => {
-                        let li = ctx.builder.build_ptr_to_int(lp, ctx.context.i64_type(), &format!("l_ptr_int_{}", i));
-                        let ri = ctx.builder.build_ptr_to_int(rp, ctx.context.i64_type(), &format!("r_ptr_int_{}", i));
-                        ctx.builder.build_int_compare(IntPredicate::EQ, li, ri, &format!("field_eq_{}", i))
+                        let li = ctx.builder.build_ptr_to_int(
+                            lp,
+                            ctx.context.i64_type(),
+                            &format!("l_ptr_int_{}", i),
+                        );
+                        let ri = ctx.builder.build_ptr_to_int(
+                            rp,
+                            ctx.context.i64_type(),
+                            &format!("r_ptr_int_{}", i),
+                        );
+                        ctx.builder.build_int_compare(
+                            IntPredicate::EQ,
+                            li,
+                            ri,
+                            &format!("field_eq_{}", i),
+                        )
                     }
                     _ => ctx.context.bool_type().const_int(0, false),
                 };
-                result = ctx.builder.build_and(result, field_eq, &format!("and_{}", i));
+                result = ctx
+                    .builder
+                    .build_and(result, field_eq, &format!("and_{}", i));
             }
-            Ok(ExprResult::new(BasicValueEnum::IntValue(result), Type::Bool))
+            Ok(ExprResult::new(
+                BasicValueEnum::IntValue(result),
+                Type::Bool,
+            ))
         }
-        _ => Err(format!("Invalid operands for ===: left={:?}({:?}), right={:?}({:?})", left.value, left.ty, right.value, right.ty)),
+        _ => Err(format!(
+            "Invalid operands for ===: left={:?}({:?}), right={:?}({:?})",
+            left.value, left.ty, right.value, right.ty
+        )),
     }
 }
 
@@ -1771,53 +1918,99 @@ fn compile_call<'ctx>(
                     };
                     (Some(*ptr), class_name)
                 }
-                Expr::Member { object: inner_obj, property: inner_prop, .. } => {
+                Expr::Member {
+                    object: inner_obj,
+                    property: inner_prop,
+                    ..
+                } => {
                     let inner_field = match inner_prop {
                         crate::parser::ast::MemberProperty::Ident(n) => n.clone(),
                         _ => return Err("Only simple field access supported".to_string()),
                     };
                     // Get field pointer and type from inner member access
-                    let (inner_var_ptr, inner_class_name, field_ty, field_index) = match inner_obj.as_ref() {
+                    let (inner_var_ptr, inner_class_name, field_ty, field_index) = match inner_obj
+                        .as_ref()
+                    {
                         Expr::SelfExpr => {
-                            let (ptr, ty) = ctx.variables.get("self").ok_or_else(|| "self not in scope".to_string())?;
+                            let (ptr, ty) = ctx
+                                .variables
+                                .get("self")
+                                .ok_or_else(|| "self not in scope".to_string())?;
                             let class_name = match ty {
                                 Type::Named(n) => n.clone(),
                                 Type::Array(_) => "Array".to_string(),
                                 Type::Generic { base, .. } => base.clone(),
-                                _ => return Err(format!("Cannot access field on self type: {:?}", ty)),
+                                _ => {
+                                    return Err(format!(
+                                        "Cannot access field on self type: {:?}",
+                                        ty
+                                    ))
+                                }
                             };
-                            let fields = ctx.class_fields.get(&class_name).ok_or_else(|| format!("Unknown class: {}", class_name))?;
-                            let idx = fields.iter().position(|(n, _)| n == &inner_field)
-                                .ok_or_else(|| format!("Unknown field: {} in class {}", inner_field, class_name))?;
+                            let fields = ctx
+                                .class_fields
+                                .get(&class_name)
+                                .ok_or_else(|| format!("Unknown class: {}", class_name))?;
+                            let idx = fields
+                                .iter()
+                                .position(|(n, _)| n == &inner_field)
+                                .ok_or_else(|| {
+                                    format!(
+                                        "Unknown field: {} in class {}",
+                                        inner_field, class_name
+                                    )
+                                })?;
                             let fty = fields[idx].1.clone();
                             (*ptr, class_name, fty, idx)
                         }
                         Expr::Identifier(name) => {
-                            let (ptr, ty) = ctx.variables.get(name.as_str()).ok_or_else(|| format!("Undefined variable: {}", name))?;
+                            let (ptr, ty) = ctx
+                                .variables
+                                .get(name.as_str())
+                                .ok_or_else(|| format!("Undefined variable: {}", name))?;
                             let class_name = match ty {
                                 Type::Named(n) => n.clone(),
                                 Type::Array(_) => "Array".to_string(),
                                 Type::Generic { base, .. } => base.clone(),
                                 _ => return Err(format!("Cannot access field on type: {:?}", ty)),
                             };
-                            let fields = ctx.class_fields.get(&class_name).ok_or_else(|| format!("Unknown class: {}", class_name))?;
-                            let idx = fields.iter().position(|(n, _)| n == &inner_field)
-                                .ok_or_else(|| format!("Unknown field: {} in class {}", inner_field, class_name))?;
+                            let fields = ctx
+                                .class_fields
+                                .get(&class_name)
+                                .ok_or_else(|| format!("Unknown class: {}", class_name))?;
+                            let idx = fields
+                                .iter()
+                                .position(|(n, _)| n == &inner_field)
+                                .ok_or_else(|| {
+                                    format!(
+                                        "Unknown field: {} in class {}",
+                                        inner_field, class_name
+                                    )
+                                })?;
                             let fty = fields[idx].1.clone();
                             (*ptr, class_name, fty, idx)
                         }
                         _ => return Err("Nested member access not yet supported".to_string()),
                     };
-                    let obj_ptr = ctx.builder.build_load(inner_var_ptr, "obj").into_pointer_value();
-                    let offset = ctx.context.i32_type().const_int((field_index * 8) as u64, false);
+                    let obj_ptr = ctx
+                        .builder
+                        .build_load(inner_var_ptr, "obj")
+                        .into_pointer_value();
+                    let offset = ctx
+                        .context
+                        .i32_type()
+                        .const_int((field_index * 8) as u64, false);
                     let field_ptr = unsafe {
-                        ctx.builder.build_gep(obj_ptr, &[offset], &format!("{}_ptr", inner_field))
+                        ctx.builder
+                            .build_gep(obj_ptr, &[offset], &format!("{}_ptr", inner_field))
                     };
                     let class_name = match field_ty {
                         Type::Named(ref n) => n.clone(),
                         Type::Array(_) => "Array".to_string(),
                         Type::Generic { ref base, .. } => base.clone(),
-                        _ => return Err(format!("Cannot call method on field type: {:?}", field_ty)),
+                        _ => {
+                            return Err(format!("Cannot call method on field type: {:?}", field_ty))
+                        }
                     };
                     (Some(field_ptr), class_name)
                 }
@@ -1835,11 +2028,14 @@ fn compile_call<'ctx>(
                 } else if class_name == "Bool" && method_name == "toString" {
                     "ruyi_bool_to_string".to_string()
                 } else {
-                    let trait_pattern = format!("{}_for_{}", method_name, class_name);
+                    // Trait impl pattern: {method}_{trait}_for_{type}
+                    // Also try: {method}_for_{type} for simpler cases
+                    let suffix = format!("_for_{}", class_name);
+                    let prefix = format!("{}_", method_name);
                     let mut found = None;
                     for func in ctx.module.get_functions() {
                         let fname = func.get_name().to_string_lossy().to_string();
-                        if fname.contains(&trait_pattern) {
+                        if fname.starts_with(&prefix) && fname.ends_with(&suffix) {
                             found = Some(fname);
                             break;
                         }
@@ -1951,7 +2147,7 @@ fn compile_call<'ctx>(
         .get_function(&name)
         .ok_or_else(|| format!("Function not found: {}", name))?;
 
-    let mut arg_values = Vec::new();
+    let mut arg_values: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> = Vec::new();
     if let Some(self_ptr) = self_arg {
         if name.starts_with("ruyi_") {
             let loaded = ctx.builder.build_load(self_ptr, "obj");
@@ -1960,21 +2156,69 @@ fn compile_call<'ctx>(
             let loaded = ctx.builder.build_load(self_ptr, "obj");
             let obj_ptr = match loaded {
                 BasicValueEnum::PointerValue(p) => p,
-                BasicValueEnum::IntValue(i) => {
-                    ctx.builder.build_int_to_ptr(i, ctx.context.i8_type().ptr_type(Default::default()), "obj_ptr")
-                }
+                BasicValueEnum::IntValue(i) => ctx.builder.build_int_to_ptr(
+                    i,
+                    ctx.context.i8_type().ptr_type(Default::default()),
+                    "obj_ptr",
+                ),
                 _ => return Err(format!("Cannot convert {:?} to object pointer", loaded)),
             };
             arg_values.push(obj_ptr.into());
         }
     }
-    for arg in args {
+    // Get the function's LLVM parameter types for type-aware conversion
+    let func_param_types: Vec<_> = func.get_type().get_param_types();
+
+    let self_arg_offset = if self_arg.is_some() { 1 } else { 0 };
+
+    for (arg_idx, arg) in args.iter().enumerate() {
         match arg {
             crate::parser::ast::Argument::Expr(e) => {
                 let result = compile_expr(ctx, e)?;
-                arg_values.push(result.value.into());
+                let func_param_idx = self_arg_offset + arg_idx;
+                let expected_ty = func_param_types.get(func_param_idx);
+                let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
+
+                // Only convert to i8* if the function actually expects i8*
+                let adjusted_value = if expected_ty == Some(&i8_ptr.into()) {
+                    match result.value {
+                        BasicValueEnum::PointerValue(pv) => {
+                            if pv.get_type() != i8_ptr {
+                                ctx.builder.build_bitcast(pv, i8_ptr, "ptr_cast").into()
+                            } else {
+                                pv.into()
+                            }
+                        }
+                        BasicValueEnum::IntValue(iv) => ctx
+                            .builder
+                            .build_int_to_ptr(iv, i8_ptr, "int_to_ptr")
+                            .into(),
+                        BasicValueEnum::FloatValue(fv) => {
+                            let i64_val =
+                                ctx.builder
+                                    .build_bitcast(fv, ctx.context.i64_type(), "f_to_i");
+                            ctx.builder
+                                .build_int_to_ptr(i64_val.into_int_value(), i8_ptr, "int_to_ptr")
+                                .into()
+                        }
+                        other => other.into(),
+                    }
+                } else {
+                    result.value.into()
+                };
+                arg_values.push(adjusted_value);
             }
             _ => return Err("Spread arguments not yet supported".to_string()),
+        }
+    }
+
+    // Handle rest parameters: package extra arguments into an Array
+    let rest_info = ctx.rest_params.get(&name).cloned();
+    if let Some((rest_idx, elem_ty)) = rest_info {
+        if arg_values.len() > rest_idx {
+            let rest_args: Vec<_> = arg_values.drain(rest_idx..).collect();
+            let array_ptr = compile_rest_args_to_array(ctx, &rest_args, &elem_ty)?;
+            arg_values.push(array_ptr.into());
         }
     }
 
@@ -1987,8 +2231,15 @@ fn compile_call<'ctx>(
         Type::Future(Box::new(Type::Int))
     } else if let Some(Type::Function { return_type, .. }) = ctx.function_types.get(&name) {
         *return_type.clone()
-    } else if name == "ruyi_int_to_string" || name == "ruyi_float_to_string" || name == "ruyi_bool_to_string" {
+    } else if name == "ruyi_int_to_string"
+        || name == "ruyi_float_to_string"
+        || name == "ruyi_bool_to_string"
+    {
         Type::String
+    } else if name.starts_with("__builtin_array_") && name.ends_with("length") {
+        Type::Int
+    } else if name.starts_with("__builtin_array_") {
+        Type::Dynamic
     } else {
         Type::Dynamic
     };
@@ -2204,7 +2455,8 @@ fn compile_array_literal<'ctx>(
     elements: &[crate::parser::ast::ArrayElement],
 ) -> Result<ExprResult<'ctx>, String> {
     let len = elements.len() as u64;
-    let total_size = ctx.context.i64_type().const_int(len * 8 + 8, false);
+    let cap = if len == 0 { 4 } else { len };
+    let total_size = ctx.context.i64_type().const_int(16 + cap * 8, false);
     let ptr = super::builtins::build_gc_alloc(&ctx.builder, &ctx.module, total_size);
 
     let len_ptr = ctx
@@ -2218,11 +2470,29 @@ fn compile_array_literal<'ctx>(
     ctx.builder
         .build_store(len_ptr, ctx.context.i64_type().const_int(len, false));
 
+    let cap_ptr = unsafe {
+        ctx.builder.build_gep(
+            ptr,
+            &[ctx.context.i32_type().const_int(8, false)],
+            "cap_ptr",
+        )
+    };
+    let cap_i64_ptr = ctx
+        .builder
+        .build_bitcast(
+            cap_ptr,
+            ctx.context.i64_type().ptr_type(Default::default()),
+            "cap_i64_ptr",
+        )
+        .into_pointer_value();
+    ctx.builder
+        .build_store(cap_i64_ptr, ctx.context.i64_type().const_int(cap, false));
+
     for (i, elem) in elements.iter().enumerate() {
         match elem {
             crate::parser::ast::ArrayElement::Expr(e) => {
                 let val = compile_expr(ctx, e)?;
-                let offset = ctx.context.i32_type().const_int((8 + i * 8) as u64, false);
+                let offset = ctx.context.i32_type().const_int((16 + i * 8) as u64, false);
                 let elem_ptr = unsafe { ctx.builder.build_gep(ptr, &[offset], "elem_ptr") };
                 let i64_ptr = ctx
                     .builder
@@ -2258,6 +2528,72 @@ fn compile_array_literal<'ctx>(
         BasicValueEnum::PointerValue(ptr),
         Type::Array(Box::new(Type::Dynamic)),
     ))
+}
+
+fn compile_rest_args_to_array<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    rest_args: &[inkwell::values::BasicMetadataValueEnum<'ctx>],
+    _elem_ty: &Type,
+) -> Result<inkwell::values::PointerValue<'ctx>, String> {
+    let len = rest_args.len() as u64;
+    let cap = if len == 0 { 4 } else { len };
+    let total_size = ctx.context.i64_type().const_int(16 + cap * 8, false);
+    let ptr = super::builtins::build_gc_alloc(&ctx.builder, &ctx.module, total_size);
+
+    let len_ptr = ctx
+        .builder
+        .build_bitcast(
+            ptr,
+            ctx.context.i64_type().ptr_type(Default::default()),
+            "len_ptr",
+        )
+        .into_pointer_value();
+    ctx.builder
+        .build_store(len_ptr, ctx.context.i64_type().const_int(len, false));
+
+    let cap_ptr = unsafe {
+        ctx.builder.build_gep(
+            ptr,
+            &[ctx.context.i32_type().const_int(8, false)],
+            "cap_ptr",
+        )
+    };
+    let cap_i64_ptr = ctx
+        .builder
+        .build_bitcast(
+            cap_ptr,
+            ctx.context.i64_type().ptr_type(Default::default()),
+            "cap_i64_ptr",
+        )
+        .into_pointer_value();
+    ctx.builder
+        .build_store(cap_i64_ptr, ctx.context.i64_type().const_int(cap, false));
+
+    for (i, val) in rest_args.iter().enumerate() {
+        let offset = ctx.context.i32_type().const_int((16 + i * 8) as u64, false);
+        let elem_ptr = unsafe { ctx.builder.build_gep(ptr, &[offset], "elem_ptr") };
+        let i64_ptr = ctx
+            .builder
+            .build_bitcast(
+                elem_ptr,
+                ctx.context.i64_type().ptr_type(Default::default()),
+                "elem_i64_ptr",
+            )
+            .into_pointer_value();
+
+        let stored_val = match val {
+            inkwell::values::BasicMetadataValueEnum::IntValue(v) => v.as_basic_value_enum(),
+            inkwell::values::BasicMetadataValueEnum::FloatValue(v) => ctx
+                .builder
+                .build_bitcast(*v, ctx.context.i64_type(), "f_to_i")
+                .as_basic_value_enum(),
+            inkwell::values::BasicMetadataValueEnum::PointerValue(v) => v.as_basic_value_enum(),
+            _ => continue,
+        };
+        ctx.builder.build_store(i64_ptr, stored_val);
+    }
+
+    Ok(ptr)
 }
 
 fn compile_object_literal<'ctx>(
@@ -2435,22 +2771,34 @@ fn compile_enum_variant<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     let i8_ty = ctx.context.i8_type();
     let i8_ptr_ty = i8_ty.ptr_type(Default::default());
-    let option_struct = ctx.enum_struct_types.entry("Option".to_string())
-        .or_insert_with(|| ctx.context.struct_type(&[i8_ty.into(), i8_ptr_ty.into()], false))
+    let option_struct = ctx
+        .enum_struct_types
+        .entry("Option".to_string())
+        .or_insert_with(|| {
+            ctx.context
+                .struct_type(&[i8_ty.into(), i8_ptr_ty.into()], false)
+        })
         .clone();
     let ptr = ctx.builder.build_alloca(option_struct, "enum_variant");
 
     let tag_ptr = ctx.builder.build_struct_gep(ptr, 0, "tag_ptr").unwrap();
-    ctx.builder.build_store(tag_ptr, i8_ty.const_int(tag, false));
+    ctx.builder
+        .build_store(tag_ptr, i8_ty.const_int(tag, false));
 
     let value_ptr = ctx.builder.build_struct_gep(ptr, 1, "value_ptr").unwrap();
     if tag == 1 && !args.is_empty() {
         if let crate::parser::ast::Argument::Expr(e) = &args[0] {
             let result = compile_expr(ctx, e)?;
             let casted = match result.value {
-                BasicValueEnum::PointerValue(p) => ctx.builder.build_bitcast(p, i8_ptr_ty, "value_cast"),
-                BasicValueEnum::IntValue(i) => BasicValueEnum::PointerValue(ctx.builder.build_int_to_ptr(i, i8_ptr_ty, "value_cast")),
-                BasicValueEnum::FloatValue(f) => ctx.builder.build_bitcast(f, i8_ptr_ty, "value_cast"),
+                BasicValueEnum::PointerValue(p) => {
+                    ctx.builder.build_bitcast(p, i8_ptr_ty, "value_cast")
+                }
+                BasicValueEnum::IntValue(i) => BasicValueEnum::PointerValue(
+                    ctx.builder.build_int_to_ptr(i, i8_ptr_ty, "value_cast"),
+                ),
+                BasicValueEnum::FloatValue(f) => {
+                    ctx.builder.build_bitcast(f, i8_ptr_ty, "value_cast")
+                }
                 _ => return Err("Unsupported enum variant value type".to_string()),
             };
             let ptr_val = match casted {
@@ -2464,5 +2812,108 @@ fn compile_enum_variant<'ctx>(
     }
 
     let loaded = ctx.builder.build_load(ptr, "enum_loaded");
-    Ok(ExprResult::new(loaded, Type::Generic { base: "Option".to_string(), args: vec![Type::Dynamic] }))
+    Ok(ExprResult::new(
+        loaded,
+        Type::Generic {
+            base: "Option".to_string(),
+            args: vec![Type::Dynamic],
+        },
+    ))
+}
+
+fn compile_match_expr<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    value: &crate::parser::ast::Expr,
+    arms: &[crate::parser::ast::MatchArm],
+) -> Result<ExprResult<'ctx>, String> {
+    use crate::parser::ast::{Pattern, Statement};
+    let func = ctx.current_function.ok_or("No current function")?;
+    let scrutinee = compile_expr(ctx, value)?;
+
+    let arm_bbs: Vec<_> = (0..arms.len())
+        .map(|i| {
+            ctx.context
+                .append_basic_block(func, &format!("match_expr_arm_{}", i))
+        })
+        .collect();
+    let merge_bb = ctx.context.append_basic_block(func, "match_expr_merge");
+
+    let result_ty = Type::Dynamic;
+    let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &result_ty);
+    let result_ptr = ctx.builder.build_alloca(llvm_ty, "match_result");
+
+    ctx.builder.build_unconditional_branch(arm_bbs[0]);
+
+    for (i, arm) in arms.iter().enumerate() {
+        ctx.builder.position_at_end(arm_bbs[i]);
+
+        super::patterns::bind_pattern(ctx, &arm.pattern, &scrutinee)?;
+
+        if let Some(guard) = &arm.guard {
+            let guard_val = compile_expr(ctx, guard)?;
+            let body_bb = ctx
+                .context
+                .append_basic_block(func, &format!("match_expr_body_{}", i));
+            let next_bb = if i + 1 < arm_bbs.len() {
+                arm_bbs[i + 1]
+            } else {
+                merge_bb
+            };
+            ctx.builder.build_conditional_branch(
+                guard_val.value.into_int_value(),
+                body_bb,
+                next_bb,
+            );
+            ctx.builder.position_at_end(body_bb);
+        }
+
+        let body_len = arm.body.len();
+        for (j, stmt) in arm.body.iter().enumerate() {
+            compile_stmt_for_match(ctx, stmt, j == body_len - 1, result_ptr, llvm_ty)?;
+            if let Some(bb) = ctx.builder.get_insert_block() {
+                if bb.get_terminator().is_some() {
+                    break;
+                }
+            }
+        }
+
+        if let Some(bb) = ctx.builder.get_insert_block() {
+            if bb.get_terminator().is_none() {
+                let undef: BasicValueEnum<'ctx> = match llvm_ty {
+                    inkwell::types::BasicTypeEnum::IntType(t) => t.get_undef().into(),
+                    inkwell::types::BasicTypeEnum::FloatType(t) => t.get_undef().into(),
+                    inkwell::types::BasicTypeEnum::PointerType(t) => t.get_undef().into(),
+                    inkwell::types::BasicTypeEnum::StructType(t) => t.get_undef().into(),
+                    inkwell::types::BasicTypeEnum::ArrayType(t) => t.get_undef().into(),
+                    inkwell::types::BasicTypeEnum::VectorType(t) => t.get_undef().into(),
+                };
+                ctx.builder.build_store(result_ptr, undef);
+                ctx.builder.build_unconditional_branch(merge_bb);
+            }
+        }
+    }
+
+    ctx.builder.position_at_end(merge_bb);
+    let loaded = ctx.builder.build_load(result_ptr, "match_result_final");
+    Ok(ExprResult::new(loaded, result_ty))
+}
+
+fn compile_stmt_for_match<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    stmt: &Statement,
+    is_last: bool,
+    result_ptr: inkwell::values::PointerValue<'ctx>,
+    llvm_ty: inkwell::types::BasicTypeEnum<'ctx>,
+) -> Result<(), String> {
+    use crate::parser::ast::Statement;
+    match stmt {
+        Statement::Expression(expr) => {
+            let result = compile_expr(ctx, expr)?;
+            if is_last {
+                ctx.builder.build_store(result_ptr, result.value);
+            }
+            Ok(())
+        }
+        _ => super::stmt::compile_stmt(ctx, stmt),
+    }
 }

@@ -1,5 +1,5 @@
+use ruyic::macro_expand::{expand_macros, MacroRegistry};
 use ruyic::parser::*;
-use ruyic::macro_expand::{MacroRegistry, expand_macros};
 
 fn parse_ok(source: &str) -> Program {
     let mut parser = Parser::new(source).expect("lexer should not fail");
@@ -28,13 +28,15 @@ fn single_decl(source: &str) -> Declaration {
 
 #[test]
 fn test_macro_declaration_simple() {
-    let decl = single_decl(r#"
+    let decl = single_decl(
+        r#"
         macro debug {
             ($expr) => {
                 print($expr);
             }
         }
-    "#);
+    "#,
+    );
     match decl {
         Declaration::Macro { name, rules } => {
             assert_eq!(name, "debug");
@@ -46,13 +48,15 @@ fn test_macro_declaration_simple() {
 
 #[test]
 fn test_macro_declaration_multiple_rules() {
-    let decl = single_decl(r#"
+    let decl = single_decl(
+        r#"
         macro vec {
             () => { [] }
             ($elem) => { [$elem] }
             ($($elem),*) => { [$($elem),*] }
         }
-    "#);
+    "#,
+    );
     match decl {
         Declaration::Macro { name, rules } => {
             assert_eq!(name, "vec");
@@ -75,7 +79,11 @@ fn test_macro_expand_basic() {
     let program = parse_ok(source);
     let registry = MacroRegistry::with_builtins();
     let result = expand_macros(&program, &registry);
-    assert!(result.is_ok(), "macro expansion should succeed: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "macro expansion should succeed: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -89,7 +97,11 @@ fn test_macro_expand_with_arg() {
     let program = parse_ok(source);
     let registry = MacroRegistry::with_builtins();
     let result = expand_macros(&program, &registry);
-    assert!(result.is_ok(), "macro expansion should succeed: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "macro expansion should succeed: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -105,7 +117,11 @@ fn test_macro_expand_multiple_rules() {
     let program = parse_ok(source);
     let registry = MacroRegistry::with_builtins();
     let result = expand_macros(&program, &registry);
-    assert!(result.is_ok(), "macro expansion should succeed: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "macro expansion should succeed: {:?}",
+        result
+    );
 }
 
 // ── Built-in macros ─────────────────────────────────────────────
@@ -136,7 +152,10 @@ fn test_macro_undefined() {
     let program = parse_ok(source);
     let registry = MacroRegistry::with_builtins();
     let result = expand_macros(&program, &registry);
-    assert!(result.is_ok(), "undefined macro should not error if not called");
+    assert!(
+        result.is_ok(),
+        "undefined macro should not error if not called"
+    );
 }
 
 #[test]
@@ -169,7 +188,7 @@ fn test_macro_registry_user_macros() {
 
 #[test]
 fn test_macro_hygiene_context() {
-    use ruyic::macro_expand::hygiene::{SyntaxContext, StandardHygieneContext, HygieneContext};
+    use ruyic::macro_expand::hygiene::{HygieneContext, StandardHygieneContext, SyntaxContext};
 
     let mut ctx = StandardHygieneContext::new();
     let ident = ctx.fresh_ident("temp");
@@ -194,7 +213,8 @@ fn test_macro_hygiene_unique_contexts() {
 fn test_pattern_meta_var() {
     use ruyic::macro_expand::pattern::{parse_pattern, PatternToken};
 
-    let tokens = vec!ruyic::lexer::token::Token::LParen,
+    let tokens = vec![
+        ruyic::lexer::token::Token::LParen,
         ruyic::lexer::token::Token::Dollar,
         ruyic::lexer::token::Token::Ident("x".to_string()),
         ruyic::lexer::token::Token::RParen,
@@ -209,7 +229,8 @@ fn test_pattern_meta_var() {
 fn test_pattern_repetition() {
     use ruyic::macro_expand::pattern::{parse_pattern, RepetitionMode};
 
-    let tokens = vec!ruyic::lexer::token::Token::Dollar,
+    let tokens = vec![
+        ruyic::lexer::token::Token::Dollar,
         ruyic::lexer::token::Token::LParen,
         ruyic::lexer::token::Token::Ident("x".to_string()),
         ruyic::lexer::token::Token::RParen,
@@ -224,7 +245,7 @@ fn test_pattern_repetition() {
 
 #[test]
 fn test_expansion_depth_limit() {
-    use ruyic::macro_expand::{MAX_EXPANSION_DEPTH, MacroError};
+    use ruyic::macro_expand::{MacroError, MAX_EXPANSION_DEPTH};
 
     assert_eq!(MAX_EXPANSION_DEPTH, 128);
 }

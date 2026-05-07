@@ -6,11 +6,11 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-use inkwell::types::BasicTypeEnum;
+use inkwell::types::{BasicType, BasicTypeEnum};
 use inkwell::values::{BasicValue, BasicValueEnum};
 
 use super::builtins::{build_ruyi_clear_pending_exception, build_ruyi_get_pending_exception};
-use super::expr::compile_expr;
+use super::expr::{compile_expr, ExprResult};
 use super::generator::{CodegenContext, TryContext};
 use crate::parser::ast::{Expr, Statement};
 use crate::typechecker::types::Type;
@@ -86,6 +86,17 @@ pub fn compile_stmt<'ctx>(
         }
         Statement::Match { value, arms } => super::patterns::compile_match_stmt(ctx, value, arms),
         Statement::Labeled { body, .. } => compile_stmt(ctx, body),
+        Statement::IfLet {
+            pattern,
+            value,
+            then_branch,
+            else_branch,
+        } => compile_if_let(ctx, pattern, value, then_branch, else_branch.as_deref()),
+        Statement::WhileLet {
+            pattern,
+            value,
+            body,
+        } => compile_while_let(ctx, pattern, value, body),
         _ => Err(format!("Unsupported statement: {:?}", stmt)),
     }
 }
@@ -349,13 +360,18 @@ fn compile_for_in<'ctx>(
     ctx.builder.position_at_end(body_bb);
     let idx = ctx.builder.build_load(idx_ptr, "idx").into_int_value();
     let one = i64_ty.const_int(1, false);
-    let elem_idx = ctx.builder.build_int_add(idx, one, "elem_idx");
-    let elem_offset =
+    let elem_offset = ctx
+        .builder
+        .build_int_mul(idx, i64_ty.const_int(8, false), "elem_offset");
+    let data_start = i64_ty.const_int(16, false);
+    let elem_offset_with_header =
         ctx.builder
-            .build_int_mul(elem_idx, i64_ty.const_int(8, false), "elem_offset");
-    let elem_offset_i32 =
-        ctx.builder
-            .build_int_cast(elem_offset, ctx.context.i32_type(), "elem_offset_i32");
+            .build_int_add(data_start, elem_offset, "elem_offset_hdr");
+    let elem_offset_i32 = ctx.builder.build_int_cast(
+        elem_offset_with_header,
+        ctx.context.i32_type(),
+        "elem_offset_i32",
+    );
     let elem_ptr = unsafe {
         ctx.builder
             .build_gep(keys_arr, &[elem_offset_i32], "elem_ptr")
@@ -441,13 +457,18 @@ fn compile_for_of<'ctx>(
             ctx.builder.position_at_end(body_bb);
             let idx = ctx.builder.build_load(idx_ptr, "idx").into_int_value();
             let one = i64_ty.const_int(1, false);
-            let elem_idx = ctx.builder.build_int_add(idx, one, "elem_idx");
             let elem_offset =
                 ctx.builder
-                    .build_int_mul(elem_idx, i64_ty.const_int(8, false), "elem_offset");
-            let elem_offset_i32 =
+                    .build_int_mul(idx, i64_ty.const_int(8, false), "elem_offset");
+            let data_start = i64_ty.const_int(16, false);
+            let elem_offset_with_header =
                 ctx.builder
-                    .build_int_cast(elem_offset, ctx.context.i32_type(), "elem_offset_i32");
+                    .build_int_add(data_start, elem_offset, "elem_offset_hdr");
+            let elem_offset_i32 = ctx.builder.build_int_cast(
+                elem_offset_with_header,
+                ctx.context.i32_type(),
+                "elem_offset_i32",
+            );
             let elem_ptr = unsafe {
                 ctx.builder
                     .build_gep(array_ptr, &[elem_offset_i32], "elem_ptr")
@@ -617,7 +638,11 @@ fn compile_throw<'ctx>(ctx: &mut CodegenContext<'ctx, '_>, expr: &Expr) -> Resul
             if let Expr::Identifier(name) = callee.as_ref() {
                 // Check if it's a known class, or looks like one (starts with uppercase)
                 let is_class = ctx.class_struct_types.contains_key(name)
-                    || name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false);
+                    || name
+                        .chars()
+                        .next()
+                        .map(|c| c.is_uppercase())
+                        .unwrap_or(false);
                 if is_class {
                     let class_expr = Expr::Identifier(name.clone());
                     super::expr::compile_new(ctx, &class_expr, args)?
@@ -768,8 +793,7 @@ fn compile_try<'ctx>(
                         .as_ref()
                         .map(Type::from_annotation)
                         .unwrap_or(Type::Dynamic);
-                    ctx.variables
-                        .insert(name.clone(), (local_ptr, var_ty));
+                    ctx.variables.insert(name.clone(), (local_ptr, var_ty));
                 }
                 _ => {}
             }
@@ -869,5 +893,350 @@ fn build_exception_check<'ctx>(ctx: &mut CodegenContext<'ctx, '_>) -> Result<(),
     ctx.builder.build_unconditional_branch(dest_bb);
 
     ctx.builder.position_at_end(continue_bb);
+    Ok(())
+}
+
+fn compile_if_let<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    pattern: &crate::parser::ast::Pattern,
+    value: &Expr,
+    then_branch: &Statement,
+    else_branch: Option<&Statement>,
+) -> Result<(), String> {
+    let func = ctx.current_function.ok_or("No current function")?;
+    let val = compile_expr(ctx, value)?;
+
+    let then_bb = ctx.context.append_basic_block(func, "if_let_then");
+    let else_bb = ctx.context.append_basic_block(func, "if_let_else");
+    let merge_bb = ctx.context.append_basic_block(func, "if_let_merge");
+
+    let is_match = pattern_is_matching(ctx, pattern, &val)?;
+
+    ctx.builder
+        .build_conditional_branch(is_match, then_bb, else_bb);
+
+    ctx.builder.position_at_end(then_bb);
+    bind_pattern_in_codegen(ctx, pattern, &val)?;
+    compile_stmt(ctx, then_branch)?;
+    if let Some(bb) = ctx.builder.get_insert_block() {
+        if bb.get_terminator().is_none() {
+            ctx.builder.build_unconditional_branch(merge_bb);
+        }
+    }
+
+    ctx.builder.position_at_end(else_bb);
+    if let Some(else_stmt) = else_branch {
+        compile_stmt(ctx, else_stmt)?;
+    }
+    if let Some(bb) = ctx.builder.get_insert_block() {
+        if bb.get_terminator().is_none() {
+            ctx.builder.build_unconditional_branch(merge_bb);
+        }
+    }
+
+    ctx.builder.position_at_end(merge_bb);
+    Ok(())
+}
+
+fn compile_while_let<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    pattern: &crate::parser::ast::Pattern,
+    value: &Expr,
+    body: &Statement,
+) -> Result<(), String> {
+    let func = ctx.current_function.ok_or("No current function")?;
+    let header_bb = ctx.context.append_basic_block(func, "while_let_header");
+    let body_bb = ctx.context.append_basic_block(func, "while_let_body");
+    let exit_bb = ctx.context.append_basic_block(func, "while_let_exit");
+
+    ctx.builder.build_unconditional_branch(header_bb);
+
+    ctx.builder.position_at_end(header_bb);
+    let val = compile_expr(ctx, value)?;
+    let val_ptr = ctx.builder.build_alloca(
+        super::types::ruyi_type_to_llvm(ctx.context, &val.ty),
+        "while_let_val",
+    );
+    ctx.builder.build_store(val_ptr, val.value);
+
+    let is_match = pattern_is_matching(ctx, pattern, &val)?;
+    ctx.builder
+        .build_conditional_branch(is_match, body_bb, exit_bb);
+
+    ctx.builder.position_at_end(body_bb);
+    let loaded_val = ctx.builder.build_load(val_ptr, "while_let_loaded");
+    let loaded_result = ExprResult {
+        value: loaded_val,
+        ty: val.ty.clone(),
+    };
+    bind_pattern_in_codegen(ctx, pattern, &loaded_result)?;
+    ctx.loop_stack.push((exit_bb, header_bb));
+    compile_stmt(ctx, body)?;
+    ctx.loop_stack.pop();
+    if let Some(bb) = ctx.builder.get_insert_block() {
+        if bb.get_terminator().is_none() {
+            ctx.builder.build_unconditional_branch(header_bb);
+        }
+    }
+
+    ctx.builder.position_at_end(exit_bb);
+    Ok(())
+}
+
+fn pattern_is_matching<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    pattern: &crate::parser::ast::Pattern,
+    val: &ExprResult<'ctx>,
+) -> Result<inkwell::values::IntValue<'ctx>, String> {
+    use crate::parser::ast::Pattern as P;
+    match pattern {
+        P::Wildcard => Ok(ctx.context.bool_type().const_int(1, false)),
+        P::Identifier(_) => {
+            if matches!(val.ty, Type::Nullable(_) | Type::Null) {
+                let is_non_null = match val.value {
+                    BasicValueEnum::PointerValue(p) => {
+                        let i64_ty = ctx.context.i64_type();
+                        let ptr_int = ctx.builder.build_ptr_to_int(p, i64_ty, "ptr_int");
+                        ctx.builder.build_int_compare(
+                            inkwell::IntPredicate::NE,
+                            ptr_int,
+                            i64_ty.const_int(0, false),
+                            "is_non_null",
+                        )
+                    }
+                    BasicValueEnum::IntValue(v) => ctx.builder.build_int_compare(
+                        inkwell::IntPredicate::NE,
+                        v,
+                        ctx.context.i64_type().const_all_ones(),
+                        "is_non_null_int",
+                    ),
+                    _ => {
+                        return Err(
+                            "Nullable match requires pointer or integer scrutinee".to_string()
+                        )
+                    }
+                };
+                Ok(is_non_null)
+            } else {
+                Ok(ctx.context.bool_type().const_int(1, false))
+            }
+        }
+        P::Literal(expr) => {
+            let lit_val = compile_expr(ctx, expr)?;
+            let cmp = ctx.builder.build_int_compare(
+                inkwell::IntPredicate::EQ,
+                val.value.into_int_value(),
+                lit_val.value.into_int_value(),
+                "lit_match",
+            );
+            Ok(cmp)
+        }
+        P::Object(_) | P::Array(_) => Ok(ctx.context.bool_type().const_int(1, false)),
+        P::As(inner, _) => pattern_is_matching(ctx, inner, val),
+        P::Or(patterns) => {
+            let mut result = ctx.context.bool_type().const_int(0, false);
+            for p in patterns {
+                let m = pattern_is_matching(ctx, p, val)?;
+                result = ctx.builder.build_or(result, m, "or_match");
+            }
+            Ok(result)
+        }
+        P::Rest(_) => Ok(ctx.context.bool_type().const_int(1, false)),
+    }
+}
+
+fn bind_pattern_in_codegen<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_>,
+    pattern: &crate::parser::ast::Pattern,
+    val: &ExprResult<'ctx>,
+) -> Result<(), String> {
+    use crate::parser::ast::{ArrayPatternElement, ObjectPatternField, Pattern as P};
+    match pattern {
+        P::Identifier(name) => {
+            let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &val.ty);
+            let ptr = ctx.builder.build_alloca(llvm_ty, name);
+            ctx.builder.build_store(ptr, val.value);
+            ctx.variables.insert(name.clone(), (ptr, val.ty.clone()));
+        }
+        P::Object(fields) => {
+            let obj_ptr = match val.value {
+                BasicValueEnum::PointerValue(p) => p,
+                _ => return Err("Object pattern requires pointer".to_string()),
+            };
+
+            let i32_ty = ctx.context.i32_type();
+            let i64_ty = ctx.context.i64_type();
+
+            match &val.ty {
+                Type::Named(class_name) => {
+                    let class_fields: Vec<_> = ctx
+                        .class_fields
+                        .get(class_name)
+                        .ok_or_else(|| format!("Unknown class: {}", class_name))?
+                        .clone();
+                    let struct_type = ctx
+                        .class_struct_types
+                        .get(class_name)
+                        .ok_or_else(|| format!("No struct type for class: {}", class_name))?;
+
+                    let struct_ptr = ctx.builder.build_pointer_cast(
+                        obj_ptr,
+                        struct_type.ptr_type(Default::default()),
+                        "obj_struct_cast",
+                    );
+
+                    for field in fields {
+                        match field {
+                            ObjectPatternField::Property {
+                                key,
+                                pattern: inner,
+                            } => {
+                                let field_index =
+                                    class_fields
+                                        .iter()
+                                        .position(|(n, _)| n == key)
+                                        .ok_or_else(|| format!("Unknown field: {}", key))?;
+                                let (_, field_ty) = &class_fields[field_index];
+
+                                let field_ptr = unsafe {
+                                    ctx.builder.build_gep(
+                                        struct_ptr,
+                                        &[
+                                            i32_ty.const_int(0, false),
+                                            i32_ty.const_int(field_index as u64, false),
+                                        ],
+                                        &format!("{}_ptr", key),
+                                    )
+                                };
+                                let field_val = ctx.builder.build_load(field_ptr, key);
+                                let field_result = super::expr::ExprResult {
+                                    value: field_val,
+                                    ty: field_ty.clone(),
+                                };
+                                bind_pattern_in_codegen(ctx, inner, &field_result)?;
+                            }
+                            ObjectPatternField::Shorthand(name) => {
+                                let field_index = class_fields
+                                    .iter()
+                                    .position(|(n, _)| n == name)
+                                    .ok_or_else(|| format!("Unknown field: {}", name))?;
+                                let (_, field_ty) = &class_fields[field_index];
+
+                                let field_ptr = unsafe {
+                                    ctx.builder.build_gep(
+                                        struct_ptr,
+                                        &[
+                                            i32_ty.const_int(0, false),
+                                            i32_ty.const_int(field_index as u64, false),
+                                        ],
+                                        &format!("{}_ptr", name),
+                                    )
+                                };
+                                let field_val = ctx.builder.build_load(field_ptr, name);
+                                let llvm_ty =
+                                    super::types::ruyi_type_to_llvm(ctx.context, field_ty);
+                                let ptr = ctx.builder.build_alloca(llvm_ty, name);
+                                ctx.builder.build_store(ptr, field_val);
+                                ctx.variables.insert(name.clone(), (ptr, field_ty.clone()));
+                            }
+                            ObjectPatternField::Rest(_) => {}
+                        }
+                    }
+                }
+                Type::Object(type_fields) => {
+                    for field in fields {
+                        match field {
+                            ObjectPatternField::Property {
+                                key,
+                                pattern: inner,
+                            } => {
+                                let field_index =
+                                    type_fields
+                                        .iter()
+                                        .position(|f| f.name == *key)
+                                        .ok_or_else(|| format!("Unknown field: {}", key))?;
+                                let field_ty = &type_fields[field_index].ty;
+
+                                let offset = i32_ty.const_int((field_index * 8) as u64, false);
+                                let field_ptr = unsafe {
+                                    ctx.builder.build_gep(
+                                        obj_ptr,
+                                        &[offset],
+                                        &format!("{}_ptr", key),
+                                    )
+                                };
+                                let typed_ptr = ctx.builder.build_bitcast(
+                                    field_ptr,
+                                    super::types::ruyi_type_to_llvm(ctx.context, field_ty)
+                                        .ptr_type(Default::default()),
+                                    &format!("{}_typed_ptr", key),
+                                );
+                                let field_val =
+                                    ctx.builder.build_load(typed_ptr.into_pointer_value(), key);
+                                let field_result = super::expr::ExprResult {
+                                    value: field_val,
+                                    ty: field_ty.clone(),
+                                };
+                                bind_pattern_in_codegen(ctx, inner, &field_result)?;
+                            }
+                            ObjectPatternField::Shorthand(name) => {
+                                let field_index = type_fields
+                                    .iter()
+                                    .position(|f| f.name == *name)
+                                    .ok_or_else(|| format!("Unknown field: {}", name))?;
+                                let field_ty = &type_fields[field_index].ty;
+
+                                let offset = i32_ty.const_int((field_index * 8) as u64, false);
+                                let field_ptr = unsafe {
+                                    ctx.builder.build_gep(
+                                        obj_ptr,
+                                        &[offset],
+                                        &format!("{}_ptr", name),
+                                    )
+                                };
+                                let typed_ptr = ctx.builder.build_bitcast(
+                                    field_ptr,
+                                    super::types::ruyi_type_to_llvm(ctx.context, field_ty)
+                                        .ptr_type(Default::default()),
+                                    &format!("{}_typed_ptr", name),
+                                );
+                                let field_val =
+                                    ctx.builder.build_load(typed_ptr.into_pointer_value(), name);
+                                let llvm_ty =
+                                    super::types::ruyi_type_to_llvm(ctx.context, field_ty);
+                                let ptr = ctx.builder.build_alloca(llvm_ty, name);
+                                ctx.builder.build_store(ptr, field_val);
+                                ctx.variables.insert(name.clone(), (ptr, field_ty.clone()));
+                            }
+                            ObjectPatternField::Rest(_) => {}
+                        }
+                    }
+                }
+                _ => return Err("Object pattern requires Named or Object type".to_string()),
+            }
+        }
+        P::Array(elements) => {
+            super::patterns::bind_array_pattern(ctx, elements, val)?;
+        }
+        P::As(inner, alias) => {
+            bind_pattern_in_codegen(ctx, inner, val)?;
+            let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &val.ty);
+            let ptr = ctx.builder.build_alloca(llvm_ty, alias);
+            ctx.builder.build_store(ptr, val.value);
+            ctx.variables.insert(alias.clone(), (ptr, val.ty.clone()));
+        }
+        P::Or(patterns) => {
+            if let Some(first) = patterns.first() {
+                bind_pattern_in_codegen(ctx, first, val)?;
+            }
+        }
+        P::Rest(name) => {
+            let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &val.ty);
+            let ptr = ctx.builder.build_alloca(llvm_ty, name);
+            ctx.builder.build_store(ptr, val.value);
+            ctx.variables.insert(name.clone(), (ptr, val.ty.clone()));
+        }
+        P::Wildcard | P::Literal(_) => {}
+    }
     Ok(())
 }

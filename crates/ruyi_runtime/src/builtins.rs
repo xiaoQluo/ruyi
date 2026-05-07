@@ -263,15 +263,27 @@ pub extern "C" fn ruyi_array_push(arr: *mut i8, value: *mut i8) -> *mut i8 {
         if len >= cap {
             let new_cap = if cap == 0 { 4 } else { cap * 2 };
             let header_size = std::mem::size_of::<i64>() * 2;
-            let old_size = header_size + cap as usize * std::mem::size_of::<*mut i8>();
-            let new_size = header_size + new_cap as usize * std::mem::size_of::<*mut i8>();
-            let old_layout =
-                Layout::from_size_align(old_size, std::mem::align_of::<i64>()).unwrap();
+            let old_data_size = cap as usize * std::mem::size_of::<*mut i8>();
+            let new_data_size = new_cap as usize * std::mem::size_of::<*mut i8>();
+            let new_size = header_size + new_data_size;
 
-            let new_ptr = std::alloc::realloc(arr as *mut u8, old_layout, new_size);
+            // Allocate new array using system allocator (matching original allocation)
+            let layout =
+                std::alloc::Layout::from_size_align(new_size, std::mem::align_of::<i64>()).unwrap();
+            let new_ptr = std::alloc::alloc(layout) as *mut i8;
             if new_ptr.is_null() {
                 return std::ptr::null_mut();
             }
+
+            // Copy header (len + cap)
+            std::ptr::copy_nonoverlapping(arr, new_ptr, header_size);
+            // Copy existing data
+            std::ptr::copy_nonoverlapping(
+                arr.add(header_size),
+                new_ptr.add(header_size),
+                old_data_size,
+            );
+
             let new_arr = new_ptr as *mut i8;
             *(new_arr.add(std::mem::size_of::<i64>()) as *mut i64) = new_cap;
             let data = new_arr.add(header_size) as *mut *mut i8;
@@ -334,6 +346,14 @@ pub extern "C" fn __builtin_array_push(arr: *mut i8, value: *mut i8) -> *mut i8 
 #[no_mangle]
 pub extern "C" fn __builtin_array_pop(arr: *mut i8) -> *mut i8 {
     ruyi_array_pop(arr)
+}
+
+#[no_mangle]
+pub extern "C" fn __builtin_array_length(arr: *mut i8) -> i64 {
+    if arr.is_null() {
+        return 0;
+    }
+    unsafe { *(arr as *const i64) }
 }
 
 // ============================================================

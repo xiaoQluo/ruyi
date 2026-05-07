@@ -41,32 +41,39 @@ CLI flags: `-o <output>`, `--emit-llvm`, `--emit-ast`, `--emit-typed-ast`, `--ch
 ## Developer Commands
 
 ```bash
-# Full workspace build (requires LLVM 14-18)
-cargo build --release          # Binary at ./target/release/ruyic
-cargo build -p ruyic           # Debug build of compiler only
+# Build
+make build-release          # Release build (binary at ./target/release/ruyic)
+make build-debug            # Debug build (faster, no optimizations)
+make build-runtime          # Runtime-only check (no LLVM needed)
 
-# Check without linking (faster)
-cargo check --workspace
+# Install
+make install                # Build + install to ~/.ruyi/bin/ruyic
 
-# Runtime-only check (no LLVM needed)
-cargo check -p ruyi_runtime --no-default-features
+# Check (faster, no linking)
+make check                  # Full workspace check
+make check-runtime          # Runtime-only check (no LLVM needed)
 
-# Run tests
-cargo test --workspace
+# Test
+make test                   # Run all workspace tests
+make test-single TEST=typechecker   # Run single test file
 
-# Run a single test file
-cargo test -p ruyic --test typechecker
+# Lint & Format
+make lint                   # Run clippy
+make lint-fix               # Run clippy with auto-fix
+make fmt                    # Format code
+make fmt-check              # Check formatting without modifying
 
-# Lint
-cargo clippy --workspace
+# Examples
+make run-example EXAMPLE=hello        # Compile and run an example
+make compile-example EXAMPLE=hello    # Compile example to LLVM IR
+make compile-file FILE=examples/hello.ry  # Compile a .ry file
 
-# Format
-cargo fmt
+# Maintenance
+make clean                  # Clean all build artifacts
+make clean-examples         # Clean only example outputs
 
-# Compile a .ry file
-ruyic examples/hello.ry -o hello && ./hello
-ruyic examples/hello.ry --emit-llvm   # Output LLVM IR
-ruyic examples/hello.ry --check       # Type-check only
+# Help
+make help                   # Display all available targets
 ```
 
 ## Setup Requirements
@@ -80,8 +87,14 @@ ruyic examples/hello.ry --check       # Type-check only
 
 - **rustfmt**: 4-space tabs, max_width=100, Unix newlines
 - **clippy**: warn-by-default enabled
+- **零警告原则**: 所有编译警告必须在提交前解决，禁止引入新的警告
+  - 警告视为错误处理，不得忽略或压制
+  - 如确需临时保留，必须在代码中添加明确注释说明原因
 - **Javadoc-style doc comments** on all public items (`/** ... */` with `@author`, `@date`)
 - **Error types**: Use `thiserror` for derive, `anyhow` for application-level
+- **修改原则**: 所有修改必须从方案完整性和合理性角度出发
+  - **完整性**: 修改覆盖所有相关场景，不留遗漏（边界条件、错误处理、依赖影响）
+  - **合理性**: 方案符合代码规范、架构设计原则和最佳实践，避免引入技术债务
 
 ## Testing
 
@@ -122,19 +135,20 @@ ruyic examples/hello.ry --check       # Type-check only
 
 切换版本前逐项确认:
 
-- [ ] 确认当前分支已合并到目标分支, 无未提交的更改
-- [ ] 运行 `cargo check --workspace` 确认代码可编译
-- [ ] 运行 `cargo test --workspace` 确认测试通过
+- [ ] 运行 `make check` 确认代码可编译
+- [ ] 运行 `make build-release` 确认完整编译通过
+- [ ] 运行 `make test` 确认测试通过
 - [ ] 更新 `Cargo.toml` 中的 workspace `version` 字段
 - [ ] 更新 `crates/ruyic/src/main.rs` 中 `#[command(version = "...")]` 的版本号
 - [ ] 确认版本号格式为 `v{major}.{minor}.{patch}` (如 `v0.3.0`)
 - [ ] 更新 `docs/roadmap.md` 和 `docs/roadmap-zh.md` 中的版本状态
 - [ ] 为新功能创建示例 `.ry` 文件并编译验证:
   ```bash
-  ruyic examples/new_feature.ry -o examples/target/new_feature && examples/target/new_feature
+  make run-example EXAMPLE=new_feature
   ```
-- [ ] 运行 `cargo clippy --workspace` 确认无警告
-- [ ] 运行 `cargo fmt` 确认代码格式一致
+- [ ] 运行 `make lint` 确认无警告
+- [ ] 运行 `make fmt` 确认代码格式一致
+- [ ] 确认当前分支已合并到目标分支, 无未提交的更改
 
 ### 分支策略
 

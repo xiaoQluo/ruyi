@@ -1,190 +1,303 @@
 /**
  * Ruyi Standard Library - Result Type
  *
- * Provides the Result enum for handling computations that may fail.
- * This is the idiomatic way to handle error cases in Ruyi.
+ * Provides the Result type for handling computations that may fail.
+ * Uses a class-based pattern with Ok<T, E> for success and Err<T, E> for failure,
+ * combined via type alias Result<T, E> = Ok<T, E> | Err<T, E>.
  *
  * @author Ruyi Team
  * @date 2026-05-02
  */
 
 /**
- * Result enum representing either a success value (Ok) or an error (Err).
+ * Represents a successful result containing a value of type T.
+ *
+ * @param T The success value type
+ * @param E The error type (phantom type parameter for Result type unification)
+ */
+export class Ok<T, E> {
+    value: T;
+
+    fn new(value: T) {
+        self.value = value;
+    }
+
+    /**
+     * Checks if the result is an Ok value.
+     * @return Always true for Ok
+     */
+    fn isOk(self): bool {
+        return true;
+    }
+
+    /**
+     * Checks if the result is an error.
+     * @return Always false for Ok
+     */
+    fn isErr(self): bool {
+        return false;
+    }
+
+    /**
+     * Returns the contained Ok value.
+     * @return The contained value
+     */
+    fn unwrap(self): T {
+        return self.value;
+    }
+
+    /**
+     * Returns the contained Ok value or a provided default.
+     * @param default The default value to return if Err
+     * @return The contained value (default is ignored for Ok)
+     */
+    fn unwrapOr(self, default: T): T {
+        return self.value;
+    }
+
+    /**
+     * Returns the contained Ok value or computes one from a closure.
+     * @param f The function to compute default value (ignored for Ok)
+     * @return The contained value
+     */
+    fn unwrapOrElse(self, f: fn(E) -> T): T {
+        return self.value;
+    }
+
+    /**
+     * Maps the Ok value using the provided function.
+     * @param f The transformation function
+     * @return Result containing transformed Ok value
+     */
+    fn map<U>(self, f: fn(T) -> U): Result<U, E> {
+        return Ok.new(f(self.value));
+    }
+
+    /**
+     * Maps the Err value using the provided function.
+     * If Ok, returns Ok unchanged.
+     * @param f The transformation function for errors (ignored for Ok)
+     * @return Result containing Ok unchanged
+     */
+    fn mapErr<F>(self, f: fn(E) -> F): Result<T, F> {
+        return Ok.new(self.value);
+    }
+
+    /**
+     * Chains computations that may fail.
+     * Passes the value to the function and returns its result.
+     * @param f The function to chain
+     * @return Result from the function
+     */
+    fn andThen<U>(self, f: fn(T) -> Result<U, E>): Result<U, E> {
+        return f(self.value);
+    }
+
+    /**
+     * Returns self if the predicate returns true.
+     * Returns self unchanged if predicate fails (cannot create Err without E value).
+     * @param pred The predicate function
+     * @return Self if predicate passes, self otherwise
+     */
+    fn filter(self, pred: fn(T) -> bool): Result<T, E> {
+        if (pred(self.value)) {
+            return self;
+        }
+        return self;
+    }
+
+    /**
+     * Returns the contained Ok value as Some.
+     * @return Some containing the value
+     */
+    fn ok(self): Option<T> {
+        return Some(self.value);
+    }
+
+    /**
+     * Returns None since this is Ok.
+     * @return None
+     */
+    fn err(self): Option<E> {
+        return None;
+    }
+
+    /**
+     * Applies the function to the contained value.
+     * @param f The function to apply to the value
+     */
+    fn forEach(self, f: fn(T) -> void): void {
+        f(self.value);
+    }
+
+    /**
+     * Converts to an Option, mapping Ok to Some.
+     * @return Some containing the value
+     */
+    fn toOption(self): Option<T> {
+        return Some(self.value);
+    }
+
+    /**
+     * Converts to a bool.
+     * @return True (always true for Ok)
+     */
+    fn toBool(self): bool {
+        return true;
+    }
+
+    /**
+     * Returns the contained value as a string.
+     * @return "Ok(value)"
+     */
+    fn toString(self): string {
+        return "Ok(" + self.value.toString() + ")";
+    }
+}
+
+/**
+ * Represents an error result containing an error value of type E.
+ *
+ * @param T The success value type (phantom type parameter for Result type unification)
+ * @param E The error type
+ */
+export class Err<T, E> {
+    error: E;
+
+    fn new(error: E) {
+        self.error = error;
+    }
+
+    /**
+     * Checks if the result is an Ok value.
+     * @return Always false for Err
+     */
+    fn isOk(self): bool {
+        return false;
+    }
+
+    /**
+     * Checks if the result is an error.
+     * @return Always true for Err
+     */
+    fn isErr(self): bool {
+        return true;
+    }
+
+    /**
+     * Returns the contained Ok value, or panics if Err.
+     * @return Never returns normally
+     */
+    fn unwrap(self): T {
+        throw RuntimeError.new("Called unwrap() on Err: " + self.error.toString());
+    }
+
+    /**
+     * Returns the contained Ok value or a provided default.
+     * @param default The default value to return
+     * @return The provided default value
+     */
+    fn unwrapOr(self, default: T): T {
+        return default;
+    }
+
+    /**
+     * Returns the contained Ok value or computes one from a closure.
+     * @param f The function to compute default value from the error
+     * @return The computed default value
+     */
+    fn unwrapOrElse(self, f: fn(E) -> T): T {
+        return f(self.error);
+    }
+
+    /**
+     * Maps the Ok value using the provided function.
+     * If Err, returns Err unchanged.
+     * @param f The transformation function (ignored for Err)
+     * @return Err unchanged
+     */
+    fn map<U>(self, f: fn(T) -> U): Result<U, E> {
+        return Err.new(self.error);
+    }
+
+    /**
+     * Maps the Err value using the provided function.
+     * @param f The transformation function for errors
+     * @return Result containing transformed Err
+     */
+    fn mapErr<F>(self, f: fn(E) -> F): Result<T, F> {
+        return Err.new(f(self.error));
+    }
+
+    /**
+     * Chains computations that may fail.
+     * If Err, returns Err unchanged.
+     * @param f The function to chain (ignored for Err)
+     * @return Err unchanged
+     */
+    fn andThen<U>(self, f: fn(T) -> Result<U, E>): Result<U, E> {
+        return self;
+    }
+
+    /**
+     * Returns self since Err always stays Err.
+     * @param pred The predicate function (ignored for Err)
+     * @return Self
+     */
+    fn filter(self, pred: fn(T) -> bool): Result<T, E> {
+        return self;
+    }
+
+    /**
+     * Returns None since this is Err.
+     * @return None
+     */
+    fn ok(self): Option<T> {
+        return None;
+    }
+
+    /**
+     * Returns the contained Err value as Some.
+     * @return Some containing the error
+     */
+    fn err(self): Option<E> {
+        return Some(self.error);
+    }
+
+    /**
+     * Does nothing for Err.
+     * @param f The function to apply (ignored for Err)
+     */
+    fn forEach(self, f: fn(T) -> void): void {
+    }
+
+    /**
+     * Converts to an Option, mapping Err to None.
+     * @return None
+     */
+    fn toOption(self): Option<T> {
+        return None;
+    }
+
+    /**
+     * Converts to a bool.
+     * @return False (always false for Err)
+     */
+    fn toBool(self): bool {
+        return false;
+    }
+
+    /**
+     * Returns the contained error as a string.
+     * @return "Err(error)"
+     */
+    fn toString(self): string {
+        return "Err(" + self.error.toString() + ")";
+    }
+}
+
+/**
+ * Result type alias: either an Ok containing a success value or an Err containing an error.
  * Use this to represent computations that may fail.
  */
-enum Result<T, E> {
-    Ok(T),
-    Err(E)
-}
-
-/**
- * Checks if the result is an Ok value.
- * @return True if this is an Ok variant
- */
-fn isOk<T, E>(self: Result<T, E>): bool {
-    match self {
-        Ok(_) => return true,
-        Err(_) => return false
-    }
-}
-
-/**
- * Checks if the result is an error.
- * @return True if this is an Err variant
- */
-fn isErr<T, E>(self: Result<T, E>): bool {
-    return not self.isOk();
-}
-
-/**
- * Returns the contained Ok value, or panics if Err.
- * Use unwrapOr or unwrapOrElse as safe alternatives.
- * @return The contained Ok value
- */
-fn unwrap<T, E>(self: Result<T, E>): T {
-    match self {
-        Ok(value) => return value,
-        Err(e) => throw RuntimeError("Called unwrap() on Err: " + e.toString())
-    }
-}
-
-/**
- * Returns the contained Ok value or a provided default.
- * @param default The default value to return if Err
- * @return The contained Ok value or default
- */
-fn unwrapOr<T, E>(self: Result<T, E>, default: T): T {
-    match self {
-        Ok(value) => return value,
-        Err(_) => return default
-    }
-}
-
-/**
- * Returns the contained Ok value or computes one from a closure.
- * @param f The function to compute default value
- * @return The contained Ok value or computed default
- */
-fn unwrapOrElse<T, E>(self: Result<T, E>, f: fn(E): T): T {
-    match self {
-        Ok(value) => return value,
-        Err(e) => return f(e)
-    }
-}
-
-/**
- * Maps the Ok value using the provided function.
- * If Err, returns Err unchanged.
- * @param f The transformation function
- * @return Result containing transformed Ok value or Err
- */
-fn map<T, U, E>(self: Result<T, E>, f: fn(T): U): Result<U, E> {
-    match self {
-        Ok(value) => return Ok(f(value)),
-        Err(e) => return Err(e)
-    }
-}
-
-/**
- * Maps the Err value using the provided function.
- * If Ok, returns Ok unchanged.
- * @param f The transformation function for errors
- * @return Result containing Ok or transformed Err
- */
-fn mapErr<T, E, F>(self: Result<T, E>, f: fn(E): F): Result<T, F> {
-    match self {
-        Ok(value) => return Ok(value),
-        Err(e) => return Err(f(e))
-    }
-}
-
-/**
- * Chains computations that may fail.
- * If self is Ok, passes the value to the function and returns its result.
- * If self is Err, returns Err unchanged.
- * @param f The function to chain
- * @return Result from the function or Err
- */
-fn andThen<T, U, E>(self: Result<T, E>, f: fn(T): Result<U, E>): Result<U, E> {
-    match self {
-        Ok(value) => return f(value),
-        Err(e) => return Err(e)
-    }
-}
-
-/**
- * Returns true if this is Ok and the predicate returns true.
- * @param pred The predicate function
- * @return True if Ok and predicate is true
- */
-fn filter<T, E>(self: Result<T, E>, pred: fn(T): bool): Result<T, E> {
-    match self {
-        Ok(value) => {
-            if pred(value) {
-                return Ok(value);
-            }
-            return Err(E);
-        },
-        Err(e) => return Err(e)
-    }
-}
-
-/**
- * Returns the contained Ok value or None if Err.
- * @return Some containing Ok value or None
- */
-fn ok<T, E>(self: Result<T, E>): Option<T> {
-    match self {
-        Ok(value) => return Some(value),
-        Err(_) => return None
-    }
-}
-
-/**
- * Returns the contained Err value or None if Ok.
- * @return Some containing Err value or None
- */
-fn err<T, E>(self: Result<T, E>): Option<E> {
-    match self {
-        Ok(_) => return None,
-        Err(e) => return Some(e)
-    }
-}
-
-/**
- * Iterates over the Ok value or does nothing for Err.
- * @param f The function to apply to the Ok value
- */
-fn forEach<T, E>(self: Result<T, E>, f: fn(T): void): void {
-    match self {
-        Ok(value) => f(value),
-        Err(_) => {}
-    }
-}
-
-/**
- * Converts to an Option, mapping Err to None.
- * @return Some containing Ok value or None for Err
- */
-fn toOption<T, E>(self: Result<T, E>): Option<T> {
-    return self.ok();
-}
-
-/**
- * Converts to a bool (true if Ok).
- * @return True if Ok, false if Err
- */
-fn toBool<T, E>(self: Result<T, E>): bool {
-    return self.isOk();
-}
-
-/**
- * Returns the contained Ok value as a string.
- * @return "Ok(value)" or "Err(error)"
- */
-fn toString<T, E>(self: Result<T, E>): string {
-    match self {
-        Ok(value) => return "Ok(" + value.toString() + ")",
-        Err(e) => return "Err(" + e.toString() + ")"
-    }
-}
+export type Result<T, E> = Ok<T, E> | Err<T, E>;

@@ -857,7 +857,8 @@ impl TypeInference {
                     } => {
                         // Support default params: allow fewer args (missing args have defaults)
                         // Support rest params: allow more args when last param is Array<T>
-                        let has_rest = params
+                        // Only treat as rest if we have more args than regular params
+                        let last_is_array = params
                             .last()
                             .map(|p| match p {
                                 Type::Array(_) => true,
@@ -865,6 +866,7 @@ impl TypeInference {
                                 _ => false,
                             })
                             .unwrap_or(false);
+                        let has_rest = last_is_array && arg_types.len() > params.len();
                         let min_args = 0; // Allow all args to have defaults
                         let max_args = if has_rest { usize::MAX } else { params.len() };
                         if arg_types.len() < min_args || arg_types.len() > max_args {
@@ -1527,30 +1529,40 @@ impl TypeInference {
             Pattern::Wildcard => {}
             Pattern::Literal(_) => {}
             Pattern::Object(fields) => {
-                if let Type::Object(obj_fields) = ty {
-                    for field in fields {
-                        match field {
-                            crate::parser::ast::ObjectPatternField::Property {
-                                key,
-                                pattern: inner,
-                            } => {
-                                let field_ty = obj_fields
-                                    .iter()
-                                    .find(|f| f.name == *key)
-                                    .map(|f| f.ty.clone())
-                                    .unwrap_or(Type::Dynamic);
-                                self.bind_pattern_type(inner, &field_ty);
-                            }
-                            crate::parser::ast::ObjectPatternField::Shorthand(name) => {
-                                let field_ty = obj_fields
-                                    .iter()
-                                    .find(|f| f.name == *name)
-                                    .map(|f| f.ty.clone())
-                                    .unwrap_or(Type::Dynamic);
-                                self.env.declare_let(name, field_ty);
-                            }
-                            crate::parser::ast::ObjectPatternField::Rest(_) => {}
+                let obj_fields = match ty {
+                    Type::Object(f) => Some(f),
+                    Type::Named(_) => None,
+                    _ => return,
+                };
+
+                for field in fields {
+                    match field {
+                        crate::parser::ast::ObjectPatternField::Property {
+                            key,
+                            pattern: inner,
+                        } => {
+                            let field_ty = obj_fields
+                                .map(|f| {
+                                    f.iter()
+                                        .find(|f| f.name == *key)
+                                        .map(|f| f.ty.clone())
+                                        .unwrap_or(Type::Dynamic)
+                                })
+                                .unwrap_or(Type::Dynamic);
+                            self.bind_pattern_type(inner, &field_ty);
                         }
+                        crate::parser::ast::ObjectPatternField::Shorthand(name) => {
+                            let field_ty = obj_fields
+                                .map(|f| {
+                                    f.iter()
+                                        .find(|f| f.name == *name)
+                                        .map(|f| f.ty.clone())
+                                        .unwrap_or(Type::Dynamic)
+                                })
+                                .unwrap_or(Type::Dynamic);
+                            self.env.declare_let(name, field_ty);
+                        }
+                        crate::parser::ast::ObjectPatternField::Rest(_) => {}
                     }
                 }
             }

@@ -3688,13 +3688,13 @@ Ruyi 使用 `RUYI_HOME` 环境变量定位安装目录：
 
 | 模块 | 说明 |
 |------|------|
-| `core` | 基础类型方法（`String`、`Int`、`Float`、`Bool`） |
+| `core` | 基础类型方法（`string`、`int`、`float`、`bool` 的 trait impl，自动加载） |
 | `option` | `Option<T>` 枚举（`Some`/`None`）用于可空值处理 |
 | `result` | `Result<T, E>` 枚举（`Ok`/`Err`）用于错误处理 |
 | `error` | 错误层次结构（`Error`、`TypeError`、`RuntimeError`、`RangeError`、`AssertionError`、`ArgumentError`、`NullError`、`ArithmeticError`、`IteratorError`、`ParseError`）以及 `assert()` 和 `assertNotNull()` |
 | `collections` | 泛型集合（`Array<T>`、`Map<K, V>`、`Set<T>`）和 `Iterator<T>` 特征 |
-| `string` | 扩展字符串工具（`split`、`join`、`startsWith`、`endsWith`、`contains`、`indexOf`、`substring`、`replace`、`padStart`、`padEnd`、`repeat`、`reverse`、`trim`、`matches` 等） |
-| `io` | 控制台 I/O（`print`、`println`、`readLine`）和文件操作（`File.readText`、`File.writeText`、`File.readLines`、`File.exists`、`File.mkdir` 等），含异步变体 |
+| `string` | 纯字符串工具函数（`join`、`fromCharCode`、`fromCharCodes`、`concat`、`template`、`processTemplate`） |
+| `io` | 控制台 I/O（`readLine`）和文件操作（`File.readText`、`File.writeText`、`File.readLines`、`File.exists`、`File.mkdir` 等），含异步变体 |
 | `path` | 路径操作（`Path.join`、`Path.basename`、`Path.dirname`、`Path.extname`、`Path.isAbsolute`、`Path.normalize`、`Path.resolve` 等） |
 | `process` | 进程管理（`Process.exec`、`Process.spawn`、`Process.create`）、环境变量（`getEnv`、`setEnv`）和系统信息（`getPID`、`getPlatform`、`getCPUCount` 等） |
 
@@ -3702,7 +3702,7 @@ Ruyi 使用 `RUYI_HOME` 环境变量定位安装目录：
 
 ```ruyi
 // 通过文件名导入 stdlib 模块
-import { print, println, File } from "./io";
+import { File } from "./io";
 import { Path } from "./path";
 import { Process, getEnv } from "./process";
 import { assert, assertNotNull } from "./error";

@@ -45,6 +45,7 @@ pub fn declare_builtins<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     declare_builtin_array_set(context, module);
     declare_builtin_array_push(context, module);
     declare_builtin_array_pop(context, module);
+    declare_builtin_array_length(context, module);
 
     // __builtin_map_* declarations (used by stdlib/collections.ry)
     declare_builtin_map_create(context, module);
@@ -307,9 +308,12 @@ fn build_print_array<'ctx>(
     builder.position_at_end(print_elem_bb);
     let one = i64_ty.const_int(1, false);
     let eight = i64_ty.const_int(8, false);
-    let elem_idx = builder.build_int_add(i, one, "elem_idx");
-    let elem_byte_offset = builder.build_int_mul(elem_idx, eight, "elem_byte_offset");
-    let elem_offset_i32 = builder.build_int_cast(elem_byte_offset, i32_ty, "elem_offset_i32");
+    let sixteen = i64_ty.const_int(16, false);
+    let elem_byte_offset = builder.build_int_mul(i, eight, "elem_byte_offset");
+    let elem_offset_with_header =
+        builder.build_int_add(sixteen, elem_byte_offset, "elem_offset_hdr");
+    let elem_offset_i32 =
+        builder.build_int_cast(elem_offset_with_header, i32_ty, "elem_offset_i32");
     let elem_ptr = unsafe { builder.build_gep(array_ptr, &[elem_offset_i32], "elem_ptr") };
     let elem_i64_ptr = builder
         .build_bitcast(elem_ptr, i64_ptr_ty, "elem_i64_ptr")
@@ -502,7 +506,21 @@ pub fn is_gc_managed(ty: &crate::typechecker::types::Type) -> bool {
         | Type::Never
         | Type::Error
         | Type::String
-        | Type::Function { .. } => false,
+        | Type::Function { .. }
+        | Type::Dynamic
+        | Type::TypeVar(_)
+        | Type::Generic { .. } => false,
+        // Single uppercase letter named types (T, U, V) are type parameters, not GC-managed
+        Type::Named(name)
+            if name.len() == 1
+                && name
+                    .chars()
+                    .next()
+                    .map(|c| c.is_ascii_uppercase())
+                    .unwrap_or(false) =>
+        {
+            false
+        }
         Type::Nullable(inner) => is_gc_managed(inner),
         _ => true,
     }
@@ -574,7 +592,9 @@ fn declare_builtin_array_get<'ctx>(context: &'ctx Context, module: &Module<'ctx>
 fn declare_builtin_array_set<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     let i8_ptr = context.i8_type().ptr_type(Default::default());
     let i64_ty = context.i64_type();
-    let fn_type = context.void_type().fn_type(&[i8_ptr.into(), i64_ty.into(), i8_ptr.into()], false);
+    let fn_type = context
+        .void_type()
+        .fn_type(&[i8_ptr.into(), i64_ty.into(), i8_ptr.into()], false);
     module.add_function("__builtin_array_set", fn_type, None);
 }
 
@@ -588,6 +608,13 @@ fn declare_builtin_array_pop<'ctx>(context: &'ctx Context, module: &Module<'ctx>
     let i8_ptr = context.i8_type().ptr_type(Default::default());
     let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
     module.add_function("__builtin_array_pop", fn_type, None);
+}
+
+fn declare_builtin_array_length<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i64_ty = context.i64_type();
+    let fn_type = i64_ty.fn_type(&[i8_ptr.into()], false);
+    module.add_function("__builtin_array_length", fn_type, None);
 }
 
 // ============================================================
@@ -608,13 +635,17 @@ fn declare_builtin_map_get<'ctx>(context: &'ctx Context, module: &Module<'ctx>) 
 
 fn declare_builtin_map_set<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = context.void_type().fn_type(&[i8_ptr.into(), i8_ptr.into(), i8_ptr.into()], false);
+    let fn_type = context
+        .void_type()
+        .fn_type(&[i8_ptr.into(), i8_ptr.into(), i8_ptr.into()], false);
     module.add_function("__builtin_map_set", fn_type, None);
 }
 
 fn declare_builtin_map_delete<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = context.void_type().fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+    let fn_type = context
+        .void_type()
+        .fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
     module.add_function("__builtin_map_delete", fn_type, None);
 }
 
@@ -649,7 +680,9 @@ fn declare_builtin_set_create<'ctx>(context: &'ctx Context, module: &Module<'ctx
 
 fn declare_builtin_set_add<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = context.void_type().fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+    let fn_type = context
+        .void_type()
+        .fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
     module.add_function("__builtin_set_add", fn_type, None);
 }
 

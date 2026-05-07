@@ -6,6 +6,8 @@
 //         as patterns
 // =============================================================================
 
+import { Array } from "collections";
+
 // -----------------------------------------------------------------------------
 // 9.1 & 9.2 Match Expressions and Literal Patterns
 // -----------------------------------------------------------------------------
@@ -14,7 +16,7 @@ fn httpStatusDescription(status: int): string {
     200 => { return "OK"; }
     404 => { return "Not Found"; }
     500 => { return "Server Error"; }
-    _ => { return "Unknown: " + toString(status); }
+    _ => { return "Unknown: " + status.toString(); }
   }
 }
 
@@ -35,8 +37,8 @@ fn sizeCategory(value: int): string {
 fn digitDescription(n: int): string {
   match (n) {
     0 => { return "zero"; }
-    n if (n > 0 && n < 10) => { return "single digit: " + toString(n); }
-    n if (n >= 10 && n < 100) => { return "double digit: " + toString(n); }
+    n if (n > 0 && n < 10) => { return "single digit: " + n.toString(); }
+    n if (n >= 10 && n < 100) => { return "double digit: " + n.toString(); }
     _ => { return "other"; }
   }
 }
@@ -222,6 +224,8 @@ fn main() {
   print(digitDescription(7));
   print("\n42: ");
   print(digitDescription(42));
+  print("\n153: ");
+  print(digitDescription(153));
   print("\n\n");
 
   // Object destructuring

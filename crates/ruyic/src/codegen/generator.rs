@@ -73,6 +73,12 @@ pub struct CodegenContext<'ctx, 'm> {
     /// Counter for generating unique anonymous arrow function names.
     pub arrow_counter: u64,
     pub function_types: HashMap<String, Type>,
+    /// Maps function name to (rest_param_index, element_type) for rest parameter handling.
+    pub rest_params: HashMap<String, (usize, Type)>,
+    /// Tracks the return type of the current function for null sentinel handling.
+    pub current_return_type: Option<Type>,
+    /// Tracks the expected type for the current expression being compiled (for null literal handling).
+    pub expected_expr_type: Option<Type>,
 }
 
 impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
@@ -96,6 +102,9 @@ impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
             class_extends: HashMap::new(),
             arrow_counter: 0,
             function_types: HashMap::new(),
+            rest_params: HashMap::new(),
+            current_return_type: None,
+            expected_expr_type: None,
         }
     }
 
@@ -292,7 +301,9 @@ impl<'ctx> CodeGenerator<'ctx> {
                         if let crate::parser::ast::PropertyName::Ident(method) = prop_name {
                             let method_name = format!("{}_{}", name, method);
                             let mut method_params = vec![crate::parser::ast::Param {
-                                pattern: crate::parser::ast::Pattern::Identifier("self".to_string()),
+                                pattern: crate::parser::ast::Pattern::Identifier(
+                                    "self".to_string(),
+                                ),
                                 ty: Some(crate::parser::ast::TypeAnnotation::Identifier(
                                     name.clone(),
                                 )),
@@ -305,7 +316,12 @@ impl<'ctx> CodeGenerator<'ctx> {
                                     .filter(|p| !matches!(&p.pattern, crate::parser::ast::Pattern::Identifier(n) if n == "self"))
                                     .cloned(),
                             );
-                            super::decl::predeclare_function(&mut ctx, &method_name, &method_params, return_type.as_ref());
+                            super::decl::predeclare_function(
+                                &mut ctx,
+                                &method_name,
+                                &method_params,
+                                return_type.as_ref(),
+                            );
                         }
                     }
                 }
@@ -529,7 +545,9 @@ fn compile_monomorphized_function<'ctx>(
 
     let entry_bb = ctx.context.append_basic_block(function, "entry");
     let prev_function = ctx.current_function;
+    let prev_return_type = ctx.current_return_type.clone();
     ctx.current_function = Some(function);
+    ctx.current_return_type = Some(mono_func.return_type.clone());
     let prev_block = ctx.builder.get_insert_block();
     ctx.builder.position_at_end(entry_bb);
 
@@ -598,6 +616,7 @@ fn compile_monomorphized_function<'ctx>(
 
     // Restore previous state
     ctx.current_function = prev_function;
+    ctx.current_return_type = prev_return_type;
     if let Some(block) = prev_block {
         ctx.builder.position_at_end(block);
     }

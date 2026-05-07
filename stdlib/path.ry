@@ -16,7 +16,7 @@
  * Path class for file system path operations.
  * Provides static methods for path manipulation and analysis.
  */
-class Path {
+export class Path {
     /**
      * Joins multiple path segments together.
      * Automatically handles separators between segments.
@@ -25,15 +25,6 @@ class Path {
      */
     static fn join(paths: ...string): string {
         return __path_join(paths);
-    }
-
-    /**
-     * Joins multiple path segments together (async version).
-     * @param paths Path segments to join
-     * @return Future resolving to joined path
-     */
-    static async fn joinAsync(paths: ...string): Future<string> {
-        return __path_join_async(paths);
     }
 
     /**
@@ -55,7 +46,7 @@ class Path {
     static fn basenameNoExt(path: string): string {
         let base = __path_basename(path);
         let lastDot = base.lastIndexOf(".");
-        if lastDot == null {
+        if (lastDot === null) {
             return base;
         }
         return base.substring(0, lastDot);
@@ -97,7 +88,7 @@ class Path {
      * @return true if path is relative (not absolute)
      */
     static fn isRelative(path: string): bool {
-        return __path_is_absolute(path) == false;
+        return __path_is_absolute(path) === false;
     }
 
     /**
@@ -107,7 +98,7 @@ class Path {
      * @return Resolved absolute path
      */
     static fn resolve(base: string, relative: string): string {
-        if __path_is_absolute(relative) {
+        if (__path_is_absolute(relative)) {
             return relative;
         }
         return __path_join(base, relative);
@@ -129,7 +120,7 @@ class Path {
      */
     static fn withoutExt(path: string): string {
         let ext = __path_extname(path);
-        if ext.isEmpty() {
+        if (ext.isEmpty()) {
             return path;
         }
         return path.substring(0, path.length() - ext.length());
@@ -143,7 +134,7 @@ class Path {
      */
     static fn changeExt(path: string, newExt: string): string {
         let withoutExt = Path.withoutExt(path);
-        if newExt.startsWith(".") == false {
+        if (newExt.startsWith(".") === false) {
             newExt = "." + newExt;
         }
         return withoutExt + newExt;
@@ -156,10 +147,10 @@ class Path {
      * @return -1 if path1 < path2, 0 if equal, 1 if path1 > path2
      */
     static fn compare(path1: string, path2: string): int {
-        if path1 < path2 {
+        if (path1 < path2) {
             return -1;
         }
-        if path1 == path2 {
+        if (path1 === path2) {
             return 0;
         }
         return 1;
@@ -174,7 +165,7 @@ class Path {
     static fn equals(path1: string, path2: string): bool {
         let n1 = __path_normalize(path1);
         let n2 = __path_normalize(path2);
-        return n1 == n2;
+        return n1 === n2;
     }
 
     /**
@@ -186,9 +177,9 @@ class Path {
         let parents: Array<string> = [];
         let current = __path_normalize(path);
 
-        loop {
+        while (true) {
             let parent = __path_dirname(current);
-            if parent == current {
+            if (parent === current) {
                 break;
             }
             parents.push(parent);
@@ -239,8 +230,8 @@ class Path {
  * @param ext Extension to check for
  * @return true if path ends with the extension
  */
-fn hasExt(path: string, ext: string): bool {
-    if ext.startsWith(".") == false {
+export fn hasExt(path: string, ext: string): bool {
+    if (ext.startsWith(".") === false) {
         ext = "." + ext;
     }
     return path.endsWith(ext);
@@ -252,10 +243,10 @@ fn hasExt(path: string, ext: string): bool {
  * @param path Path string
  * @return All extensions including dots
  */
-fn getExts(path: string): string {
+export fn getExts(path: string): string {
     let base = Path.basename(path);
     let dotIndex = base.indexOf(".");
-    if dotIndex == null {
+    if (dotIndex === null) {
         return "";
     }
     return base.substring(dotIndex);

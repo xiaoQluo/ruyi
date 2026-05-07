@@ -7,11 +7,13 @@
  * @date 2026-05-02
  */
 
-class Error {
+export class Error {
     message: string;
+    stackTrace: Array<string>;
 
     fn new(message: string) {
         self.message = message;
+        self.stackTrace = [];
     }
 
     fn getMessage(self): string {
@@ -23,62 +25,81 @@ class Error {
     }
 }
 
-class TypeError extends Error {
+export class TypeError extends Error {
     fn new(message: string) {
         super.new(message);
     }
 }
 
-class RuntimeError extends Error {
+export class RuntimeError extends Error {
     fn new(message: string) {
         super.new(message);
     }
 }
 
-class RangeError extends Error {
+export class RangeError extends Error {
     fn new(message: string) {
         super.new(message);
     }
 }
 
-class AssertionError extends Error {
+export class AssertionError extends Error {
     fn new(message: string) {
         super.new(message);
     }
 }
 
-class ArgumentError extends Error {
+export class ArgumentError extends Error {
     fn new(message: string) {
         super.new(message);
     }
 }
 
-class NullError extends Error {
+export class NullError extends Error {
     fn new(message: string) {
         super.new(message);
     }
 }
 
-class ArithmeticError extends Error {
+export class ArithmeticError extends Error {
     fn new(message: string) {
         super.new(message);
     }
 }
 
-class IteratorError extends Error {
+export class IteratorError extends Error {
     fn new(message: string) {
         super.new(message);
     }
 }
 
-class ParseError extends Error {
+export class ParseError extends Error {
     fn new(message: string) {
         super.new(message);
     }
 }
 
-fn assert(condition: bool, message: string): void {
+export class NullAssertionError extends Error {
+    fn new(message: string) {
+        super.new(message);
+    }
+}
+
+export class IOError extends Error {
+    fn new(message: string) {
+        super.new(message);
+    }
+}
+
+export fn assert(condition: bool, message: string): void {
     if (!condition) {
         throw AssertionError.new(message);
     }
+}
+
+export fn assertNotNull<T>(value: T?, message: string): T {
+    if (value === null) {
+        throw NullAssertionError.new(message);
+    }
+    return value;
 }

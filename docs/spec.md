@@ -3715,13 +3715,13 @@ If `RUYI_HOME` is not set, the compiler falls back to looking for a local `stdli
 
 | Module | Description |
 |--------|-------------|
-| `core` | Fundamental type methods (`String`, `Int`, `Float`, `Bool`) |
+| `core` | Fundamental type methods (trait impl for `string`, `int`, `float`, `bool`, auto-loaded) |
 | `option` | `Option<T>` enum (`Some`/`None`) for nullable value handling |
 | `result` | `Result<T, E>` enum (`Ok`/`Err`) for error handling |
 | `error` | Error hierarchy (`Error`, `TypeError`, `RuntimeError`, `RangeError`, `AssertionError`, `ArgumentError`, `NullError`, `ArithmeticError`, `IteratorError`, `ParseError`) plus `assert()` and `assertNotNull()` |
-| `collections` | Generic collections (`Array<T>`, `Map<K, V>`, `Set<T>`) and `Iterator<T>` trait |
-| `string` | Extended string utilities (`split`, `join`, `startsWith`, `endsWith`, `contains`, `indexOf`, `substring`, `replace`, `padStart`, `padEnd`, `repeat`, `reverse`, `trim`, `matches`, etc.) |
-| `io` | Console I/O (`print`, `println`, `readLine`) and file operations (`File.readText`, `File.writeText`, `File.readLines`, `File.exists`, `File.mkdir`, etc.) with async variants |
+| `collections` | Generic collections (`Array<T>`, `Map<K, V>`、`Set<T>`) and `Iterator<T>` trait |
+| `string` | Standalone string utility functions (`join`, `fromCharCode`, `fromCharCodes`, `concat`, `template`, `processTemplate`) |
+| `io` | Console I/O (`readLine`) and file operations (`File.readText`, `File.writeText`, `File.readLines`, `File.exists`, `File.mkdir`, etc.) with async variants |
 | `path` | Path manipulation (`Path.join`, `Path.basename`, `Path.dirname`, `Path.extname`, `Path.isAbsolute`, `Path.normalize`, `Path.resolve`, etc.) |
 | `process` | Process management (`Process.exec`, `Process.spawn`, `Process.create`), environment variables (`getEnv`, `setEnv`), and system info (`getPID`, `getPlatform`, `getCPUCount`, etc.) |
 
@@ -3729,7 +3729,7 @@ If `RUYI_HOME` is not set, the compiler falls back to looking for a local `stdli
 
 ```ruyi
 // Import stdlib modules by their file name
-import { print, println, File } from "./io";
+import { File } from "./io";
 import { Path } from "./path";
 import { Process, getEnv } from "./process";
 import { assert, assertNotNull } from "./error";

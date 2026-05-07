@@ -8,212 +8,23 @@
  * @date 2026-05-02
  */
 
-// String module - core string operations
-module String {
-    /**
-     * Returns the length of the string.
-     * @return The number of characters in the string
-     */
-    fn length(self: string): int {
-        return __builtin_str_len(self);
-    }
-
-    /**
-     * Returns a substring from start index to end index (exclusive).
-     * @param start The starting index
-     * @param end The ending index (exclusive)
-     * @return The substring
-     */
-    fn slice(self: string, start: int, end: int): string {
-        return __builtin_str_slice(self, start, end);
-    }
-
-    /**
-     * Returns the index of the first occurrence of substring.
-     * Returns -1 if not found.
-     * @param substr The substring to search for
-     * @return The index or -1
-     */
-    fn find(self: string, substr: string): int {
-        return __builtin_str_find(self, substr);
-    }
-
-    /**
-     * Returns a new string with all occurrences replaced.
-     * @param from The substring to replace
-     * @param to The replacement string
-     * @return The new string with replacements
-     */
-    fn replace(self: string, from: string, to: string): string {
-        return __builtin_str_replace(self, from, to);
-    }
-
-    /**
-     * Converts the string to uppercase.
-     * @return A new string in uppercase
-     */
-    fn toUpperCase(self: string): string {
-        return __builtin_str_to_upper(self);
-    }
-
-    /**
-     * Converts the string to lowercase.
-     * @return A new string in lowercase
-     */
-    fn toLowerCase(self: string): string {
-        return __builtin_str_to_lower(self);
-    }
-
-    /**
-     * Removes leading and trailing whitespace.
-     * @return The trimmed string
-     */
-    fn trim(self: string): string {
-        return __builtin_str_trim(self);
-    }
-
-    /**
-     * Checks if the string contains a substring.
-     * @param substr The substring to search for
-     * @return True if found
-     */
-    fn contains(self: string, substr: string): bool {
-        return __builtin_str_contains(self, substr);
-    }
-
-    /**
-     * Checks if the string starts with a prefix.
-     * @param prefix The prefix to check
-     * @return True if the string starts with prefix
-     */
-    fn startsWith(self: string, prefix: string): bool {
-        return __builtin_str_starts_with(self, prefix);
-    }
-
-    /**
-     * Checks if the string ends with a suffix.
-     * @param suffix The suffix to check
-     * @return True if the string ends with suffix
-     */
-    fn endsWith(self: string, suffix: string): bool {
-        return __builtin_str_ends_with(self, suffix);
-    }
-
-    /**
-     * Splits the string by a delimiter and returns an array.
-     * @param delimiter The delimiter to split by
-     * @return Array of string parts
-     */
-    fn split(self: string, delimiter: string): Array<string> {
-        return __builtin_str_split(self, delimiter);
-    }
-}
-
-// Int module - integer operations
-module Int {
-    /**
-     * Converts int to string.
-     * @return String representation
-     */
+// Int class - integer operations
+export class Int {
     fn toString(self: int): string {
-        return __builtin_int_to_str(self);
-    }
-
-    /**
-     * Returns absolute value.
-     * @return Absolute value
-     */
-    fn abs(self: int): int {
-        return __builtin_int_abs(self);
-    }
-
-    /**
-     * Returns the minimum of two integers.
-     * @param other The other integer
-     * @return The minimum value
-     */
-    fn min(self: int, other: int): int {
-        return __builtin_int_min(self, other);
-    }
-
-    /**
-     * Returns the maximum of two integers.
-     * @param other The other integer
-     * @return The maximum value
-     */
-    fn max(self: int, other: int): int {
-        return __builtin_int_max(self, other);
+        return ruyi_int_to_string(self);
     }
 }
 
-// Float module - floating point operations
-module Float {
-    /**
-     * Converts float to string.
-     * @return String representation
-     */
+// Float class - floating point operations
+export class Float {
     fn toString(self: float): string {
-        return __builtin_float_to_str(self);
-    }
-
-    /**
-     * Returns absolute value.
-     * @return Absolute value
-     */
-    fn abs(self: float): float {
-        return __builtin_float_abs(self);
-    }
-
-    /**
-     * Returns the minimum of two floats.
-     * @param other The other float
-     * @return The minimum value
-     */
-    fn min(self: float, other: float): float {
-        return __builtin_float_min(self, other);
-    }
-
-    /**
-     * Returns the maximum of two floats.
-     * @param other The other float
-     * @return The maximum value
-     */
-    fn max(self: float, other: float): float {
-        return __builtin_float_max(self, other);
-    }
-
-    /**
-     * Rounds to nearest integer.
-     * @return Rounded value
-     */
-    fn round(self: float): int {
-        return __builtin_float_round(self);
-    }
-
-    /**
-     * Rounds down (floor).
-     * @return Floor value
-     */
-    fn floor(self: float): int {
-        return __builtin_float_floor(self);
-    }
-
-    /**
-     * Rounds up (ceiling).
-     * @return Ceiling value
-     */
-    fn ceil(self: float): int {
-        return __builtin_float_ceil(self);
+        return ruyi_float_to_string(self);
     }
 }
 
-// Bool module - boolean operations
-module Bool {
-    /**
-     * Converts bool to string.
-     * @return "true" or "false"
-     */
+// Bool class - boolean operations
+export class Bool {
     fn toString(self: bool): string {
-        return __builtin_bool_to_str(self);
+        return ruyi_bool_to_string(self);
     }
 }

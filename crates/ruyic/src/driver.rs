@@ -314,7 +314,7 @@ impl Driver {
 
     /// Auto-load essential stdlib modules.
     fn auto_load_stdlib(&mut self) -> Result<(), CompileError> {
-        let stdlib_modules = ["error"];
+        let stdlib_modules = ["error", "core"];
 
         for module_name in &stdlib_modules {
             let module_path = PathBuf::from(format!("stdlib/{}.ry", module_name));
@@ -331,9 +331,7 @@ impl Driver {
             let mut module_parser = RuyiParser::new(&module_source)?;
             let mut module_ast = module_parser.parse()?;
             module_ast = self.resolve_imports(module_ast, &module_path)?;
-            self.resolver
-                .loaded_modules
-                .insert(canonical, module_ast);
+            self.resolver.loaded_modules.insert(canonical, module_ast);
         }
 
         Ok(())

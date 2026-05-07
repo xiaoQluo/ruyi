@@ -1,3 +1,8 @@
+use ruyic::parser::Parser;
+use ruyic::typechecker::constraints::ConstraintSolver;
+use ruyic::typechecker::diagnostics::DiagnosticBag;
+use ruyic::typechecker::generics::*;
+use ruyic::typechecker::types::{Type, TypeVar};
 /**
  * Comprehensive tests for the Ruyi generics system.
  *
@@ -16,13 +21,7 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-
 use ruyic::typechecker::*;
-use ruyic::typechecker::generics::*;
-use ruyic::typechecker::types::{Type, TypeVar};
-use ruyic::typechecker::constraints::ConstraintSolver;
-use ruyic::typechecker::diagnostics::DiagnosticBag;
-use ruyic::parser::Parser;
 
 // ── Type Parameter Info ──────────────────────────────────────────
 
@@ -95,10 +94,13 @@ fn test_mangle_name_array() {
 #[test]
 fn test_mangle_name_nested_generic() {
     assert_eq!(
-        mangle_name("nested", &[Type::Generic {
-            base: "Array".to_string(),
-            args: vec![Type::Int],
-        }]),
+        mangle_name(
+            "nested",
+            &[Type::Generic {
+                base: "Array".to_string(),
+                args: vec![Type::Int],
+            }]
+        ),
         "nested__Array__int"
     );
 }
@@ -106,10 +108,13 @@ fn test_mangle_name_nested_generic() {
 #[test]
 fn test_mangle_name_function_type() {
     assert_eq!(
-        mangle_name("apply", &[Type::Function {
-            params: vec![Type::Int],
-            return_type: Box::new(Type::String),
-        }]),
+        mangle_name(
+            "apply",
+            &[Type::Function {
+                params: vec![Type::Int],
+                return_type: Box::new(Type::String),
+            }]
+        ),
         "apply__fn_int__string"
     );
 }
@@ -195,11 +200,16 @@ fn test_tracker_specialize_identity_int() {
     tracker.register_generic(def);
 
     let mut diagnostics = DiagnosticBag::new();
-    let spec = tracker.specialize("identity", vec![Type::Int], &mut diagnostics).unwrap();
+    let spec = tracker
+        .specialize("identity", vec![Type::Int], &mut diagnostics)
+        .unwrap();
     assert_eq!(spec.mangled_name, "identity__int");
     assert_eq!(spec.type_args, vec![Type::Int]);
     match &spec.specialized_type {
-        Type::Function { params, return_type } => {
+        Type::Function {
+            params,
+            return_type,
+        } => {
             assert_eq!(params, &vec![Type::Int]);
             assert_eq!(**return_type, Type::Int);
         }
@@ -223,10 +233,15 @@ fn test_tracker_specialize_identity_string() {
     tracker.register_generic(def);
 
     let mut diagnostics = DiagnosticBag::new();
-    let spec = tracker.specialize("identity", vec![Type::String], &mut diagnostics).unwrap();
+    let spec = tracker
+        .specialize("identity", vec![Type::String], &mut diagnostics)
+        .unwrap();
     assert_eq!(spec.mangled_name, "identity__string");
     match &spec.specialized_type {
-        Type::Function { params, return_type } => {
+        Type::Function {
+            params,
+            return_type,
+        } => {
             assert_eq!(params, &vec![Type::String]);
             assert_eq!(**return_type, Type::String);
         }
@@ -270,8 +285,12 @@ fn test_tracker_specialize_deduplication() {
     tracker.register_generic(def);
 
     let mut diagnostics = DiagnosticBag::new();
-    let spec1 = tracker.specialize("identity", vec![Type::Int], &mut diagnostics).unwrap();
-    let spec2 = tracker.specialize("identity", vec![Type::Int], &mut diagnostics).unwrap();
+    let spec1 = tracker
+        .specialize("identity", vec![Type::Int], &mut diagnostics)
+        .unwrap();
+    let spec2 = tracker
+        .specialize("identity", vec![Type::Int], &mut diagnostics)
+        .unwrap();
     assert_eq!(spec1.mangled_name, spec2.mangled_name);
 }
 
@@ -291,11 +310,16 @@ fn test_tracker_specialize_with_nullable() {
     tracker.register_generic(def);
 
     let mut diagnostics = DiagnosticBag::new();
-    let spec = tracker.specialize("wrap", vec![Type::Int], &mut diagnostics).unwrap();
-    assert_eq!(spec.specialized_type, Type::Function {
-        params: vec![Type::Int],
-        return_type: Box::new(Type::Nullable(Box::new(Type::Int))),
-    });
+    let spec = tracker
+        .specialize("wrap", vec![Type::Int], &mut diagnostics)
+        .unwrap();
+    assert_eq!(
+        spec.specialized_type,
+        Type::Function {
+            params: vec![Type::Int],
+            return_type: Box::new(Type::Nullable(Box::new(Type::Int))),
+        }
+    );
 }
 
 #[test]
@@ -314,11 +338,16 @@ fn test_tracker_specialize_with_dyn() {
     tracker.register_generic(def);
 
     let mut diagnostics = DiagnosticBag::new();
-    let spec = tracker.specialize("identity", vec![Type::Dynamic], &mut diagnostics).unwrap();
-    assert_eq!(spec.specialized_type, Type::Function {
-        params: vec![Type::Dynamic],
-        return_type: Box::new(Type::Dynamic),
-    });
+    let spec = tracker
+        .specialize("identity", vec![Type::Dynamic], &mut diagnostics)
+        .unwrap();
+    assert_eq!(
+        spec.specialized_type,
+        Type::Function {
+            params: vec![Type::Dynamic],
+            return_type: Box::new(Type::Dynamic),
+        }
+    );
 }
 
 #[test]
@@ -342,13 +371,18 @@ fn test_tracker_specialize_two_params() {
                     return_type: Box::new(Type::TypeVar(type_var_u)),
                 },
             ],
-            return_type: Box::new(Type::Array(Box::new(Type::TypeVar(TypeVar::new(var_id_u, "U".to_string()))))),
+            return_type: Box::new(Type::Array(Box::new(Type::TypeVar(TypeVar::new(
+                var_id_u,
+                "U".to_string(),
+            ))))),
         },
     };
     tracker.register_generic(def);
 
     let mut diagnostics = DiagnosticBag::new();
-    let spec = tracker.specialize("map", vec![Type::Int, Type::String], &mut diagnostics).unwrap();
+    let spec = tracker
+        .specialize("map", vec![Type::Int, Type::String], &mut diagnostics)
+        .unwrap();
     assert_eq!(spec.mangled_name, "map__int__string");
 }
 
@@ -370,7 +404,9 @@ fn test_infer_type_args_identity() {
     tracker.register_generic(def);
 
     let mut diagnostics = DiagnosticBag::new();
-    let inferred = tracker.infer_type_args("identity", &[Type::Int], &mut diagnostics).unwrap();
+    let inferred = tracker
+        .infer_type_args("identity", &[Type::Int], &mut diagnostics)
+        .unwrap();
     assert_eq!(inferred.len(), 1);
     assert_eq!(inferred[0], Type::Int);
 }
@@ -396,19 +432,28 @@ fn test_infer_type_args_map() {
                     return_type: Box::new(Type::TypeVar(type_var_u)),
                 },
             ],
-            return_type: Box::new(Type::Array(Box::new(Type::TypeVar(TypeVar::new(var_id_u, "U".to_string()))))),
+            return_type: Box::new(Type::Array(Box::new(Type::TypeVar(TypeVar::new(
+                var_id_u,
+                "U".to_string(),
+            ))))),
         },
     };
     tracker.register_generic(def);
 
     let mut diagnostics = DiagnosticBag::new();
-    let inferred = tracker.infer_type_args("map", &[
-        Type::Array(Box::new(Type::Int)),
-        Type::Function {
-            params: vec![Type::Int],
-            return_type: Box::new(Type::String),
-        },
-    ], &mut diagnostics).unwrap();
+    let inferred = tracker
+        .infer_type_args(
+            "map",
+            &[
+                Type::Array(Box::new(Type::Int)),
+                Type::Function {
+                    params: vec![Type::Int],
+                    return_type: Box::new(Type::String),
+                },
+            ],
+            &mut diagnostics,
+        )
+        .unwrap();
     assert_eq!(inferred.len(), 2);
     assert_eq!(inferred[0], Type::Int);
     assert_eq!(inferred[1], Type::String);
@@ -430,7 +475,9 @@ fn test_infer_type_args_with_dyn() {
     tracker.register_generic(def);
 
     let mut diagnostics = DiagnosticBag::new();
-    let inferred = tracker.infer_type_args("identity", &[Type::Dynamic], &mut diagnostics).unwrap();
+    let inferred = tracker
+        .infer_type_args("identity", &[Type::Dynamic], &mut diagnostics)
+        .unwrap();
     assert_eq!(inferred[0], Type::Dynamic);
 }
 
@@ -450,10 +497,11 @@ fn test_trait_bounds_with_comparable() {
 
 #[test]
 fn test_trait_bounds_multiple() {
-    let info = TypeParamInfo::with_bounds("T".to_string(), 0, vec![
-        "Comparable".to_string(),
-        "Clone".to_string(),
-    ]);
+    let info = TypeParamInfo::with_bounds(
+        "T".to_string(),
+        0,
+        vec!["Comparable".to_string(), "Clone".to_string()],
+    );
     assert_eq!(info.bounds, vec!["Comparable", "Clone"]);
 }
 
@@ -470,14 +518,19 @@ fn test_specialize_with_trait_bounds() {
             vec!["Comparable".to_string()],
         )],
         body_type: Type::Function {
-            params: vec![Type::TypeVar(type_var.clone()), Type::TypeVar(type_var.clone())],
+            params: vec![
+                Type::TypeVar(type_var.clone()),
+                Type::TypeVar(type_var.clone()),
+            ],
             return_type: Box::new(Type::TypeVar(type_var)),
         },
     };
     tracker.register_generic(def);
 
     let mut diagnostics = DiagnosticBag::new();
-    let spec = tracker.specialize("max", vec![Type::Int], &mut diagnostics).unwrap();
+    let spec = tracker
+        .specialize("max", vec![Type::Int], &mut diagnostics)
+        .unwrap();
     assert_eq!(spec.mangled_name, "max__int");
 }
 
@@ -511,10 +564,13 @@ fn test_substitute_function() {
         return_type: Box::new(Type::TypeVar(TypeVar::new(1, "U".to_string()))),
     };
     let result = MonomorphizationTracker::substitute_type(&subst, &ty);
-    assert_eq!(result, Type::Function {
-        params: vec![Type::Int],
-        return_type: Box::new(Type::String),
-    });
+    assert_eq!(
+        result,
+        Type::Function {
+            params: vec![Type::Int],
+            return_type: Box::new(Type::String),
+        }
+    );
 }
 
 #[test]
@@ -535,10 +591,13 @@ fn test_substitute_nested_generic() {
         args: vec![Type::TypeVar(TypeVar::new(0, "T".to_string()))],
     };
     let result = MonomorphizationTracker::substitute_type(&subst, &ty);
-    assert_eq!(result, Type::Generic {
-        base: "Array".to_string(),
-        args: vec![Type::Int],
-    });
+    assert_eq!(
+        result,
+        Type::Generic {
+            base: "Array".to_string(),
+            args: vec![Type::Int],
+        }
+    );
 }
 
 #[test]
@@ -557,7 +616,9 @@ fn check_program(source: &str) -> TypeCheckResult {
         Err(_) => {
             let env = TypeEnvironment::new();
             let mut bag = DiagnosticBag::new();
-            bag.add_error(DiagnosticKind::Other { message: "lexer error".into() });
+            bag.add_error(DiagnosticKind::Other {
+                message: "lexer error".into(),
+            });
             return TypeCheckResult {
                 env,
                 diagnostics: bag.into_diagnostics(),
@@ -571,7 +632,9 @@ fn check_program(source: &str) -> TypeCheckResult {
         Err(_) => {
             let env = TypeEnvironment::new();
             let mut bag = DiagnosticBag::new();
-            bag.add_error(DiagnosticKind::Other { message: "parse error".into() });
+            bag.add_error(DiagnosticKind::Other {
+                message: "parse error".into(),
+            });
             return TypeCheckResult {
                 env,
                 diagnostics: bag.into_diagnostics(),
@@ -586,7 +649,9 @@ fn check_program(source: &str) -> TypeCheckResult {
 
 fn assert_no_errors(result: &TypeCheckResult) {
     if result.has_errors {
-        let errors: Vec<String> = result.diagnostics.iter()
+        let errors: Vec<String> = result
+            .diagnostics
+            .iter()
             .filter(|d| d.is_error())
             .map(|d| d.message().to_string())
             .collect();
@@ -602,7 +667,8 @@ fn test_check_generic_function() {
 
 #[test]
 fn test_check_generic_function_two_params() {
-    let result = check_program("fn map<T, U>(arr: Array<T>, f: fn(T) -> U): Array<U> { return arr; }");
+    let result =
+        check_program("fn map<T, U>(arr: Array<T>, f: fn(T) -> U): Array<U> { return arr; }");
     assert_no_errors(&result);
 }
 
@@ -626,7 +692,8 @@ fn test_check_generic_function_with_bounds() {
 
 #[test]
 fn test_check_generic_function_multiple_bounds() {
-    let result = check_program("fn sort<T: Comparable + Clone>(arr: Array<T>): Array<T> { return arr; }");
+    let result =
+        check_program("fn sort<T: Comparable + Clone>(arr: Array<T>): Array<T> { return arr; }");
     assert_no_errors(&result);
 }
 
@@ -646,7 +713,7 @@ fn test_check_type_alias_generic() {
 
 #[test]
 fn test_monomorphization_context_register() {
-    use ruyic::codegen::monomorph::{MonomorphizedFunction, MonomorphizationContext};
+    use ruyic::codegen::monomorph::{MonomorphizationContext, MonomorphizedFunction};
 
     let mut ctx = MonomorphizationContext::new();
     let func = MonomorphizedFunction {
@@ -663,7 +730,7 @@ fn test_monomorphization_context_register() {
 
 #[test]
 fn test_monomorphization_context_mark_generated() {
-    use ruyic::codegen::monomorph::{MonomorphizedFunction, MonomorphizationContext};
+    use ruyic::codegen::monomorph::{MonomorphizationContext, MonomorphizedFunction};
 
     let mut ctx = MonomorphizationContext::new();
     let func = MonomorphizedFunction {
@@ -707,7 +774,7 @@ fn test_collect_monomorphizations() {
 
 #[test]
 fn test_populate_from_tracker() {
-    use ruyic::codegen::monomorph::{MonomorphizationContext, collect_monomorphizations};
+    use ruyic::codegen::monomorph::{collect_monomorphizations, MonomorphizationContext};
 
     let mut tracker = MonomorphizationTracker::new();
     let var_id = tracker.fresh_var_id();
@@ -809,12 +876,17 @@ fn test_generic_nullable_return() {
     tracker.register_generic(def);
 
     let mut diagnostics = DiagnosticBag::new();
-    let spec = tracker.specialize("wrap", vec![Type::Int], &mut diagnostics).unwrap();
+    let spec = tracker
+        .specialize("wrap", vec![Type::Int], &mut diagnostics)
+        .unwrap();
     // wrap<int> should return int?
-    assert_eq!(spec.specialized_type, Type::Function {
-        params: vec![Type::Int],
-        return_type: Box::new(Type::Nullable(Box::new(Type::Int))),
-    });
+    assert_eq!(
+        spec.specialized_type,
+        Type::Function {
+            params: vec![Type::Int],
+            return_type: Box::new(Type::Nullable(Box::new(Type::Int))),
+        }
+    );
 }
 
 #[test]
@@ -836,14 +908,16 @@ fn test_generic_nullable_param() {
     tracker.register_generic(def);
 
     let mut diagnostics = DiagnosticBag::new();
-    let spec = tracker.specialize("unwrap_or", vec![Type::String], &mut diagnostics).unwrap();
-    assert_eq!(spec.specialized_type, Type::Function {
-        params: vec![
-            Type::Nullable(Box::new(Type::String)),
-            Type::String,
-        ],
-        return_type: Box::new(Type::String),
-    });
+    let spec = tracker
+        .specialize("unwrap_or", vec![Type::String], &mut diagnostics)
+        .unwrap();
+    assert_eq!(
+        spec.specialized_type,
+        Type::Function {
+            params: vec![Type::Nullable(Box::new(Type::String)), Type::String,],
+            return_type: Box::new(Type::String),
+        }
+    );
 }
 
 // ── Generics + Dyn Interaction ─────────────────────────────────────
@@ -865,11 +939,16 @@ fn test_generic_with_dyn_arg() {
 
     let mut diagnostics = DiagnosticBag::new();
     // Per spec Section 10.4: when called with dyn, T = dyn
-    let spec = tracker.specialize("identity", vec![Type::Dynamic], &mut diagnostics).unwrap();
-    assert_eq!(spec.specialized_type, Type::Function {
-        params: vec![Type::Dynamic],
-        return_type: Box::new(Type::Dynamic),
-    });
+    let spec = tracker
+        .specialize("identity", vec![Type::Dynamic], &mut diagnostics)
+        .unwrap();
+    assert_eq!(
+        spec.specialized_type,
+        Type::Function {
+            params: vec![Type::Dynamic],
+            return_type: Box::new(Type::Dynamic),
+        }
+    );
 }
 
 #[test]
@@ -888,7 +967,9 @@ fn test_generic_inference_with_dyn() {
     tracker.register_generic(def);
 
     let mut diagnostics = DiagnosticBag::new();
-    let inferred = tracker.infer_type_args("identity", &[Type::Dynamic], &mut diagnostics).unwrap();
+    let inferred = tracker
+        .infer_type_args("identity", &[Type::Dynamic], &mut diagnostics)
+        .unwrap();
     assert_eq!(inferred[0], Type::Dynamic);
 }
 
@@ -911,11 +992,10 @@ fn test_generic_type_alias_single_param() {
 #[test]
 fn test_make_generic_function_def() {
     let mut tracker = MonomorphizationTracker::new();
-    let type_params = vec!ruyic::parser::ast::TypeParam {
-            name: "T".to_string(),
-            bounds: vec![],
-        },
-    ];
+    let type_params = vec![ruyic::parser::ast::TypeParam {
+        name: "T".to_string(),
+        bounds: vec![],
+    }];
     let def = make_generic_function_def(
         "identity",
         &type_params,
@@ -931,11 +1011,10 @@ fn test_make_generic_function_def() {
 #[test]
 fn test_make_generic_class_def() {
     let mut tracker = MonomorphizationTracker::new();
-    let type_params = vec!ruyic::parser::ast::TypeParam {
-            name: "T".to_string(),
-            bounds: vec![],
-        },
-    ];
+    let type_params = vec![ruyic::parser::ast::TypeParam {
+        name: "T".to_string(),
+        bounds: vec![],
+    }];
     let def = make_generic_class_def("Box", &type_params, &mut tracker);
     assert_eq!(def.name, "Box");
     assert_eq!(def.type_params.len(), 1);
@@ -945,11 +1024,10 @@ fn test_make_generic_class_def() {
 #[test]
 fn test_make_generic_trait_def() {
     let mut tracker = MonomorphizationTracker::new();
-    let type_params = vec!ruyic::parser::ast::TypeParam {
-            name: "T".to_string(),
-            bounds: vec!["Comparable".to_string()],
-        },
-    ];
+    let type_params = vec![ruyic::parser::ast::TypeParam {
+        name: "T".to_string(),
+        bounds: vec![],
+    }];
     let def = make_generic_trait_def("Comparable", &type_params, &mut tracker);
     assert_eq!(def.name, "Comparable");
     assert_eq!(def.type_params.len(), 1);

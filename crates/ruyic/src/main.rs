@@ -15,7 +15,7 @@ use ruyic::driver::{CompileOptions, Driver, EmitType, OptLevel};
 
 #[derive(Parser, Debug)]
 #[command(name = "ruyic")]
-#[command(version = "0.5.1")]
+#[command(version = "0.5.2")]
 #[command(about = "Ruyi compiler - compiles .ry source files to native binaries")]
 struct Args {
     #[arg(help = "Input file to compile")]

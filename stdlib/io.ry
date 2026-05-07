@@ -4,30 +4,11 @@
  * Provides input/output operations for console and file system access.
  * All file operations support async/await patterns.
  *
+ * Note: `print` and `println` are compiler builtins — no import needed.
+ *
  * @author Ruyi Team
  * @date 2026-05-02
  */
-
-// ============================================================
-// Console Output
-// ============================================================
-
-/**
- * Prints a value to stdout without a trailing newline.
- * @param value The value to print (int, float, bool, or string)
- */
-fn print(value: dynamic): void {
-    __io_print(value);
-}
-
-/**
- * Prints a value to stdout with a trailing newline.
- * @param value The value to print (int, float, bool, or string)
- */
-fn println(value: dynamic): void {
-    __io_print(value);
-    __io_print("\n");
-}
 
 // ============================================================
 // Console Input
@@ -38,7 +19,7 @@ fn println(value: dynamic): void {
  * Blocks until a complete line is available.
  * @return The line read, or null on end of input
  */
-fn readLine(): string? {
+export fn readLine(): string? {
     return __io_read_line();
 }
 
@@ -50,7 +31,7 @@ fn readLine(): string? {
  * File class for file system operations.
  * Supports both synchronous and asynchronous access patterns.
  */
-class File {
+export class File {
     /**
      * Reads entire file contents as a string.
      * @param path Path to the file
@@ -112,7 +93,15 @@ class File {
      * @param lines Array of lines to write
      */
     static fn writeLines(path: string, lines: Array<string>): void {
-        let content = lines.join("\n");
+        let content = "";
+        let i = 0;
+        while (i < lines.length()) {
+            if (i > 0) {
+                content = content + "\n";
+            }
+            content = content + lines[i];
+            i = i + 1;
+        }
         __io_file_write_text(path, content);
     }
 
@@ -123,7 +112,15 @@ class File {
      * @return Future that completes when write is done
      */
     static async fn writeLinesAsync(path: string, lines: Array<string>): Future<void> {
-        let content = lines.join("\n");
+        let content = "";
+        let i = 0;
+        while (i < lines.length()) {
+            if (i > 0) {
+                content = content + "\n";
+            }
+            content = content + lines[i];
+            i = i + 1;
+        }
         return __io_file_write_text_async(path, content);
     }
 
