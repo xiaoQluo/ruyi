@@ -331,12 +331,22 @@ fn type_annotation_name(annotation: &TypeAnnotation) -> String {
 pub fn build_trait_registry(program: &crate::parser::ast::Program) -> TraitRegistry {
     let mut registry = TraitRegistry::new();
     for item in &program.items {
-        if let crate::parser::ast::ModuleItem::Declaration(decl) = item {
-            match decl {
+        match item {
+            crate::parser::ast::ModuleItem::Declaration(decl) => match decl {
                 Declaration::Trait { .. } => registry.register_trait(decl),
                 Declaration::Impl { .. } => registry.register_impl(decl),
                 _ => {}
+            },
+            crate::parser::ast::ModuleItem::Export(export) => {
+                if let crate::parser::ast::ExportDecl::Declaration(decl) = export {
+                    match decl {
+                        Declaration::Trait { .. } => registry.register_trait(decl),
+                        Declaration::Impl { .. } => registry.register_impl(decl),
+                        _ => {}
+                    }
+                }
             }
+            _ => {}
         }
     }
     registry

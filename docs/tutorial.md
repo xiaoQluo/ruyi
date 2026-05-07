@@ -2063,13 +2063,11 @@ These modules must be explicitly imported using `import { ... } from "std::modul
 Console and file I/O operations.
 
 ```ruyi
-import { print, println, readLine } from "std::io";
+import { readLine } from "std::io";
 ```
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `print` | `fn print(value: dynamic): void` | Print without newline |
-| `println` | `fn println(value: dynamic): void` | Print with newline |
 | `readLine` | `fn readLine(): string?` | Read line from stdin |
 
 **File Class:**
@@ -2225,38 +2223,16 @@ Error hierarchy and utility functions.
 
 #### String Module (`std::string`)
 
-Extended string operations beyond core methods.
+Standalone string utility functions. String instance methods (`split`, `contains`, `trim`, etc.) are already available via the `core` module (auto-loaded).
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `split` | `fn split(separator: string): Array<string>` | Split by separator |
-| `join` | `fn join(array: Array<dynamic>, separator: string = ""): string` | Join array elements |
-| `startsWith` | `fn startsWith(prefix: string): bool` | Check prefix |
-| `endsWith` | `fn endsWith(suffix: string): bool` | Check suffix |
-| `contains` | `fn contains(substring: string): bool` | Check substring |
-| `indexOf` | `fn indexOf(substring: string): int?` | Find first occurrence |
-| `lastIndexOf` | `fn lastIndexOf(substring: string): int?` | Find last occurrence |
-| `substring` | `fn substring(start: int, end: int? = null): string` | Extract substring |
-| `replace` | `fn replace(old: string, new: string): string` | Replace first occurrence |
-| `replaceAll` | `fn replaceAll(old: string, new: string): string` | Replace all occurrences |
-| `padStart` | `fn padStart(length: int, padString: string = " "): string` | Pad at start |
-| `padEnd` | `fn padEnd(length: int, padString: string = " "): string` | Pad at end |
-| `repeat` | `fn repeat(count: int): string` | Repeat string |
-| `reverse` | `fn reverse(): string` | Reverse string |
-| `toUpperCase` | `fn toUpperCase(): string` | Convert to uppercase |
-| `toLowerCase` | `fn toLowerCase(): string` | Convert to lowercase |
-| `length` | `fn length(): int` | Get length |
-| `trim` | `fn trim(): string` | Trim whitespace |
-| `trimStart` | `fn trimStart(): string` | Trim leading whitespace |
-| `trimEnd` | `fn trimEnd(): string` | Trim trailing whitespace |
-| `slice` | `fn slice(start: int, length: int? = null): string` | Slice string |
-| `matches` | `fn matches(pattern: string): bool` | Match pattern |
-| `isEmpty` | `fn isEmpty(): bool` | Check if empty |
-| `charAt` | `fn charAt(index: int): string?` | Get character at index |
+| `join` | `fn join(array: Array<dyn>, separator: string = ""): string` | Join array elements |
 | `fromCharCode` | `fn fromCharCode(code: int): string` | Create from char code |
 | `fromCharCodes` | `fn fromCharCodes(codes: Array<int>): string` | Create from char codes |
 | `concat` | `fn concat(args: ...string): string` | Concatenate strings |
-| `template` | `fn template(template: string, values: Array<dynamic>): string` | Format template |
+| `template` | `fn template(template: string, values: Array<dyn>): string` | Format template |
+| `processTemplate` | `fn processTemplate(parts: Array<dyn>, context: dyn): string` | Process template literals |
 
 #### Path Module (`std::path`)
 
@@ -2351,7 +2327,7 @@ These functions are declared in the LLVM module at compile time and used interna
 Here is a complete Ruyi program that demonstrates multiple features working together:
 
 ```ruyi
-import { print, println, readLine } from "std::io";
+import { readLine } from "std::io";
 import { parseInt } from "std::string";
 
 // Trait definition

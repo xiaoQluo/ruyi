@@ -1,7 +1,11 @@
 /**
  * Ruyi Standard Library - Collections
  *
- * Provides generic collection types: Array, Map, Set, and Iterator.
+ * Provides generic collection types and traits:
+ * - Array<T> extension via ArrayOps trait (auto-loaded)
+ * - Map<K, V> class
+ * - Set<T> class
+ * - Iterator<T> trait
  *
  * @author Ruyi Team
  * @date 2026-05-05
@@ -15,103 +19,138 @@
  * Iterator trait for collection traversal.
  * Provides a standard interface for iterating over elements.
  */
-trait Iterator<T> {
+export trait Iterator<T> {
     /**
      * Returns the next element in the iterator.
-     * @return Option containing Some(element) or None if exhausted
+     * @return The next element, or null if exhausted
      */
-    fn next(self): Option<T>;
+    fn next(self): T?;
 }
 
 // ============================================================
-// Array
+// Array Extension Trait
 // ============================================================
 
 /**
- * Dynamic array implementation with generic type parameter.
- * Provides methods for adding, removing, and accessing elements.
+ * Array type operations trait.
+ * Extends the built-in Array<T> with dynamic array methods.
+ * This trait is automatically implemented for all Array<T> instances.
  */
-class Array<T> {
-    _data: dyn;
-    _length: int;
-
-    /**
-     * Creates a new empty array.
-     */
-    fn new(): Array<T> {
-        let arr: Array<T>;
-        arr._data = __builtin_array_create();
-        arr._length = 0;
-        return arr;
-    }
-
+export trait ArrayOps<T> {
     /**
      * Returns the number of elements in the array.
+     * @return Array length
      */
-    fn length(self): int {
-        return self._length;
-    }
+    fn length(self): int;
 
     /**
      * Returns the element at the specified index.
+     * @param index Element index
+     * @return Element at index
      */
-    fn at(self, index: int): T {
-        if (index < 0 || index >= self._length) {
-            throw RangeError("Array index out of bounds: " + index.toString());
-        }
-        return __builtin_array_get(self._data, index);
-    }
+    fn get(self, index: int): T;
 
     /**
      * Sets the element at the specified index.
+     * @param index Element index
+     * @param value New value
      */
-    fn put(self, index: int, value: T): void {
-        if (index < 0 || index >= self._length) {
-            throw RangeError("Array index out of bounds: " + index.toString());
-        }
-        __builtin_array_set(self._data, index, value);
-    }
+    fn set(self, index: int, value: T): void;
 
     /**
      * Adds an element to the end of the array.
+     * @param value Element to add
      */
-    fn push(self, value: T): void {
-        __builtin_array_push(self._data, value);
-        self._length = self._length + 1;
-    }
+    fn push(self, value: T): void;
 
     /**
      * Removes and returns the last element.
+     * @return Last element
      */
-    fn pop(self): T {
-        if (self._length == 0) {
-            throw RangeError("Cannot pop from empty array");
-        }
-        self._length = self._length - 1;
-        return __builtin_array_pop(self._data);
-    }
+    fn pop(self): T;
 
     /**
      * Returns a new array with elements transformed by the function.
+     * @param f Transformation function
+     * @return New array with transformed elements
      */
-    fn map<U>(self, f: fn(T): U): Array<U> {
-        let result = Array.new();
-        let i: int = 0;
-        while (i < self._length) {
-            result.push(f(self.at(i)));
+    fn map<U>(self, f: fn(T) -> U): Array<U>;
+
+    /**
+     * Returns a new array with elements that satisfy the predicate.
+     * @param pred Predicate function
+     * @return Filtered array
+     */
+    fn filter(self, pred: fn(T) -> bool): Array<T>;
+
+    /**
+     * Reduces the array to a single value.
+     * @param init Initial accumulator value
+     * @param f Reduction function
+     * @return Reduced value
+     */
+    fn reduce<U>(self, init: U, f: fn(U, T) -> U): U;
+
+    /**
+     * Applies a function to each element.
+     * @param f Function to apply
+     */
+    fn forEach(self, f: fn(T) -> void): void;
+
+    /**
+     * Creates an iterator over the array elements.
+     * @return Array iterator
+     */
+    fn iter(self): ArrayIterator<T>;
+}
+
+impl<T> ArrayOps<T> for Array<T> {
+    fn length(self): int {
+        return __builtin_array_length(self);
+    }
+
+    fn get(self, index: int): T {
+        if (index < 0 || index >= __builtin_array_length(self)) {
+            throw RangeError("Array index out of bounds: " + index.toString());
+        }
+        return __builtin_array_get(self, index);
+    }
+
+    fn set(self, index: int, value: T): void {
+        if (index < 0 || index >= __builtin_array_length(self)) {
+            throw RangeError("Array index out of bounds: " + index.toString());
+        }
+        __builtin_array_set(self, index, value);
+    }
+
+    fn push(self, value: T): void {
+        __builtin_array_push(self, value);
+    }
+
+    fn pop(self): T {
+        if (__builtin_array_length(self) === 0) {
+            throw RangeError("Cannot pop from empty array");
+        }
+        return __builtin_array_pop(self);
+    }
+
+    fn map<U>(self, f: fn(T) -> U): Array<U> {
+        let result: Array<U> = [];
+        let len = __builtin_array_length(self);
+        let i = 0;
+        while (i < len) {
+            result.push(f(__builtin_array_get(self, i)));
             i = i + 1;
         }
         return result;
     }
 
-    /**
-     * Returns a new array with elements that satisfy the predicate.
-     */
-    fn filter(self, pred: fn(T): bool): Array<T> {
-        let result = Array.new();
-        let i: int = 0;
-        while (i < self._length) {
-            let elem = self.at(i);
+    fn filter(self, pred: fn(T) -> bool): Array<T> {
+        let result: Array<T> = [];
+        let len = __builtin_array_length(self);
+        let i = 0;
+        while (i < len) {
+            let elem = __builtin_array_get(self, i);
             if (pred(elem)) {
                 result.push(elem);
             }
@@ -120,45 +159,46 @@ class Array<T> {
         return result;
     }
 
-    /**
-     * Reduces the array to a single value.
-     */
-    fn reduce<U>(self, init: U, f: fn(U, T): U): U {
+    fn reduce<U>(self, init: U, f: fn(U, T) -> U): U {
         let acc = init;
-        let i: int = 0;
-        while (i < self._length) {
-            acc = f(acc, self.at(i));
+        let len = __builtin_array_length(self);
+        let i = 0;
+        while (i < len) {
+            acc = f(acc, __builtin_array_get(self, i));
             i = i + 1;
         }
         return acc;
     }
 
-    /**
-     * Applies a function to each element.
-     */
-    fn forEach(self, f: fn(T): void): void {
-        let i: int = 0;
-        while (i < self._length) {
-            f(self.at(i));
+    fn forEach(self, f: fn(T) -> void): void {
+        let len = __builtin_array_length(self);
+        let i = 0;
+        while (i < len) {
+            f(__builtin_array_get(self, i));
             i = i + 1;
         }
     }
 
-    /**
-     * Creates an iterator over the array elements.
-     */
     fn iter(self): ArrayIterator<T> {
         return ArrayIterator.new(self);
     }
 }
 
+// ============================================================
+// Array Iterator
+// ============================================================
+
 /**
  * Iterator implementation for Array.
  */
-class ArrayIterator<T> {
+export class ArrayIterator<T> {
     _array: Array<T>;
     _index: int;
 
+    /**
+     * Creates a new array iterator.
+     * @param arr Array to iterate over
+     */
     fn new(arr: Array<T>): ArrayIterator<T> {
         let iter: ArrayIterator<T>;
         iter._array = arr;
@@ -166,13 +206,17 @@ class ArrayIterator<T> {
         return iter;
     }
 
-    fn next(self): Option<T> {
-        if (self._index < self._array.length()) {
-            let elem = self._array.at(self._index);
+    /**
+     * Returns the next element.
+     * @return Next element, or null if exhausted
+     */
+    fn next(self): T? {
+        if (self._index < __builtin_array_length(self._array)) {
+            let elem = __builtin_array_get(self._array, self._index);
             self._index = self._index + 1;
-            return Some(elem);
+            return elem;
         }
-        return None;
+        return null;
     }
 }
 
@@ -183,9 +227,10 @@ class ArrayIterator<T> {
 /**
  * Key-value map implementation with generic type parameters.
  */
-class Map<K, V> {
+export class Map<K, V> {
     _data: dyn;
     _size: int;
+    _keys: Array<K>;
 
     /**
      * Creates a new empty map.
@@ -194,6 +239,7 @@ class Map<K, V> {
         let m: Map<K, V>;
         m._data = __builtin_map_create();
         m._size = 0;
+        m._keys = [];
         return m;
     }
 
@@ -206,36 +252,56 @@ class Map<K, V> {
 
     /**
      * Returns the value associated with the key.
+     * @param key Key to look up
+     * @return Value wrapped in Option, or None if not found
      */
-    fn at(self, key: K): Option<V> {
+    fn get(self, key: K): Option<V> {
         return __builtin_map_get(self._data, key);
     }
 
     /**
      * Sets the value for the key.
+     * @param key Key to set
+     * @param value Value to associate
      */
-    fn put(self, key: K, value: V): void {
+    fn set(self, key: K, value: V): void {
         let existed = self.has(key);
         __builtin_map_set(self._data, key, value);
         if (!existed) {
             self._size = self._size + 1;
+            self._keys.push(key);
         }
     }
 
     /**
      * Deletes the entry for the key.
+     * @param key Key to delete
+     * @return true if the key existed
      */
-    fn remove(self, key: K): bool {
+    fn delete(self, key: K): bool {
         let existed = self.has(key);
         __builtin_map_delete(self._data, key);
         if (existed) {
             self._size = self._size - 1;
+            let i = 0;
+            let len = __builtin_array_length(self._keys);
+            while (i < len) {
+                if (__builtin_array_get(self._keys, i) === key) {
+                    let lastIdx = __builtin_array_length(self._keys) - 1;
+                    __builtin_array_set(self._keys, i, __builtin_array_get(self._keys, lastIdx));
+                    __builtin_array_pop(self._keys);
+                    break;
+                }
+                i = i + 1;
+            }
         }
         return existed;
     }
 
     /**
      * Checks if the map contains the key.
+     * @param key Key to check
+     * @return true if key exists
      */
     fn has(self, key: K): bool {
         return __builtin_map_has(self._data, key);
@@ -243,6 +309,7 @@ class Map<K, V> {
 
     /**
      * Returns all keys in the map.
+     * @return Array of keys
      */
     fn keys(self): Array<K> {
         return __builtin_map_keys(self._data);
@@ -250,9 +317,44 @@ class Map<K, V> {
 
     /**
      * Returns all values in the map.
+     * @return Array of values
      */
     fn values(self): Array<V> {
         return __builtin_map_values(self._data);
+    }
+
+    /**
+     * Creates an iterator over the map entries.
+     * @return Map iterator
+     */
+    fn iter(self): MapIterator<K, V> {
+        return MapIterator.new(self);
+    }
+}
+
+/**
+ * Iterator implementation for Map.
+ * Iterates over key-value pairs.
+ */
+export class MapIterator<K, V> {
+    _map: Map<K, V>;
+    _index: int;
+
+    fn new(m: Map<K, V>): MapIterator<K, V> {
+        let iter: MapIterator<K, V>;
+        iter._map = m;
+        iter._index = 0;
+        return iter;
+    }
+
+    fn next(self): { key: K, value: V }? {
+        if (self._index < __builtin_array_length(self._map._keys)) {
+            let key = __builtin_array_get(self._map._keys, self._index);
+            let value = self._map.get(key).unwrap();
+            self._index = self._index + 1;
+            return { key: key, value: value };
+        }
+        return null;
     }
 }
 
@@ -263,9 +365,10 @@ class Map<K, V> {
 /**
  * Set implementation with generic type parameter.
  */
-class Set<T> {
+export class Set<T> {
     _data: dyn;
     _size: int;
+    _elements: Array<T>;
 
     /**
      * Creates a new empty set.
@@ -274,6 +377,7 @@ class Set<T> {
         let s: Set<T>;
         s._data = __builtin_set_create();
         s._size = 0;
+        s._elements = [];
         return s;
     }
 
@@ -286,28 +390,45 @@ class Set<T> {
 
     /**
      * Adds an element to the set.
+     * @param value Element to add
      */
     fn add(self, value: T): void {
         if (!self.has(value)) {
             __builtin_set_add(self._data, value);
             self._size = self._size + 1;
+            self._elements.push(value);
         }
     }
 
     /**
      * Deletes an element from the set.
+     * @param value Element to delete
+     * @return true if the element existed
      */
-    fn remove(self, value: T): bool {
+    fn delete(self, value: T): bool {
         let existed = self.has(value);
         if (existed) {
             __builtin_set_delete(self._data, value);
             self._size = self._size - 1;
+            let i = 0;
+            let len = __builtin_array_length(self._elements);
+            while (i < len) {
+                if (__builtin_array_get(self._elements, i) === value) {
+                    let lastIdx = __builtin_array_length(self._elements) - 1;
+                    __builtin_array_set(self._elements, i, __builtin_array_get(self._elements, lastIdx));
+                    __builtin_array_pop(self._elements);
+                    break;
+                }
+                i = i + 1;
+            }
         }
         return existed;
     }
 
     /**
      * Checks if the set contains the element.
+     * @param value Element to check
+     * @return true if element exists
      */
     fn has(self, value: T): bool {
         return __builtin_set_has(self._data, value);
@@ -315,6 +436,7 @@ class Set<T> {
 
     /**
      * Creates an iterator over the set elements.
+     * @return Set iterator
      */
     fn iter(self): SetIterator<T> {
         return SetIterator.new(self);
@@ -322,13 +444,14 @@ class Set<T> {
 
     /**
      * Returns all elements in the set as an array.
+     * @return Array of elements
      */
     fn toArray(self): Array<T> {
-        let result = Array.new();
+        let result: Array<T> = [];
         let iter = self.iter();
         while (true) {
             let elem = iter.next();
-            if (elem === None) {
+            if (elem === null) {
                 break;
             }
             result.push(elem!);
@@ -340,7 +463,7 @@ class Set<T> {
 /**
  * Iterator implementation for Set.
  */
-class SetIterator<T> {
+export class SetIterator<T> {
     _set: Set<T>;
     _index: int;
 
@@ -351,9 +474,12 @@ class SetIterator<T> {
         return iter;
     }
 
-    fn next(self): Option<T> {
-        // TODO: Implement proper iteration over Set internal structure
-        // Currently returns None as placeholder
-        return None;
+    fn next(self): T? {
+        if (self._index < __builtin_array_length(self._set._elements)) {
+            let elem = __builtin_array_get(self._set._elements, self._index);
+            self._index = self._index + 1;
+            return elem;
+        }
+        return null;
     }
 }

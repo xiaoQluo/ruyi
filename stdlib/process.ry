@@ -16,36 +16,36 @@
  * Process class for system process management and command execution.
  * Provides capabilities to spawn processes and execute system commands.
  */
-class Process {
+export class Process {
     /**
      * The PID of the process (platform-specific).
      */
-    let pid: int;
+    pid: int;
 
     /**
      * The command that started this process.
      */
-    let command: string;
+    command: string;
 
     /**
      * Current working directory of the process.
      */
-    let cwd: string;
+    cwd: string;
 
     /**
      * Environment variables for the process.
      */
-    let env: Map<string, string>;
+    env: Map<string, string>;
 
     /**
      * Exit code of the process (null if still running).
      */
-    let exitCode: int?;
+    exitCode: int?;
 
     /**
      * Whether the process has exited.
      */
-    let isRunning: bool;
+    isRunning: bool;
 
     /**
      * Creates a new Process instance.
@@ -53,10 +53,10 @@ class Process {
      * @param options Additional process options
      */
     static fn create(command: string, options: ProcessOptions? = null): Process {
-        let opts = options != null ? options : ProcessOptions.default();
+        let opts = options !== null ? options : ProcessOptions.default();
         let proc = __process_create(command, opts.cwd, opts.env, opts.shell);
-        proc.cwd = opts.cwd != null ? opts.cwd : "";
-        proc.env = opts.env != null ? opts.env : Map.new();
+        proc.cwd = opts.cwd !== null ? opts.cwd : "";
+        proc.env = opts.env !== null ? opts.env : Map.new();
         proc.isRunning = true;
         proc.exitCode = null;
         return proc;
@@ -89,7 +89,7 @@ class Process {
      */
     static fn spawn(command: string, args: Array<string>? = null): Process {
         let fullCommand = command;
-        if args != null && args.length() > 0 {
+        if (args !== null && args.length() > 0) {
             fullCommand = command + " " + args.join(" ");
         }
         return Process.create(fullCommand);
@@ -104,7 +104,7 @@ class Process {
      */
     static fn spawnWith(command: string, args: Array<string>?, options: ProcessOptions): Process {
         let fullCommand = command;
-        if args != null && args.length() > 0 {
+        if (args !== null && args.length() > 0) {
             fullCommand = command + " " + args.join(" ");
         }
         return Process.create(fullCommand, options);
@@ -115,13 +115,13 @@ class Process {
      * @return Exit code of the process
      */
     fn wait(): int {
-        if isRunning {
+        if (isRunning) {
             let code = __process_wait(self);
             self.exitCode = code;
             self.isRunning = false;
             return code;
         }
-        return self.exitCode != null ? self.exitCode : 0;
+        return self.exitCode !== null ? self.exitCode : 0;
     }
 
     /**
@@ -176,7 +176,7 @@ class Process {
      * @return Process info string
      */
     fn toString(): string {
-        return "Process(pid: " + this.pid + ", command: " + this.command + ")";
+        return "Process(pid: " + self.pid + ", command: " + self.command + ")";
     }
 }
 
@@ -187,21 +187,21 @@ class Process {
 /**
  * Options for process creation.
  */
-class ProcessOptions {
+export class ProcessOptions {
     /**
      * Current working directory for the process.
      */
-    let cwd: string? = null;
+    cwd: string? = null;
 
     /**
      * Environment variables for the process.
      */
-    let env: Map<string, string>? = null;
+    env: Map<string, string>? = null;
 
     /**
      * Whether to use the system shell.
      */
-    let shell: bool = true;
+    shell: bool = true;
 
     /**
      * Creates default process options.
@@ -217,8 +217,8 @@ class ProcessOptions {
      * @return This options object for chaining
      */
     fn withCwd(path: string): ProcessOptions {
-        this.cwd = path;
-        return this;
+        self.cwd = path;
+        return self;
     }
 
     /**
@@ -227,8 +227,8 @@ class ProcessOptions {
      * @return This options object for chaining
      */
     fn withEnv(env: Map<string, string>): ProcessOptions {
-        this.env = env;
-        return this;
+        self.env = env;
+        return self;
     }
 
     /**
@@ -237,8 +237,8 @@ class ProcessOptions {
      * @return This options object for chaining
      */
     fn withShell(useShell: bool): ProcessOptions {
-        this.shell = useShell;
-        return this;
+        self.shell = useShell;
+        return self;
     }
 }
 
@@ -249,26 +249,26 @@ class ProcessOptions {
 /**
  * Options for exec operations.
  */
-class ExecOptions {
+export class ExecOptions {
     /**
      * Current working directory.
      */
-    let cwd: string? = null;
+    cwd: string? = null;
 
     /**
      * Environment variables.
      */
-    let env: Map<string, string>? = null;
+    env: Map<string, string>? = null;
 
     /**
      * Whether to use shell.
      */
-    let shell: bool = true;
+    shell: bool = true;
 
     /**
      * Timeout in milliseconds.
      */
-    let timeout: int? = null;
+    timeout: int? = null;
 
     /**
      * Creates default exec options.
@@ -284,8 +284,8 @@ class ExecOptions {
      * @return This options object for chaining
      */
     fn withCwd(path: string): ExecOptions {
-        this.cwd = path;
-        return this;
+        self.cwd = path;
+        return self;
     }
 
     /**
@@ -294,8 +294,8 @@ class ExecOptions {
      * @return This options object for chaining
      */
     fn withEnv(env: Map<string, string>): ExecOptions {
-        this.env = env;
-        return this;
+        self.env = env;
+        return self;
     }
 
     /**
@@ -304,8 +304,8 @@ class ExecOptions {
      * @return This options object for chaining
      */
     fn withShell(useShell: bool): ExecOptions {
-        this.shell = useShell;
-        return this;
+        self.shell = useShell;
+        return self;
     }
 
     /**
@@ -314,8 +314,8 @@ class ExecOptions {
      * @return This options object for chaining
      */
     fn withTimeout(ms: int): ExecOptions {
-        this.timeout = ms;
-        return this;
+        self.timeout = ms;
+        return self;
     }
 }
 
@@ -326,26 +326,26 @@ class ExecOptions {
 /**
  * Result of a process execution.
  */
-class ProcessResult {
+export class ProcessResult {
     /**
      * Standard output of the process.
      */
-    let stdout: string;
+    stdout: string;
 
     /**
      * Standard error of the process.
      */
-    let stderr: string;
+    stderr: string;
 
     /**
      * Exit code of the process.
      */
-    let exitCode: int;
+    exitCode: int;
 
     /**
      * Whether the process was successful (exit code 0).
      */
-    let success: bool;
+    success: bool;
 
     /**
      * Creates a new ProcessResult.
@@ -358,7 +358,7 @@ class ProcessResult {
         result.stdout = stdout;
         result.stderr = stderr;
         result.exitCode = exitCode;
-        result.success = exitCode == 0;
+        result.success = exitCode === 0;
         return result;
     }
 
@@ -366,9 +366,9 @@ class ProcessResult {
      * Throws an exception if the process failed.
      */
     fn ensureSuccess(): void {
-        if this.success == false {
-            throw new ProcessException(
-                "Process exited with code " + this.exitCode + ": " + this.stderr
+        if (self.success === false) {
+            throw ProcessException.create(
+                "Process exited with code " + self.exitCode + ": " + self.stderr
             );
         }
     }
@@ -381,16 +381,16 @@ class ProcessResult {
 /**
  * Exception thrown when a process operation fails.
  */
-class ProcessException {
+export class ProcessException {
     /**
      * The error message.
      */
-    let message: string;
+    message: string;
 
     /**
      * The process that caused this exception, if applicable.
      */
-    let process: Process?;
+    process: Process?;
 
     /**
      * Creates a new ProcessException.
@@ -409,7 +409,7 @@ class ProcessException {
      * @return Error message string
      */
     fn getMessage(): string {
-        return this.message;
+        return self.message;
     }
 }
 
@@ -420,14 +420,14 @@ class ProcessException {
 /**
  * Signal constants for process termination.
  */
-class Signal {
-    static let HUP: int = 1;    // Hangup
-    static let INT: int = 2;    // Interrupt (Ctrl+C)
-    static let QUIT: int = 3;   // Quit (Ctrl+\)
-    static let KILL: int = 9;   // Kill (cannot be caught)
-    static let TERM: int = 15;   // Termination (default)
-    static let USR1: int = 10;  // User-defined signal 1
-    static let USR2: int = 12;  // User-defined signal 2
+export class Signal {
+    static HUP: int = 1;    // Hangup
+    static INT: int = 2;    // Interrupt (Ctrl+C)
+    static QUIT: int = 3;   // Quit (Ctrl+\)
+    static KILL: int = 9;   // Kill (cannot be caught)
+    static TERM: int = 15;   // Termination (default)
+    static USR1: int = 10;  // User-defined signal 1
+    static USR2: int = 12;  // User-defined signal 2
 }
 
 // ============================================================
@@ -439,7 +439,7 @@ class Signal {
  * @param name Variable name
  * @return Value or null if not set
  */
-fn getEnv(name: string): string? {
+export fn getEnv(name: string): string? {
     return __process_get_env(name);
 }
 
@@ -448,7 +448,7 @@ fn getEnv(name: string): string? {
  * @param name Variable name
  * @param value Variable value
  */
-fn setEnv(name: string, value: string): void {
+export fn setEnv(name: string, value: string): void {
     __process_set_env(name, value);
 }
 
@@ -456,7 +456,7 @@ fn setEnv(name: string, value: string): void {
  * Gets all environment variables.
  * @return Map of environment variable names to values
  */
-fn getAllEnv(): Map<string, string> {
+export fn getAllEnv(): Map<string, string> {
     return __process_get_all_env();
 }
 
@@ -464,7 +464,7 @@ fn getAllEnv(): Map<string, string> {
  * Gets the current process ID.
  * @return Process ID
  */
-fn getPID(): int {
+export fn getPID(): int {
     return __process_get_pid();
 }
 
@@ -472,7 +472,7 @@ fn getPID(): int {
  * Gets the parent process ID.
  * @return Parent process ID
  */
-fn getPPID(): int {
+export fn getPPID(): int {
     return __process_get_ppid();
 }
 
@@ -480,7 +480,7 @@ fn getPPID(): int {
  * Gets the current system platform.
  * @return "linux", "macos", "windows", or "unknown"
  */
-fn getPlatform(): string {
+export fn getPlatform(): string {
     return __process_get_platform();
 }
 
@@ -488,7 +488,7 @@ fn getPlatform(): string {
  * Gets the number of CPU cores available.
  * @return Number of CPU cores
  */
-fn getCPUCount(): int {
+export fn getCPUCount(): int {
     return __process_get_cpu_count();
 }
 
@@ -496,7 +496,7 @@ fn getCPUCount(): int {
  * Gets the total system memory in bytes.
  * @return Total memory in bytes
  */
-fn getTotalMemory(): int {
+export fn getTotalMemory(): int {
     return __process_get_total_memory();
 }
 
@@ -504,6 +504,6 @@ fn getTotalMemory(): int {
  * Gets the free system memory in bytes.
  * @return Free memory in bytes
  */
-fn getFreeMemory(): int {
+export fn getFreeMemory(): int {
     return __process_get_free_memory();
 }

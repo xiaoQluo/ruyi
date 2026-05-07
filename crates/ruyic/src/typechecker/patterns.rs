@@ -97,10 +97,25 @@ fn pattern_covered_cases(pattern: &Pattern, scrutinee_type: &Type) -> HashSet<St
         Pattern::Object(fields) => {
             let field_list: Vec<String> = fields
                 .iter()
-                .map(|f| match f {
-                    crate::parser::ast::ObjectPatternField::Property { key, .. } => key.clone(),
-                    crate::parser::ast::ObjectPatternField::Shorthand(name) => name.clone(),
-                    crate::parser::ast::ObjectPatternField::Rest(name) => format!("...{}", name),
+                .flat_map(|f| match f {
+                    crate::parser::ast::ObjectPatternField::Property {
+                        key,
+                        pattern: inner,
+                    } => {
+                        // 递归提取子模式的覆盖情况，如 status: 200 → "status:int:200"
+                        let inner_cases = pattern_covered_cases(inner, scrutinee_type);
+                        inner_cases
+                            .into_iter()
+                            .map(|case| format!("{}:{}", key, case))
+                            .collect::<Vec<_>>()
+                    }
+                    crate::parser::ast::ObjectPatternField::Shorthand(name) => {
+                        // 简写绑定任意值，用通配符表示
+                        vec![format!("{}:_", name)]
+                    }
+                    crate::parser::ast::ObjectPatternField::Rest(name) => {
+                        vec![format!("...{}", name)]
+                    }
                 })
                 .collect();
             cases.insert(format!("{{{}}}", field_list.join(", ")));

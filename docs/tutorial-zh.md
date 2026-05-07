@@ -2063,13 +2063,11 @@ false.toString();   // "false"
 控制台和文件 I/O 操作。
 
 ```ruyi
-import { print, println, readLine } from "std::io";
+import { readLine } from "std::io";
 ```
 
 | 函数 | 签名 | 说明 |
 |------|------|------|
-| `print` | `fn print(value: dynamic): void` | 打印（不带换行） |
-| `println` | `fn println(value: dynamic): void` | 打印（带换行） |
 | `readLine` | `fn readLine(): string?` | 从 stdin 读取一行 |
 
 **File 类：**
@@ -2225,38 +2223,16 @@ enum Result<T, E> {
 
 #### String 模块（`std::string`）
 
-超出核心方法的扩展字符串操作。
+纯字符串工具函数。字符串实例方法（`split`、`contains`、`trim` 等）已在 `core` 模块中自动可用。
 
 | 函数 | 签名 | 说明 |
 |------|------|------|
-| `split` | `fn split(separator: string): Array<string>` | 按分隔符拆分 |
-| `join` | `fn join(array: Array<dynamic>, separator: string = ""): string` | 连接数组元素 |
-| `startsWith` | `fn startsWith(prefix: string): bool` | 检查前缀 |
-| `endsWith` | `fn endsWith(suffix: string): bool` | 检查后缀 |
-| `contains` | `fn contains(substring: string): bool` | 检查子串 |
-| `indexOf` | `fn indexOf(substring: string): int?` | 查找首次出现 |
-| `lastIndexOf` | `fn lastIndexOf(substring: string): int?` | 查找最后一次出现 |
-| `substring` | `fn substring(start: int, end: int? = null): string` | 提取子串 |
-| `replace` | `fn replace(old: string, new: string): string` | 替换首次出现 |
-| `replaceAll` | `fn replaceAll(old: string, new: string): string` | 替换所有出现 |
-| `padStart` | `fn padStart(length: int, padString: string = " "): string` | 在开头填充 |
-| `padEnd` | `fn padEnd(length: int, padString: string = " "): string` | 在末尾填充 |
-| `repeat` | `fn repeat(count: int): string` | 重复字符串 |
-| `reverse` | `fn reverse(): string` | 反转字符串 |
-| `toUpperCase` | `fn toUpperCase(): string` | 转换为大写 |
-| `toLowerCase` | `fn toLowerCase(): string` | 转换为小写 |
-| `length` | `fn length(): int` | 获取长度 |
-| `trim` | `fn trim(): string` | 去除空白 |
-| `trimStart` | `fn trimStart(): string` | 去除开头空白 |
-| `trimEnd` | `fn trimEnd(): string` | 去除末尾空白 |
-| `slice` | `fn slice(start: int, length: int? = null): string` | 切片 |
-| `matches` | `fn matches(pattern: string): bool` | 匹配模式 |
-| `isEmpty` | `fn isEmpty(): bool` | 检查是否为空 |
-| `charAt` | `fn charAt(index: int): string?` | 获取指定位置字符 |
+| `join` | `fn join(array: Array<dyn>, separator: string = ""): string` | 连接数组元素 |
 | `fromCharCode` | `fn fromCharCode(code: int): string` | 从字符码创建 |
 | `fromCharCodes` | `fn fromCharCodes(codes: Array<int>): string` | 从字符码数组创建 |
 | `concat` | `fn concat(args: ...string): string` | 连接字符串 |
-| `template` | `fn template(template: string, values: Array<dynamic>): string` | 格式化模板 |
+| `template` | `fn template(template: string, values: Array<dyn>): string` | 格式化模板 |
+| `processTemplate` | `fn processTemplate(parts: Array<dyn>, context: dyn): string` | 处理模板字面量 |
 
 #### Path 模块（`std::path`）
 
@@ -2351,7 +2327,7 @@ enum Result<T, E> {
 下面是一个完整的 Ruyi 程序，展示了多个特性协同工作：
 
 ```ruyi
-import { print, println, readLine } from "std::io";
+import { readLine } from "std::io";
 import { parseInt } from "std::string";
 
 // Trait definition

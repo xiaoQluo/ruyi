@@ -48,7 +48,12 @@ pub fn compile_declaration<'ctx>(
                 compile_function(ctx, name, params, return_type.as_ref(), None, None, body)
             }
         }
-        Declaration::Class { name, extends, body, .. } => compile_class(ctx, name, extends.as_deref(), body),
+        Declaration::Class {
+            name,
+            extends,
+            body,
+            ..
+        } => compile_class(ctx, name, extends.as_deref(), body),
         Declaration::Impl {
             trait_name,
             for_type,
@@ -92,7 +97,10 @@ fn compile_binding<'ctx>(
     };
 
     if let Some(init) = &binding.init {
+        let prev_expected = ctx.expected_expr_type.clone();
+        ctx.expected_expr_type = Some(ty.clone());
         let init_result = compile_expr(ctx, init)?;
+        ctx.expected_expr_type = prev_expected;
         ctx.builder.build_store(ptr, init_result.value);
     }
 
@@ -167,6 +175,22 @@ pub fn compile_function<'ctx>(
     };
     ctx.function_types.insert(name.to_string(), ruyi_fn_type);
 
+    // Register rest parameter info for call-site argument packaging
+    for (i, param) in params.iter().enumerate() {
+        if param.is_rest {
+            let elem_ty = match &param.ty {
+                Some(crate::parser::ast::TypeAnnotation::Generic { base, args })
+                    if base == "Array" && args.len() == 1 =>
+                {
+                    Type::from_annotation(&args[0])
+                }
+                _ => Type::Dynamic,
+            };
+            ctx.rest_params.insert(name.to_string(), (i, elem_ty));
+            break;
+        }
+    }
+
     let function = if let Some(existing) = ctx.module.get_function(name) {
         existing
     } else {
@@ -175,7 +199,9 @@ pub fn compile_function<'ctx>(
 
     // Save current function and builder position
     let prev_function = ctx.current_function;
+    let prev_return_type = ctx.current_return_type.clone();
     ctx.current_function = Some(function);
+    ctx.current_return_type = Some(ret_type.clone());
 
     // Create entry basic block
     let entry_bb = ctx.context.append_basic_block(function, "entry");
@@ -241,6 +267,7 @@ pub fn compile_function<'ctx>(
 
     // Restore previous state
     ctx.current_function = prev_function;
+    ctx.current_return_type = prev_return_type;
     if let Some(block) = prev_block {
         ctx.builder.position_at_end(block);
     }
@@ -314,12 +341,14 @@ fn compile_class<'ctx>(
 
     if let Some(extends_expr) = extends {
         if let crate::parser::ast::Expr::Identifier(parent_name) = extends_expr {
-            ctx.class_extends.insert(name.to_string(), parent_name.clone());
+            ctx.class_extends
+                .insert(name.to_string(), parent_name.clone());
         }
     }
 
     let combined_fields = build_combined_fields(ctx, name, &fields);
-    ctx.class_fields.insert(name.to_string(), combined_fields.clone());
+    ctx.class_fields
+        .insert(name.to_string(), combined_fields.clone());
 
     let field_types: Vec<_> = combined_fields
         .iter()

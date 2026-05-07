@@ -756,6 +756,18 @@ impl Parser {
                 self.advance();
                 Ok(PropertyName::Ident("self".to_string()))
             }
+            Some(Token::Get) => {
+                self.advance();
+                Ok(PropertyName::Ident("get".to_string()))
+            }
+            Some(Token::Set) => {
+                self.advance();
+                Ok(PropertyName::Ident("set".to_string()))
+            }
+            Some(Token::Delete) => {
+                self.advance();
+                Ok(PropertyName::Ident("delete".to_string()))
+            }
             Some(Token::String(s)) => {
                 let s = s.clone();
                 self.advance();
@@ -1265,6 +1277,29 @@ impl Parser {
                     Some(Token::SelfKw) => {
                         self.advance();
                         MemberProperty::Ident("self".to_string())
+                    }
+                    Some(Token::Underscore) => {
+                        self.advance();
+                        // Check if followed by identifier (e.g., _map)
+                        if let Some(Token::Ident(name)) = self.current_token() {
+                            let n = format!("_{}", name);
+                            self.advance();
+                            MemberProperty::Ident(n)
+                        } else {
+                            MemberProperty::Ident("_".to_string())
+                        }
+                    }
+                    Some(Token::Get) => {
+                        self.advance();
+                        MemberProperty::Ident("get".to_string())
+                    }
+                    Some(Token::Set) => {
+                        self.advance();
+                        MemberProperty::Ident("set".to_string())
+                    }
+                    Some(Token::Delete) => {
+                        self.advance();
+                        MemberProperty::Ident("delete".to_string())
                     }
                     _ => return Err(self.error("expected identifier after '.'")),
                 };

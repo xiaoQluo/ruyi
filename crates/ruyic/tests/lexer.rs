@@ -634,7 +634,7 @@ fn test_match_expression() {
             Token::FatArrow,
             Token::String("one".into()),
             Token::Comma,
-            Token::Ident("_".into()),
+            Token::Underscore,
             Token::FatArrow,
             Token::String("other".into()),
             Token::RBrace,
