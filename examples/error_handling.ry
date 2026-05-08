@@ -6,6 +6,16 @@
 // =============================================================================
 
 // -----------------------------------------------------------------------------
+// Error base class (user-defined, since codegen does not support built-in Error)
+// -----------------------------------------------------------------------------
+class Error {
+  message: string;
+  fn new(message: string) {
+    self.message = message;
+  }
+}
+
+// -----------------------------------------------------------------------------
 // 10.1 try / catch / finally
 // -----------------------------------------------------------------------------
 fn basicTryCatch() {
@@ -26,15 +36,17 @@ fn basicTryCatch() {
 // -----------------------------------------------------------------------------
 // 10.2 Multiple Catch Clauses
 // -----------------------------------------------------------------------------
-class TypeError extends Error {
+class TypeError {
+  message: string;
   fn new(message: string) {
-    super.new(message);
+    self.message = message;
   }
 }
 
-class RangeError extends Error {
+class RangeError {
+  message: string;
   fn new(message: string) {
-    super.new(message);
+    self.message = message;
   }
 }
 
@@ -107,11 +119,12 @@ fn throwDemo() {
 // -----------------------------------------------------------------------------
 // 10.5 Custom Error Types
 // -----------------------------------------------------------------------------
-class ValidationError extends Error {
+class ValidationError {
+  message: string;
   field: string;
 
   fn new(field: string, message: string) {
-    super.new(message);
+    self.message = message;
     self.field = field;
   }
 }

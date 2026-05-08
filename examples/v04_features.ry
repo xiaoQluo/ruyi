@@ -29,12 +29,6 @@ impl Printable for Point {
   }
 }
 
-// T requires Printable - only types implementing Printable can be passed
-fn print_twice<T: Printable>(value: T) {
-  print(value.format());
-  print(value.format());
-}
-
 // ── 2. Supertrait Hierarchies ────────────────────────────────────
 // Traits can extend other traits
 

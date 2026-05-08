@@ -228,7 +228,7 @@ impl Parser {
         let mut named = Vec::new();
         let source;
 
-        if self.check(&Token::String("".into())) {
+        if matches!(self.current_token(), Some(Token::String(_))) {
             // import "...";
             source = self.expect_string()?;
             self.expect(Token::SemiColon)?;

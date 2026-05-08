@@ -483,13 +483,15 @@ fn test_import_namespace() {
 
 #[test]
 fn test_import_string_only() {
-    // import \"string\" is not correctly parsed in this parser
-    let err = parse_err("import \"polyfill\";");
-    match err {
-        ParseError::ExpectedToken { expected, .. } => {
-            assert_eq!(expected, "'{'");
+    let item = single_item("import \"polyfill\";");
+    match item {
+        ModuleItem::Import(decl) => {
+            assert_eq!(decl.default, None);
+            assert_eq!(decl.namespace, None);
+            assert!(decl.named.is_empty());
+            assert_eq!(decl.source, "polyfill");
         }
-        _ => panic!("expected ExpectedToken error, got {:?}", err),
+        _ => panic!("expected import"),
     }
 }
 

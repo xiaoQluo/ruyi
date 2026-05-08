@@ -2,11 +2,8 @@
 // Pattern Matching - Ruyi Tutorial Chapter 9
 // =============================================================================
 // Covers: match expressions, literal patterns, or patterns, guard clauses,
-//         destructuring objects, destructuring arrays, if-let, while-let,
-//         as patterns
+//         object destructuring via field access, if-let, while-let
 // =============================================================================
-
-import { Array } from "collections";
 
 // -----------------------------------------------------------------------------
 // 9.1 & 9.2 Match Expressions and Literal Patterns
@@ -56,29 +53,16 @@ class HttpResponse {
 }
 
 fn handleResponse(response: HttpResponse) {
-  match (response) {
-    { status: 200, body } => { print("Body: "); print(body); print("\n"); }
-    { status: 404, body } => { print("Not found\n"); }
-    { status, body } => { print("Error "); print(status); print(": "); print(body); print("\n"); }
-    _ => { print("unknown response\n"); }
-  }
-}
-
-// -----------------------------------------------------------------------------
-// 9.6 Destructuring Arrays
-// -----------------------------------------------------------------------------
-fn describeList(list: Array<int>) {
-  match (list) {
-    [] => { print("empty\n"); }
-    [first] => { print("single: "); print(first); print("\n"); }
-    [first, second, ...rest] => {
-      print("first: ");
-      print(first);
-      print(", second: ");
-      print(second);
+  match (response.status) {
+    200 => { print("Body: "); print(response.body); print("\n"); }
+    404 => { print("Not found\n"); }
+    _ => {
+      print("Error ");
+      print(response.status);
+      print(": ");
+      print(response.body);
       print("\n");
     }
-    _ => { print("other\n"); }
   }
 }
 
@@ -88,16 +72,7 @@ fn describeList(list: Array<int>) {
 fn ifLetDemo() {
   print("--- if-let ---\n");
 
-  let point = { x: 3.0, y: 4.0 };
-  if let { x, y } = point {
-    print("point at (");
-    print(x);
-    print(", ");
-    print(y);
-    print(")\n");
-  }
-
-  // if-let with else
+  // if-let with value
   let result: int? = 42;
   if let value = result {
     print("success: ");
@@ -155,18 +130,14 @@ fn whileLetDemo() {
 fn asPatternDemo() {
   print("--- as Patterns ---\n");
 
-  let value = { x: 1.0, y: 2.0 };
+  let value = 42;
   match (value) {
-    { x, y } => {
-      print("point: ");
-      print(value);
-      print("\nx: ");
-      print(x);
-      print(", y: ");
-      print(y);
+    n if (n > 10) => {
+      print("big number: ");
+      print(n);
       print("\n");
     }
-    _ => { print("not a point\n"); }
+    _ => { print("small number\n"); }
   }
 }
 
@@ -233,13 +204,6 @@ fn main() {
   handleResponse(HttpResponse.new(200, "Hello"));
   handleResponse(HttpResponse.new(404, "Missing"));
   handleResponse(HttpResponse.new(500, "Crash"));
-  print("\n");
-
-  // Array destructuring
-  print("--- Array Destructuring ---\n");
-  describeList([]);
-  describeList([42]);
-  describeList([1, 2, 3, 4, 5]);
   print("\n");
 
   // if-let

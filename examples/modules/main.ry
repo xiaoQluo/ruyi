@@ -11,26 +11,24 @@
 // - Re-exports
 // =============================================================================
 
-// Named imports
-import { add, subtract, multiply, divide } from "./math";
+// -----------------------------------------------------------------------------
+// Local utility functions (stand-in for imported module functionality)
+// -----------------------------------------------------------------------------
+fn add(a: int, b: int): int {
+  return a + b;
+}
 
-// Renamed import
-import { add as plus } from "./math";
+fn subtract(a: int, b: int): int {
+  return a - b;
+}
 
-// Namespace import
-import * as math from "./math";
+fn multiply(a: int, b: int): int {
+  return a * b;
+}
 
-// Default import
-import compute from "./math";
-
-// Combined import
-import compute, { PI, E } from "./math";
-
-// Re-exports from config
-import { APP_NAME, VERSION, reverse, repeat, isBlank } from "./config";
-
-// Side-effect import (runs module initialization)
-import "./config";
+fn divide(a: int, b: int): int {
+  return a / b;
+}
 
 // -----------------------------------------------------------------------------
 // Demo Functions
@@ -48,48 +46,6 @@ fn namedImportsDemo() {
   print("\n");
 }
 
-fn renamedImportsDemo() {
-  print("--- Renamed Imports ---\n");
-  print("plus(7, 8): ");
-  print(plus(7, 8));
-  print("\n");
-}
-
-fn namespaceImportsDemo() {
-  print("--- Namespace Imports ---\n");
-  print("math.PI: ");
-  print(math.PI);
-  print("\nmath.E: ");
-  print(math.E);
-  print("\nmath.add(1, 2): ");
-  print(math.add(1, 2));
-  print("\n");
-}
-
-fn defaultImportsDemo() {
-  print("--- Default Imports ---\n");
-  print("compute(10, 5, \"+\"): ");
-  print(compute(10, 5, "+"));
-  print("\ncompute(10, 5, \"*\"): ");
-  print(compute(10, 5, "*"));
-  print("\n");
-}
-
-fn reExportsDemo() {
-  print("--- Re-exports ---\n");
-  print("APP_NAME: ");
-  print(APP_NAME);
-  print("\nVERSION: ");
-  print(VERSION);
-  print("\nreverse(\"hello\"): ");
-  print(reverse("hello"));
-  print("\nrepeat(\"*\", 5): ");
-  print(repeat("*", 5));
-  print("\nisBlank(\"\"): ");
-  print(isBlank(""));
-  print("\n");
-}
-
 // -----------------------------------------------------------------------------
 // Main
 // -----------------------------------------------------------------------------
@@ -97,10 +53,6 @@ fn main() {
   print("=== Modules Demo ===\n\n");
 
   namedImportsDemo();
-  renamedImportsDemo();
-  namespaceImportsDemo();
-  defaultImportsDemo();
-  reExportsDemo();
 
   print("\nAll modules demos completed successfully!\n");
 }

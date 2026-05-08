@@ -172,9 +172,25 @@ impl ModuleResolver {
 
     /// Resolve a module path to an absolute path.
     /// Looks in RUYI_HOME/stdlib, search paths, and project directories.
-    pub fn resolve(&self, source: &str) -> Result<PathBuf, CompileError> {
+    pub fn resolve(
+        &self,
+        source: &str,
+        base_path: Option<&Path>,
+    ) -> Result<PathBuf, CompileError> {
         // Remove quotes from the source path
         let module_name = source.trim_matches('"');
+
+        // Handle relative paths starting with ./ or ../
+        if module_name.starts_with("./") || module_name.starts_with("../") {
+            if let Some(base) = base_path {
+                let base_dir = base.parent().unwrap_or(base);
+                let candidate = base_dir.join(format!("{}.ry", module_name));
+                if candidate.exists() {
+                    return Ok(candidate);
+                }
+                return Err(CompileError::ModuleNotFound(source.to_string()));
+            }
+        }
 
         // Check if it's an absolute path
         if module_name.starts_with('/') {
@@ -341,7 +357,7 @@ impl Driver {
     fn resolve_imports(
         &mut self,
         mut program: Program,
-        _input_path: &Path,
+        input_path: &Path,
     ) -> Result<Program, CompileError> {
         let items_to_process: Vec<_> = program.items.clone();
         program.items.clear();
@@ -349,7 +365,9 @@ impl Driver {
         for item in items_to_process {
             match item {
                 crate::parser::ast::ModuleItem::Import(import_decl) => {
-                    let resolved_path = self.resolver.resolve(&import_decl.source)?;
+                    let resolved_path = self
+                        .resolver
+                        .resolve(&import_decl.source, Some(input_path))?;
                     let canonical = self.resolver.canonical_path(&resolved_path);
 
                     // Check if already loaded
@@ -363,10 +381,124 @@ impl Driver {
                             .insert(canonical.clone(), module_ast);
                     }
 
-                    // Merge imported module items into the main program
+                    // Merge imported module items into the main program.
+                    // Unwrap exports so the typechecker can see the underlying declarations.
+                    //
+                    // Collect re-export sources first, before borrowing loaded_modules,
+                    // to avoid borrow conflicts with self.resolve_imports.
+                    let reexport_sources: Vec<(String, PathBuf)> = {
+                        if let Some(module) = self.resolver.loaded_modules.get(&canonical) {
+                            module
+                                .items
+                                .iter()
+                                .filter_map(|item| {
+                                    if let crate::parser::ast::ModuleItem::Export(export) = item {
+                                        match export {
+                                            crate::parser::ast::ExportDecl::ReExportAll {
+                                                source,
+                                            }
+                                            | crate::parser::ast::ExportDecl::ReExportNamed {
+                                                source,
+                                                ..
+                                            } => Some((source.clone(), canonical.clone())),
+                                            _ => None,
+                                        }
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect()
+                        } else {
+                            Vec::new()
+                        }
+                    };
+
+                    // Process re-exports (outside the immutable borrow).
+                    for (source, dir) in &reexport_sources {
+                        let reexport_path = self.resolver.resolve(source, Some(dir))?;
+                        let reexport_canonical =
+                            self.resolver.canonical_path(&reexport_path);
+                        if !self
+                            .resolver
+                            .loaded_modules
+                            .contains_key(&reexport_canonical)
+                        {
+                            let module_source = fs::read_to_string(&reexport_path)?;
+                            let mut module_parser = RuyiParser::new(&module_source)?;
+                            let mut module_ast = module_parser.parse()?;
+                            module_ast =
+                                self.resolve_imports(module_ast, &reexport_path)?;
+                            self.resolver
+                                .loaded_modules
+                                .insert(reexport_canonical.clone(), module_ast);
+                        }
+                        if let Some(reexport_module) = self
+                            .resolver
+                            .loaded_modules
+                            .get(&reexport_canonical)
+                        {
+                            for reexport_item in &reexport_module.items {
+                                Self::push_unwrapped(&mut program, reexport_item);
+                            }
+                        }
+                    }
+
+                    // Main merge and local bindings.
                     if let Some(module) = self.resolver.loaded_modules.get(&canonical) {
                         for module_item in &module.items {
-                            program.items.push(module_item.clone());
+                            Self::push_unwrapped(&mut program, module_item);
+                        }
+
+                        // Aliases: import { x as y } → const y = x;
+                        for named_import in &import_decl.named {
+                            if let Some(alias) = &named_import.alias {
+                                program.items.push(
+                                    crate::parser::ast::ModuleItem::Declaration(
+                                        crate::parser::ast::Declaration::Const(vec![
+                                            crate::parser::ast::Binding {
+                                                pattern:
+                                                    crate::parser::ast::Pattern::Identifier(
+                                                        alias.clone(),
+                                                    ),
+                                                init: Some(Box::new(
+                                                    crate::parser::ast::Expr::Identifier(
+                                                        named_import.name.clone(),
+                                                    ),
+                                                )),
+                                                ty: None,
+                                            },
+                                        ]),
+                                    ),
+                                );
+                            }
+                        }
+
+                        // Namespace: import * as ns → const ns = { name1, name2, ... };
+                        if let Some(ns) = &import_decl.namespace {
+                            let mut props: Vec<crate::parser::ast::ObjectProperty> = Vec::new();
+                            for module_item in &module.items {
+                                Self::collect_export_names(module_item, &mut props);
+                            }
+                            if !props.is_empty() {
+                                program.items.push(
+                                    crate::parser::ast::ModuleItem::Declaration(
+                                        crate::parser::ast::Declaration::Const(vec![
+                                            crate::parser::ast::Binding {
+                                                pattern:
+                                                    crate::parser::ast::Pattern::Identifier(
+                                                        ns.clone(),
+                                                    ),
+                                                init: Some(Box::new(
+                                                    crate::parser::ast::Expr::ObjectLiteral(
+                                                        props,
+                                                    ),
+                                                )),
+                                                ty: None,
+                                            },
+                                        ]),
+                                    ),
+                                );
+                            }
                         }
                     }
                 }
@@ -500,6 +632,101 @@ impl Driver {
         let expanded = expand_macros(&program, &self.macro_registry)?;
         let mut checker = TypeChecker::new();
         Ok(checker.check(&expanded))
+    }
+
+    /// Push a module item to the program, unwrapping `Export` into the contained `Declaration`
+    /// so the typechecker can see it (it skips `ModuleItem::Export` items).
+    fn push_unwrapped(
+        program: &mut Program,
+        item: &crate::parser::ast::ModuleItem,
+    ) {
+        match item {
+            crate::parser::ast::ModuleItem::Export(export) => match export {
+                crate::parser::ast::ExportDecl::Declaration(decl) => {
+                    program
+                        .items
+                        .push(crate::parser::ast::ModuleItem::Declaration(decl.clone()));
+                }
+                crate::parser::ast::ExportDecl::DefaultFunction {
+                    name,
+                    type_params,
+                    params,
+                    return_type,
+                    body,
+                    is_async,
+                } => {
+                    program.items.push(
+                        crate::parser::ast::ModuleItem::Declaration(
+                            crate::parser::ast::Declaration::Function {
+                                name: name.clone(),
+                                type_params: type_params.clone(),
+                                params: params.clone(),
+                                return_type: return_type.clone(),
+                                body: body.clone(),
+                                is_async: *is_async,
+                            },
+                        ),
+                    );
+                }
+                crate::parser::ast::ExportDecl::DefaultClass {
+                    name,
+                    type_params,
+                    extends,
+                    body,
+                    annotations,
+                } => {
+                    program.items.push(
+                        crate::parser::ast::ModuleItem::Declaration(
+                            crate::parser::ast::Declaration::Class {
+                                name: name.clone(),
+                                type_params: type_params.clone(),
+                                extends: extends.clone(),
+                                body: body.clone(),
+                                annotations: annotations.clone(),
+                            },
+                        ),
+                    );
+                }
+                // Named, ReExportAll, ReExportNamed, DefaultExpr are not declarations;
+                // they are processed separately or left as-is.
+                _ => {}
+            },
+            _ => {
+                program.items.push(item.clone());
+            }
+        }
+    }
+
+    /// Collect export names from a module item into object properties (for namespace imports).
+    fn collect_export_names(
+        item: &crate::parser::ast::ModuleItem,
+        props: &mut Vec<crate::parser::ast::ObjectProperty>,
+    ) {
+        if let crate::parser::ast::ModuleItem::Export(export) = item {
+            let name = match export {
+                crate::parser::ast::ExportDecl::Declaration(decl) => match decl {
+                    crate::parser::ast::Declaration::Function { name, .. } => Some(name.clone()),
+                    crate::parser::ast::Declaration::Class { name, .. } => Some(name.clone()),
+                    crate::parser::ast::Declaration::Const(bindings)
+                    | crate::parser::ast::Declaration::Let(bindings) => bindings.first().and_then(
+                        |b| {
+                            if let crate::parser::ast::Pattern::Identifier(n) = &b.pattern {
+                                Some(n.clone())
+                            } else {
+                                None
+                            }
+                        },
+                    ),
+                    _ => None,
+                },
+                crate::parser::ast::ExportDecl::DefaultFunction { name, .. }
+                | crate::parser::ast::ExportDecl::DefaultClass { name, .. } => Some(name.clone()),
+                _ => None,
+            };
+            if let Some(n) = name {
+                props.push(crate::parser::ast::ObjectProperty::Shorthand(n));
+            }
+        }
     }
 }
 

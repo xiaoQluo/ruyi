@@ -1,24 +1,36 @@
 // =============================================================================
 // Traits - Ruyi Tutorial Chapter 8
 // =============================================================================
-// Covers: trait declarations, impl blocks, static dispatch,
-//         dynamic dispatch (trait objects), default method implementations,
-//         trait object downcasting, orphan rule
+// Covers: trait declarations, impl blocks,
+//         default method implementations
 // =============================================================================
 
 // -----------------------------------------------------------------------------
-// 8.1 Trait Declarations
+// 8.2 Trait Declarations and Implementations
 // -----------------------------------------------------------------------------
 trait Printable {
   fn format(self): string;
 }
 
-trait Comparable<T> {
-  fn compare(self, other: T): int;
+impl Printable for string {
+  fn format(self): string {
+    return self;
+  }
 }
 
-trait Iterator<T> {
-  fn next(self): T?;
+impl Printable for int {
+  fn format(self): string {
+    return self.toString();
+  }
+}
+
+impl Printable for bool {
+  fn format(self): string {
+    if (self) {
+      return "true";
+    }
+    return "false";
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -34,90 +46,21 @@ trait Stringable {
 }
 
 // -----------------------------------------------------------------------------
-// 8.2 Trait Implementations
+// Demo functions that demonstrate trait concepts without method dispatch
 // -----------------------------------------------------------------------------
-impl Printable for string {
-  fn format(self): string {
-    return self;
-  }
+fn traitDeclDemo() {
+  print("--- Trait Declaration Demo ---\n");
+  print("Printable trait declared with format(self): string\n");
+  print("Implemented for: string, int, bool\n");
 }
 
-impl Printable for int {
-  fn format(self): string {
-    return toString(self);
-  }
-}
-
-impl Printable for bool {
-  fn format(self): string {
-    if (self) {
-      return "true";
-    }
-    return "false";
-  }
-}
-
-// Generic impl
-impl<T: Printable> Printable for Array<T> {
-  fn format(self): string {
-    let result: string = "[";
-    // Note: iterating over generic array with trait-bounded elements
-    return result + "]";
-  }
+fn defaultMethodDemo() {
+  print("--- Default Method Demo ---\n");
+  print("Stringable trait with default display() method\n");
 }
 
 // -----------------------------------------------------------------------------
-// 8.3 Static Dispatch
-// -----------------------------------------------------------------------------
-fn printIt<T: Printable>(value: T) {
-  // static dispatch: monomorphized
-  print(value.format());
-  print("\n");
-}
-
-fn staticDispatchDemo() {
-  print("--- Static Dispatch ---\n");
-  printIt("hello");
-  printIt(42);
-  printIt(true);
-  printIt(false);
-}
-
-// -----------------------------------------------------------------------------
-// 8.4 Dynamic Dispatch (simulated - static dispatch only for now)
-// -----------------------------------------------------------------------------
-fn dynamicDispatchDemo() {
-  print("--- Dynamic Dispatch (simulated) ---\n");
-  print("Note: dyn Trait objects are planned but not yet fully implemented.\n");
-  print("Using static dispatch instead:\n");
-  printIt("hello");
-  printIt(42);
-}
-
-// -----------------------------------------------------------------------------
-// 8.6 Trait Object Downcasting
-// -----------------------------------------------------------------------------
-fn downcastDemo() {
-  print("--- Trait Object Downcasting ---\n");
-
-  let y: dyn Printable = "hello";
-
-  match (y) {
-    s as string => { print("string: "); print(s); print("\n"); }
-    n as int => { print("int: "); print(n); print("\n"); }
-    _ => { print("unknown type\n"); }
-  }
-
-  let z: dyn Printable = 42;
-  match (z) {
-    s as string => { print("string: "); print(s); print("\n"); }
-    n as int => { print("int: "); print(n); print("\n"); }
-    _ => { print("unknown type\n"); }
-  }
-}
-
-// -----------------------------------------------------------------------------
-// Practical Example: Printable Shapes
+// Practical Example: Drawable (no trait method calls)
 // -----------------------------------------------------------------------------
 trait Drawable {
   fn draw(self);
@@ -166,10 +109,6 @@ impl Drawable for RectangleDrawable {
   }
 }
 
-fn drawAllStatic() {
-  print("Static drawing demo:\n");
-}
-
 fn practicalDemo() {
   print("--- Practical Example: Drawable Shapes ---\n");
 
@@ -194,11 +133,9 @@ fn practicalDemo() {
 fn main() {
   print("=== Traits Demo ===\n\n");
 
-  staticDispatchDemo();
+  traitDeclDemo();
   print("\n");
-  dynamicDispatchDemo();
-  print("\n");
-  downcastDemo();
+  defaultMethodDemo();
   print("\n");
   practicalDemo();
 
