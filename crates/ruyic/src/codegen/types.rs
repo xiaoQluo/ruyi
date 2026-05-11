@@ -47,8 +47,19 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: &Type) -> BasicTypeEn
         Type::Function { .. } => {
             BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
         }
-        Type::Named(_) => {
-            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+        Type::Named(name) => {
+            if name.len() == 1
+                && name
+                    .chars()
+                    .next()
+                    .map(|c| c.is_ascii_uppercase())
+                    .unwrap_or(false)
+            {
+                // Type parameter (T, U, V) – use i64 as universal register size
+                BasicTypeEnum::IntType(context.i64_type())
+            } else {
+                BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+            }
         }
         Type::Generic { .. } => {
             BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))

@@ -37,6 +37,7 @@ pub fn declare_builtins<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     declare_ruyi_obj_get(context, module);
     declare_ruyi_int_to_string(context, module);
     declare_ruyi_float_to_string(context, module);
+    declare_ruyi_bool_to_string(context, module);
     declare_pow(context, module);
 
     // __builtin_array_* declarations (used by stdlib/collections.ry)
@@ -141,6 +142,13 @@ fn declare_ruyi_float_to_string<'ctx>(context: &'ctx Context, module: &Module<'c
     let f64_ty = context.f64_type();
     let fn_type = i8_ptr.fn_type(&[f64_ty.into()], false);
     module.add_function("ruyi_float_to_string", fn_type, None);
+}
+
+fn declare_ruyi_bool_to_string<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i1_ty = context.bool_type();
+    let fn_type = i8_ptr.fn_type(&[i1_ty.into()], false);
+    module.add_function("ruyi_bool_to_string", fn_type, None);
 }
 
 fn declare_pow<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
@@ -585,7 +593,7 @@ fn declare_builtin_array_create<'ctx>(context: &'ctx Context, module: &Module<'c
 fn declare_builtin_array_get<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     let i8_ptr = context.i8_type().ptr_type(Default::default());
     let i64_ty = context.i64_type();
-    let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i64_ty.into()], false);
+    let fn_type = i64_ty.fn_type(&[i8_ptr.into(), i64_ty.into()], false);
     module.add_function("__builtin_array_get", fn_type, None);
 }
 
@@ -594,19 +602,21 @@ fn declare_builtin_array_set<'ctx>(context: &'ctx Context, module: &Module<'ctx>
     let i64_ty = context.i64_type();
     let fn_type = context
         .void_type()
-        .fn_type(&[i8_ptr.into(), i64_ty.into(), i8_ptr.into()], false);
+        .fn_type(&[i8_ptr.into(), i64_ty.into(), i64_ty.into()], false);
     module.add_function("__builtin_array_set", fn_type, None);
 }
 
 fn declare_builtin_array_push<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+    let i64_ty = context.i64_type();
+    let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i64_ty.into()], false);
     module.add_function("__builtin_array_push", fn_type, None);
 }
 
 fn declare_builtin_array_pop<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
+    let i64_ty = context.i64_type();
+    let fn_type = i64_ty.fn_type(&[i8_ptr.into()], false);
     module.add_function("__builtin_array_pop", fn_type, None);
 }
 

@@ -123,8 +123,8 @@ impl<T> ArrayOps<T> for Array<T> {
         __builtin_array_set(self, index, value);
     }
 
-    fn push(self, value: T): void {
-        __builtin_array_push(self, value);
+    fn push(self, value: T): Array<T> {
+        return __builtin_array_push(self, value);
     }
 
     fn pop(self): T {

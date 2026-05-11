@@ -12,6 +12,7 @@
  */
 use std::alloc::{alloc, Layout};
 use std::ffi::CStr;
+use crate::gc_exports::ruyi_gc_alloc;
 
 /// Convert an i64 to a newly allocated null-terminated string.
 ///
@@ -39,6 +40,25 @@ pub extern "C" fn ruyi_int_to_string(n: i64) -> *mut i8 {
 pub extern "C" fn ruyi_float_to_string(n: f64) -> *mut i8 {
     let s = format!("{}", n);
     let bytes = s.into_bytes();
+    unsafe {
+        let layout = Layout::from_size_align(bytes.len() + 1, 1).unwrap();
+        let out = alloc(layout) as *mut i8;
+        if out.is_null() {
+            return std::ptr::null_mut();
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out as *mut u8, bytes.len());
+        *out.add(bytes.len()) = 0;
+        out
+    }
+}
+
+/// Convert a bool to a newly allocated null-terminated string ("true" or "false").
+///
+/// The caller is responsible for freeing the returned pointer.
+#[no_mangle]
+pub extern "C" fn ruyi_bool_to_string(b: bool) -> *mut i8 {
+    let s = if b { "true" } else { "false" };
+    let bytes = s.as_bytes();
     unsafe {
         let layout = Layout::from_size_align(bytes.len() + 1, 1).unwrap();
         let out = alloc(layout) as *mut i8;
@@ -213,16 +233,16 @@ pub extern "C" fn ruyi_array_length(arr: *mut i8) -> i64 {
 ///
 /// Returns null if `arr` is null, `index` is out of bounds, or negative.
 #[no_mangle]
-pub extern "C" fn ruyi_array_get(arr: *mut i8, index: i64) -> *mut i8 {
+pub extern "C" fn ruyi_array_get(arr: *mut i8, index: i64) -> i64 {
     unsafe {
         if arr.is_null() || index < 0 {
-            return std::ptr::null_mut();
+            return 0;
         }
         let len = *(arr as *mut i64);
         if index >= len {
-            return std::ptr::null_mut();
+            return 0;
         }
-        let data = arr.add(std::mem::size_of::<i64>() * 2) as *mut *mut i8;
+        let data = arr.add(std::mem::size_of::<i64>() * 2) as *mut i64;
         *data.add(index as usize)
     }
 }
@@ -231,7 +251,7 @@ pub extern "C" fn ruyi_array_get(arr: *mut i8, index: i64) -> *mut i8 {
 ///
 /// Does nothing if `arr` is null or `index` is out of bounds.
 #[no_mangle]
-pub extern "C" fn ruyi_array_set(arr: *mut i8, index: i64, value: *mut i8) {
+pub extern "C" fn ruyi_array_set(arr: *mut i8, index: i64, value: i64) {
     unsafe {
         if arr.is_null() || index < 0 {
             return;
@@ -240,7 +260,7 @@ pub extern "C" fn ruyi_array_set(arr: *mut i8, index: i64, value: *mut i8) {
         if index >= len {
             return;
         }
-        let data = arr.add(std::mem::size_of::<i64>() * 2) as *mut *mut i8;
+        let data = arr.add(std::mem::size_of::<i64>() * 2) as *mut i64;
         *data.add(index as usize) = value;
     }
 }
@@ -250,7 +270,7 @@ pub extern "C" fn ruyi_array_set(arr: *mut i8, index: i64, value: *mut i8) {
 /// Reallocates the array if capacity is exceeded. Returns the (possibly
 /// reallocated) array pointer, or null on allocation failure.
 #[no_mangle]
-pub extern "C" fn ruyi_array_push(arr: *mut i8, value: *mut i8) -> *mut i8 {
+pub extern "C" fn ruyi_array_push(arr: *mut i8, value: i64) -> *mut i8 {
     unsafe {
         if arr.is_null() {
             return std::ptr::null_mut();
@@ -263,36 +283,24 @@ pub extern "C" fn ruyi_array_push(arr: *mut i8, value: *mut i8) -> *mut i8 {
         if len >= cap {
             let new_cap = if cap == 0 { 4 } else { cap * 2 };
             let header_size = std::mem::size_of::<i64>() * 2;
-            let old_data_size = cap as usize * std::mem::size_of::<*mut i8>();
-            let new_data_size = new_cap as usize * std::mem::size_of::<*mut i8>();
+            let old_data_size = cap as usize * std::mem::size_of::<i64>();
+            let new_data_size = new_cap as usize * std::mem::size_of::<i64>();
             let new_size = header_size + new_data_size;
 
-            // Allocate new array using system allocator (matching original allocation)
-            let layout =
-                std::alloc::Layout::from_size_align(new_size, std::mem::align_of::<i64>()).unwrap();
-            let new_ptr = std::alloc::alloc(layout) as *mut i8;
-            if new_ptr.is_null() {
+            let new_arr = ruyi_gc_alloc(new_size as i64) as *mut i8;
+            if new_arr.is_null() {
                 return std::ptr::null_mut();
             }
 
-            // Copy header (len + cap)
-            std::ptr::copy_nonoverlapping(arr, new_ptr, header_size);
-            // Copy existing data
-            std::ptr::copy_nonoverlapping(
-                arr.add(header_size),
-                new_ptr.add(header_size),
-                old_data_size,
-            );
-
-            let new_arr = new_ptr as *mut i8;
+            std::ptr::copy_nonoverlapping(arr, new_arr, header_size + old_data_size);
             *(new_arr.add(std::mem::size_of::<i64>()) as *mut i64) = new_cap;
-            let data = new_arr.add(header_size) as *mut *mut i8;
+            let data = new_arr.add(header_size) as *mut i64;
             *data.add(len as usize) = value;
             *(new_arr as *mut i64) = len + 1;
             return new_arr;
         }
 
-        let data = arr.add(std::mem::size_of::<i64>() * 2) as *mut *mut i8;
+        let data = arr.add(std::mem::size_of::<i64>() * 2) as *mut i64;
         *data.add(len as usize) = value;
         *len_ptr = len + 1;
         arr
@@ -303,18 +311,18 @@ pub extern "C" fn ruyi_array_push(arr: *mut i8, value: *mut i8) -> *mut i8 {
 ///
 /// Returns null if `arr` is null or empty.
 #[no_mangle]
-pub extern "C" fn ruyi_array_pop(arr: *mut i8) -> *mut i8 {
+pub extern "C" fn ruyi_array_pop(arr: *mut i8) -> i64 {
     unsafe {
         if arr.is_null() {
-            return std::ptr::null_mut();
+            return 0;
         }
         let len_ptr = arr as *mut i64;
         let len = *len_ptr;
         if len <= 0 {
-            return std::ptr::null_mut();
+            return 0;
         }
         *len_ptr = len - 1;
-        let data = arr.add(std::mem::size_of::<i64>() * 2) as *mut *mut i8;
+        let data = arr.add(std::mem::size_of::<i64>() * 2) as *mut i64;
         *data.add((len - 1) as usize)
     }
 }
@@ -329,22 +337,22 @@ pub extern "C" fn __builtin_array_create() -> *mut i8 {
 }
 
 #[no_mangle]
-pub extern "C" fn __builtin_array_get(arr: *mut i8, index: i64) -> *mut i8 {
+pub extern "C" fn __builtin_array_get(arr: *mut i8, index: i64) -> i64 {
     ruyi_array_get(arr, index)
 }
 
 #[no_mangle]
-pub extern "C" fn __builtin_array_set(arr: *mut i8, index: i64, value: *mut i8) {
+pub extern "C" fn __builtin_array_set(arr: *mut i8, index: i64, value: i64) {
     ruyi_array_set(arr, index, value)
 }
 
 #[no_mangle]
-pub extern "C" fn __builtin_array_push(arr: *mut i8, value: *mut i8) -> *mut i8 {
+pub extern "C" fn __builtin_array_push(arr: *mut i8, value: i64) -> *mut i8 {
     ruyi_array_push(arr, value)
 }
 
 #[no_mangle]
-pub extern "C" fn __builtin_array_pop(arr: *mut i8) -> *mut i8 {
+pub extern "C" fn __builtin_array_pop(arr: *mut i8) -> i64 {
     ruyi_array_pop(arr)
 }
 

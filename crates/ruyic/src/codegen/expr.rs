@@ -7,7 +7,7 @@ use inkwell::types::BasicType;
  * @author Ruyi Team
  * @date 2026-05-01
  */
-use inkwell::values::{BasicMetadataValueEnum, BasicValue, BasicValueEnum};
+use inkwell::values::BasicValueEnum;
 use inkwell::FloatPredicate;
 use inkwell::IntPredicate;
 
@@ -1524,6 +1524,27 @@ fn compile_eq<'ctx>(
                 Type::Bool,
             ))
         }
+        // Nullable IntValue compared with null PointerValue:
+        // The nullable int uses -1 (all ones) as null sentinel.
+        (BasicValueEnum::IntValue(l), BasicValueEnum::PointerValue(_))
+            if matches!(&left.ty, Type::Nullable(_)) && matches!(&right.ty, Type::Null) =>
+        {
+            let sentinel = ctx.context.i64_type().const_all_ones();
+            let res = ctx
+                .builder
+                .build_int_compare(IntPredicate::EQ, *l, sentinel, "nullable_eq_null");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
+        // Reverse: null PointerValue compared with nullable IntValue
+        (BasicValueEnum::PointerValue(_), BasicValueEnum::IntValue(r))
+            if matches!(&left.ty, Type::Null) && matches!(&right.ty, Type::Nullable(_)) =>
+        {
+            let sentinel = ctx.context.i64_type().const_all_ones();
+            let res = ctx
+                .builder
+                .build_int_compare(IntPredicate::EQ, *r, sentinel, "null_eq_nullable");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
         _ => Err(format!(
             "Invalid operands for ===: left={:?}({:?}), right={:?}({:?})",
             left.value, left.ty, right.value, right.ty
@@ -1559,6 +1580,26 @@ fn compile_ne<'ctx>(
             let res = ctx
                 .builder
                 .build_int_compare(IntPredicate::NE, l_int, r_int, "ptr_ne");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
+        // Nullable IntValue compared with null PointerValue:
+        (BasicValueEnum::IntValue(l), BasicValueEnum::PointerValue(_))
+            if matches!(&left.ty, Type::Nullable(_)) && matches!(&right.ty, Type::Null) =>
+        {
+            let sentinel = ctx.context.i64_type().const_all_ones();
+            let res = ctx
+                .builder
+                .build_int_compare(IntPredicate::NE, *l, sentinel, "nullable_ne_null");
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
+        // Reverse: null PointerValue compared with nullable IntValue
+        (BasicValueEnum::PointerValue(_), BasicValueEnum::IntValue(r))
+            if matches!(&left.ty, Type::Null) && matches!(&right.ty, Type::Nullable(_)) =>
+        {
+            let sentinel = ctx.context.i64_type().const_all_ones();
+            let res = ctx
+                .builder
+                .build_int_compare(IntPredicate::NE, *r, sentinel, "null_ne_nullable");
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         _ => Err("Invalid operands for !==".to_string()),
@@ -1893,6 +1934,15 @@ fn compile_call<'ctx>(
                             Type::Int => "Int".to_string(),
                             Type::Float => "Float".to_string(),
                             Type::Bool => "Bool".to_string(),
+                            Type::Nullable(inner) => match inner.as_ref() {
+                                Type::Named(n) => n.clone(),
+                                Type::Array(_) => "Array".to_string(),
+                                Type::Generic { base, .. } => base.clone(),
+                                Type::Int => "Int".to_string(),
+                                Type::Float => "Float".to_string(),
+                                Type::Bool => "Bool".to_string(),
+                                _ => return Err(format!("Cannot call method on type: {:?}", ty)),
+                            },
                             _ => return Err(format!("Cannot call method on type: {:?}", ty)),
                         };
                         (Some(*ptr), class_name)
@@ -1914,6 +1964,15 @@ fn compile_call<'ctx>(
                         Type::Int => "Int".to_string(),
                         Type::Float => "Float".to_string(),
                         Type::Bool => "Bool".to_string(),
+                        Type::Nullable(inner) => match inner.as_ref() {
+                            Type::Named(n) => n.clone(),
+                            Type::Array(_) => "Array".to_string(),
+                            Type::Generic { base, .. } => base.clone(),
+                            Type::Int => "Int".to_string(),
+                            Type::Float => "Float".to_string(),
+                            Type::Bool => "Bool".to_string(),
+                            _ => return Err(format!("Cannot call method on type: {:?}", ty)),
+                        },
                         _ => return Err(format!("Cannot call method on type: {:?}", ty)),
                     };
                     (Some(*ptr), class_name)
@@ -2244,6 +2303,18 @@ fn compile_call<'ctx>(
         Type::Dynamic
     };
 
+    // If this is a method call on an array-like type that returns the same type,
+    // store the result back into self so that re-allocations are visible.
+    if let Some(self_ptr) = self_arg {
+        if matches!(&ret_ty, Type::Array(_)) {
+            if let Some(v) = value {
+                if let BasicValueEnum::PointerValue(new_ptr) = v {
+                    ctx.builder.build_store(self_ptr, new_ptr);
+                }
+            }
+        }
+    }
+
     match value {
         Some(v) => Ok(ExprResult::new(v, ret_ty)),
         None => Ok(ExprResult::new(
@@ -2509,7 +2580,10 @@ fn compile_array_literal<'ctx>(
                         .builder
                         .build_bitcast(v, ctx.context.i64_type(), "f_to_i")
                         .as_basic_value_enum(),
-                    BasicValueEnum::PointerValue(v) => v.as_basic_value_enum(),
+                    BasicValueEnum::PointerValue(v) => ctx
+                        .builder
+                        .build_ptr_to_int(v, ctx.context.i64_type(), "ptr_to_i")
+                        .as_basic_value_enum(),
                     _ => val.value,
                 };
                 ctx.builder.build_store(i64_ptr, stored_val);
@@ -2587,7 +2661,10 @@ fn compile_rest_args_to_array<'ctx>(
                 .builder
                 .build_bitcast(*v, ctx.context.i64_type(), "f_to_i")
                 .as_basic_value_enum(),
-            inkwell::values::BasicMetadataValueEnum::PointerValue(v) => v.as_basic_value_enum(),
+            inkwell::values::BasicMetadataValueEnum::PointerValue(v) => ctx
+                .builder
+                .build_ptr_to_int(*v, ctx.context.i64_type(), "ptr_to_i")
+                .as_basic_value_enum(),
             _ => continue,
         };
         ctx.builder.build_store(i64_ptr, stored_val);
@@ -2626,7 +2703,10 @@ fn compile_object_literal<'ctx>(
                         .builder
                         .build_bitcast(v, ctx.context.i64_type(), "f_to_i")
                         .as_basic_value_enum(),
-                    BasicValueEnum::PointerValue(v) => v.as_basic_value_enum(),
+                    BasicValueEnum::PointerValue(v) => ctx
+                        .builder
+                        .build_ptr_to_int(v, ctx.context.i64_type(), "ptr_to_i")
+                        .as_basic_value_enum(),
                     _ => val.value,
                 };
                 ctx.builder.build_store(i64_ptr, stored_val);

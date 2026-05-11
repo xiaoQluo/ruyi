@@ -36,6 +36,18 @@ use crate::parser::ast::Program;
 use crate::typechecker::generics::MonomorphizationTracker;
 use crate::typechecker::types::Type;
 
+/// Extract a `Declaration` reference from a `ModuleItem`, handling both
+/// direct declarations and exported declarations.
+fn extract_declaration(item: &crate::parser::ast::ModuleItem) -> Option<&crate::parser::ast::Declaration> {
+    match item {
+        crate::parser::ast::ModuleItem::Declaration(decl) => Some(decl),
+        crate::parser::ast::ModuleItem::Export(
+            crate::parser::ast::ExportDecl::Declaration(decl),
+        ) => Some(decl),
+        _ => None,
+    }
+}
+
 pub struct TryContext<'ctx> {
     pub exception_ptr: inkwell::values::PointerValue<'ctx>,
     pub catch_bb: Option<inkwell::basic_block::BasicBlock<'ctx>>,
@@ -227,7 +239,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         let mut main_params: Option<&[crate::parser::ast::Param]> = None;
 
         for item in &program.items {
-            if let crate::parser::ast::ModuleItem::Declaration(decl) = item {
+            if let Some(decl) = extract_declaration(item) {
                 if let crate::parser::ast::Declaration::Function {
                     name,
                     params,
@@ -339,6 +351,22 @@ impl<'ctx> CodeGenerator<'ctx> {
                     }
                     compile_declaration(&mut ctx, decl)?;
                 }
+                crate::parser::ast::ModuleItem::Export(
+                    crate::parser::ast::ExportDecl::Declaration(decl),
+                ) => {
+                    // Exported declarations: skip on compilation error (stdlib may use
+                    // codegen features not yet implemented like chained member access).
+                    if let crate::parser::ast::Declaration::Function { name, is_async, .. } = decl {
+                        if name == "main" && !*is_async {
+                            continue;
+                        }
+                    }
+                    if let Err(_e) = compile_declaration(&mut ctx, decl) {
+                        // Skip: exported stdlib declaration that failed to compile.
+                        // The function remains declared but without a body;
+                        // if user code calls it, a linker error will occur.
+                    }
+                }
                 crate::parser::ast::ModuleItem::Statement(stmt) => {
                     compile_block(&mut ctx, std::slice::from_ref(stmt))?;
                 }
@@ -418,7 +446,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                     ctx.builder.build_call(scheduler_fn, &[], "run_scheduler");
                 }
             }
-            let zero = i32_ty.const_int(0, false);
+            let zero = BasicValueEnum::IntValue(i32_ty.const_int(0, false));
             ctx.builder.build_return(Some(&zero));
         }
 
