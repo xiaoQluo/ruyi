@@ -339,14 +339,11 @@ impl MonomorphizationTracker {
                     .iter()
                     .map(|param| {
                         let var_id = param.var_id;
-                        // First check the solution from the constraint solver
                         if let Some(ty) = solution.get(&var_id) {
                             ConstraintSolver::apply_subst(&solution, ty)
                         } else if let Some(ty) = subst.get(&var_id) {
-                            // Fall back to the type variable mapping
-                            ConstraintSolver::apply_subst(&subst, ty)
+                            ConstraintSolver::apply_subst(&solution, ty)
                         } else {
-                            // Unresolved type parameter defaults to dyn
                             Type::Dynamic
                         }
                     })

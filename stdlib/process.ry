@@ -90,7 +90,11 @@ export class Process {
     static fn spawn(command: string, args: Array<string>? = null): Process {
         let fullCommand = command;
         if (args !== null && args.length() > 0) {
-            fullCommand = command + " " + args.join(" ");
+            let i = 0;
+            while (i < args.length()) {
+                fullCommand = fullCommand + " " + args[i];
+                i = i + 1;
+            }
         }
         return Process.create(fullCommand);
     }
@@ -105,7 +109,11 @@ export class Process {
     static fn spawnWith(command: string, args: Array<string>?, options: ProcessOptions): Process {
         let fullCommand = command;
         if (args !== null && args.length() > 0) {
-            fullCommand = command + " " + args.join(" ");
+            let i = 0;
+            while (i < args.length()) {
+                fullCommand = fullCommand + " " + args[i];
+                i = i + 1;
+            }
         }
         return Process.create(fullCommand, options);
     }
@@ -115,7 +123,7 @@ export class Process {
      * @return Exit code of the process
      */
     fn wait(): int {
-        if (isRunning) {
+        if (self.isRunning) {
             let code = __process_wait(self);
             self.exitCode = code;
             self.isRunning = false;

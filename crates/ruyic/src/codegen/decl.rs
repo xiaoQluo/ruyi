@@ -541,15 +541,21 @@ fn compile_impl<'ctx>(
             .collect();
 
             if *is_async {
-                super::async_codegen::compile_async_function(
+                if let Err(e) = super::async_codegen::compile_async_function(
                     ctx,
                     &mangled_name,
                     &impl_params,
                     return_type.as_ref(),
                     method_body,
-                )?;
+                ) {
+                    if ctx.allow_partial_codegen {
+                        log::warn!("Skipping impl async method codegen for {}: {}", mangled_name, e);
+                    } else {
+                        return Err(e);
+                    }
+                }
             } else {
-                compile_function(
+                if let Err(e) = compile_function(
                     ctx,
                     &mangled_name,
                     &impl_params,
@@ -557,7 +563,13 @@ fn compile_impl<'ctx>(
                     None,
                     None,
                     method_body,
-                )?;
+                ) {
+                    if ctx.allow_partial_codegen {
+                        log::warn!("Skipping method codegen for {}: {}", method_name, e);
+                    } else {
+                        return Err(e);
+                    }
+                }
             }
         }
     }

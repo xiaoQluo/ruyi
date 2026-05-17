@@ -5,6 +5,7 @@
 // - Built-in Array type (literals, printing, pattern matching)
 // - stdlib/collections.ry: ArrayOps trait (push, pop, map, filter, etc.)
 // - stdlib/error.ry: assert(), error hierarchy, try/catch
+// - Map<K, V> and Set<T> from stdlib/collections.ry
 // =============================================================================
 
 import {
@@ -17,6 +18,8 @@ import {
     ParseError,
     IOError,
 } from "error";
+
+import { Map, Set } from "collections";
 
 // -----------------------------------------------------------------------------
 // 1. Built-in Array Type
@@ -205,7 +208,7 @@ fn assertDemo() {
 }
 
 // -----------------------------------------------------------------------------
-// 5. Error Type Hierarchy
+// 6. Error Type Hierarchy
 // -----------------------------------------------------------------------------
 fn errorHierarchyDemo() {
     print("=== Error Type Hierarchy ===\n\n");
@@ -275,7 +278,7 @@ fn errorHierarchyDemo() {
 }
 
 // -----------------------------------------------------------------------------
-// 6. Practical: Input Validation
+// 7. Practical: Input Validation
 // -----------------------------------------------------------------------------
 fn validateAge(age: int) {
     if (age < 0) {
@@ -356,44 +359,113 @@ fn validationDemo() {
 }
 
 // -----------------------------------------------------------------------------
-// 7. Collections API Reference
+// 8. Map Demo
 // -----------------------------------------------------------------------------
-fn collectionsApiReference() {
-    print("=== Collections API Reference ===\n\n");
+fn mapDemo() {
+    print("=== Map<K, V> Demo ===\n\n");
 
-    print("--- Map<K, V> Class ---\n");
-    print("  Map.new()             - Create empty map\n");
-    print("  map.set(key, value)   - Set key-value pair\n");
-    print("  map.get(key)          - Get value (returns Option<V>)\n");
-    print("  map.has(key)          - Check if key exists\n");
-    print("  map.delete(key)       - Remove key-value pair\n");
-    print("  map.size()            - Get entry count\n");
-    print("  map.keys()            - Get all keys as Array<K>\n");
-    print("  map.values()          - Get all values as Array<V>\n");
-    print("  map.iter()            - Create iterator\n");
+    // Create a new map
+    let m: Map<int, int> = Map.new();
+    print("Created empty map\n");
+    print("  size: ");
+    print(m.size());
+    print("\n\n");
 
-    print("\n--- Set<T> Class ---\n");
-    print("  Set.new()             - Create empty set\n");
-    print("  set.add(value)        - Add element\n");
-    print("  set.has(value)        - Check if element exists\n");
-    print("  set.delete(value)     - Remove element\n");
-    print("  set.size()            - Get element count\n");
-    print("  set.toArray()         - Convert to Array<T>\n");
-    print("  set.iter()            - Create iterator\n");
-
-    print("\n--- Example Usage ---\n");
-    print("  let scores: Map<string, int> = Map.new();\n");
-    print("  scores.set(\"Alice\", 95);\n");
-    print("  scores.set(\"Bob\", 87);\n");
-    print("  if (scores.has(\"Alice\")) {\n");
-    print("      print(scores.get(\"Alice\"));\n");
-    print("  }\n");
+    // Set key-value pairs
+    m.set(1, 100);
+    m.set(2, 200);
+    m.set(3, 300);
+    print("After set(1,100), set(2,200), set(3,300)\n");
+    print("  size: ");
+    print(m.size());
     print("\n");
-    print("  let tags: Set<string> = Set.new();\n");
-    print("  tags.add(\"rust\");\n");
-    print("  tags.add(\"compiler\");\n");
-    print("  print(tags.size());  // 2\n");
+
+    // Get values
+    print("  get(1): ");
+    print(m.get(1));
     print("\n");
+    print("  get(2): ");
+    print(m.get(2));
+    print("\n");
+    print("  get(3): ");
+    print(m.get(3));
+    print("\n\n");
+
+    // Has key
+    print("  has(2): ");
+    print(m.has(2));
+    print("\n");
+    print("  has(99): ");
+    print(m.has(99));
+    print("\n\n");
+
+    // Overwrite existing key
+    m.set(2, 999);
+    print("After set(2, 999) (overwrite)\n");
+    print("  get(2): ");
+    print(m.get(2));
+    print("\n");
+    print("  size: ");
+    print(m.size());
+    print("\n\n");
+
+    // Delete key
+    m.delete(1);
+    print("After delete(1)\n");
+    print("  has(1): ");
+    print(m.has(1));
+    print("\n");
+    print("  size: ");
+    print(m.size());
+    print("\n\n");
+}
+
+// -----------------------------------------------------------------------------
+// 9. Set Demo
+// -----------------------------------------------------------------------------
+fn setDemo() {
+    print("=== Set<T> Demo ===\n\n");
+
+    // Create a new set
+    let s: Set<int> = Set.new();
+    print("Created empty set\n");
+    print("  size: ");
+    print(s.size());
+    print("\n\n");
+
+    // Add elements
+    s.add(10);
+    s.add(20);
+    s.add(30);
+    print("After add(10), add(20), add(30)\n");
+    print("  size: ");
+    print(s.size());
+    print("\n");
+
+    // Deduplication
+    s.add(20);
+    print("After add(20) again (duplicate)\n");
+    print("  size: ");
+    print(s.size());
+    print("\n\n");
+
+    // Has element
+    print("  has(10): ");
+    print(s.has(10));
+    print("\n");
+    print("  has(99): ");
+    print(s.has(99));
+    print("\n\n");
+
+    // Delete element
+    s.delete(20);
+    print("After delete(20)\n");
+    print("  has(20): ");
+    print(s.has(20));
+    print("\n");
+    print("  size: ");
+    print(s.size());
+    print("\n\n");
 }
 
 // -----------------------------------------------------------------------------
@@ -411,7 +483,8 @@ fn main() {
     assertDemo();
     errorHierarchyDemo();
     validationDemo();
-    collectionsApiReference();
+    mapDemo();
+    setDemo();
 
     print("All demos completed successfully!\n");
 }

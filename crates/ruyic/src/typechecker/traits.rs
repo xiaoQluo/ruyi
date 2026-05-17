@@ -389,7 +389,7 @@ mod tests {
 
     #[test]
     fn test_impl_validation_missing_method() {
-        let mut registry = registry_from_source(
+        let registry = registry_from_source(
             "trait Printable { fn format(self): string; }\nimpl Printable for int { }",
         );
         let mut diagnostics = DiagnosticBag::new();

@@ -91,6 +91,9 @@ pub struct CodegenContext<'ctx, 'm> {
     pub current_return_type: Option<Type>,
     /// Tracks the expected type for the current expression being compiled (for null literal handling).
     pub expected_expr_type: Option<Type>,
+    /// When true, codegen errors for class/trait/impl declarations are logged as warnings
+    /// instead of failing. Used when compiling stdlib modules that may use unsupported patterns.
+    pub allow_partial_codegen: bool,
 }
 
 impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
@@ -117,6 +120,7 @@ impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
             rest_params: HashMap::new(),
             current_return_type: None,
             expected_expr_type: None,
+            allow_partial_codegen: false,
         }
     }
 
@@ -168,6 +172,7 @@ pub struct CodeGenerator<'ctx> {
     context: &'ctx Context,
     module: Module<'ctx>,
     builder: Builder<'ctx>,
+    pub allow_partial_codegen: bool,
 }
 
 impl<'ctx> CodeGenerator<'ctx> {
@@ -178,6 +183,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             context,
             module,
             builder,
+            allow_partial_codegen: false,
         }
     }
 
@@ -194,6 +200,7 @@ impl<'ctx> CodeGenerator<'ctx> {
     ) -> Result<(), String> {
         let mut ctx =
             CodegenContext::new(self.context, &self.module, self.context.create_builder());
+        ctx.allow_partial_codegen = self.allow_partial_codegen;
 
         declare_builtins(self.context, &self.module);
 
@@ -349,22 +356,31 @@ impl<'ctx> CodeGenerator<'ctx> {
                             continue;
                         }
                     }
-                    compile_declaration(&mut ctx, decl)?;
+                    if let Err(_e) = compile_declaration(&mut ctx, decl) {
+                        match decl {
+                            crate::parser::ast::Declaration::Class { .. }
+                            | crate::parser::ast::Declaration::Impl { .. }
+                            | crate::parser::ast::Declaration::Trait { .. } => {
+                                if !ctx.allow_partial_codegen {
+                                    return Err(format!("codegen error: {}", _e));
+                                }
+                            }
+                            _ => return Err(format!("codegen error: {}", _e)),
+                        }
+                    }
                 }
                 crate::parser::ast::ModuleItem::Export(
                     crate::parser::ast::ExportDecl::Declaration(decl),
                 ) => {
-                    // Exported declarations: skip on compilation error (stdlib may use
-                    // codegen features not yet implemented like chained member access).
                     if let crate::parser::ast::Declaration::Function { name, is_async, .. } = decl {
                         if name == "main" && !*is_async {
                             continue;
                         }
                     }
                     if let Err(_e) = compile_declaration(&mut ctx, decl) {
-                        // Skip: exported stdlib declaration that failed to compile.
-                        // The function remains declared but without a body;
-                        // if user code calls it, a linker error will occur.
+                        if !ctx.allow_partial_codegen {
+                            return Err(format!("codegen error: {}", _e));
+                        }
                     }
                 }
                 crate::parser::ast::ModuleItem::Statement(stmt) => {

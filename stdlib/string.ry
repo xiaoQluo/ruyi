@@ -89,3 +89,76 @@ export fn processTemplate(parts: Array<dyn>, context: dyn): string {
     }
     return result;
 }
+
+// ============================================================
+// String Instance Methods
+// ============================================================
+// NOTE: This class serves as a type-level contract only.
+// Method calls on string values are resolved by the codegen layer
+// (expr.rs) which maps String.methodName → __string_methodName.
+// The method bodies here are for type-checking purposes and are
+// NOT executed at runtime. See codegen/expr.rs for the actual
+// method resolution logic.
+// ============================================================
+
+export class String {
+    fn length(self: string): int {
+        return __string_length(self);
+    }
+
+    fn contains(self: string, substr: string): bool {
+        return __string_contains(self, substr);
+    }
+
+    fn startsWith(self: string, prefix: string): bool {
+        return __string_starts_with(self, prefix);
+    }
+
+    fn endsWith(self: string, suffix: string): bool {
+        return __string_ends_with(self, suffix);
+    }
+
+    fn indexOf(self: string, substr: string): int {
+        return __string_index_of(self, substr);
+    }
+
+    fn lastIndexOf(self: string, substr: string): int {
+        return __string_last_index_of(self, substr);
+    }
+
+    fn charAt(self: string, index: int): string {
+        return __string_char_at(self, index);
+    }
+
+    fn charCodeAt(self: string, index: int): int {
+        return __string_char_code_at(self, index);
+    }
+
+    fn repeat(self: string, count: int): string {
+        return __string_repeat(self, count);
+    }
+
+    fn substring(self: string, start: int, end: int): string {
+        return __string_substring(self, start, end);
+    }
+
+    fn slice(self: string, start: int, end: int): string {
+        return __string_substring(self, start, end);
+    }
+
+    fn toUpperCase(self: string): string {
+        return __string_to_upper_case(self);
+    }
+
+    fn toLowerCase(self: string): string {
+        return __string_to_lower_case(self);
+    }
+
+    fn trim(self: string): string {
+        return __string_trim(self);
+    }
+
+    fn split(self: string, separator: string): Array<string> {
+        return __string_split(self, separator);
+    }
+}

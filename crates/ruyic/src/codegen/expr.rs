@@ -7,7 +7,7 @@ use inkwell::types::BasicType;
  * @author Ruyi Team
  * @date 2026-05-01
  */
-use inkwell::values::BasicValueEnum;
+use inkwell::values::{BasicValue, BasicValueEnum};
 use inkwell::FloatPredicate;
 use inkwell::IntPredicate;
 
@@ -1934,6 +1934,7 @@ fn compile_call<'ctx>(
                             Type::Int => "Int".to_string(),
                             Type::Float => "Float".to_string(),
                             Type::Bool => "Bool".to_string(),
+                            Type::String => "String".to_string(),
                             Type::Nullable(inner) => match inner.as_ref() {
                                 Type::Named(n) => n.clone(),
                                 Type::Array(_) => "Array".to_string(),
@@ -1941,6 +1942,7 @@ fn compile_call<'ctx>(
                                 Type::Int => "Int".to_string(),
                                 Type::Float => "Float".to_string(),
                                 Type::Bool => "Bool".to_string(),
+                                Type::String => "String".to_string(),
                                 _ => return Err(format!("Cannot call method on type: {:?}", ty)),
                             },
                             _ => return Err(format!("Cannot call method on type: {:?}", ty)),
@@ -1964,6 +1966,7 @@ fn compile_call<'ctx>(
                         Type::Int => "Int".to_string(),
                         Type::Float => "Float".to_string(),
                         Type::Bool => "Bool".to_string(),
+                        Type::String => "String".to_string(),
                         Type::Nullable(inner) => match inner.as_ref() {
                             Type::Named(n) => n.clone(),
                             Type::Array(_) => "Array".to_string(),
@@ -1971,6 +1974,7 @@ fn compile_call<'ctx>(
                             Type::Int => "Int".to_string(),
                             Type::Float => "Float".to_string(),
                             Type::Bool => "Bool".to_string(),
+                            Type::String => "String".to_string(),
                             _ => return Err(format!("Cannot call method on type: {:?}", ty)),
                         },
                         _ => return Err(format!("Cannot call method on type: {:?}", ty)),
@@ -1987,7 +1991,7 @@ fn compile_call<'ctx>(
                         _ => return Err("Only simple field access supported".to_string()),
                     };
                     // Get field pointer and type from inner member access
-                    let (inner_var_ptr, inner_class_name, field_ty, field_index) = match inner_obj
+                    let (inner_var_ptr, _inner_class_name, field_ty, field_index) = match inner_obj
                         .as_ref()
                     {
                         Expr::SelfExpr => {
@@ -2073,6 +2077,13 @@ fn compile_call<'ctx>(
                     };
                     (Some(field_ptr), class_name)
                 }
+                Expr::StringLiteral(_) => {
+                    let str_result = compile_expr(ctx, object.as_ref())?;
+                    let str_ptr = str_result.value.into_pointer_value();
+                    let slot = ctx.builder.build_alloca(str_ptr.get_type(), "str_slot");
+                    ctx.builder.build_store(slot, str_ptr);
+                    (Some(slot), "String".to_string())
+                }
                 _ => return Err("Method calls only supported on identifiers".to_string()),
             };
             let func_name = format!("{}_{}", class_name, method_name);
@@ -2086,6 +2097,19 @@ fn compile_call<'ctx>(
                     "ruyi_float_to_string".to_string()
                 } else if class_name == "Bool" && method_name == "toString" {
                     "ruyi_bool_to_string".to_string()
+                } else if class_name == "String" {
+                    let snake_name = method_name
+                        .chars()
+                        .enumerate()
+                        .flat_map(|(i, c)| {
+                            if i > 0 && c.is_ascii_uppercase() {
+                                vec!['_', c.to_ascii_lowercase()]
+                            } else {
+                                vec![c.to_ascii_lowercase()]
+                            }
+                        })
+                        .collect::<String>();
+                    format!("__string_{}", snake_name)
                 } else {
                     // Trait impl pattern: {method}_{trait}_for_{type}
                     // Also try: {method}_for_{type} for simpler cases
@@ -2845,7 +2869,7 @@ fn compile_super_new<'ctx>(
 /// Layout: { tag: i8, value: i8* } where tag 0 = None/Err, tag 1 = Some/Ok
 fn compile_enum_variant<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_>,
-    variant: &str,
+    _variant: &str,
     args: &[crate::parser::ast::Argument],
     tag: u64,
 ) -> Result<ExprResult<'ctx>, String> {
@@ -2906,7 +2930,6 @@ fn compile_match_expr<'ctx>(
     value: &crate::parser::ast::Expr,
     arms: &[crate::parser::ast::MatchArm],
 ) -> Result<ExprResult<'ctx>, String> {
-    use crate::parser::ast::{Pattern, Statement};
     let func = ctx.current_function.ok_or("No current function")?;
     let scrutinee = compile_expr(ctx, value)?;
 
@@ -2983,7 +3006,7 @@ fn compile_stmt_for_match<'ctx>(
     stmt: &Statement,
     is_last: bool,
     result_ptr: inkwell::values::PointerValue<'ctx>,
-    llvm_ty: inkwell::types::BasicTypeEnum<'ctx>,
+    _llvm_ty: inkwell::types::BasicTypeEnum<'ctx>,
 ) -> Result<(), String> {
     use crate::parser::ast::Statement;
     match stmt {

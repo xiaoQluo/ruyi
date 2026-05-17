@@ -1,0 +1,28 @@
+/**
+ * Simple String test.
+ */
+
+fn main() {
+    let s = "hello world";
+    print("length: ");
+    print(s.length());
+    print("\n");
+
+    print("contains 'world': ");
+    print(s.contains("world"));
+    print("\n");
+
+    print("indexOf 'world': ");
+    print(s.indexOf("world"));
+    print("\n");
+
+    print("toUpperCase: ");
+    print(s.toUpperCase());
+    print("\n");
+
+    print("trim: ");
+    print("  hello  ".trim());
+    print("\n");
+
+    print("String tests passed!\n");
+}

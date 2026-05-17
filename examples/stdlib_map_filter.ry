@@ -1,0 +1,28 @@
+/**
+ * Test map/filter/reduce with arrow functions.
+ */
+
+fn main() {
+    // Test map
+    let nums1: Array<int> = [10, 20, 30];
+    let doubled = nums1.map((x: int) => x * 2);
+    print("doubled length: ");
+    print(doubled.length());
+    print("\n");
+
+    // Test filter
+    let nums2: Array<int> = [10, 20, 30, 40, 50];
+    let big = nums2.filter((x: int) => x > 25);
+    print("filtered length: ");
+    print(big.length());
+    print("\n");
+
+    // Test reduce
+    let nums3: Array<int> = [10, 20, 30];
+    let sum = nums3.reduce(0, (acc: int, x: int) => acc + x);
+    print("sum: ");
+    print(sum);
+    print("\n");
+
+    print("map/filter/reduce passed!\n");
+}

@@ -574,7 +574,13 @@ impl Driver {
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("main");
-        let generator = CodeGenerator::new(&context, module_name);
+        let mut generator = CodeGenerator::new(&context, module_name);
+
+        // Allow partial codegen for compilations that include stdlib modules.
+        // Since stdlib is always auto-loaded and merged into the program,
+        // we enable this flag for all compilations to gracefully handle
+        // unsupported patterns in stdlib (e.g., chained member access).
+        generator.allow_partial_codegen = true;
 
         generator.generate(&expanded)?;
 

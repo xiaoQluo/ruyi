@@ -84,19 +84,40 @@ impl ConstraintSolver {
 
     /// Applies the substitution to a type, replacing type variables with their solutions.
     pub fn apply_subst(subst: &HashMap<u32, Type>, ty: &Type) -> Type {
+        Self::apply_subst_inner(subst, ty, &mut std::collections::HashSet::new())
+    }
+
+    fn apply_subst_inner(
+        subst: &HashMap<u32, Type>,
+        ty: &Type,
+        resolving: &mut std::collections::HashSet<u32>,
+    ) -> Type {
         match ty {
-            Type::TypeVar(var) => match subst.get(&var.id) {
-                Some(resolved) => Self::apply_subst(subst, resolved),
-                None => ty.clone(),
-            },
-            Type::Nullable(inner) => Type::Nullable(Box::new(Self::apply_subst(subst, inner))),
-            Type::Array(elem) => Type::Array(Box::new(Self::apply_subst(subst, elem))),
+            Type::TypeVar(var) => {
+                if resolving.contains(&var.id) {
+                    return ty.clone();
+                }
+                if let Some(resolved) = subst.get(&var.id) {
+                    resolving.insert(var.id);
+                    let result = Self::apply_subst_inner(subst, resolved, resolving);
+                    resolving.remove(&var.id);
+                    result
+                } else {
+                    ty.clone()
+                }
+            }
+            Type::Nullable(inner) => {
+                Type::Nullable(Box::new(Self::apply_subst_inner(subst, inner, resolving)))
+            }
+            Type::Array(elem) => {
+                Type::Array(Box::new(Self::apply_subst_inner(subst, elem, resolving)))
+            }
             Type::Object(fields) => Type::Object(
                 fields
                     .iter()
                     .map(|f| crate::typechecker::types::ObjectField {
                         name: f.name.clone(),
-                        ty: Self::apply_subst(subst, &f.ty),
+                        ty: Self::apply_subst_inner(subst, &f.ty, resolving),
                         optional: f.optional,
                     })
                     .collect(),
@@ -105,12 +126,18 @@ impl ConstraintSolver {
                 params,
                 return_type,
             } => Type::Function {
-                params: params.iter().map(|p| Self::apply_subst(subst, p)).collect(),
-                return_type: Box::new(Self::apply_subst(subst, return_type)),
+                params: params
+                    .iter()
+                    .map(|p| Self::apply_subst_inner(subst, p, resolving))
+                    .collect(),
+                return_type: Box::new(Self::apply_subst_inner(subst, return_type, resolving)),
             },
             Type::Generic { base, args } => Type::Generic {
                 base: base.clone(),
-                args: args.iter().map(|a| Self::apply_subst(subst, a)).collect(),
+                args: args
+                    .iter()
+                    .map(|a| Self::apply_subst_inner(subst, a, resolving))
+                    .collect(),
             },
             _ => ty.clone(),
         }

@@ -11,6 +11,7 @@
  * @date 2026-05-02
  */
 use std::alloc::{alloc, Layout};
+use std::collections::{HashMap, HashSet};
 use std::ffi::CStr;
 use crate::gc_exports::ruyi_gc_alloc;
 
@@ -365,62 +366,646 @@ pub extern "C" fn __builtin_array_length(arr: *mut i8) -> i64 {
 }
 
 // ============================================================
-// __builtin_map_* — placeholder implementations
+// __builtin_map_* — HashMap<i64, i64> implementation
 // ============================================================
 
+/// Create a new empty map. Returns an opaque pointer to a boxed HashMap.
 #[no_mangle]
 pub extern "C" fn __builtin_map_create() -> *mut i8 {
-    std::ptr::null_mut()
+    let map: Box<HashMap<i64, i64>> = Box::new(HashMap::new());
+    Box::into_raw(map) as *mut i8
 }
 
+/// Get value by key. Returns the value as i64 (cast to *mut i8), or null if not found.
 #[no_mangle]
-pub extern "C" fn __builtin_map_get(_data: *mut i8, _key: *mut i8) -> *mut i8 {
-    std::ptr::null_mut()
+pub extern "C" fn __builtin_map_get(data: *mut i8, key: *mut i8) -> *mut i8 {
+    if data.is_null() {
+        return std::ptr::null_mut();
+    }
+    let map = unsafe { &*(data as *const HashMap<i64, i64>) };
+    let k = key as i64;
+    match map.get(&k) {
+        Some(&v) => v as *mut i8,
+        None => std::ptr::null_mut(),
+    }
 }
 
+/// Set a key-value pair in the map.
 #[no_mangle]
-pub extern "C" fn __builtin_map_set(_data: *mut i8, _key: *mut i8, _value: *mut i8) {}
-
-#[no_mangle]
-pub extern "C" fn __builtin_map_delete(_data: *mut i8, _key: *mut i8) {}
-
-#[no_mangle]
-pub extern "C" fn __builtin_map_has(_data: *mut i8, _key: *mut i8) -> bool {
-    false
+pub extern "C" fn __builtin_map_set(data: *mut i8, key: *mut i8, value: *mut i8) {
+    if data.is_null() {
+        return;
+    }
+    let map = unsafe { &mut *(data as *mut HashMap<i64, i64>) };
+    map.insert(key as i64, value as i64);
 }
 
+/// Delete a key from the map.
 #[no_mangle]
-pub extern "C" fn __builtin_map_keys(_data: *mut i8) -> *mut i8 {
-    std::ptr::null_mut()
+pub extern "C" fn __builtin_map_delete(data: *mut i8, key: *mut i8) {
+    if data.is_null() {
+        return;
+    }
+    let map = unsafe { &mut *(data as *mut HashMap<i64, i64>) };
+    map.remove(&(key as i64));
 }
 
+/// Check if the map contains a key.
 #[no_mangle]
-pub extern "C" fn __builtin_map_values(_data: *mut i8) -> *mut i8 {
-    std::ptr::null_mut()
+pub extern "C" fn __builtin_map_has(data: *mut i8, key: *mut i8) -> bool {
+    if data.is_null() {
+        return false;
+    }
+    let map = unsafe { &*(data as *const HashMap<i64, i64>) };
+    map.contains_key(&(key as i64))
+}
+
+/// Return all keys as a Ruyi array.
+#[no_mangle]
+pub extern "C" fn __builtin_map_keys(data: *mut i8) -> *mut i8 {
+    if data.is_null() {
+        return ruyi_array_alloc(0);
+    }
+    let map = unsafe { &*(data as *const HashMap<i64, i64>) };
+    let mut arr = ruyi_array_alloc(map.len() as i64);
+    for &k in map.keys() {
+        arr = ruyi_array_push(arr, k);
+    }
+    arr
+}
+
+/// Return all values as a Ruyi array.
+#[no_mangle]
+pub extern "C" fn __builtin_map_values(data: *mut i8) -> *mut i8 {
+    if data.is_null() {
+        return ruyi_array_alloc(0);
+    }
+    let map = unsafe { &*(data as *const HashMap<i64, i64>) };
+    let mut arr = ruyi_array_alloc(map.len() as i64);
+    for &v in map.values() {
+        arr = ruyi_array_push(arr, v);
+    }
+    arr
 }
 
 // ============================================================
-// __builtin_set_* — placeholder implementations
+// __builtin_set_* — HashSet<i64> implementation
 // ============================================================
 
+/// Create a new empty set. Returns an opaque pointer to a boxed HashSet.
 #[no_mangle]
 pub extern "C" fn __builtin_set_create() -> *mut i8 {
-    std::ptr::null_mut()
+    let set: Box<HashSet<i64>> = Box::new(HashSet::new());
+    Box::into_raw(set) as *mut i8
 }
 
+/// Add an element to the set.
 #[no_mangle]
-pub extern "C" fn __builtin_set_add(_data: *mut i8, _value: *mut i8) {}
-
-#[no_mangle]
-pub extern "C" fn __builtin_set_delete(_data: *mut i8, _value: *mut i8) -> bool {
-    false
+pub extern "C" fn __builtin_set_add(data: *mut i8, value: *mut i8) {
+    if data.is_null() {
+        return;
+    }
+    let set = unsafe { &mut *(data as *mut HashSet<i64>) };
+    set.insert(value as i64);
 }
 
+/// Delete an element from the set. Returns true if the element existed.
 #[no_mangle]
-pub extern "C" fn __builtin_set_has(_data: *mut i8, _value: *mut i8) -> bool {
-    false
+pub extern "C" fn __builtin_set_delete(data: *mut i8, value: *mut i8) -> bool {
+    if data.is_null() {
+        return false;
+    }
+    let set = unsafe { &mut *(data as *mut HashSet<i64>) };
+    set.remove(&(value as i64))
 }
 
+/// Check if the set contains an element.
+#[no_mangle]
+pub extern "C" fn __builtin_set_has(data: *mut i8, value: *mut i8) -> bool {
+    if data.is_null() {
+        return false;
+    }
+    let set = unsafe { &*(data as *const HashSet<i64>) };
+    set.contains(&(value as i64))
+}
+
+// ============================================================
+// __string_* — stdlib/string.ry entry points
+// ============================================================
+// NOTE: All __string_* functions that return *mut i8 allocate memory
+// via std::alloc::alloc(). These allocations are NOT freed by the caller.
+// Memory tracking will be handled by the GC in a future milestone.
+// Until then, frequent string operations will leak memory.
+// ============================================================
+
+/// Join array elements with a separator string.
+/// Array layout: [len: i64][cap: i64][data: *mut i8 * cap]
+/// Each element is treated as a null-terminated string pointer.
+#[no_mangle]
+pub extern "C" fn __string_join(arr: *mut i8, separator: *const i8) -> *mut i8 {
+    if arr.is_null() {
+        return ruyi_string_concat(std::ptr::null(), std::ptr::null());
+    }
+    unsafe {
+        let len = *(arr as *const i64);
+        if len == 0 {
+            return ruyi_string_concat(std::ptr::null(), std::ptr::null());
+        }
+
+        let data = arr.add(std::mem::size_of::<i64>() * 2) as *const i64;
+        let sep_bytes = if separator.is_null() {
+            &[]
+        } else {
+            CStr::from_ptr(separator).to_bytes()
+        };
+
+        let mut total: usize = 0;
+        for i in 0..len {
+            let elem = *data.add(i as usize);
+            if elem != 0 {
+                total += CStr::from_ptr(elem as *const i8).to_bytes().len();
+            }
+            if i > 0 {
+                total += sep_bytes.len();
+            }
+        }
+
+        let layout = Layout::from_size_align(total + 1, 1).unwrap();
+        let out = alloc(layout) as *mut i8;
+        if out.is_null() {
+            return std::ptr::null_mut();
+        }
+
+        let mut pos = 0usize;
+        for i in 0..len {
+            let elem = *data.add(i as usize);
+            if i > 0 {
+                std::ptr::copy_nonoverlapping(sep_bytes.as_ptr(), out.add(pos) as *mut u8, sep_bytes.len());
+                pos += sep_bytes.len();
+            }
+            if elem != 0 {
+                let elem_bytes = CStr::from_ptr(elem as *const i8).to_bytes();
+                std::ptr::copy_nonoverlapping(elem_bytes.as_ptr(), out.add(pos) as *mut u8, elem_bytes.len());
+                pos += elem_bytes.len();
+            }
+        }
+        *out.add(pos) = 0;
+        out
+    }
+}
+
+/// Create a string from a single Unicode code point.
+#[no_mangle]
+pub extern "C" fn __string_from_char_code(code: i64) -> *mut i8 {
+    let code = code as u32;
+    let mut buf = [0u8; 4];
+    let encoded = char::from_u32(code)
+        .unwrap_or('\u{FFFD}')
+        .encode_utf8(&mut buf);
+    let bytes = encoded.as_bytes();
+    unsafe {
+        let layout = Layout::from_size_align(bytes.len() + 1, 1).unwrap();
+        let out = alloc(layout) as *mut i8;
+        if out.is_null() {
+            return std::ptr::null_mut();
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out as *mut u8, bytes.len());
+        *out.add(bytes.len()) = 0;
+        out
+    }
+}
+
+/// Create a string from an array of Unicode code points.
+/// Array layout: [len: i64][cap: i64][data: i64 * cap]
+#[no_mangle]
+pub extern "C" fn __string_from_char_codes(arr: *mut i8) -> *mut i8 {
+    if arr.is_null() {
+        return ruyi_string_concat(std::ptr::null(), std::ptr::null());
+    }
+    unsafe {
+        let len = *(arr as *const i64);
+        if len == 0 {
+            let layout = Layout::from_size_align(1, 1).unwrap();
+            let out = alloc(layout) as *mut i8;
+            if !out.is_null() {
+                *out = 0;
+            }
+            return out;
+        }
+
+        let data = arr.add(std::mem::size_of::<i64>() * 2) as *const i64;
+
+        let mut total: usize = 0;
+        for i in 0..len {
+            let code = *data.add(i as usize) as u32;
+            if code <= 0x7F {
+                total += 1;
+            } else if code <= 0x7FF {
+                total += 2;
+            } else if code <= 0xFFFF {
+                total += 3;
+            } else {
+                total += 4;
+            }
+        }
+
+        let layout = Layout::from_size_align(total + 1, 1).unwrap();
+        let out = alloc(layout) as *mut i8;
+        if out.is_null() {
+            return std::ptr::null_mut();
+        }
+
+        let mut pos = 0usize;
+        let mut buf = [0u8; 4];
+        for i in 0..len {
+            let code = *data.add(i as usize) as u32;
+            let ch = char::from_u32(code).unwrap_or('\u{FFFD}');
+            let encoded = ch.encode_utf8(&mut buf);
+            let bytes = encoded.as_bytes();
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), out.add(pos) as *mut u8, bytes.len());
+            pos += bytes.len();
+        }
+        *out.add(pos) = 0;
+        out
+    }
+}
+
+/// Replace all occurrences of `pattern` in `input` with `replacement`.
+#[no_mangle]
+pub extern "C" fn __string_replace_all(
+    input: *const i8,
+    pattern: *const i8,
+    replacement: *const i8,
+) -> *mut i8 {
+    unsafe {
+        if input.is_null() || pattern.is_null() {
+            return ruyi_string_concat(std::ptr::null(), std::ptr::null());
+        }
+
+        let input_bytes = CStr::from_ptr(input).to_bytes();
+        let pattern_bytes = CStr::from_ptr(pattern).to_bytes();
+        let replacement_bytes = if replacement.is_null() {
+            &[]
+        } else {
+            CStr::from_ptr(replacement).to_bytes()
+        };
+
+        if pattern_bytes.is_empty() {
+            let layout = Layout::from_size_align(input_bytes.len() + 1, 1).unwrap();
+            let out = alloc(layout) as *mut i8;
+            if out.is_null() {
+                return std::ptr::null_mut();
+            }
+            std::ptr::copy_nonoverlapping(input_bytes.as_ptr(), out as *mut u8, input_bytes.len());
+            *out.add(input_bytes.len()) = 0;
+            return out;
+        }
+
+        let mut count = 0usize;
+        let mut search_start = 0usize;
+        while search_start <= input_bytes.len().saturating_sub(pattern_bytes.len()) {
+            if input_bytes[search_start..search_start + pattern_bytes.len()] == *pattern_bytes {
+                count += 1;
+                search_start += pattern_bytes.len();
+            } else {
+                search_start += 1;
+            }
+        }
+
+        let output_size = input_bytes.len()
+            + count * replacement_bytes.len().saturating_sub(pattern_bytes.len());
+        let layout = Layout::from_size_align(output_size + 1, 1).unwrap();
+        let out = alloc(layout) as *mut i8;
+        if out.is_null() {
+            return std::ptr::null_mut();
+        }
+
+        let mut pos = 0usize;
+        let mut search_start = 0usize;
+        while search_start <= input_bytes.len().saturating_sub(pattern_bytes.len()) {
+            if input_bytes[search_start..search_start + pattern_bytes.len()] == *pattern_bytes {
+                std::ptr::copy_nonoverlapping(
+                    replacement_bytes.as_ptr(),
+                    out.add(pos) as *mut u8,
+                    replacement_bytes.len(),
+                );
+                pos += replacement_bytes.len();
+                search_start += pattern_bytes.len();
+            } else {
+                *out.add(pos) = input_bytes[search_start] as i8;
+                pos += 1;
+                search_start += 1;
+            }
+        }
+        while search_start < input_bytes.len() {
+            *out.add(pos) = input_bytes[search_start] as i8;
+            pos += 1;
+            search_start += 1;
+        }
+        *out.add(pos) = 0;
+        out
+    }
+}
+
+/// Get the byte length of a null-terminated string.
+#[no_mangle]
+pub extern "C" fn __string_length(s: *const i8) -> i64 {
+    if s.is_null() {
+        return 0;
+    }
+    unsafe { CStr::from_ptr(s).to_bytes().len() as i64 }
+}
+
+/// Check if `haystack` contains `needle`.
+#[no_mangle]
+pub extern "C" fn __string_contains(haystack: *const i8, needle: *const i8) -> bool {
+    unsafe {
+        if haystack.is_null() || needle.is_null() {
+            return false;
+        }
+        let haystack_bytes = CStr::from_ptr(haystack).to_bytes();
+        let needle_bytes = CStr::from_ptr(needle).to_bytes();
+        if needle_bytes.is_empty() {
+            return true;
+        }
+        haystack_bytes.windows(needle_bytes.len()).any(|w| w == needle_bytes)
+    }
+}
+
+/// Check if `s` starts with `prefix`.
+#[no_mangle]
+pub extern "C" fn __string_starts_with(s: *const i8, prefix: *const i8) -> bool {
+    unsafe {
+        if s.is_null() || prefix.is_null() {
+            return false;
+        }
+        let s_bytes = CStr::from_ptr(s).to_bytes();
+        let prefix_bytes = CStr::from_ptr(prefix).to_bytes();
+        if prefix_bytes.is_empty() {
+            return true;
+        }
+        s_bytes.starts_with(prefix_bytes)
+    }
+}
+
+/// Check if `s` ends with `suffix`.
+#[no_mangle]
+pub extern "C" fn __string_ends_with(s: *const i8, suffix: *const i8) -> bool {
+    unsafe {
+        if s.is_null() || suffix.is_null() {
+            return false;
+        }
+        let s_bytes = CStr::from_ptr(s).to_bytes();
+        let suffix_bytes = CStr::from_ptr(suffix).to_bytes();
+        if suffix_bytes.is_empty() {
+            return true;
+        }
+        s_bytes.ends_with(suffix_bytes)
+    }
+}
+
+/// Find the first index of `needle` in `haystack`. Returns -1 if not found.
+#[no_mangle]
+pub extern "C" fn __string_index_of(haystack: *const i8, needle: *const i8) -> i64 {
+    unsafe {
+        if haystack.is_null() || needle.is_null() {
+            return -1;
+        }
+        let haystack_bytes = CStr::from_ptr(haystack).to_bytes();
+        let needle_bytes = CStr::from_ptr(needle).to_bytes();
+        if needle_bytes.is_empty() {
+            return 0;
+        }
+        haystack_bytes
+            .windows(needle_bytes.len())
+            .position(|w| w == needle_bytes)
+            .map(|i| i as i64)
+            .unwrap_or(-1)
+    }
+}
+
+/// Find the last index of `needle` in `haystack`. Returns -1 if not found.
+#[no_mangle]
+pub extern "C" fn __string_last_index_of(haystack: *const i8, needle: *const i8) -> i64 {
+    unsafe {
+        if haystack.is_null() || needle.is_null() {
+            return -1;
+        }
+        let haystack_bytes = CStr::from_ptr(haystack).to_bytes();
+        let needle_bytes = CStr::from_ptr(needle).to_bytes();
+        if needle_bytes.is_empty() {
+            return haystack_bytes.len() as i64;
+        }
+        haystack_bytes
+            .windows(needle_bytes.len())
+            .rposition(|w| w == needle_bytes)
+            .map(|i| i as i64)
+            .unwrap_or(-1)
+    }
+}
+
+/// Get the character at `index`. Returns a new single-character string.
+#[no_mangle]
+pub extern "C" fn __string_char_at(s: *const i8, index: i64) -> *mut i8 {
+    unsafe {
+        if s.is_null() || index < 0 {
+            return ruyi_string_concat(std::ptr::null(), std::ptr::null());
+        }
+        let s_bytes = CStr::from_ptr(s).to_bytes();
+        let s_str = std::str::from_utf8_unchecked(s_bytes);
+        let ch = s_str.chars().nth(index as usize);
+        match ch {
+            Some(c) => {
+                let mut buf = [0u8; 4];
+                let encoded = c.encode_utf8(&mut buf);
+                let bytes = encoded.as_bytes();
+                let layout = Layout::from_size_align(bytes.len() + 1, 1).unwrap();
+                let out = alloc(layout) as *mut i8;
+                if out.is_null() {
+                    return std::ptr::null_mut();
+                }
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), out as *mut u8, bytes.len());
+                *out.add(bytes.len()) = 0;
+                out
+            }
+            None => ruyi_string_concat(std::ptr::null(), std::ptr::null()),
+        }
+    }
+}
+
+/// Get the Unicode code point at `index`. Returns -1 if out of bounds.
+#[no_mangle]
+pub extern "C" fn __string_char_code_at(s: *const i8, index: i64) -> i64 {
+    unsafe {
+        if s.is_null() || index < 0 {
+            return -1;
+        }
+        let s_bytes = CStr::from_ptr(s).to_bytes();
+        let s_str = std::str::from_utf8_unchecked(s_bytes);
+        s_str.chars().nth(index as usize).map(|c| c as u32 as i64).unwrap_or(-1)
+    }
+}
+
+/// Repeat string `s` `count` times.
+#[no_mangle]
+pub extern "C" fn __string_repeat(s: *const i8, count: i64) -> *mut i8 {
+    unsafe {
+        if s.is_null() || count <= 0 {
+            return ruyi_string_concat(std::ptr::null(), std::ptr::null());
+        }
+        let s_bytes = CStr::from_ptr(s).to_bytes();
+        let total = s_bytes.len() * count as usize;
+        let layout = Layout::from_size_align(total + 1, 1).unwrap();
+        let out = alloc(layout) as *mut i8;
+        if out.is_null() {
+            return std::ptr::null_mut();
+        }
+        for i in 0..count {
+            std::ptr::copy_nonoverlapping(
+                s_bytes.as_ptr(),
+                out.add(i as usize * s_bytes.len()) as *mut u8,
+                s_bytes.len(),
+            );
+        }
+        *out.add(total) = 0;
+        out
+    }
+}
+
+/// Extract substring from `start` to `end`.
+#[no_mangle]
+pub extern "C" fn __string_substring(s: *const i8, start: i64, end: i64) -> *mut i8 {
+    unsafe {
+        if s.is_null() {
+            return ruyi_string_concat(std::ptr::null(), std::ptr::null());
+        }
+        let s_bytes = CStr::from_ptr(s).to_bytes();
+        let s_str = std::str::from_utf8_unchecked(s_bytes);
+        let len = s_str.len() as i64;
+        let start = if start < 0 { 0 } else if start > len { len } else { start } as usize;
+        let end = if end < 0 { 0 } else if end > len { len } else { end } as usize;
+        let end = if end < start { start } else { end };
+        let sub = &s_str[start..end];
+        let bytes = sub.as_bytes();
+        let layout = Layout::from_size_align(bytes.len() + 1, 1).unwrap();
+        let out = alloc(layout) as *mut i8;
+        if out.is_null() {
+            return std::ptr::null_mut();
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out as *mut u8, bytes.len());
+        *out.add(bytes.len()) = 0;
+        out
+    }
+}
+
+/// Convert string to uppercase.
+#[no_mangle]
+pub extern "C" fn __string_to_upper_case(s: *const i8) -> *mut i8 {
+    unsafe {
+        if s.is_null() {
+            return ruyi_string_concat(std::ptr::null(), std::ptr::null());
+        }
+        let s_bytes = CStr::from_ptr(s).to_bytes();
+        let s_str = std::str::from_utf8_unchecked(s_bytes);
+        let upper: String = s_str.to_uppercase();
+        let bytes = upper.into_bytes();
+        let layout = Layout::from_size_align(bytes.len() + 1, 1).unwrap();
+        let out = alloc(layout) as *mut i8;
+        if out.is_null() {
+            return std::ptr::null_mut();
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out as *mut u8, bytes.len());
+        *out.add(bytes.len()) = 0;
+        out
+    }
+}
+
+/// Convert string to lowercase.
+#[no_mangle]
+pub extern "C" fn __string_to_lower_case(s: *const i8) -> *mut i8 {
+    unsafe {
+        if s.is_null() {
+            return ruyi_string_concat(std::ptr::null(), std::ptr::null());
+        }
+        let s_bytes = CStr::from_ptr(s).to_bytes();
+        let s_str = std::str::from_utf8_unchecked(s_bytes);
+        let lower: String = s_str.to_lowercase();
+        let bytes = lower.into_bytes();
+        let layout = Layout::from_size_align(bytes.len() + 1, 1).unwrap();
+        let out = alloc(layout) as *mut i8;
+        if out.is_null() {
+            return std::ptr::null_mut();
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out as *mut u8, bytes.len());
+        *out.add(bytes.len()) = 0;
+        out
+    }
+}
+
+/// Trim whitespace from both ends.
+#[no_mangle]
+pub extern "C" fn __string_trim(s: *const i8) -> *mut i8 {
+    unsafe {
+        if s.is_null() {
+            return ruyi_string_concat(std::ptr::null(), std::ptr::null());
+        }
+        let s_bytes = CStr::from_ptr(s).to_bytes();
+        let s_str = std::str::from_utf8_unchecked(s_bytes);
+        let trimmed = s_str.trim();
+        let bytes = trimmed.as_bytes();
+        let layout = Layout::from_size_align(bytes.len() + 1, 1).unwrap();
+        let out = alloc(layout) as *mut i8;
+        if out.is_null() {
+            return std::ptr::null_mut();
+        }
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), out as *mut u8, bytes.len());
+        *out.add(bytes.len()) = 0;
+        out
+    }
+}
+
+/// Split string by separator into array.
+/// Returns array pointer: [len: i64][cap: i64][data: *mut i8 * cap]
+#[no_mangle]
+pub extern "C" fn __string_split(s: *const i8, separator: *const i8) -> *mut i8 {
+    unsafe {
+        if s.is_null() {
+            return ruyi_array_alloc(0);
+        }
+        let s_bytes = CStr::from_ptr(s).to_bytes();
+        let s_str = std::str::from_utf8_unchecked(s_bytes);
+        let sep_bytes = if separator.is_null() {
+            &[]
+        } else {
+            CStr::from_ptr(separator).to_bytes()
+        };
+        let sep_str = std::str::from_utf8_unchecked(sep_bytes);
+
+        let parts: Vec<&str> = if sep_str.is_empty() {
+            // Split into individual characters
+            s_str.split("").filter(|s| !s.is_empty()).collect()
+        } else {
+            s_str.split(sep_str).collect()
+        };
+
+        let mut arr = ruyi_array_alloc(parts.len() as i64);
+        for part in &parts {
+            let bytes = part.as_bytes();
+            let layout = Layout::from_size_align(bytes.len() + 1, 1).unwrap();
+            let out = alloc(layout) as *mut i8;
+            if !out.is_null() {
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), out as *mut u8, bytes.len());
+                *out.add(bytes.len()) = 0;
+            }
+            arr = ruyi_array_push(arr, out as i64);
+        }
+        arr
+    }
+}
+
+// ============================================================
+// __string_* tests
+// ============================================================
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -596,6 +1181,140 @@ mod tests {
             let cstr = CStr::from_ptr(result);
             assert_eq!(cstr.to_str().unwrap(), "3.14");
             dealloc(result as *mut u8, Layout::from_size_align(5, 1).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_string_join_basic() {
+        let sep = CString::new(", ").unwrap();
+        let a = CString::new("hello").unwrap();
+        let b = CString::new("world").unwrap();
+        unsafe {
+            let arr = ruyi_array_alloc(2);
+            let data = arr.add(std::mem::size_of::<i64>() * 2) as *mut i64;
+            *data.add(0) = a.as_ptr() as i64;
+            *data.add(1) = b.as_ptr() as i64;
+            *(arr as *mut i64) = 2;
+
+            let result = __string_join(arr, sep.as_ptr());
+            assert!(!result.is_null());
+            let cstr = CStr::from_ptr(result);
+            assert_eq!(cstr.to_str().unwrap(), "hello, world");
+            dealloc(result as *mut u8, Layout::from_size_align(13, 1).unwrap());
+            dealloc(arr as *mut u8, Layout::from_size_align(std::mem::size_of::<i64>() * 2 + 2 * std::mem::size_of::<i64>(), std::mem::align_of::<i64>()).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_string_join_empty_array() {
+        let sep = CString::new(",").unwrap();
+        unsafe {
+            let arr = ruyi_array_alloc(0);
+            let result = __string_join(arr, sep.as_ptr());
+            assert!(!result.is_null());
+            let cstr = CStr::from_ptr(result);
+            assert_eq!(cstr.to_str().unwrap(), "");
+            dealloc(result as *mut u8, Layout::from_size_align(1, 1).unwrap());
+            dealloc(arr as *mut u8, Layout::from_size_align(std::mem::size_of::<i64>() * 2, std::mem::align_of::<i64>()).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_string_join_null_array() {
+        let sep = CString::new(",").unwrap();
+        unsafe {
+            let result = __string_join(std::ptr::null_mut(), sep.as_ptr());
+            assert!(!result.is_null());
+            let cstr = CStr::from_ptr(result);
+            assert_eq!(cstr.to_str().unwrap(), "");
+            dealloc(result as *mut u8, Layout::from_size_align(1, 1).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_string_from_char_code_basic() {
+        unsafe {
+            let result = __string_from_char_code(65);
+            assert!(!result.is_null());
+            let cstr = CStr::from_ptr(result);
+            assert_eq!(cstr.to_str().unwrap(), "A");
+            dealloc(result as *mut u8, Layout::from_size_align(2, 1).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_string_from_char_code_unicode() {
+        unsafe {
+            let result = __string_from_char_code(0x1F600);
+            assert!(!result.is_null());
+            let cstr = CStr::from_ptr(result);
+            assert_eq!(cstr.to_str().unwrap(), "😀");
+            dealloc(result as *mut u8, Layout::from_size_align(5, 1).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_string_replace_all_basic() {
+        let input = CString::new("hello world hello").unwrap();
+        let pattern = CString::new("hello").unwrap();
+        let replacement = CString::new("hi").unwrap();
+        unsafe {
+            let result = __string_replace_all(input.as_ptr(), pattern.as_ptr(), replacement.as_ptr());
+            assert!(!result.is_null());
+            let cstr = CStr::from_ptr(result);
+            assert_eq!(cstr.to_str().unwrap(), "hi world hi");
+            dealloc(result as *mut u8, Layout::from_size_align(10, 1).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_string_replace_all_no_match() {
+        let input = CString::new("hello world").unwrap();
+        let pattern = CString::new("xyz").unwrap();
+        let replacement = CString::new("abc").unwrap();
+        unsafe {
+            let result = __string_replace_all(input.as_ptr(), pattern.as_ptr(), replacement.as_ptr());
+            assert!(!result.is_null());
+            let cstr = CStr::from_ptr(result);
+            assert_eq!(cstr.to_str().unwrap(), "hello world");
+            dealloc(result as *mut u8, Layout::from_size_align(12, 1).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_string_replace_all_empty_pattern() {
+        let input = CString::new("hello").unwrap();
+        let pattern = CString::new("").unwrap();
+        let replacement = CString::new("x").unwrap();
+        unsafe {
+            let result = __string_replace_all(input.as_ptr(), pattern.as_ptr(), replacement.as_ptr());
+            assert!(!result.is_null());
+            let cstr = CStr::from_ptr(result);
+            assert_eq!(cstr.to_str().unwrap(), "hello");
+            dealloc(result as *mut u8, Layout::from_size_align(6, 1).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_string_length_basic() {
+        let s = CString::new("hello").unwrap();
+        unsafe {
+            assert_eq!(__string_length(s.as_ptr()), 5);
+        }
+    }
+
+    #[test]
+    fn test_string_length_empty() {
+        let s = CString::new("").unwrap();
+        unsafe {
+            assert_eq!(__string_length(s.as_ptr()), 0);
+        }
+    }
+
+    #[test]
+    fn test_string_length_null() {
+        unsafe {
+            assert_eq!(__string_length(std::ptr::null()), 0);
         }
     }
 }

@@ -60,8 +60,9 @@ export trait ArrayOps<T> {
     /**
      * Adds an element to the end of the array.
      * @param value Element to add
+     * @return The array (possibly reallocated)
      */
-    fn push(self, value: T): void;
+    fn push(self, value: T): Array<T>;
 
     /**
      * Removes and returns the last element.
@@ -199,11 +200,9 @@ export class ArrayIterator<T> {
      * Creates a new array iterator.
      * @param arr Array to iterate over
      */
-    fn new(arr: Array<T>): ArrayIterator<T> {
-        let iter: ArrayIterator<T>;
-        iter._array = arr;
-        iter._index = 0;
-        return iter;
+    fn new(arr: Array<T>) {
+        self._array = arr;
+        self._index = 0;
     }
 
     /**
@@ -228,19 +227,17 @@ export class ArrayIterator<T> {
  * Key-value map implementation with generic type parameters.
  */
 export class Map<K, V> {
-    _data: dyn;
+    _data: int;
     _size: int;
     _keys: Array<K>;
 
     /**
      * Creates a new empty map.
      */
-    fn new(): Map<K, V> {
-        let m: Map<K, V>;
-        m._data = __builtin_map_create();
-        m._size = 0;
-        m._keys = [];
-        return m;
+    fn new() {
+        self._data = __builtin_map_create();
+        self._size = 0;
+        self._keys = [];
     }
 
     /**
@@ -255,8 +252,8 @@ export class Map<K, V> {
      * @param key Key to look up
      * @return Value wrapped in Option, or None if not found
      */
-    fn get(self, key: K): Option<V> {
-        return __builtin_map_get(self._data, key);
+    fn get(self, key: K): V? {
+        if (!self.has(key)) { return null; } return __builtin_map_get(self._data, key);
     }
 
     /**
@@ -269,7 +266,7 @@ export class Map<K, V> {
         __builtin_map_set(self._data, key, value);
         if (!existed) {
             self._size = self._size + 1;
-            self._keys.push(key);
+            self._keys = __builtin_array_push(self._keys, key);
         }
     }
 
@@ -340,17 +337,17 @@ export class MapIterator<K, V> {
     _map: Map<K, V>;
     _index: int;
 
-    fn new(m: Map<K, V>): MapIterator<K, V> {
-        let iter: MapIterator<K, V>;
-        iter._map = m;
-        iter._index = 0;
-        return iter;
+    fn new(m: Map<K, V>) {
+        self._map = m;
+        self._index = 0;
     }
 
     fn next(self): { key: K, value: V }? {
-        if (self._index < __builtin_array_length(self._map._keys)) {
-            let key = __builtin_array_get(self._map._keys, self._index);
-            let value = self._map.get(key).unwrap();
+        let mapKeys = self._map._keys;
+        let mapData = self._map._data;
+        if (self._index < __builtin_array_length(mapKeys)) {
+            let key = __builtin_array_get(mapKeys, self._index);
+            let value = __builtin_map_get(mapData, key);
             self._index = self._index + 1;
             return { key: key, value: value };
         }
@@ -366,19 +363,17 @@ export class MapIterator<K, V> {
  * Set implementation with generic type parameter.
  */
 export class Set<T> {
-    _data: dyn;
+    _data: int;
     _size: int;
     _elements: Array<T>;
 
     /**
      * Creates a new empty set.
      */
-    fn new(): Set<T> {
-        let s: Set<T>;
-        s._data = __builtin_set_create();
-        s._size = 0;
-        s._elements = [];
-        return s;
+    fn new() {
+        self._data = __builtin_set_create();
+        self._size = 0;
+        self._elements = [];
     }
 
     /**
@@ -396,7 +391,7 @@ export class Set<T> {
         if (!self.has(value)) {
             __builtin_set_add(self._data, value);
             self._size = self._size + 1;
-            self._elements.push(value);
+            self._elements = __builtin_array_push(self._elements, value);
         }
     }
 
@@ -467,16 +462,15 @@ export class SetIterator<T> {
     _set: Set<T>;
     _index: int;
 
-    fn new(s: Set<T>): SetIterator<T> {
-        let iter: SetIterator<T>;
-        iter._set = s;
-        iter._index = 0;
-        return iter;
+    fn new(s: Set<T>) {
+        self._set = s;
+        self._index = 0;
     }
 
     fn next(self): T? {
-        if (self._index < __builtin_array_length(self._set._elements)) {
-            let elem = __builtin_array_get(self._set._elements, self._index);
+        let setElements = self._set._elements;
+        if (self._index < __builtin_array_length(setElements)) {
+            let elem = __builtin_array_get(setElements, self._index);
             self._index = self._index + 1;
             return elem;
         }
