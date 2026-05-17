@@ -7,7 +7,7 @@
  * @date 2026-05-01
  */
 use inkwell::types::{BasicType, BasicTypeEnum};
-use inkwell::values::{BasicValue, BasicValueEnum};
+use inkwell::values::BasicValueEnum;
 
 use super::builtins::{build_ruyi_clear_pending_exception, build_ruyi_get_pending_exception};
 use super::expr::{compile_expr, ExprResult};
@@ -97,7 +97,6 @@ pub fn compile_stmt<'ctx>(
             value,
             body,
         } => compile_while_let(ctx, pattern, value, body),
-        _ => Err(format!("Unsupported statement: {:?}", stmt)),
     }
 }
 
@@ -1050,7 +1049,7 @@ fn bind_pattern_in_codegen<'ctx>(
     pattern: &crate::parser::ast::Pattern,
     val: &ExprResult<'ctx>,
 ) -> Result<(), String> {
-    use crate::parser::ast::{ArrayPatternElement, ObjectPatternField, Pattern as P};
+    use crate::parser::ast::{ObjectPatternField, Pattern as P};
     match pattern {
         P::Identifier(name) => {
             let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &val.ty);
@@ -1065,7 +1064,7 @@ fn bind_pattern_in_codegen<'ctx>(
             };
 
             let i32_ty = ctx.context.i32_type();
-            let i64_ty = ctx.context.i64_type();
+            let _i64_ty = ctx.context.i64_type();
 
             match &val.ty {
                 Type::Named(class_name) => {

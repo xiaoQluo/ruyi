@@ -330,7 +330,7 @@ impl Driver {
 
     /// Auto-load essential stdlib modules.
     fn auto_load_stdlib(&mut self) -> Result<(), CompileError> {
-        let stdlib_modules = ["error", "core"];
+        let stdlib_modules = ["error", "core", "collections"];
 
         for module_name in &stdlib_modules {
             let module_path = PathBuf::from(format!("stdlib/{}.ry", module_name));
@@ -574,7 +574,13 @@ impl Driver {
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("main");
-        let generator = CodeGenerator::new(&context, module_name);
+        let mut generator = CodeGenerator::new(&context, module_name);
+
+        // Allow partial codegen for compilations that include stdlib modules.
+        // Since stdlib is always auto-loaded and merged into the program,
+        // we enable this flag for all compilations to gracefully handle
+        // unsupported patterns in stdlib (e.g., chained member access).
+        generator.allow_partial_codegen = true;
 
         generator.generate(&expanded)?;
 

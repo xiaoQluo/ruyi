@@ -88,7 +88,6 @@ pub fn bind_array_pattern<'ctx>(
     };
 
     let i32_ty = ctx.context.i32_type();
-    let i64_ty = ctx.context.i64_type();
 
     let mut idx = 0;
     for elem in elements {

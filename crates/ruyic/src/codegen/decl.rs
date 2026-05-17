@@ -241,25 +241,34 @@ pub fn compile_function<'ctx>(
     // Compile function body
     let result = compile_block(ctx, body);
 
-    // Ensure the function has a terminator
-    let current_bb = ctx.builder.get_insert_block().unwrap();
-    if current_bb.get_terminator().is_none() {
-        ctx.emit_gc_root_removals();
-        if ret_type == Type::Void {
-            ctx.builder.build_return(None);
-        } else {
-            let default_val = match ret_type {
-                Type::Int => BasicValueEnum::IntValue(ctx.context.i64_type().const_int(0, true)),
-                Type::Float => BasicValueEnum::FloatValue(ctx.context.f64_type().const_float(0.0)),
-                Type::Bool => BasicValueEnum::IntValue(ctx.context.bool_type().const_int(0, false)),
-                _ => BasicValueEnum::PointerValue(
-                    ctx.context
-                        .i8_type()
-                        .ptr_type(Default::default())
-                        .const_null(),
-                ),
-            };
-            ctx.builder.build_return(Some(&default_val));
+    // Ensure ALL basic blocks in the function have terminators.
+    // When compilation fails mid-way (e.g., unsupported codegen features),
+    // some intermediate basic blocks may lack terminators.
+    for bb in function.get_basic_blocks() {
+        if bb.get_terminator().is_none() {
+            ctx.builder.position_at_end(bb);
+            if ret_type == Type::Void {
+                ctx.builder.build_return(None);
+            } else {
+                let default_val = match ret_type {
+                    Type::Int => {
+                        BasicValueEnum::IntValue(ctx.context.i64_type().const_int(0, true))
+                    }
+                    Type::Float => {
+                        BasicValueEnum::FloatValue(ctx.context.f64_type().const_float(0.0))
+                    }
+                    Type::Bool => {
+                        BasicValueEnum::IntValue(ctx.context.bool_type().const_int(0, false))
+                    }
+                    _ => BasicValueEnum::PointerValue(
+                        ctx.context
+                            .i8_type()
+                            .ptr_type(Default::default())
+                            .const_null(),
+                    ),
+                };
+                ctx.builder.build_return(Some(&default_val));
+            }
         }
     }
 
@@ -532,15 +541,21 @@ fn compile_impl<'ctx>(
             .collect();
 
             if *is_async {
-                super::async_codegen::compile_async_function(
+                if let Err(e) = super::async_codegen::compile_async_function(
                     ctx,
                     &mangled_name,
                     &impl_params,
                     return_type.as_ref(),
                     method_body,
-                )?;
+                ) {
+                    if ctx.allow_partial_codegen {
+                        log::warn!("Skipping impl async method codegen for {}: {}", mangled_name, e);
+                    } else {
+                        return Err(e);
+                    }
+                }
             } else {
-                compile_function(
+                if let Err(e) = compile_function(
                     ctx,
                     &mangled_name,
                     &impl_params,
@@ -548,7 +563,13 @@ fn compile_impl<'ctx>(
                     None,
                     None,
                     method_body,
-                )?;
+                ) {
+                    if ctx.allow_partial_codegen {
+                        log::warn!("Skipping method codegen for {}: {}", method_name, e);
+                    } else {
+                        return Err(e);
+                    }
+                }
             }
         }
     }

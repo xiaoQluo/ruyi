@@ -1,0 +1,37 @@
+/**
+ * Simple stdlib test.
+ */
+import { Map, Set } from "collections";
+
+fn main() {
+    // Test Array push
+    let nums: Array<int> = [1, 2, 3];
+    let nums = nums.push(4);
+    let nums = nums.push(5);
+    print("nums length: ");
+    print(nums.length());
+    print("\n");
+
+    // Test Map
+    let m: Map<string, int> = Map.new();
+    m.set("a", 1);
+    print("map size: ");
+    print(m.size());
+    print("\n");
+
+    // Test Set
+    let s: Set<int> = Set.new();
+    s.add(1);
+    s.add(2);
+    print("set size: ");
+    print(s.size());
+    print("\n");
+
+    // Test error
+    let e = Error.new("test");
+    print("error: ");
+    print(e.message);
+    print("\n");
+
+    print("done\n");
+}

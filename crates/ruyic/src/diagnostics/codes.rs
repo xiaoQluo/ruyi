@@ -30,14 +30,13 @@ pub enum ErrorCategory {
 }
 
 impl ErrorCategory {
-    /// Get the prefix for this category.
-    pub fn prefix(&self) -> &'static str {
+    pub(crate) fn prefix(&self) -> &'static str {
         match self {
-            ErrorCategory::Lexical => "E1",
-            ErrorCategory::Syntax => "E2",
-            ErrorCategory::Type => "E3",
-            ErrorCategory::Resolution => "E4",
-            ErrorCategory::Warning => "W1",
+            ErrorCategory::Lexical
+            | ErrorCategory::Syntax
+            | ErrorCategory::Type
+            | ErrorCategory::Resolution => "E",
+            ErrorCategory::Warning => "W",
         }
     }
 }

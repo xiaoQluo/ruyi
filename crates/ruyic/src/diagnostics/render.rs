@@ -4,7 +4,7 @@
  * @author Ruyi Team
  * @date 2026-05-02
  */
-use crate::diagnostics::codes::{ErrorCategory, ErrorCode};
+use crate::diagnostics::codes::ErrorCode;
 use std::env;
 use std::io::{self, Write};
 
@@ -67,16 +67,7 @@ pub enum RenderSeverity {
     Help,
 }
 
-impl RenderSeverity {
-    fn prefix(&self) -> &'static str {
-        match self {
-            RenderSeverity::Error => "error",
-            RenderSeverity::Warning => "warning",
-            RenderSeverity::Note => "note",
-            RenderSeverity::Help => "help",
-        }
-    }
-}
+impl RenderSeverity {}
 
 /// A renderable diagnostic with optional source code context.
 #[derive(Debug, Clone)]
@@ -149,7 +140,7 @@ impl SourceContext {
     pub fn multi_line(
         file: &str,
         lines: &[&str],
-        primary_line: usize,
+        _primary_line: usize,
         highlight: (usize, usize),
     ) -> Self {
         Self {
@@ -530,6 +521,7 @@ mod tests {
 
     #[test]
     fn test_error_code_in_diagnostic() {
+        use crate::diagnostics::codes::ErrorCategory;
         let diag = DiagnosticBuilder::error("Type mismatch")
             .code(ErrorCode::new(ErrorCategory::Type, 3001))
             .at(SourceLocation::new(10, 5))

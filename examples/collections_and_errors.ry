@@ -1,0 +1,490 @@
+// =============================================================================
+// Collections & Error Handling - Ruyi Stdlib Example
+// =============================================================================
+// Demonstrates:
+// - Built-in Array type (literals, printing, pattern matching)
+// - stdlib/collections.ry: ArrayOps trait (push, pop, map, filter, etc.)
+// - stdlib/error.ry: assert(), error hierarchy, try/catch
+// - Map<K, V> and Set<T> from stdlib/collections.ry
+// =============================================================================
+
+import {
+    assert,
+    RangeError,
+    ArgumentError,
+    AssertionError,
+    Error,
+    TypeError,
+    ParseError,
+    IOError,
+} from "error";
+
+import { Map, Set } from "collections";
+
+// -----------------------------------------------------------------------------
+// 1. Built-in Array Type
+// -----------------------------------------------------------------------------
+fn arrayLiteralDemo() {
+    print("=== Built-in Array Type ===\n\n");
+
+    // Array literal creation
+    let numbers: Array<int> = [10, 20, 30, 40, 50];
+    print("numbers: ");
+    print(numbers);
+    print("\n\n");
+
+    // Array of bools
+    let flags: Array<bool> = [true, false, true];
+    print("flags: ");
+    print(flags);
+    print("\n\n");
+
+    // Empty array
+    let empty: Array<int> = [];
+    print("empty: ");
+    print(empty);
+    print("\n\n");
+
+    // Array in pattern matching
+    print("--- Array Pattern Matching Preview ---\n");
+    matchArray(numbers);
+    print("\n");
+}
+
+fn matchArray(arr: Array<int>) {
+    match (arr) {
+        [] => { print("  empty array\n"); }
+        _ => { print("  non-empty array: "); print(arr); print("\n"); }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 2. Array Pattern Matching
+// -----------------------------------------------------------------------------
+fn arrayPatternDemo() {
+    print("=== Array Pattern Matching ===\n\n");
+
+    // Match empty vs non-empty
+    let empty: Array<int> = [];
+    let filled: Array<int> = [1, 2, 3];
+
+    print("empty array: ");
+    matchEmpty(empty);
+
+    print("filled array: ");
+    matchEmpty(filled);
+
+    // Match with guard
+    print("\n--- Match with Guard ---\n");
+    let small: Array<int> = [1, 2];
+    let large: Array<int> = [10, 20, 30, 40, 50];
+
+    matchSize(small);
+    matchSize(large);
+
+    print("\n");
+}
+
+fn matchEmpty(arr: Array<int>) {
+    match (arr) {
+        [] => { print("[]\n"); }
+        _ => { print("non-empty: "); print(arr); print("\n"); }
+    }
+}
+
+fn matchSize(arr: Array<int>) {
+    match (arr) {
+        [] => { print("  empty\n"); }
+        _ => { print("  size > 0: "); print(arr); print("\n"); }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 3. ArrayOps Trait Methods
+// -----------------------------------------------------------------------------
+fn arrayOpsDemo() {
+    print("=== ArrayOps Trait Methods ===\n");
+    print("(stdlib/collections.ry)\n\n");
+
+    // ArrayOps methods available through the trait impl:
+    //   arr.push(value)   - Add element to end (returns Array<T>)
+    //   arr.pop()         - Remove and return last element
+    //   arr.length()      - Get array length
+    //   arr.get(index)    - Get element at index
+    //   arr.set(i, value) - Set element at index
+    //   arr.map(f)        - Transform elements
+    //   arr.filter(pred)  - Filter elements
+    //   arr.reduce(i, f)  - Reduce to single value
+    //   arr.forEach(f)    - Apply function to each
+    //   arr.iter()        - Create iterator
+
+    // push returns the (possibly reallocated) array
+    let nums: Array<int> = [1, 2, 3];
+    print("initial: ");
+    print(nums);
+    print("\n");
+
+    let nums = nums.push(4);
+    print("after push(4): ");
+    print(nums);
+    print("\n");
+
+    let nums = nums.push(5);
+    print("after push(5): ");
+    print(nums);
+    print("\n");
+
+    let popped = nums.pop();
+    print("after pop: ");
+    print(nums);
+    print("\n");
+
+    print("length: ");
+    print(nums.length());
+    print("\n");
+
+    print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 4. Array Advanced Operations
+// -----------------------------------------------------------------------------
+fn arrayAdvancedDemo() {
+    print("=== Array Advanced Operations ===\n");
+    print("(map, filter, reduce, forEach)\n\n");
+
+    // map(f) - use fresh array since map has side-effect on original
+    print("--- map(f) ---\n");
+    let nums1: Array<int> = [10, 20, 30, 40, 50];
+    let doubled = nums1.map((x: int) => x * 2);
+    print("nums.map(x => x * 2): ");
+    print(doubled);
+    print("\n\n");
+
+    // filter(pred)
+    print("--- filter(pred) ---\n");
+    let nums2: Array<int> = [10, 20, 30, 40, 50];
+    let big = nums2.filter((x: int) => x > 25);
+    print("nums.filter(x => x > 25): ");
+    print(big);
+    print("\n\n");
+
+    // reduce(i, f)
+    print("--- reduce(i, f) ---\n");
+    let nums3: Array<int> = [10, 20, 30, 40, 50];
+    let sum = nums3.reduce(0, (acc: int, x: int) => acc + x);
+    print("nums.reduce(0, (acc,x) => acc + x): ");
+    print(sum);
+    print("\n\n");
+
+    // forEach(f)
+    print("--- forEach(f) ---\n");
+    let nums4: Array<int> = [10, 20, 30, 40, 50];
+    print("nums.forEach(x => print(x)): ");
+    nums4.forEach((x: int) => { print(x); print(" "); });
+    print("\n\n");
+}
+
+// -----------------------------------------------------------------------------
+// 5. assert() Helper
+// -----------------------------------------------------------------------------
+fn assertDemo() {
+    print("=== assert() Helper ===\n\n");
+
+    // Passing assertion
+    assert(1 + 1 === 2, "basic math should work");
+    print("assert(1 + 1 === 2) passed\n");
+
+    // Failing assertion caught by try/catch
+    try {
+        assert(false, "intentional failure for demo");
+    } catch (e: AssertionError) {
+        print("Caught AssertionError: ");
+        print(e.message);
+        print("\n");
+    }
+
+    print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 6. Error Type Hierarchy
+// -----------------------------------------------------------------------------
+fn errorHierarchyDemo() {
+    print("=== Error Type Hierarchy ===\n\n");
+
+    // All error types inherit from Error and have a `message` field.
+    // Available error types:
+    //   Error          - base error type
+    //   TypeError      - type-related errors
+    //   RuntimeError   - runtime errors
+    //   RangeError     - index/range out of bounds
+    //   AssertionError - assertion failures
+    //   ArgumentError  - invalid function arguments
+    //   NullError      - null-related errors
+    //   ArithmeticError - arithmetic operation errors
+    //   IteratorError  - iterator-related errors
+    //   ParseError     - parsing errors
+    //   NullAssertionError - null assertion failures
+    //   IOError        - I/O operation errors
+
+    // Demonstrate catching different error types
+    print("--- RangeError ---\n");
+    try {
+        throw RangeError.new("array index 10 out of bounds for length 3");
+    } catch (e: RangeError) {
+        print("  Caught: ");
+        print(e.message);
+        print("\n");
+    }
+
+    print("\n--- ArgumentError ---\n");
+    try {
+        throw ArgumentError.new("expected positive integer, got -1");
+    } catch (e: ArgumentError) {
+        print("  Caught: ");
+        print(e.message);
+        print("\n");
+    }
+
+    print("\n--- TypeError ---\n");
+    try {
+        throw TypeError.new("cannot convert string to int");
+    } catch (e: TypeError) {
+        print("  Caught: ");
+        print(e.message);
+        print("\n");
+    }
+
+    print("\n--- ParseError ---\n");
+    try {
+        throw ParseError.new("unexpected token at line 5");
+    } catch (e: ParseError) {
+        print("  Caught: ");
+        print(e.message);
+        print("\n");
+    }
+
+    print("\n--- IOError ---\n");
+    try {
+        throw IOError.new("file not found: /tmp/data.txt");
+    } catch (e: IOError) {
+        print("  Caught: ");
+        print(e.message);
+        print("\n");
+    }
+
+    print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 7. Practical: Input Validation
+// -----------------------------------------------------------------------------
+fn validateAge(age: int) {
+    if (age < 0) {
+        throw ArgumentError.new("age cannot be negative");
+    }
+    if (age > 150) {
+        throw RangeError.new("age exceeds maximum");
+    }
+    assert(age >= 0 && age <= 150, "age validation failed");
+}
+
+fn validateEmail(email: string) {
+    if (email === "") {
+        throw ArgumentError.new("email cannot be empty");
+    }
+    assert(email !== "", "email should not be empty");
+}
+
+fn validationDemo() {
+    print("=== Practical: Input Validation ===\n\n");
+
+    // Valid age
+    print("Validating age 25: ");
+    try {
+        validateAge(25);
+        print("OK\n");
+    } catch (e: Error) {
+        print("FAILED: ");
+        print(e.message);
+        print("\n");
+    }
+
+    // Invalid age (negative)
+    print("Validating age -5: ");
+    try {
+        validateAge(-5);
+        print("OK\n");
+    } catch (e: ArgumentError) {
+        print("FAILED: ");
+        print(e.message);
+        print("\n");
+    }
+
+    // Invalid age (too large)
+    print("Validating age 200: ");
+    try {
+        validateAge(200);
+        print("OK\n");
+    } catch (e: RangeError) {
+        print("FAILED: ");
+        print(e.message);
+        print("\n");
+    }
+
+    // Valid email
+    print("Validating email 'user@example.com': ");
+    try {
+        validateEmail("user@example.com");
+        print("OK\n");
+    } catch (e: Error) {
+        print("FAILED: ");
+        print(e.message);
+        print("\n");
+    }
+
+    // Invalid email (empty)
+    print("Validating email '': ");
+    try {
+        validateEmail("");
+        print("OK\n");
+    } catch (e: ArgumentError) {
+        print("FAILED: ");
+        print(e.message);
+        print("\n");
+    }
+
+    print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 8. Map Demo
+// -----------------------------------------------------------------------------
+fn mapDemo() {
+    print("=== Map<K, V> Demo ===\n\n");
+
+    // Create a new map
+    let m: Map<int, int> = Map.new();
+    print("Created empty map\n");
+    print("  size: ");
+    print(m.size());
+    print("\n\n");
+
+    // Set key-value pairs
+    m.set(1, 100);
+    m.set(2, 200);
+    m.set(3, 300);
+    print("After set(1,100), set(2,200), set(3,300)\n");
+    print("  size: ");
+    print(m.size());
+    print("\n");
+
+    // Get values
+    print("  get(1): ");
+    print(m.get(1));
+    print("\n");
+    print("  get(2): ");
+    print(m.get(2));
+    print("\n");
+    print("  get(3): ");
+    print(m.get(3));
+    print("\n\n");
+
+    // Has key
+    print("  has(2): ");
+    print(m.has(2));
+    print("\n");
+    print("  has(99): ");
+    print(m.has(99));
+    print("\n\n");
+
+    // Overwrite existing key
+    m.set(2, 999);
+    print("After set(2, 999) (overwrite)\n");
+    print("  get(2): ");
+    print(m.get(2));
+    print("\n");
+    print("  size: ");
+    print(m.size());
+    print("\n\n");
+
+    // Delete key
+    m.delete(1);
+    print("After delete(1)\n");
+    print("  has(1): ");
+    print(m.has(1));
+    print("\n");
+    print("  size: ");
+    print(m.size());
+    print("\n\n");
+}
+
+// -----------------------------------------------------------------------------
+// 9. Set Demo
+// -----------------------------------------------------------------------------
+fn setDemo() {
+    print("=== Set<T> Demo ===\n\n");
+
+    // Create a new set
+    let s: Set<int> = Set.new();
+    print("Created empty set\n");
+    print("  size: ");
+    print(s.size());
+    print("\n\n");
+
+    // Add elements
+    s.add(10);
+    s.add(20);
+    s.add(30);
+    print("After add(10), add(20), add(30)\n");
+    print("  size: ");
+    print(s.size());
+    print("\n");
+
+    // Deduplication
+    s.add(20);
+    print("After add(20) again (duplicate)\n");
+    print("  size: ");
+    print(s.size());
+    print("\n\n");
+
+    // Has element
+    print("  has(10): ");
+    print(s.has(10));
+    print("\n");
+    print("  has(99): ");
+    print(s.has(99));
+    print("\n\n");
+
+    // Delete element
+    s.delete(20);
+    print("After delete(20)\n");
+    print("  has(20): ");
+    print(s.has(20));
+    print("\n");
+    print("  size: ");
+    print(s.size());
+    print("\n\n");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+    print("========================================\n");
+    print("  Collections & Error Handling Example\n");
+    print("========================================\n\n");
+
+    arrayLiteralDemo();
+    arrayPatternDemo();
+    arrayOpsDemo();
+    arrayAdvancedDemo();
+    assertDemo();
+    errorHierarchyDemo();
+    validationDemo();
+    mapDemo();
+    setDemo();
+
+    print("All demos completed successfully!\n");
+}
