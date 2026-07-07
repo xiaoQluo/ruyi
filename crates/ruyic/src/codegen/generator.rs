@@ -38,12 +38,14 @@ use crate::typechecker::types::Type;
 
 /// Extract a `Declaration` reference from a `ModuleItem`, handling both
 /// direct declarations and exported declarations.
-fn extract_declaration(item: &crate::parser::ast::ModuleItem) -> Option<&crate::parser::ast::Declaration> {
+fn extract_declaration(
+    item: &crate::parser::ast::ModuleItem,
+) -> Option<&crate::parser::ast::Declaration> {
     match item {
         crate::parser::ast::ModuleItem::Declaration(decl) => Some(decl),
-        crate::parser::ast::ModuleItem::Export(
-            crate::parser::ast::ExportDecl::Declaration(decl),
-        ) => Some(decl),
+        crate::parser::ast::ModuleItem::Export(crate::parser::ast::ExportDecl::Declaration(
+            decl,
+        )) => Some(decl),
         _ => None,
     }
 }
@@ -213,7 +215,9 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
     }
 
     /// Get a mutable reference to the variable map.
-    pub fn variables_mut(&mut self) -> &mut HashMap<String, (inkwell::values::PointerValue<'ctx>, Type)> {
+    pub fn variables_mut(
+        &mut self,
+    ) -> &mut HashMap<String, (inkwell::values::PointerValue<'ctx>, Type)> {
         &mut self.variables
     }
 
@@ -222,7 +226,10 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
     /// When a `type_environment` is set, the returned type is taken from the
     /// type checker (falling back to the annotation-derived type stored in the
     /// local map). The LLVM pointer value always comes from the local map.
-    pub fn lookup_variable(&self, name: &str) -> Option<(inkwell::values::PointerValue<'ctx>, Type)> {
+    pub fn lookup_variable(
+        &self,
+        name: &str,
+    ) -> Option<(inkwell::values::PointerValue<'ctx>, Type)> {
         if let Some(global) = self.globals.get(name) {
             let ptr = global.as_pointer_value();
             let final_ty = self
@@ -286,7 +293,10 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
     /// Get the innermost loop context.
     pub fn current_loop(
         &self,
-    ) -> Option<(inkwell::basic_block::BasicBlock<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)> {
+    ) -> Option<(
+        inkwell::basic_block::BasicBlock<'ctx>,
+        inkwell::basic_block::BasicBlock<'ctx>,
+    )> {
         self.loop_stack.last().copied()
     }
 
@@ -435,8 +445,12 @@ impl<'ctx> CodeGenerator<'ctx> {
         tracker: &MonomorphizationTracker,
         type_env: Option<&'env crate::typechecker::environment::TypeEnvironment>,
     ) -> Result<(), String> {
-        let mut ctx =
-            CodegenContext::new(self.context, &self.module, self.context.create_builder(), type_env);
+        let mut ctx = CodegenContext::new(
+            self.context,
+            &self.module,
+            self.context.create_builder(),
+            type_env,
+        );
         ctx.set_allow_partial_codegen(self.allow_partial_codegen);
 
         declare_builtins(self.context, &self.module);
@@ -931,13 +945,15 @@ fn compile_top_level_let_inits<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_, '_>,
     program: &crate::parser::ast::Program,
 ) {
+    use super::expr::compile_expr;
     use crate::parser::ast::{Declaration, ModuleItem, Pattern};
     use crate::typechecker::types::Type;
     use inkwell::values::BasicValueEnum;
-    use super::expr::compile_expr;
 
     for item in &program.items {
-        if let ModuleItem::Declaration(Declaration::Let(bindings) | Declaration::Const(bindings)) = item {
+        if let ModuleItem::Declaration(Declaration::Let(bindings) | Declaration::Const(bindings)) =
+            item
+        {
             for b in bindings {
                 let name = match &b.pattern {
                     Pattern::Identifier(n) => n.clone(),
@@ -973,12 +989,16 @@ fn compile_top_level_let_inits<'ctx>(
     }
 }
 
-fn collect_top_level_lets(program: &crate::parser::ast::Program) -> Vec<(String, crate::typechecker::types::Type)> {
+fn collect_top_level_lets(
+    program: &crate::parser::ast::Program,
+) -> Vec<(String, crate::typechecker::types::Type)> {
     use crate::parser::ast::{Declaration, ModuleItem, Pattern};
     use crate::typechecker::types::Type;
     let mut result = Vec::new();
     for item in &program.items {
-        if let ModuleItem::Declaration(Declaration::Let(bindings) | Declaration::Const(bindings)) = item {
+        if let ModuleItem::Declaration(Declaration::Let(bindings) | Declaration::Const(bindings)) =
+            item
+        {
             for b in bindings {
                 let name = match &b.pattern {
                     Pattern::Identifier(n) => n.clone(),

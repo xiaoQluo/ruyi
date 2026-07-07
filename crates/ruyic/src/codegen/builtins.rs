@@ -580,7 +580,9 @@ pub fn build_ruyi_bigint_from_str<'ctx>(
 
 fn declare_ruyi_bigint_eq<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = context.i8_type().fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+    let fn_type = context
+        .i8_type()
+        .fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
     module.add_function("ruyi_bigint_eq", fn_type, None);
 }
 

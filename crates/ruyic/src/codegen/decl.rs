@@ -553,7 +553,11 @@ fn compile_impl<'ctx>(
                     method_body,
                 ) {
                     if ctx.allow_partial_codegen() {
-                        log::warn!("Skipping impl async method codegen for {}: {}", mangled_name, e);
+                        log::warn!(
+                            "Skipping impl async method codegen for {}: {}",
+                            mangled_name,
+                            e
+                        );
                     } else {
                         return Err(e);
                     }

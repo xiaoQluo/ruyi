@@ -566,7 +566,9 @@ fn compile_template_literal<'ctx>(
     ))
 }
 
-fn compile_null_literal<'ctx>(ctx: &CodegenContext<'ctx, '_, '_>) -> Result<ExprResult<'ctx>, String> {
+fn compile_null_literal<'ctx>(
+    ctx: &CodegenContext<'ctx, '_, '_>,
+) -> Result<ExprResult<'ctx>, String> {
     let is_nullable_int = matches!(ctx.expected_expr_type(), Some(Type::Nullable(ref inner)) if **inner == Type::Int)
         || matches!(ctx.current_return_type(), Some(Type::Nullable(ref inner)) if **inner == Type::Int);
     if is_nullable_int {
@@ -650,14 +652,14 @@ fn compile_member_access<'ctx>(
         crate::parser::ast::MemberProperty::Ident(field_name) => {
             if optional {
                 compile_optional_member_access(ctx, object, field_name)
+            } else {
+                let obj_result = compile_expr(ctx, object)?;
+                if matches!(obj_result.ty, Type::Tuple(_)) {
+                    compile_tuple_field_access(ctx, &obj_result, field_name)
                 } else {
-                    let obj_result = compile_expr(ctx, object)?;
-                    if matches!(obj_result.ty, Type::Tuple(_)) {
-                        compile_tuple_field_access(ctx, &obj_result, field_name)
-                    } else {
-                        compile_simple_member_access(ctx, object, field_name)
-                    }
+                    compile_simple_member_access(ctx, object, field_name)
                 }
+            }
         }
     }
 }
@@ -669,7 +671,9 @@ fn value_to_i8_ptr<'ctx>(
     let i8_ptr_ty = ctx.context.i8_type().ptr_type(Default::default());
     match value {
         BasicValueEnum::PointerValue(p) => {
-            Ok(ctx.builder().build_pointer_cast(*p, i8_ptr_ty, "cast_i8_ptr"))
+            Ok(ctx
+                .builder()
+                .build_pointer_cast(*p, i8_ptr_ty, "cast_i8_ptr"))
         }
         BasicValueEnum::IntValue(v) => {
             Ok(ctx.builder().build_int_to_ptr(*v, i8_ptr_ty, "int_to_ptr"))
@@ -683,9 +687,12 @@ fn compile_tuple_field_access<'ctx>(
     obj_result: &ExprResult<'ctx>,
     field_name: &str,
 ) -> Result<ExprResult<'ctx>, String> {
-    let index = field_name
-        .parse::<usize>()
-        .map_err(|_| format!("Tuple field access requires numeric index, got: {}", field_name))?;
+    let index = field_name.parse::<usize>().map_err(|_| {
+        format!(
+            "Tuple field access requires numeric index, got: {}",
+            field_name
+        )
+    })?;
 
     let field_ty = match &obj_result.ty {
         Type::Tuple(types) => types.get(index).cloned().unwrap_or(Type::Dynamic),
@@ -802,7 +809,10 @@ fn compile_simple_member_access<'ctx>(
         _ => return Err("Member access only supported on identifiers".to_string()),
     };
 
-    let obj_ptr = ctx.builder().build_load(var_ptr, "obj").into_pointer_value();
+    let obj_ptr = ctx
+        .builder()
+        .build_load(var_ptr, "obj")
+        .into_pointer_value();
 
     let offset = ctx
         .context
@@ -823,7 +833,10 @@ fn compile_simple_member_access<'ctx>(
                     "field_i64_ptr",
                 )
                 .into_pointer_value();
-            let loaded = ctx.builder().build_load(i64_ptr, field_name).into_int_value();
+            let loaded = ctx
+                .builder()
+                .build_load(i64_ptr, field_name)
+                .into_int_value();
             let float_val =
                 ctx.builder()
                     .build_bitcast(loaded, ctx.context.f64_type(), "field_float");
@@ -1573,9 +1586,9 @@ fn compile_eq<'ctx>(
             if matches!(&left.ty, Type::Nullable(_)) && matches!(&right.ty, Type::Null) =>
         {
             let sentinel = ctx.context.i64_type().const_all_ones();
-            let res = ctx
-                .builder()
-                .build_int_compare(IntPredicate::EQ, *l, sentinel, "nullable_eq_null");
+            let res =
+                ctx.builder()
+                    .build_int_compare(IntPredicate::EQ, *l, sentinel, "nullable_eq_null");
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // Reverse: null PointerValue compared with nullable IntValue
@@ -1583,9 +1596,9 @@ fn compile_eq<'ctx>(
             if matches!(&left.ty, Type::Null) && matches!(&right.ty, Type::Nullable(_)) =>
         {
             let sentinel = ctx.context.i64_type().const_all_ones();
-            let res = ctx
-                .builder()
-                .build_int_compare(IntPredicate::EQ, *r, sentinel, "null_eq_nullable");
+            let res =
+                ctx.builder()
+                    .build_int_compare(IntPredicate::EQ, *r, sentinel, "null_eq_nullable");
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         _ => Err(format!(
@@ -1630,9 +1643,9 @@ fn compile_ne<'ctx>(
             if matches!(&left.ty, Type::Nullable(_)) && matches!(&right.ty, Type::Null) =>
         {
             let sentinel = ctx.context.i64_type().const_all_ones();
-            let res = ctx
-                .builder()
-                .build_int_compare(IntPredicate::NE, *l, sentinel, "nullable_ne_null");
+            let res =
+                ctx.builder()
+                    .build_int_compare(IntPredicate::NE, *l, sentinel, "nullable_ne_null");
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // Reverse: null PointerValue compared with nullable IntValue
@@ -1640,9 +1653,9 @@ fn compile_ne<'ctx>(
             if matches!(&left.ty, Type::Null) && matches!(&right.ty, Type::Nullable(_)) =>
         {
             let sentinel = ctx.context.i64_type().const_all_ones();
-            let res = ctx
-                .builder()
-                .build_int_compare(IntPredicate::NE, *r, sentinel, "null_ne_nullable");
+            let res =
+                ctx.builder()
+                    .build_int_compare(IntPredicate::NE, *r, sentinel, "null_ne_nullable");
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         _ => Err("Invalid operands for !==".to_string()),
@@ -1859,7 +1872,8 @@ fn compile_nullish<'ctx>(
         let else_bb = ctx.context.append_basic_block(func, "nullish_else");
         let merge_bb = ctx.context.append_basic_block(func, "nullish_merge");
 
-        ctx.builder().build_conditional_branch(cond, then_bb, else_bb);
+        ctx.builder()
+            .build_conditional_branch(cond, then_bb, else_bb);
 
         ctx.builder().position_at_end(then_bb);
         let right_result = compile_expr(ctx, right_expr)?;
@@ -1912,7 +1926,12 @@ fn compile_tuple_literal<'ctx>(
     for (i, elem) in elem_results.iter().enumerate() {
         struct_val = ctx
             .builder()
-            .build_insert_value(struct_val, elem.value, i as u32, &format!("tuple_elem_{}", i))
+            .build_insert_value(
+                struct_val,
+                elem.value,
+                i as u32,
+                &format!("tuple_elem_{}", i),
+            )
             .unwrap()
             .into_struct_value();
     }
@@ -2490,7 +2509,10 @@ fn compile_assignment<'ctx>(
                 _ => return Err("Member assignment only supported on identifiers".to_string()),
             };
 
-            let obj_ptr = ctx.builder().build_load(var_ptr, "obj").into_pointer_value();
+            let obj_ptr = ctx
+                .builder()
+                .build_load(var_ptr, "obj")
+                .into_pointer_value();
 
             let struct_type = ctx
                 .class_struct_types
@@ -2696,7 +2718,12 @@ fn compile_array_literal<'ctx>(
 
                 if super::builtins::is_gc_managed(&val.ty) {
                     if let BasicValueEnum::PointerValue(pv) = val.value {
-                        super::builtins::build_gc_write_barrier(ctx.builder(), &ctx.module, ptr, pv);
+                        super::builtins::build_gc_write_barrier(
+                            ctx.builder(),
+                            &ctx.module,
+                            ptr,
+                            pv,
+                        );
                     }
                 }
             }
@@ -2819,7 +2846,12 @@ fn compile_object_literal<'ctx>(
 
                 if super::builtins::is_gc_managed(&val.ty) {
                     if let BasicValueEnum::PointerValue(pv) = val.value {
-                        super::builtins::build_gc_write_barrier(ctx.builder(), &ctx.module, ptr, pv);
+                        super::builtins::build_gc_write_barrier(
+                            ctx.builder(),
+                            &ctx.module,
+                            ptr,
+                            pv,
+                        );
                     }
                 }
 
@@ -2938,7 +2970,8 @@ fn compile_super_new<'ctx>(
                 _ => return Err("Spread arguments not yet supported".to_string()),
             }
         }
-        ctx.builder().build_call(ctor, &arg_values, "super_ctor_call");
+        ctx.builder()
+            .build_call(ctor, &arg_values, "super_ctor_call");
     }
 
     Ok(ExprResult::new(

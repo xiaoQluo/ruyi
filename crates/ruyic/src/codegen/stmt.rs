@@ -334,7 +334,8 @@ fn compile_for_in<'ctx>(
     let len = ctx.builder().build_load(len_ptr, "len").into_int_value();
 
     let idx_ptr = ctx.builder().build_alloca(i64_ty, "for_in_idx");
-    ctx.builder().build_store(idx_ptr, i64_ty.const_int(0, false));
+    ctx.builder()
+        .build_store(idx_ptr, i64_ty.const_int(0, false));
 
     let var_ptr = ctx.builder().build_alloca(i8_ptr, variable);
     let old_var = ctx
@@ -352,7 +353,8 @@ fn compile_for_in<'ctx>(
     let cond = ctx
         .builder()
         .build_int_compare(inkwell::IntPredicate::SLT, idx, len, "for_in_cond");
-    ctx.builder().build_conditional_branch(cond, body_bb, end_bb);
+    ctx.builder()
+        .build_conditional_branch(cond, body_bb, end_bb);
 
     ctx.push_loop(end_bb, cond_bb);
 
@@ -433,7 +435,8 @@ fn compile_for_of<'ctx>(
 
             let idx_ptr = ctx.builder().build_alloca(i64_ty, "for_of_idx");
             let var_ptr = ctx.builder().build_alloca(i64_ty, variable);
-            ctx.builder().build_store(idx_ptr, i64_ty.const_int(0, false));
+            ctx.builder()
+                .build_store(idx_ptr, i64_ty.const_int(0, false));
             let old_var = ctx
                 .variables
                 .insert(variable.to_string(), (var_ptr, Type::Int));
@@ -446,10 +449,14 @@ fn compile_for_of<'ctx>(
 
             ctx.builder().position_at_end(cond_bb);
             let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
-            let cond =
-                ctx.builder()
-                    .build_int_compare(inkwell::IntPredicate::SLT, idx, len, "for_of_cond");
-            ctx.builder().build_conditional_branch(cond, body_bb, end_bb);
+            let cond = ctx.builder().build_int_compare(
+                inkwell::IntPredicate::SLT,
+                idx,
+                len,
+                "for_of_cond",
+            );
+            ctx.builder()
+                .build_conditional_branch(cond, body_bb, end_bb);
 
             ctx.push_loop(end_bb, cond_bb);
 
@@ -665,7 +672,8 @@ fn compile_throw<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>, expr: &Expr) -> R
         .expect("ruyi_throw not declared");
 
     if let Some(try_ctx) = ctx.current_try() {
-        ctx.builder().build_call(throw_fn, &[exc_ptr.into()], "throw");
+        ctx.builder()
+            .build_call(throw_fn, &[exc_ptr.into()], "throw");
         ctx.builder().build_store(try_ctx.exception_ptr, exc_ptr);
         if let Some(catch_bb) = try_ctx.catch_bb {
             ctx.builder().build_unconditional_branch(catch_bb);
@@ -675,7 +683,8 @@ fn compile_throw<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>, expr: &Expr) -> R
             ctx.builder().build_unconditional_branch(try_ctx.merge_bb);
         }
     } else {
-        ctx.builder().build_call(throw_fn, &[exc_ptr.into()], "throw");
+        ctx.builder()
+            .build_call(throw_fn, &[exc_ptr.into()], "throw");
         ctx.emit_gc_root_removals();
         if let Some(func) = ctx.current_function() {
             let fn_type = func.get_type();
@@ -739,7 +748,8 @@ fn compile_try<'ctx>(
     };
 
     let exception_ptr = ctx.builder().build_alloca(i8_ptr, "exc_ptr");
-    ctx.builder().build_store(exception_ptr, i8_ptr.const_null());
+    ctx.builder()
+        .build_store(exception_ptr, i8_ptr.const_null());
 
     let clear_fn = ctx
         .module
@@ -832,7 +842,8 @@ fn compile_try<'ctx>(
                 );
 
                 let pb = propagate_bb.unwrap();
-                ctx.builder().build_conditional_branch(is_null, merge_bb, pb);
+                ctx.builder()
+                    .build_conditional_branch(is_null, merge_bb, pb);
 
                 ctx.builder().position_at_end(pb);
                 let exc_val2 = ctx
@@ -866,7 +877,9 @@ fn build_exception_check<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>) -> Result
     let pending = build_ruyi_get_pending_exception(ctx.builder(), &ctx.module);
 
     let i64_ty = ctx.context.i64_type();
-    let pending_int = ctx.builder().build_ptr_to_int(pending, i64_ty, "pending_int");
+    let pending_int = ctx
+        .builder()
+        .build_ptr_to_int(pending, i64_ty, "pending_int");
     let is_null = ctx.builder().build_int_compare(
         inkwell::IntPredicate::EQ,
         pending_int,
@@ -1170,8 +1183,9 @@ fn bind_pattern_in_codegen<'ctx>(
                                         .ptr_type(Default::default()),
                                     &format!("{}_typed_ptr", key),
                                 );
-                                let field_val =
-                                    ctx.builder().build_load(typed_ptr.into_pointer_value(), key);
+                                let field_val = ctx
+                                    .builder()
+                                    .build_load(typed_ptr.into_pointer_value(), key);
                                 let field_result = super::expr::ExprResult {
                                     value: field_val,
                                     ty: field_ty.clone(),
@@ -1199,8 +1213,9 @@ fn bind_pattern_in_codegen<'ctx>(
                                         .ptr_type(Default::default()),
                                     &format!("{}_typed_ptr", name),
                                 );
-                                let field_val =
-                                    ctx.builder().build_load(typed_ptr.into_pointer_value(), name);
+                                let field_val = ctx
+                                    .builder()
+                                    .build_load(typed_ptr.into_pointer_value(), name);
                                 let llvm_ty =
                                     super::types::ruyi_type_to_llvm(ctx.context, field_ty);
                                 let ptr = ctx.builder().build_alloca(llvm_ty, name);

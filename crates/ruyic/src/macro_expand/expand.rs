@@ -166,7 +166,12 @@ impl<'a> MacroExpander<'a> {
                     is_setter: *is_setter,
                 })
             }
-            ClassElement::Field { name, ty, init, is_static } => {
+            ClassElement::Field {
+                name,
+                ty,
+                init,
+                is_static,
+            } => {
                 let init_expanded = match init {
                     Some(e) => Some(Box::new(self.expand_expression(e)?)),
                     None => None,
@@ -186,7 +191,8 @@ impl<'a> MacroExpander<'a> {
         match stmt {
             Statement::Expression(e) => self.expand_expression(e),
             Statement::Block(stmts) => {
-                let expanded: Result<Vec<Statement>, _> = stmts.iter().map(|s| self.expand_statement(s)).collect();
+                let expanded: Result<Vec<Statement>, _> =
+                    stmts.iter().map(|s| self.expand_statement(s)).collect();
                 Ok(Expr::Block(expanded?))
             }
             Statement::If {
@@ -488,31 +494,32 @@ impl<'a> MacroExpander<'a> {
 
         self.depth -= 1;
 
-        let expanded_tokens = apply_template(
-            &expansion,
-            &captures,
-            &self.hygiene_ctx,
-        );
+        let expanded_tokens = apply_template(&expansion, &captures, &self.hygiene_ctx);
         let source = tokens_to_source(&expanded_tokens);
         let program = if source.trim().ends_with(';') {
-            let mut parser = crate::parser::Parser::new(&source).map_err(|e| MacroError::InvalidInvocation {
-                macro_name: name.to_string(),
-                message: e.to_string(),
-            })?;
+            let mut parser =
+                crate::parser::Parser::new(&source).map_err(|e| MacroError::InvalidInvocation {
+                    macro_name: name.to_string(),
+                    message: e.to_string(),
+                })?;
             parser.parse().map_err(|e| MacroError::InvalidInvocation {
                 macro_name: name.to_string(),
                 message: e.to_string(),
             })?
         } else {
             let wrapped = format!("( {} )", source);
-            let mut parser = crate::parser::Parser::new(&wrapped).map_err(|e| MacroError::InvalidInvocation {
-                macro_name: name.to_string(),
-                message: e.to_string(),
+            let mut parser = crate::parser::Parser::new(&wrapped).map_err(|e| {
+                MacroError::InvalidInvocation {
+                    macro_name: name.to_string(),
+                    message: e.to_string(),
+                }
             })?;
-            let expr = parser.parse_expression().map_err(|e| MacroError::InvalidInvocation {
-                macro_name: name.to_string(),
-                message: e.to_string(),
-            })?;
+            let expr = parser
+                .parse_expression()
+                .map_err(|e| MacroError::InvalidInvocation {
+                    macro_name: name.to_string(),
+                    message: e.to_string(),
+                })?;
             Program {
                 items: vec![ModuleItem::Statement(Statement::Expression(Box::new(expr)))],
             }
@@ -563,7 +570,10 @@ impl<'a> MacroExpander<'a> {
         _name: &str,
         rules: &[MacroRule],
         input: &[Token],
-    ) -> MacroResult<(Vec<Token>, std::collections::HashMap<String, crate::macro_expand::pattern::CapturedTokens>)> {
+    ) -> MacroResult<(
+        Vec<Token>,
+        std::collections::HashMap<String, crate::macro_expand::pattern::CapturedTokens>,
+    )> {
         for rule in rules {
             let pattern = parse_pattern(&rule.pattern)?;
             let mut matcher = PatternMatcher::new(pattern, input.to_vec());

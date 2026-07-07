@@ -399,7 +399,11 @@ fn test_macro_rule_with_tokens() {
 fn test_type_alias_simple() {
     let decl = single_decl("type Name = string;");
     match decl {
-        Declaration::TypeAlias { name, type_params, ty } => {
+        Declaration::TypeAlias {
+            name,
+            type_params,
+            ty,
+        } => {
             assert_eq!(name, "Name");
             assert!(type_params.is_empty());
             assert_eq!(ty, TypeAnnotation::Builtin("string".to_string()));
@@ -412,7 +416,11 @@ fn test_type_alias_simple() {
 fn test_type_alias_generic() {
     let decl = single_decl("type Box<T> = { value: T };");
     match decl {
-        Declaration::TypeAlias { name, type_params, ty } => {
+        Declaration::TypeAlias {
+            name,
+            type_params,
+            ty,
+        } => {
             assert_eq!(name, "Box");
             assert_eq!(type_params.len(), 1);
             assert_eq!(type_params[0].name, "T");
@@ -433,17 +441,21 @@ fn test_type_alias_generic() {
 fn test_type_alias_function() {
     let decl = single_decl("type Callback = fn(int) => string;");
     match decl {
-        Declaration::TypeAlias { name, type_params, ty } => {
+        Declaration::TypeAlias {
+            name,
+            type_params,
+            ty,
+        } => {
             assert_eq!(name, "Callback");
             assert!(type_params.is_empty());
             match ty {
-                TypeAnnotation::Function { params, return_type } => {
+                TypeAnnotation::Function {
+                    params,
+                    return_type,
+                } => {
                     assert_eq!(params.len(), 1);
                     assert_eq!(params[0], TypeAnnotation::Builtin("int".to_string()));
-                    assert_eq!(
-                        *return_type,
-                        TypeAnnotation::Builtin("string".to_string())
-                    );
+                    assert_eq!(*return_type, TypeAnnotation::Builtin("string".to_string()));
                 }
                 other => panic!("expected function type, got {:?}", other),
             }
@@ -456,7 +468,11 @@ fn test_type_alias_function() {
 fn test_type_alias_array() {
     let decl = single_decl("type IntArray = [int];");
     match decl {
-        Declaration::TypeAlias { name, type_params, ty } => {
+        Declaration::TypeAlias {
+            name,
+            type_params,
+            ty,
+        } => {
             assert_eq!(name, "IntArray");
             assert!(type_params.is_empty());
             assert_eq!(
@@ -472,7 +488,11 @@ fn test_type_alias_array() {
 fn test_type_alias_union() {
     let decl = single_decl("type Option<T> = Some<T> | None;");
     match decl {
-        Declaration::TypeAlias { name, type_params, ty } => {
+        Declaration::TypeAlias {
+            name,
+            type_params,
+            ty,
+        } => {
             assert_eq!(name, "Option");
             assert_eq!(type_params.len(), 1);
             assert_eq!(type_params[0].name, "T");

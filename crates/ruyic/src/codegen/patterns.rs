@@ -1,3 +1,9 @@
+use crate::codegen::builtins::build_ruyi_bigint_eq;
+use crate::codegen::expr::{compile_bigint_literal, compile_expr, ExprResult};
+use crate::codegen::generator::CodegenContext;
+use crate::codegen::stmt::compile_block;
+use crate::parser::ast::{Expr, MatchArm, Pattern};
+use crate::typechecker::types::Type;
 use inkwell::types::BasicType;
 /**
  * Pattern matching code generation for Ruyi.
@@ -10,12 +16,6 @@ use inkwell::types::BasicType;
  */
 use inkwell::values::BasicValueEnum;
 use inkwell::IntPredicate;
-use crate::codegen::builtins::build_ruyi_bigint_eq;
-use crate::codegen::expr::{compile_bigint_literal, compile_expr, ExprResult};
-use crate::codegen::generator::CodegenContext;
-use crate::codegen::stmt::compile_block;
-use crate::parser::ast::{Expr, MatchArm, Pattern};
-use crate::typechecker::types::Type;
 
 /// Compiles a match statement to LLVM IR.
 ///
@@ -245,7 +245,9 @@ pub fn bind_object_pattern<'ctx>(
                             .ptr_type(Default::default()),
                         &format!("{}_typed_ptr", key),
                     );
-                    let field_val = ctx.builder().build_load(typed_ptr.into_pointer_value(), key);
+                    let field_val = ctx
+                        .builder()
+                        .build_load(typed_ptr.into_pointer_value(), key);
 
                     bind_pattern(ctx, inner, &ExprResult::new(field_val, field_ty.clone()))?;
                 }
@@ -267,7 +269,9 @@ pub fn bind_object_pattern<'ctx>(
                             .ptr_type(Default::default()),
                         &format!("{}_typed_ptr", name),
                     );
-                    let field_val = ctx.builder().build_load(typed_ptr.into_pointer_value(), name);
+                    let field_val = ctx
+                        .builder()
+                        .build_load(typed_ptr.into_pointer_value(), name);
 
                     let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, field_ty);
                     let ptr = ctx.builder().build_alloca(llvm_ty, name);
@@ -886,7 +890,8 @@ fn compile_bigint_match<'ctx>(
                         BasicValueEnum::PointerValue(p) => p,
                         _ => return Err("BigInt literal must be a pointer".to_string()),
                     };
-                    let eq_i8 = build_ruyi_bigint_eq(ctx.builder(), &ctx.module, scrutinee_ptr, lit_ptr)?;
+                    let eq_i8 =
+                        build_ruyi_bigint_eq(ctx.builder(), &ctx.module, scrutinee_ptr, lit_ptr)?;
                     let is_match = ctx.builder().build_int_compare(
                         IntPredicate::NE,
                         eq_i8,

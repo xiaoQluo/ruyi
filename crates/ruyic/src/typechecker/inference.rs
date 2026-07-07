@@ -1516,7 +1516,8 @@ impl TypeInference {
                         if let Expr::Identifier(name) = left.as_ref() {
                             if let Expr::Identifier(class_name) = right.as_ref() {
                                 if true_branch {
-                                    self.env.narrow(name, Type::Named(class_name.clone(), vec![]));
+                                    self.env
+                                        .narrow(name, Type::Named(class_name.clone(), vec![]));
                                 }
                             }
                         }

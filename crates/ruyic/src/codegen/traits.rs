@@ -183,7 +183,7 @@ pub fn create_trait_object<'ctx>(
     trait_name: &str,
 ) -> Option<TraitObject<'ctx>> {
     let type_name = match value_ty {
-            Type::Named(name, _) | Type::Generic { base: name, .. } => name.clone(),
+        Type::Named(name, _) | Type::Generic { base: name, .. } => name.clone(),
         _ => return None,
     };
 

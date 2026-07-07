@@ -390,11 +390,13 @@ pub fn compile_async_function<'ctx>(
     ctx.builder().position_at_end(poll_return);
     ctx.builder()
         .build_store(state_field_ptr_poll, i32_ty.const_int(1, false));
-    ctx.builder().build_return(Some(&i32_ty.const_int(1, false)));
+    ctx.builder()
+        .build_return(Some(&i32_ty.const_int(1, false)));
 
     // Done block: return Ready(1)
     ctx.builder().position_at_end(poll_done);
-    ctx.builder().build_return(Some(&i32_ty.const_int(1, false)));
+    ctx.builder()
+        .build_return(Some(&i32_ty.const_int(1, false)));
 
     ctx.set_current_function(prev_function);
 
@@ -429,7 +431,8 @@ pub fn compile_async_function<'ctx>(
             "poll_fn_field",
         )
     };
-    ctx.builder().build_store(poll_fn_field_ptr, poll_fn_ptr_val);
+    ctx.builder()
+        .build_store(poll_fn_field_ptr, poll_fn_ptr_val);
 
     let state_field_ptr_new = unsafe {
         ctx.builder().build_gep(
