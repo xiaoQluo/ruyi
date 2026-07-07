@@ -2,7 +2,7 @@ use crate::lexer::token::Token;
 use crate::macro_expand::hygiene::StandardHygieneContext;
 use crate::macro_expand::pattern::{parse_pattern, PatternMatcher};
 use crate::macro_expand::{MacroError, MacroRegistry, MacroResult, MacroRule, MAX_EXPANSION_DEPTH};
-use crate::parser::ast::{Argument, MatchArm};
+use crate::parser::ast::{Argument, ClassElement, MatchArm};
 use crate::parser::ast::{Declaration, Expr, ForInit, ModuleItem, Program, Statement};
 
 pub struct MacroExpander {
@@ -54,7 +54,111 @@ impl MacroExpander {
                 self.registry.add_macro(name.clone(), rules.clone());
                 Ok(decl.clone())
             }
+            Declaration::Function {
+                name,
+                type_params,
+                params,
+                return_type,
+                body,
+                is_async,
+            } => {
+                let body_expanded: Vec<Statement> = body
+                    .iter()
+                    .map(|s| self.expand_statement(s))
+                    .collect::<MacroResult<Vec<_>>>()?;
+                Ok(Declaration::Function {
+                    name: name.clone(),
+                    type_params: type_params.clone(),
+                    params: params.clone(),
+                    return_type: return_type.clone(),
+                    body: body_expanded,
+                    is_async: *is_async,
+                })
+            }
+            Declaration::Class {
+                name,
+                type_params,
+                extends,
+                body,
+                annotations,
+            } => {
+                let body_expanded: Vec<ClassElement> = body
+                    .iter()
+                    .map(|elem| self.expand_class_element(elem))
+                    .collect::<MacroResult<Vec<_>>>()?;
+                Ok(Declaration::Class {
+                    name: name.clone(),
+                    type_params: type_params.clone(),
+                    extends: extends.clone(),
+                    body: body_expanded,
+                    annotations: annotations.clone(),
+                })
+            }
+            Declaration::Impl {
+                type_params,
+                trait_name,
+                trait_args,
+                for_type,
+                body,
+            } => {
+                let body_expanded: Vec<ClassElement> = body
+                    .iter()
+                    .map(|elem| self.expand_class_element(elem))
+                    .collect::<MacroResult<Vec<_>>>()?;
+                Ok(Declaration::Impl {
+                    type_params: type_params.clone(),
+                    trait_name: trait_name.clone(),
+                    trait_args: trait_args.clone(),
+                    for_type: for_type.clone(),
+                    body: body_expanded,
+                })
+            }
             _ => Ok(decl.clone()),
+        }
+    }
+
+    fn expand_class_element(&mut self, elem: &ClassElement) -> MacroResult<ClassElement> {
+        match elem {
+            ClassElement::Method {
+                name,
+                type_params,
+                params,
+                return_type,
+                body,
+                is_async,
+                is_static,
+                is_getter,
+                is_setter,
+            } => {
+                let body_expanded: Vec<Statement> = body
+                    .iter()
+                    .map(|s| self.expand_statement(s))
+                    .collect::<MacroResult<Vec<_>>>()?;
+                Ok(ClassElement::Method {
+                    name: name.clone(),
+                    type_params: type_params.clone(),
+                    params: params.clone(),
+                    return_type: return_type.clone(),
+                    body: body_expanded,
+                    is_async: *is_async,
+                    is_static: *is_static,
+                    is_getter: *is_getter,
+                    is_setter: *is_setter,
+                })
+            }
+            ClassElement::Field { name, ty, init, is_static } => {
+                let init_expanded = match init {
+                    Some(e) => Some(Box::new(self.expand_expression(e)?)),
+                    None => None,
+                };
+                Ok(ClassElement::Field {
+                    name: name.clone(),
+                    ty: ty.clone(),
+                    init: init_expanded,
+                    is_static: *is_static,
+                })
+            }
+            ClassElement::Empty => Ok(ClassElement::Empty),
         }
     }
 
@@ -214,7 +318,7 @@ impl MacroExpander {
                     .collect();
 
                 if let Expr::Identifier(name) = &callee_expanded {
-                    if self.registry.contains(name.as_str()) && !is_buildin_expr(expr) {
+                    if self.registry.contains(name.as_str()) {
                         return self.expand_macro_call(name.as_str(), &args_expanded?);
                     }
                 }
@@ -390,10 +494,6 @@ impl MacroExpander {
             location: "unknown".to_string(),
         })
     }
-}
-
-fn is_buildin_expr(expr: &Expr) -> bool {
-    matches!(expr, Expr::Identifier(_) | Expr::Call { .. })
 }
 
 fn args_to_tokens(args: &[crate::parser::ast::Argument]) -> Vec<Token> {
@@ -615,11 +715,27 @@ fn tokens_to_source(tokens: &[Token]) -> String {
         .join(" ")
 }
 
+fn escape_string_literal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\0' => out.push_str("\\0"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 fn token_to_source(token: &Token) -> String {
     match token {
         Token::Int(i) => i.to_string(),
         Token::Float(f) => f.to_string(),
-        Token::String(s) => format!("\"{}\"", s),
+        Token::String(s) => format!("\"{}\"", escape_string_literal(s)),
         Token::Ident(s) => s.clone(),
         Token::True => "true".to_string(),
         Token::False => "false".to_string(),
