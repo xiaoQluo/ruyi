@@ -41,13 +41,21 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: &Type) -> BasicTypeEn
         Type::Array(_) => {
             BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
         }
+        Type::Tuple(types) => {
+            let field_types: Vec<_> = types
+                .iter()
+                .map(|t| ruyi_type_to_llvm(context, t))
+                .collect();
+            let field_refs: Vec<_> = field_types.iter().map(|t| (*t).into()).collect();
+            BasicTypeEnum::StructType(context.struct_type(&field_refs, false))
+        }
         Type::Object(_) => {
             BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
         }
         Type::Function { .. } => {
             BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
         }
-        Type::Named(name) => {
+        Type::Named(name, _) => {
             if name.len() == 1
                 && name
                     .chars()
@@ -91,6 +99,9 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: &Type) -> BasicTypeEn
             BasicTypeEnum::StructType(dyn_type)
         }
         Type::Error => BasicTypeEnum::IntType(context.i8_type()),
+        Type::Union(_) => {
+            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+        }
     }
 }
 

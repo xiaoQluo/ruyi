@@ -34,15 +34,19 @@ pub enum Type {
     Nullable(Box<Type>),
     /// Array type `Array<T>`
     Array(Box<Type>),
+    /// Tuple type `(T1, T2, ...)`
+    Tuple(Vec<Type>),
     /// Object type with named fields `{ k1: T1, k2: T2, ... }`
     Object(Vec<ObjectField>),
+    /// Union type `A | B | C`
+    Union(Vec<Type>),
     /// Function type `fn(T1, T2, ...) -> R`
     Function {
         params: Vec<Type>,
         return_type: Box<Type>,
     },
-    /// Named type reference (e.g., class name, type alias)
-    Named(String),
+    /// Named type reference (e.g., class name, type alias) with optional fields.
+    Named(String, Vec<ObjectField>),
     /// Generic type instantiation `Name<T1, T2, ...>`
     Generic { base: String, args: Vec<Type> },
     /// Type parameter (e.g., `T` in `fn identity<T>(x: T): T`)
@@ -131,6 +135,18 @@ impl Type {
             Type::Null => Type::Null,
             Type::Dynamic => Type::Dynamic,
             other => Type::Nullable(Box::new(other)),
+        }
+    }
+
+    /// Checks if this type requires exhaustive pattern matching.
+    /// Types with finite value sets (bool, null, enums) require exhaustive matching.
+    /// Types with infinite value sets (int, float, string) do not.
+    pub fn requires_exhaustive_match(&self) -> bool {
+        match self {
+            Type::Bool | Type::Null => true,
+            Type::Nullable(inner) => inner.requires_exhaustive_match(),
+            Type::Int | Type::BigInt | Type::Float | Type::String => false,
+            _ => false,
         }
     }
 
@@ -226,6 +242,17 @@ impl Type {
                 self_elem.is_subtype_of(other_elem)
             }
 
+            // Tuple subtyping (structural, covariant per element)
+            (Type::Tuple(self_elems), Type::Tuple(other_elems)) => {
+                if self_elems.len() != other_elems.len() {
+                    return false;
+                }
+                self_elems
+                    .iter()
+                    .zip(other_elems.iter())
+                    .all(|(s, o)| s.is_subtype_of(o))
+            }
+
             // Generic type subtyping
             (
                 Type::Generic {
@@ -252,7 +279,7 @@ impl Type {
             }
 
             // Trait subtyping: named type can be subtype of trait
-            (Type::Named(name), Type::Trait(trait_name)) => {
+            (Type::Named(name, _), Type::Trait(trait_name)) => {
                 // In a real implementation, we'd check if `name` implements `trait_name`
                 // For now, we allow this for gradual typing
                 let _ = (name, trait_name);
@@ -340,6 +367,19 @@ impl Type {
             (Type::Nullable(t1), Type::Nullable(t2)) => t1.least_upper_bound(t2).make_nullable(),
             (Type::Nullable(t1), t2) => t1.least_upper_bound(t2).make_nullable(),
             (t1, Type::Nullable(t2)) => t1.least_upper_bound(t2).make_nullable(),
+            // Tuple types: lub element-wise
+            (Type::Tuple(t1), Type::Tuple(t2)) => {
+                if t1.len() != t2.len() {
+                    Type::Dynamic
+                } else {
+                    Type::Tuple(
+                        t1.iter()
+                            .zip(t2.iter())
+                            .map(|(a, b)| a.least_upper_bound(b))
+                            .collect(),
+                    )
+                }
+            }
             _ => Type::Dynamic,
         }
     }
@@ -362,7 +402,7 @@ impl Type {
                 "float" => Type::Float,
                 "bool" => Type::Bool,
                 "string" => Type::String,
-                _ => Type::Named(name.clone()),
+                _ => Type::Named(name.clone(), vec![]),
             },
             crate::parser::ast::TypeAnnotation::Identifier(name) => match name.as_str() {
                 "int" => Type::Int,
@@ -374,7 +414,7 @@ impl Type {
                 "never" => Type::Never,
                 "bigint" => Type::BigInt,
                 "dyn" => Type::Dynamic,
-                _ => Type::Named(name.clone()),
+                _ => Type::Named(name.clone(), vec![]),
             },
             crate::parser::ast::TypeAnnotation::Nullable(inner) => {
                 Type::from_annotation(inner).make_nullable()
@@ -386,16 +426,10 @@ impl Type {
                 params: params.iter().map(Type::from_annotation).collect(),
                 return_type: Box::new(Type::from_annotation(return_type)),
             },
-            crate::parser::ast::TypeAnnotation::Generic { base, args } => {
-                if base == "Array" && args.len() == 1 {
-                    Type::Array(Box::new(Type::from_annotation(&args[0])))
-                } else {
-                    Type::Generic {
-                        base: base.clone(),
-                        args: args.iter().map(Type::from_annotation).collect(),
-                    }
-                }
-            }
+            crate::parser::ast::TypeAnnotation::Generic { base, args } => Type::Generic {
+                base: base.clone(),
+                args: args.iter().map(Type::from_annotation).collect(),
+            },
             crate::parser::ast::TypeAnnotation::Object(fields) => Type::Object(
                 fields
                     .iter()
@@ -410,16 +444,7 @@ impl Type {
                 Type::Array(Box::new(Type::from_annotation(elem)))
             }
             crate::parser::ast::TypeAnnotation::Tuple(types) => {
-                // Tuples are represented as arrays of union types for now
-                // In a full implementation, tuples would be a separate type
-                if types.is_empty() {
-                    Type::Array(Box::new(Type::Dynamic))
-                } else if types.len() == 1 {
-                    Type::Array(Box::new(Type::from_annotation(&types[0])))
-                } else {
-                    // Tuple with multiple element types -> Array<dyn> for now
-                    Type::Array(Box::new(Type::Dynamic))
-                }
+                Type::Tuple(types.iter().map(Type::from_annotation).collect())
             }
             crate::parser::ast::TypeAnnotation::Dyn(inner) => match inner.as_ref() {
                 crate::parser::ast::TypeAnnotation::Identifier(name) => Type::Trait(name.clone()),
@@ -428,10 +453,16 @@ impl Type {
                 }
                 _ => Type::Dynamic,
             },
+            crate::parser::ast::TypeAnnotation::Union(types) => {
+                Type::Union(types.iter().map(Type::from_annotation).collect())
+            }
         };
         if let Type::Generic { base, args } = &result {
             if base == "Future" && args.len() == 1 {
                 return Type::Future(Box::new(args[0].clone()));
+            }
+            if base == "Array" && args.len() == 1 {
+                return Type::Array(Box::new(args[0].clone()));
             }
         }
         result
@@ -451,6 +482,10 @@ impl fmt::Display for Type {
             Type::BigInt => write!(f, "bigint"),
             Type::Nullable(inner) => write!(f, "{}?", inner),
             Type::Array(elem) => write!(f, "Array<{}>", elem),
+            Type::Tuple(types) => {
+                let parts: Vec<String> = types.iter().map(|t| t.to_string()).collect();
+                write!(f, "({})", parts.join(", "))
+            }
             Type::Object(fields) => {
                 write!(f, "{{ ")?;
                 let parts: Vec<String> = fields
@@ -472,7 +507,7 @@ impl fmt::Display for Type {
                 let param_strs: Vec<String> = params.iter().map(|p| p.to_string()).collect();
                 write!(f, "fn({}) -> {}", param_strs.join(", "), return_type)
             }
-            Type::Named(name) => write!(f, "{}", name),
+            Type::Named(name, _) => write!(f, "{}", name),
             Type::Generic { base, args } => {
                 let arg_strs: Vec<String> = args.iter().map(|a| a.to_string()).collect();
                 write!(f, "{}<{}>", base, arg_strs.join(", "))
@@ -482,6 +517,10 @@ impl fmt::Display for Type {
             Type::Dynamic => write!(f, "dyn"),
             Type::Future(inner) => write!(f, "Future<{}>", inner),
             Type::Error => write!(f, "<error>"),
+            Type::Union(parts) => {
+                let strs: Vec<String> = parts.iter().map(|t| t.to_string()).collect();
+                write!(f, "{}", strs.join(" | "))
+            }
         }
     }
 }
@@ -651,15 +690,29 @@ mod tests {
 
     #[test]
     fn test_from_annotation_generic() {
+        // Array<T> is normalized from Generic to Type::Array
         let gen_type = crate::parser::ast::TypeAnnotation::Generic {
             base: "Array".into(),
             args: vec![crate::parser::ast::TypeAnnotation::Identifier("int".into())],
         };
         assert_eq!(
             Type::from_annotation(&gen_type),
+            Type::Array(Box::new(Type::Int))
+        );
+
+        // Non-Array generics remain as Type::Generic
+        let map_type = crate::parser::ast::TypeAnnotation::Generic {
+            base: "Map".into(),
+            args: vec![
+                crate::parser::ast::TypeAnnotation::Identifier("string".into()),
+                crate::parser::ast::TypeAnnotation::Identifier("int".into()),
+            ],
+        };
+        assert_eq!(
+            Type::from_annotation(&map_type),
             Type::Generic {
-                base: "Array".into(),
-                args: vec![Type::Int],
+                base: "Map".into(),
+                args: vec![Type::String, Type::Int],
             }
         );
     }

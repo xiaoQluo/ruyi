@@ -129,6 +129,10 @@ fn mangle_type(ty: &Type) -> String {
         Type::Dynamic => "dyn".to_string(),
         Type::Nullable(inner) => format!("{}__opt", mangle_type(inner)),
         Type::Array(elem) => format!("Array__{}", mangle_type(elem)),
+        Type::Tuple(types) => {
+            let elem_strs: Vec<String> = types.iter().map(|t| mangle_type(t)).collect();
+            format!("Tuple__{}", elem_strs.join("_"))
+        }
         Type::Object(fields) => {
             let field_strs: Vec<String> = fields
                 .iter()
@@ -143,7 +147,7 @@ fn mangle_type(ty: &Type) -> String {
             let param_strs: Vec<String> = params.iter().map(|p| mangle_type(p)).collect();
             format!("fn_{}_{}", param_strs.join("_"), mangle_type(return_type))
         }
-        Type::Named(name) => name.clone(),
+        Type::Named(name, _) => name.clone(),
         Type::Generic { base, args } => {
             let arg_strs: Vec<String> = args.iter().map(|a| mangle_type(a)).collect();
             format!("{}__{}", base, arg_strs.join("__"))
@@ -152,6 +156,10 @@ fn mangle_type(ty: &Type) -> String {
         Type::Trait(name) => format!("dyn_{}", name),
         Type::Future(inner) => format!("Future__{}", mangle_type(inner)),
         Type::Error => "error".to_string(),
+        Type::Union(parts) => {
+            let elem_strs: Vec<String> = parts.iter().map(|t| mangle_type(t)).collect();
+            format!("Union__{}", elem_strs.join("_or_"))
+        }
     }
 }
 
@@ -465,11 +473,11 @@ pub fn make_generic_function_def(
 
 fn replace_type_param_refs(ty: &Type, name_to_var: &HashMap<&str, Type>) -> Type {
     match ty {
-        Type::Named(n) => {
+        Type::Named(n, fields) => {
             if let Some(replacement) = name_to_var.get(n.as_str()) {
                 replacement.clone()
             } else {
-                ty.clone()
+                Type::Named(n.clone(), fields.clone())
             }
         }
         Type::Nullable(inner) => {
@@ -516,7 +524,7 @@ pub fn make_generic_class_def(
     GenericDefinition {
         name: name.to_string(),
         type_params: param_infos,
-        body_type: Type::Named(name.to_string()),
+        body_type: Type::Named(name.to_string(), vec![]),
     }
 }
 

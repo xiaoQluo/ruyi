@@ -472,6 +472,7 @@ pub enum TypeAnnotation {
     Array(Box<TypeAnnotation>),
     Tuple(Vec<TypeAnnotation>),
     Dyn(Box<TypeAnnotation>),
+    Union(Vec<TypeAnnotation>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

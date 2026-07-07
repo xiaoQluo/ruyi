@@ -397,46 +397,118 @@ fn test_macro_rule_with_tokens() {
 
 #[test]
 fn test_type_alias_simple() {
-    // Type aliases are not correctly parsed in this parser
-    let err = parse_err("type Name = string;");
-    match err {
-        ParseError::ExpectedToken { expected, .. } => {
-            assert_eq!(expected, "':'");
+    let decl = single_decl("type Name = string;");
+    match decl {
+        Declaration::TypeAlias { name, type_params, ty } => {
+            assert_eq!(name, "Name");
+            assert!(type_params.is_empty());
+            assert_eq!(ty, TypeAnnotation::Builtin("string".to_string()));
         }
-        _ => panic!("expected ExpectedToken error, got {:?}", err),
+        other => panic!("expected type alias declaration, got {:?}", other),
     }
 }
 
 #[test]
 fn test_type_alias_generic() {
-    let err = parse_err("type Box<T> = { value: T };");
-    match err {
-        ParseError::ExpectedToken { expected, .. } => {
-            assert_eq!(expected, "':'");
+    let decl = single_decl("type Box<T> = { value: T };");
+    match decl {
+        Declaration::TypeAlias { name, type_params, ty } => {
+            assert_eq!(name, "Box");
+            assert_eq!(type_params.len(), 1);
+            assert_eq!(type_params[0].name, "T");
+            match ty {
+                TypeAnnotation::Object(fields) => {
+                    assert_eq!(fields.len(), 1);
+                    assert_eq!(fields[0].name, "value");
+                    assert_eq!(fields[0].ty, TypeAnnotation::Identifier("T".to_string()));
+                }
+                other => panic!("expected object type, got {:?}", other),
+            }
         }
-        _ => panic!("expected ExpectedToken error, got {:?}", err),
+        other => panic!("expected type alias declaration, got {:?}", other),
     }
 }
 
 #[test]
 fn test_type_alias_function() {
-    let err = parse_err("type Callback = fn(int) => string;");
-    match err {
-        ParseError::ExpectedToken { expected, .. } => {
-            assert_eq!(expected, "':'");
+    let decl = single_decl("type Callback = fn(int) => string;");
+    match decl {
+        Declaration::TypeAlias { name, type_params, ty } => {
+            assert_eq!(name, "Callback");
+            assert!(type_params.is_empty());
+            match ty {
+                TypeAnnotation::Function { params, return_type } => {
+                    assert_eq!(params.len(), 1);
+                    assert_eq!(params[0], TypeAnnotation::Builtin("int".to_string()));
+                    assert_eq!(
+                        *return_type,
+                        TypeAnnotation::Builtin("string".to_string())
+                    );
+                }
+                other => panic!("expected function type, got {:?}", other),
+            }
         }
-        _ => panic!("expected ExpectedToken error, got {:?}", err),
+        other => panic!("expected type alias declaration, got {:?}", other),
     }
 }
 
 #[test]
 fn test_type_alias_array() {
-    let err = parse_err("type IntArray = [int];");
-    match err {
-        ParseError::ExpectedToken { expected, .. } => {
-            assert_eq!(expected, "':'");
+    let decl = single_decl("type IntArray = [int];");
+    match decl {
+        Declaration::TypeAlias { name, type_params, ty } => {
+            assert_eq!(name, "IntArray");
+            assert!(type_params.is_empty());
+            assert_eq!(
+                ty,
+                TypeAnnotation::Array(Box::new(TypeAnnotation::Builtin("int".to_string())))
+            );
         }
-        _ => panic!("expected ExpectedToken error, got {:?}", err),
+        other => panic!("expected type alias declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_type_alias_union() {
+    let decl = single_decl("type Option<T> = Some<T> | None;");
+    match decl {
+        Declaration::TypeAlias { name, type_params, ty } => {
+            assert_eq!(name, "Option");
+            assert_eq!(type_params.len(), 1);
+            assert_eq!(type_params[0].name, "T");
+            match ty {
+                TypeAnnotation::Union(parts) => {
+                    assert_eq!(parts.len(), 2);
+                    assert_eq!(
+                        parts[0],
+                        TypeAnnotation::Generic {
+                            base: "Some".to_string(),
+                            args: vec![TypeAnnotation::Identifier("T".to_string())],
+                        }
+                    );
+                    assert_eq!(parts[1], TypeAnnotation::Identifier("None".to_string()));
+                }
+                other => panic!("expected union type, got {:?}", other),
+            }
+        }
+        other => panic!("expected type alias declaration, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_type_alias_union_three_members() {
+    let decl = single_decl("type ABC = A | B | C;");
+    match decl {
+        Declaration::TypeAlias { ty, .. } => match ty {
+            TypeAnnotation::Union(parts) => {
+                assert_eq!(parts.len(), 3);
+                assert_eq!(parts[0], TypeAnnotation::Identifier("A".to_string()));
+                assert_eq!(parts[1], TypeAnnotation::Identifier("B".to_string()));
+                assert_eq!(parts[2], TypeAnnotation::Identifier("C".to_string()));
+            }
+            other => panic!("expected union type, got {:?}", other),
+        },
+        other => panic!("expected type alias declaration, got {:?}", other),
     }
 }
 
