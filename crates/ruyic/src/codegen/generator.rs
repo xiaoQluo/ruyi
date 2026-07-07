@@ -62,6 +62,7 @@ pub struct CodegenContext<'ctx, 'm, 'env> {
     pub module: &'m Module<'ctx>,
     pub(crate) builder: Builder<'ctx>,
     pub(crate) variables: HashMap<String, (inkwell::values::PointerValue<'ctx>, Type)>,
+    pub(crate) globals: HashMap<String, inkwell::values::GlobalValue<'ctx>>,
     pub(crate) current_function: Option<FunctionValue<'ctx>>,
     pub(crate) loop_stack: Vec<(
         inkwell::basic_block::BasicBlock<'ctx>,
@@ -111,6 +112,7 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
             module,
             builder,
             variables: HashMap::new(),
+            globals: HashMap::new(),
             current_function: None,
             loop_stack: Vec::new(),
             gc_roots: Vec::new(),
@@ -221,6 +223,15 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
     /// type checker (falling back to the annotation-derived type stored in the
     /// local map). The LLVM pointer value always comes from the local map.
     pub fn lookup_variable(&self, name: &str) -> Option<(inkwell::values::PointerValue<'ctx>, Type)> {
+        if let Some(global) = self.globals.get(name) {
+            let ptr = global.as_pointer_value();
+            let final_ty = self
+                .type_environment
+                .and_then(|env| env.lookup(name))
+                .cloned()
+                .unwrap_or(crate::typechecker::types::Type::Dynamic);
+            return Some((ptr, final_ty));
+        }
         self.variables.get(name).map(|(ptr, ty)| {
             let final_ty = self
                 .type_environment
@@ -464,6 +475,16 @@ impl<'ctx> CodeGenerator<'ctx> {
         ctx.builder().position_at_end(entry_bb);
         ctx.set_current_function(Some(main_fn));
 
+        let top_level_lets = collect_top_level_lets(program);
+        for (name, ty) in &top_level_lets {
+            let llvm_ty = ruyi_type_to_llvm(ctx.context, ty);
+            let global = ctx.module.add_global(llvm_ty, None, name);
+            global.set_linkage(inkwell::module::Linkage::Internal);
+            let zero = ruyi_type_to_zero(ctx.context, ty);
+            global.set_initializer(&zero);
+            ctx.globals.insert(name.clone(), global);
+        }
+
         // Save entry block position before compiling declarations
         let main_entry_bb = entry_bb;
 
@@ -582,6 +603,14 @@ impl<'ctx> CodeGenerator<'ctx> {
                             continue;
                         }
                     }
+                    // Skip top-level let/const - they become LLVM globals (handled at main entry)
+                    if matches!(
+                        decl,
+                        crate::parser::ast::Declaration::Let(_)
+                            | crate::parser::ast::Declaration::Const(_)
+                    ) {
+                        continue;
+                    }
                     if let Err(_e) = compile_declaration(&mut ctx, decl) {
                         match decl {
                             crate::parser::ast::Declaration::Class { .. }
@@ -659,6 +688,8 @@ impl<'ctx> CodeGenerator<'ctx> {
                 ctx.define_variable(param_name, (ptr, param_ty));
             }
         }
+
+        compile_top_level_let_inits(&mut ctx, program);
 
         // Compile main function body
         if let Some(body) = main_body {
@@ -894,4 +925,88 @@ fn compile_monomorphized_function<'ctx>(
     }
 
     Ok(())
+}
+
+fn compile_top_level_let_inits<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
+    program: &crate::parser::ast::Program,
+) {
+    use crate::parser::ast::{Declaration, ModuleItem, Pattern};
+    use crate::typechecker::types::Type;
+    use inkwell::values::BasicValueEnum;
+    use super::expr::compile_expr;
+
+    for item in &program.items {
+        if let ModuleItem::Declaration(Declaration::Let(bindings) | Declaration::Const(bindings)) = item {
+            for b in bindings {
+                let name = match &b.pattern {
+                    Pattern::Identifier(n) => n.clone(),
+                    _ => continue,
+                };
+                let Some(init) = &b.init else { continue };
+                let ty = if let Some(annotation) = &b.ty {
+                    Type::from_annotation(annotation)
+                } else {
+                    Type::Dynamic
+                };
+                let llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
+                let global = match ctx.module.get_global(&name) {
+                    Some(g) => g,
+                    None => {
+                        let g = ctx.module.add_global(llvm_ty, None, &name);
+                        g.set_linkage(inkwell::module::Linkage::Internal);
+                        let zero = ruyi_type_to_zero(ctx.context, &ty);
+                        g.set_initializer(&zero);
+                        g
+                    }
+                };
+                let init_result = match compile_expr(ctx, init) {
+                    Ok(r) => r,
+                    Err(_) => continue,
+                };
+                let value = init_result.value;
+                ctx.builder().build_store(global.as_pointer_value(), value);
+                ctx.define_variable(name, (global.as_pointer_value(), init_result.ty));
+                let _ = BasicValueEnum::IntValue(ctx.context.i64_type().const_int(0, false));
+            }
+        }
+    }
+}
+
+fn collect_top_level_lets(program: &crate::parser::ast::Program) -> Vec<(String, crate::typechecker::types::Type)> {
+    use crate::parser::ast::{Declaration, ModuleItem, Pattern};
+    use crate::typechecker::types::Type;
+    let mut result = Vec::new();
+    for item in &program.items {
+        if let ModuleItem::Declaration(Declaration::Let(bindings) | Declaration::Const(bindings)) = item {
+            for b in bindings {
+                let name = match &b.pattern {
+                    Pattern::Identifier(n) => n.clone(),
+                    _ => continue,
+                };
+                let ty = if let Some(annotation) = &b.ty {
+                    Type::from_annotation(annotation)
+                } else {
+                    Type::Dynamic
+                };
+                result.push((name, ty));
+            }
+        }
+    }
+    result
+}
+
+fn ruyi_type_to_zero<'ctx>(
+    context: &'ctx inkwell::context::Context,
+    ty: &crate::typechecker::types::Type,
+) -> inkwell::values::BasicValueEnum<'ctx> {
+    use crate::typechecker::types::Type;
+    use inkwell::values::BasicValueEnum;
+    match ty {
+        Type::Int => BasicValueEnum::IntValue(context.i64_type().const_int(0, false)),
+        Type::Float => BasicValueEnum::FloatValue(context.f64_type().const_float(0.0)),
+        Type::Bool => BasicValueEnum::IntValue(context.bool_type().const_int(0, false)),
+        Type::Null => BasicValueEnum::IntValue(context.i64_type().const_int(0, false)),
+        _ => BasicValueEnum::IntValue(context.i64_type().const_int(0, false)),
+    }
 }

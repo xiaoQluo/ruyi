@@ -75,30 +75,31 @@ fn compile_binding<'ctx>(
         _ => return Err("Complex patterns not yet supported".to_string()),
     };
 
-    // Determine type: use annotation if present, otherwise infer from init expression
     let (ty, _llvm_ty, ptr) = if let Some(annotation) = &binding.ty {
         let ty = Type::from_annotation(annotation);
-        let _llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
-        let ptr = ctx.builder().build_alloca(_llvm_ty, &name);
-        (ty, _llvm_ty, ptr)
+        let llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
+        let ptr = ctx.builder().build_alloca(llvm_ty, &name);
+        (ty, llvm_ty, ptr)
     } else if let Some(init) = &binding.init {
-        // Infer type from initialization expression
         let init_result = compile_expr(ctx, init)?;
         let ty = init_result.ty;
         let llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
         let ptr = ctx.builder().build_alloca(llvm_ty, &name);
         ctx.builder().build_store(ptr, init_result.value);
-        ctx.define_variable(name, (ptr, ty));
+        ctx.define_variable(name, (ptr, ty.clone()));
+        if is_gc_managed(&ty) {
+            ctx.add_gc_root(ptr, ty);
+        }
         return Ok(());
     } else {
         let ty = Type::Dynamic;
-        let _llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
-        let ptr = ctx.builder().build_alloca(_llvm_ty, &name);
-        (ty, _llvm_ty, ptr)
+        let llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
+        let ptr = ctx.builder().build_alloca(llvm_ty, &name);
+        (ty, llvm_ty, ptr)
     };
 
     if let Some(init) = &binding.init {
-let prev_expected = ctx.expected_expr_type().cloned();
+        let prev_expected = ctx.expected_expr_type().cloned();
         ctx.set_expected_expr_type(Some(ty.clone()));
         let init_result = super::expr::compile_expr(ctx, init)?;
         ctx.set_expected_expr_type(prev_expected);
