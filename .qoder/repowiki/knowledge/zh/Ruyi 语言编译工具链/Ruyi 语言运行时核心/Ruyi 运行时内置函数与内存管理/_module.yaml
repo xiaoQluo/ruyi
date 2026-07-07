@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: ruyi_runtime/builtins_and_alloc
+title: Ruyi 运行时内置函数与内存管理
+scope:
+    - crates/ruyi_runtime/src/builtins.rs
+    - crates/ruyi_runtime/src/alloc.rs
+    - crates/ruyi_runtime/src/arc.rs
+    - crates/ruyi_runtime/src/c_exports.rs
+source_files: []
+depends_on: []
+related_to:
+    - path: stdlib

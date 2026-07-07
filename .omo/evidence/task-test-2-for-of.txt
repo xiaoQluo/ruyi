@@ -1,0 +1,40 @@
+=== For-of Loop Integration Test (Task T2) ===
+Date: 2026年 5月 4日 星期一 13时01分23秒 CST
+
+=== test/for_of.ry ===
+// For-of loop integration test
+// Tests iterator protocol for arrays and strings
+
+// Basic array iteration
+let arr = [10, 20, 30];
+for (let item of arr) {
+    print(item);
+}
+
+// Empty array - should produce no output
+let empty: int[] = [];
+for (let item of empty) {
+    print("FAIL");
+}
+
+// String iteration via for-of
+let s = "hello";
+for (let ch of s) {
+    print(ch);
+}
+=== test/for_of.expected ===
+10
+20
+30
+h
+e
+l
+l
+o
+=== Verification ===
+Files created:
+-rw-r--r--  1 luozegang  staff   18  5月  4 13:00 test/for_of.expected
+-rw-r--r--  1 luozegang  staff  373  5月  4 13:00 test/for_of.ry
+
+Note: LLVM not available in this environment for full compilation test
+Syntax follows Ruyi spec (based on for_in.ry pattern)

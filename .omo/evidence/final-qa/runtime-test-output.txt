@@ -1,0 +1,150 @@
+warning: unused imports: `GlobalAlloc`, `Layout`, and `System`
+  --> crates/ruyi_runtime/src/arc.rs:17:18
+   |
+17 | use std::alloc::{GlobalAlloc, Layout, System};
+   |                  ^^^^^^^^^^^  ^^^^^^  ^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `ptr` is never read
+  --> crates/ruyi_runtime/src/arc.rs:39:5
+   |
+37 | pub struct WeakRef {
+   |            ------- field in this struct
+38 |     /// The payload pointer, or null if the object has been deallocated.
+39 |     ptr: *mut u8,
+   |     ^^^
+   |
+   = note: `WeakRef` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `header`
+   --> crates/ruyi_runtime/src/arc.rs:464:13
+    |
+464 |         let header = GcObjectHeader::from_payload(ptr);
+    |             ^^^^^^ help: if this is intentional, prefix it with an underscore: `_header`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `ruyi_runtime` (lib) generated 2 warnings (run `cargo fix --lib -p ruyi_runtime` to apply 1 suggestion)
+warning: `ruyi_runtime` (lib test) generated 3 warnings (2 duplicates) (run `cargo fix --lib -p ruyi_runtime --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running unittests src/lib.rs (target/debug/deps/ruyi_runtime-457b151b278c581b)
+
+running 57 tests
+test alloc::tests::test_header_flags ... ok
+test alloc::tests::test_arc_ref_count ... ok
+test alloc::tests::test_ruyi_alloc_dealloc ... ok
+test alloc::tests::test_ruyi_realloc ... ok
+test arc::tests::test_arc_alloc_release ... ok
+test async_runtime::tests::test_join_all ... ok
+test async_runtime::tests::test_race ... ok
+test async_runtime::tests::test_task_id_unique ... ok
+test async_runtime::tests::test_work_stealing_deque ... ok
+test arc::tests::test_weak_reference ... ok
+test arc::tests::test_retain_release_any ... ok
+test arc::tests::test_cycle_detection_simple ... ok
+test async_runtime::tests::test_yielding_future ... ok
+test builtins::tests::test_ruyi_array_alloc ... ok
+test async_runtime::tests::test_scheduler_spawn_and_run ... ok
+test builtins::tests::test_ruyi_array_alloc_negative ... ok
+test builtins::tests::test_ruyi_bigint_from_str ... ok
+test builtins::tests::test_ruyi_bigint_from_str_null ... ok
+test builtins::tests::test_ruyi_float_to_string ... ok
+test builtins::tests::test_ruyi_int_to_string ... ok
+test builtins::tests::test_ruyi_int_to_string_negative ... ok
+test builtins::tests::test_ruyi_member_access ... ok
+test builtins::tests::test_ruyi_object_alloc ... ok
+test builtins::tests::test_ruyi_object_alloc_negative ... ok
+test builtins::tests::test_ruyi_string_concat_basic ... ok
+test builtins::tests::test_ruyi_string_concat_both_null ... ok
+test builtins::tests::test_ruyi_string_concat_with_null ... ok
+test exception::runtime::tests::test_ruyi_end_catch_does_not_panic ... ok
+test exception::runtime::tests::test_ruyi_finally_preserves_exception ... ok
+test exception::runtime::tests::test_ruyi_finally_with_null ... ok
+test exception::runtime::tests::test_ruyi_match_exception ... ok
+test exception::tests::test_catch_clause_matches ... ok
+test exception::tests::test_exception_table_lookup ... ok
+test exception::tests::test_landing_pad_descriptor ... ok
+test exception::tests::test_registry ... ok
+test exception::tests::test_ruyi_exception ... ok
+test exception::types::tests::test_exception_object_layout ... ok
+test exception::types::tests::test_exception_type_ids ... ok
+test exception::runtime::tests::test_ruyi_throw_panics - should panic ... ok
+test exception::types::tests::test_exception_type_matching ... ok
+test exception::tests::test_throw_exception - should panic ... ok
+test exception::types::tests::test_exception_type_roundtrip ... ok
+test gc::barrier::tests::test_old_to_young_triggers_barrier ... ok
+test gc::barrier::tests::test_young_to_old_no_barrier ... ok
+test gc::generational::tests::test_alloc_and_minor_collect ... ok
+test gc::generational::tests::test_disabled_collection ... ok
+test gc::generational::tests::test_full_collect_compacts_old ... ok
+test gc::generational::tests::test_nested_trace_minor_collect ... ok
+test gc::generational::tests::test_promotion_after_threshold ... ok
+test gc::generational::tests::test_remembered_set_in_minor_collect ... ok
+test gc::generational::tests::test_write_barrier_tracks_cross_gen ... ok
+test gc::roots::tests::test_add_remove_stack_root ... ok
+test gc::roots::tests::test_all_roots ... ok
+test gc::tests::test_alloc_and_collect ... ok
+test gc::tests::test_collect_disabled ... ok
+test gc::tests::test_nested_trace ... ok
+test gc::generational::tests::test_stress_many_objects ... ok
+
+test result: ok. 57 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests/async_runtime.rs (target/debug/deps/async_runtime-87771b414ff434a3)
+
+running 8 tests
+test test_ruyi_await ... ok
+test test_work_stealing_deque ... ok
+test test_join_all ... ok
+test test_race ... ok
+test test_yielding_future ... ok
+test test_task_id_unique ... ok
+test test_scheduler_spawn_and_run ... ok
+test test_scheduler_multiple_tasks ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/builtins.rs (target/debug/deps/builtins-8240593d8bf37068)
+
+running 5 tests
+test test_ruyi_string_concat_smoke ... ok
+test test_ruyi_member_access_smoke ... ok
+test test_ruyi_object_alloc_smoke ... ok
+test test_ruyi_bigint_from_str_smoke ... ok
+test test_ruyi_array_alloc_smoke ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/exception.rs (target/debug/deps/exception-ce744597eadd4881)
+
+running 8 tests
+test test_exception_type_ids ... ok
+test test_exception_propagation_simulation ... ok
+test test_exception_object_layout ... ok
+test test_ruyi_finally_preserves_exception ... ok
+test test_finally_guarantee_on_uncaught ... ok
+test test_exception_type_matching ... ok
+test test_ruyi_finally_with_null ... ok
+test test_ruyi_match_exception ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/runtime.rs (target/debug/deps/runtime-f378ce12f29bf769)
+
+running 5 tests
+test test_landing_pad_descriptor_builder ... ok
+test test_ruyi_alloc_roundtrip ... ok
+test test_exception_table_integration ... ok
+test test_ruyi_alloc_arc ... ok
+test test_mark_sweep_lifecycle ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests ruyi_runtime
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

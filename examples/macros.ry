@@ -1,0 +1,246 @@
+// =============================================================================
+// Macros - Ruyi Declarative Macro System
+// =============================================================================
+// Covers: macro declarations, pattern matching, repetition patterns,
+//         multiple rules, built-in macros, hygiene concept
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 1. Basic Macro Declaration
+// -----------------------------------------------------------------------------
+// A macro is declared with the `macro` keyword.
+// Each rule has the form: (pattern) => { expansion }
+// The first matching rule wins (rules are tried in order).
+
+// Simplest macro: no arguments
+macro say_hello {
+  () => {
+    print("Hello from macro!\n");
+  }
+}
+
+// Macro with a single expression argument
+// $expr captures one token/expression from the call site
+macro debug {
+  ($expr) => {
+    print("DEBUG: ");
+    print($expr);
+    print("\n");
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 2. Multiple Rules (Pattern Matching)
+// -----------------------------------------------------------------------------
+// Macros can have multiple rules. The first matching pattern is used,
+// similar to match expressions.
+
+// A macro that behaves differently based on argument count
+macro greet {
+  () => {
+    print("Hello, stranger!\n");
+  }
+  ($name) => {
+    print("Hello, ");
+    print($name);
+    print("!\n");
+  }
+}
+
+// A macro that returns different values based on patterns
+macro default_value {
+  () => { 0 }
+  ($val) => { $val }
+}
+
+// -----------------------------------------------------------------------------
+// 3. Using Macros
+// -----------------------------------------------------------------------------
+fn basic_macro_demo() {
+  print("--- Basic Macros ---\n");
+
+  // Invoke a zero-argument macro
+  say_hello();
+
+  // Invoke a single-argument macro
+  debug(42);
+  debug("macro debug works");
+
+  // Multiple-rule macros
+  greet();
+  greet("Ruyi");
+}
+
+// -----------------------------------------------------------------------------
+// 4. Macros as Expression Builders
+// -----------------------------------------------------------------------------
+// Macros can produce expressions that are used in assignments,
+// function arguments, etc.
+
+macro square {
+  ($x) => { $x * $x }
+}
+
+macro max_of {
+  ($a, $b) => {
+    if ($a > $b) { $a } else { $b }
+  }
+}
+
+fn expression_macro_demo() {
+  print("--- Expression Macros ---\n");
+
+  // Macro used in an expression context
+  let sq = square(7);
+  print("square(7) = ");
+  print(sq);
+  print("\n");
+
+  let bigger = max_of(10, 25);
+  print("max_of(10, 25) = ");
+  print(bigger);
+  print("\n");
+
+  // Nested macro calls
+  let nested = square(max_of(3, 5));
+  print("square(max_of(3, 5)) = ");
+  print(nested);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 5. Default Value Macro
+// -----------------------------------------------------------------------------
+fn default_value_demo() {
+  print("--- Default Value Macros ---\n");
+
+  // No argument: returns default
+  let a = default_value();
+  print("default_value() = ");
+  print(a);
+  print("\n");
+
+  // With argument: returns provided value
+  let b = default_value(42);
+  print("default_value(42) = ");
+  print(b);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 6. Practical Macros
+// -----------------------------------------------------------------------------
+// A macro that prints a labeled value (useful for debugging)
+macro print_label {
+  ($label, $value) => {
+    print($label);
+    print(": ");
+    print($value);
+    print("\n");
+  }
+}
+
+// A macro that wraps a value in an array
+macro make_array {
+  ($elem) => { [$elem] }
+}
+
+fn practical_macro_demo() {
+  print("--- Practical Macros ---\n");
+
+  print_label("name", "Alice");
+  print_label("age", 30);
+
+  let arr = make_array(42);
+  print_label("array length", arr.length());
+}
+
+// -----------------------------------------------------------------------------
+// 7. Built-in Macros
+// -----------------------------------------------------------------------------
+// Ruyi provides several built-in macros:
+//   - stringify(expr): converts an expression to its string representation
+//   - todo!(): marks unimplemented code, panics at runtime
+//   - unreachable!(): marks code that should never be reached
+
+fn builtin_macro_demo() {
+  print("--- Built-in Macros ---\n");
+
+  // Ruyi provides built-in macros:
+  //   stringify(expr) - converts expression tokens to string at compile time
+  //   todo!()         - marks unimplemented code, panics at runtime
+  //   unreachable!()  - marks unreachable code, panics if reached
+  //   file!()         - returns current file name
+  //   line!()         - returns current line number
+  print("stringify(expr) - converts expression to string\n");
+  print("todo!() - marks unimplemented code (panics at runtime)\n");
+  print("unreachable!() - marks unreachable code (panics if reached)\n");
+  print("file!() / line!() - source location info\n");
+}
+
+// -----------------------------------------------------------------------------
+// 8. Macro Hygiene (Concept)
+// -----------------------------------------------------------------------------
+// Ruyi macros are hygienic: identifiers introduced inside a macro
+// expansion do not conflict with identifiers in the calling scope.
+//
+// For example, if a macro internally uses a variable `temp`,
+// it will NOT shadow a `temp` variable in the caller's scope.
+// This is handled automatically by the compiler's hygiene system.
+
+macro safe_swap {
+  ($a, $b) => {
+    let temp = $a;
+    $a = $b;
+    $b = temp;
+  }
+}
+
+fn hygiene_demo() {
+  print("--- Macro Hygiene ---\n");
+
+  // The `temp` inside the macro won't conflict with local `temp`
+  let temp = "I am safe";
+  let x = 10;
+  let y = 20;
+
+  print("before swap: x=");
+  print(x);
+  print(", y=");
+  print(y);
+  print("\n");
+
+  safe_swap(x, y);
+
+  print("after swap:  x=");
+  print(x);
+  print(", y=");
+  print(y);
+  print("\n");
+
+  // Local `temp` is untouched
+  print("local temp is still: ");
+  print(temp);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+  print("=== Macros Demo ===\n\n");
+
+  basic_macro_demo();
+  print("\n");
+  expression_macro_demo();
+  print("\n");
+  default_value_demo();
+  print("\n");
+  practical_macro_demo();
+  print("\n");
+  builtin_macro_demo();
+  print("\n");
+  hygiene_demo();
+
+  print("\nAll macro demos completed successfully!\n");
+}

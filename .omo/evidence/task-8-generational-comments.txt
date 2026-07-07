@@ -1,0 +1,1 @@
+gc/generational.rs docstrings: Necessary public API documentation. The struct docstring explains the generational GC architecture. Safety docstrings are mandatory for the four unsafe public methods (`allocate`, `add_root`, `remove_root`, `add_global_root`, `remove_global_root`). Method docstrings for `collect_young` and `collect_full` describe the two collection modes.

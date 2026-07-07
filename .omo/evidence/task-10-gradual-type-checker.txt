@@ -1,0 +1,48 @@
+# Task 10: Gradual Type Checker - Implementation Complete
+
+## Files Created/Modified
+
+### New Files (crates/klangc/src/typechecker/)
+1. **types.rs** - Core type system with Type enum (Int, Float, Bool, String, Null, Void, Never, BigInt, Nullable, Array, Object, Function, Named, Generic, TypeVar, Trait, Dynamic, Error), ObjectField, TypeVar, TypeConstraint. Implements subtyping, consistency, least-upper-bound, nullable operations, and TypeAnnotation conversion.
+
+2. **environment.rs** - TypeEnvironment with scoped variable bindings, push/pop scope, declare/lookup/update/narrow operations, const/mutability tracking.
+
+3. **diagnostics.rs** - Diagnostic types (TypeMismatch, UnknownVariable, ImmutableAssign, NullableAccess, NotCallable, etc.), DiagnosticBag for collecting errors/warnings, Display formatting.
+
+4. **constraints.rs** - ConstraintSolver for generic type inference via unification. Fresh type variable generation, equality/subtype/trait-bound constraints, occurs check, substitution application.
+
+5. **inference.rs** - TypeInference engine implementing bidirectional type inference (synthesize/check modes). Handles all AST expression/statement/declaration types, type narrowing for null safety, function return type inference, pattern binding.
+
+6. **checker.rs** - TypeChecker public API, TypeCheckResult with environment and diagnostics.
+
+7. **mod.rs** - Module exports for all typechecker components.
+
+### Modified Files
+- **lib.rs** - Added `pub mod typechecker;`
+- **checker.rs** (existing) - Replaced stub with full implementation
+
+### Test File
+- **crates/klangc/tests/typechecker.rs** - 176 comprehensive tests covering:
+  - Type system core (subtyping, consistency, lub, display, from_annotation)
+  - Type environment (declare, lookup, scope, shadowing, narrowing, mutability)
+  - Diagnostics (error messages, severity, bag operations)
+  - Constraint solver (unification, occurs check, substitution)
+  - Type inference (literals, expressions, functions, classes, traits)
+  - Type checking (programs, declarations, control flow, patterns)
+  - 39 tests marked #[ignore] pending parser feature support
+
+## Test Results
+- 73 library unit tests pass (types, environment, diagnostics, constraints, inference, checker)
+- 137 integration tests pass (typechecker.rs)
+- 39 integration tests ignored (depend on parser features not yet implemented)
+- 155 parser tests pass (unchanged)
+- Build: 0 errors, only pre-existing parser warnings
+
+## Key Design Decisions
+1. **Gradual typing**: Unannotated variables default to `dyn`, annotated variables use static checking
+2. **Bidirectional inference**: Synthesize mode determines types, check mode verifies against expected types
+3. **Type narrowing**: After `x !== null` checks, `x` is narrowed from `T?` to `T` in the true branch
+4. **Subtyping**: int <: float, T <: T?, Never <: T, dyn ~ T (consistency), structural object subtyping, contravariant function params
+5. **Constraint solving**: Unification-based with occurs check for generic inference
+6. **Error recovery**: Type::Error prevents cascading errors
+7. **Cast insertion**: When dyn flows into static context, DynCast warning is emitted

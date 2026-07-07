@@ -1,0 +1,37 @@
+# Task T5: Template Literal Integration Test - Evidence
+
+## Test File Created
+- Location: test/template_literal.ry
+
+## Test Scenarios Covered
+1. Single interpolation: `let name = "Ruyi"; print(`Hello ${name}!`);`
+2. Multiple interpolations: `let a = 1, b = 2; print(`${a} + ${b} = ${a + b}`);`
+3. Pure string (no interpolation): `print(`plain text`);`
+4. Empty template: `` print(``); ``
+5. String concat in interpolation: `let prefix = "Result: "; let value = 42; print(`${prefix}${value}`);`
+
+## Results
+
+### ruyic --check test/template_literal.ry
+```
+Type checking passed.
+```
+
+### ruyic --emit-llvm test/template_literal.ry
+```
+error: codegen error: Unsupported expression: TemplateLiteral([String("Hello "), Expr(Identifier("name")), String("!")])
+```
+
+## Analysis
+- Type checking PASSED - the lexer and parser correctly handle template literal syntax
+- Code generation FAILED - codegen does not yet support template literal expressions
+- The lexer/parser correctly tokenize and parse:
+  - Backtick delimiters
+  - String segments
+  - ${...} interpolation syntax
+
+## Conclusion
+Template literal parsing is implemented. Codegen for template literals (`ruyi_str_concat`) is not yet implemented - this is a known limitation to be addressed in future work.
+
+## Evidence Timestamp
+Generated: 2026-05-04

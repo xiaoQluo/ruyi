@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: ruyic
+title: Ruyi 编译器核心引擎
+scope:
+    - crates/ruyic/
+source_files: []
+depends_on: []
+related_to: []

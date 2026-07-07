@@ -16,7 +16,7 @@ use crate::codegen::generator::CodegenContext;
 /// # Safety
 ///
 /// The pointer must be a valid ARC object payload.
-pub fn emit_arc_retain<'ctx>(ctx: &mut CodegenContext<'ctx, '_>, ptr: PointerValue<'ctx>) {
+pub fn emit_arc_retain<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>, ptr: PointerValue<'ctx>) {
     let fn_name = "ruyi_arc_retain";
     let func = ctx.module.get_function(fn_name).unwrap_or_else(|| {
         let void_ty = ctx.context.void_type();
@@ -24,7 +24,7 @@ pub fn emit_arc_retain<'ctx>(ctx: &mut CodegenContext<'ctx, '_>, ptr: PointerVal
         let fn_ty = void_ty.fn_type(&[param_ty.into()], false);
         ctx.module.add_function(fn_name, fn_ty, None)
     });
-    ctx.builder.build_call(func, &[ptr.into()], "arc_retain");
+    ctx.builder().build_call(func, &[ptr.into()], "arc_retain");
 }
 
 /// Emit a call to `ruyi_arc_release` for the given pointer.
@@ -32,7 +32,7 @@ pub fn emit_arc_retain<'ctx>(ctx: &mut CodegenContext<'ctx, '_>, ptr: PointerVal
 /// # Safety
 ///
 /// The pointer must be a valid ARC object payload.
-pub fn emit_arc_release<'ctx>(ctx: &mut CodegenContext<'ctx, '_>, ptr: PointerValue<'ctx>) {
+pub fn emit_arc_release<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>, ptr: PointerValue<'ctx>) {
     let fn_name = "ruyi_arc_release";
     let func = ctx.module.get_function(fn_name).unwrap_or_else(|| {
         let void_ty = ctx.context.void_type();
@@ -40,14 +40,14 @@ pub fn emit_arc_release<'ctx>(ctx: &mut CodegenContext<'ctx, '_>, ptr: PointerVa
         let fn_ty = void_ty.fn_type(&[param_ty.into()], false);
         ctx.module.add_function(fn_name, fn_ty, None)
     });
-    ctx.builder.build_call(func, &[ptr.into()], "arc_release");
+    ctx.builder().build_call(func, &[ptr.into()], "arc_release");
 }
 
 /// Emit a call to `ruyi_arc_alloc`.
 ///
 /// Returns the payload pointer for the newly allocated ARC object.
 pub fn emit_arc_alloc<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     size: inkwell::values::IntValue<'ctx>,
     type_info: PointerValue<'ctx>,
 ) -> PointerValue<'ctx> {
@@ -72,11 +72,11 @@ pub fn emit_arc_alloc<'ctx>(
 /// Retains the pointer at entry and releases it at all exit paths.
 /// This is a simplified version that only handles the immediate block.
 pub fn emit_arc_balanced<'ctx, F>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     ptr: PointerValue<'ctx>,
     body: F,
 ) where
-    F: FnOnce(&mut CodegenContext<'ctx, '_>),
+    F: FnOnce(&mut CodegenContext<'ctx, '_, '_>),
 {
     emit_arc_retain(ctx, ptr);
     body(ctx);

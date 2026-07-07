@@ -1,0 +1,3 @@
+=== T3: Null Handling ===
+IR contains: store i8* null
+Note: !== operator not yet implemented, using basic null

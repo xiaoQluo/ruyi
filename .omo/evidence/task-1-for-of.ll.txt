@@ -1,0 +1,90 @@
+; ModuleID = 'test_for_of'
+source_filename = "test_for_of"
+
+@fmt_int = private unnamed_addr constant [5 x i8] c"%ld\0A\00", align 1
+
+declare i32 @printf(i8*, ...)
+
+declare i8* @ruyi_gc_alloc(i64)
+
+declare void @ruyi_gc_collect()
+
+declare void @ruyi_gc_add_root(i8*)
+
+declare void @ruyi_gc_remove_root(i8*)
+
+declare void @ruyi_gc_write_barrier(i8*, i8*)
+
+declare void @ruyi_throw(i8*)
+
+declare i8* @ruyi_get_pending_exception()
+
+declare void @ruyi_clear_pending_exception()
+
+declare i8* @ruyi_str_concat(i8*, i8*)
+
+declare i8* @ruyi_begin_catch(i8*)
+
+declare void @ruyi_end_catch()
+
+declare i32 @ruyi_async_poll(i8*, i8*)
+
+declare i8* @ruyi_spawn(i8*)
+
+declare void @ruyi_wake_task(i8*)
+
+declare void @ruyi_run_scheduler()
+
+declare i8* @ruyi_obj_keys(i8*)
+
+declare i8* @ruyi_iter_next(i8*)
+
+declare i8* @ruyi_bigint_from_str(i8*)
+
+define i32 @main() {
+entry:
+  %gc_alloc = call i8* @ruyi_gc_alloc(i64 32)
+  %len_ptr = bitcast i8* %gc_alloc to i64*
+  store i64 3, i64* %len_ptr, align 4
+  %elem_ptr = getelementptr i8, i8* %gc_alloc, i32 8
+  %elem_i64_ptr = bitcast i8* %elem_ptr to i64*
+  store i64 10, i64* %elem_i64_ptr, align 4
+  %elem_ptr1 = getelementptr i8, i8* %gc_alloc, i32 16
+  %elem_i64_ptr2 = bitcast i8* %elem_ptr1 to i64*
+  store i64 20, i64* %elem_i64_ptr2, align 4
+  %elem_ptr3 = getelementptr i8, i8* %gc_alloc, i32 24
+  %elem_i64_ptr4 = bitcast i8* %elem_ptr3 to i64*
+  store i64 30, i64* %elem_i64_ptr4, align 4
+  %arr = alloca i8*, align 8
+  store i8* %gc_alloc, i8** %arr, align 8
+  %arr5 = load i8*, i8** %arr, align 8
+  %len_ptr6 = bitcast i8* %arr5 to i64*
+  %len = load i64, i64* %len_ptr6, align 4
+  %for_of_idx = alloca i64, align 8
+  %item = alloca i64, align 8
+  store i64 0, i64* %for_of_idx, align 4
+  br label %for_of_cond
+
+for_of_cond:                                      ; preds = %for_of_body, %entry
+  %idx = load i64, i64* %for_of_idx, align 4
+  %for_of_cond7 = icmp slt i64 %idx, %len
+  br i1 %for_of_cond7, label %for_of_body, label %for_of_end
+
+for_of_body:                                      ; preds = %for_of_cond
+  %idx8 = load i64, i64* %for_of_idx, align 4
+  %elem_idx = add i64 %idx8, 1
+  %elem_offset = mul i64 %elem_idx, 8
+  %elem_offset_i32 = trunc i64 %elem_offset to i32
+  %elem_ptr9 = getelementptr i8, i8* %arr5, i32 %elem_offset_i32
+  %elem_i64_ptr10 = bitcast i8* %elem_ptr9 to i64*
+  %elem_val = load i64, i64* %elem_i64_ptr10, align 4
+  store i64 %elem_val, i64* %item, align 4
+  %item11 = load i64, i64* %item, align 4
+  %print_int = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([5 x i8], [5 x i8]* @fmt_int, i32 0, i32 0), i64 %item11)
+  %next_idx = add i64 %idx8, 1
+  store i64 %next_idx, i64* %for_of_idx, align 4
+  br label %for_of_cond
+
+for_of_end:                                       ; preds = %for_of_cond
+  ret i32 0
+}

@@ -1,0 +1,11 @@
+=== T5: BigInt ===
+; ModuleID = 't_bigint'
+source_filename = "t_bigint"
+@bigint_lit = private unnamed_addr constant [31 x i8] c"123456789012345678901234567890\00", align 1
+declare i8* @ruyi_bigint_from_str(i8*)
+  call void @main.1()
+  %bigint_from_str = call i8* @ruyi_bigint_from_str(i8* getelementptr inbounds ([31 x i8], [31 x i8]* @bigint_lit, i32 0, i32 0))
+  store i8* %bigint_from_str, i8** %x, align 8
+  call void @ruyi_gc_add_root(i8* %root_val)
+  %print_str = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @fmt_str, i32 0, i32 0), i8* %x1)
+  call void @ruyi_gc_remove_root(i8* %root_val2)

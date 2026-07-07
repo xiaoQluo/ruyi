@@ -1,0 +1,18 @@
+schema_version: 1
+module_path: ""
+title: Ruyi 语言编译工具链
+scope:
+    - .gitignore
+    - AGENTS.md
+    - Cargo.toml
+    - Makefile
+    - README-zh.md
+    - README.md
+    - TRY_CATCH_AUDIT.md
+    - rustfmt.toml
+    - Cargo.lock
+    - LICENSE
+    - clippy.toml
+source_files: []
+depends_on: []
+related_to: []

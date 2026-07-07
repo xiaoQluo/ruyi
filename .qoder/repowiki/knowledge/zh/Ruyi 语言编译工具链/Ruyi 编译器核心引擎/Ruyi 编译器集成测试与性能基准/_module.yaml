@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: ruyic/tests
+title: Ruyi 编译器集成测试与性能基准
+scope:
+    - crates/ruyic/tests/
+    - crates/ruyic/benches/
+source_files: []
+depends_on: []
+related_to: []

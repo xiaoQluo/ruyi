@@ -80,7 +80,7 @@ export fn template(templateStr: string, values: Array<dyn>): string {
  * @param context Evaluation context
  * @return Processed string
  */
-export fn processTemplate(parts: Array<dyn>, context: dyn): string {
+export fn processTemplate(parts: Array<string>, context: dyn): string {
     let result = "";
     for part of parts {
         if (__string_length(part.toString()) > 0) {
@@ -143,6 +143,7 @@ export class String {
     }
 
     fn slice(self: string, start: int, end: int): string {
+        // TODO: slice should support negative indices (counting from end) unlike substring
         return __string_substring(self, start, end);
     }
 
@@ -160,5 +161,9 @@ export class String {
 
     fn split(self: string, separator: string): Array<string> {
         return __string_split(self, separator);
+    }
+
+    fn isEmpty(self: string): bool {
+        return __string_length(self) === 0;
     }
 }

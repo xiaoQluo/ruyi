@@ -1,0 +1,87 @@
+# Cross-Feature Integration Tests (Task T11) Evidence
+
+**Date**: 2026-05-04
+**Task**: Create cross-feature integration tests
+
+## Test File Created
+
+- `test/cross_features.ry` - 196 lines, tests 6 cross-feature combinations
+
+## Cross-Feature Combinations Tested
+
+### 1. for-in + break + optional chaining
+```ruyi
+let name = items[i]?.item?.name;
+if (foundCount >= 2) { break; }
+```
+**Status**: PASS - --check successful
+
+### 2. match inside try-catch
+```ruyi
+try {
+    let value = match (x) {
+        1 => "one",
+        2 => "two",
+        _ => "other"
+    };
+    result = value;
+} catch (e) {
+    result = "caught";
+}
+```
+**Status**: PASS - --check successful
+
+### 3. async fn + template literal + optional chaining
+```ruyi
+async fn test_async_template_optional(): string {
+    let value = wrapper?.inner?.data;
+    return `Retrieved: ${value}`;
+}
+```
+**Status**: PASS - --check successful
+
+### 4. template literal inside match arm
+```ruyi
+let result = match (code) {
+    200 => `OK - Success`,
+    404 => `Not Found`,
+    500 => `Server Error`,
+    _ => `Unknown code: ${code}`
+};
+```
+**Status**: PASS - --check successful
+
+### 5. computed member + optional chaining chain
+```ruyi
+let value = app?.config?.settings[key];
+```
+**Status**: PASS - --check successful
+
+### 6. for-in + match + computed member (combined)
+```ruyi
+for (let k in items) {
+    let item_val: int = items[k];
+    let v = match (k) {
+        "a" => item_val + 10,
+        "b" => item_val * 2,
+        _ => item_val
+    };
+}
+```
+**Status**: PASS - --check successful
+
+## Verification Results
+
+All tests passed `--check`:
+- `test/cross_features.ry`: Type checking passed
+- `test/for_in.ry`: Type checking passed
+- `test/optional_chaining.ry`: Type checking passed
+- `test/match_edge_cases.ry`: Type checking passed
+- `test/template_literal.ry`: Type checking passed
+- `test/computed_member.ry`: Type checking passed
+
+## Summary
+
+- [x] Created `test/cross_features.ry` with 6 cross-feature combinations
+- [x] All combinations pass `ruyic --check` without errors
+- [x] Evidence file saved

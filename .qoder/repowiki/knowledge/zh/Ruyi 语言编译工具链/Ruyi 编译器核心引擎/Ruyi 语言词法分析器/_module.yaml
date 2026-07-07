@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: ruyic/lexer
+title: Ruyi 语言词法分析器
+scope:
+    - crates/ruyic/src/lexer/
+source_files: []
+depends_on: []
+related_to: []

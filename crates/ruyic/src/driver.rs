@@ -330,7 +330,7 @@ impl Driver {
 
     /// Auto-load essential stdlib modules.
     fn auto_load_stdlib(&mut self) -> Result<(), CompileError> {
-        let stdlib_modules = ["error", "core", "collections"];
+        let stdlib_modules = ["error", "core", "option", "collections"];
 
         for module_name in &stdlib_modules {
             let module_path = PathBuf::from(format!("stdlib/{}.ry", module_name));
@@ -582,7 +582,7 @@ impl Driver {
         // unsupported patterns in stdlib (e.g., chained member access).
         generator.allow_partial_codegen = true;
 
-        generator.generate(&expanded)?;
+        generator.generate_with_env(&expanded, &type_result.tracker, Some(&type_result.env))?;
 
         // Phase 6: Output
         let output_path = options

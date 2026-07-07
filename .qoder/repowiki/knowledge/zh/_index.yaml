@@ -1,0 +1,286 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: dev/v0.5.4
+nodes_managed: true
+exported_at: "2026-06-27T04:02:10Z"
+modules:
+    "":
+        dir_name: Ruyi 语言编译工具链
+        title: Ruyi 语言编译工具链
+        scope:
+            - .gitignore
+            - AGENTS.md
+            - Cargo.toml
+            - Makefile
+            - README-zh.md
+            - README.md
+            - TRY_CATCH_AUDIT.md
+            - rustfmt.toml
+            - Cargo.lock
+            - LICENSE
+            - clippy.toml
+        source_files: []
+        children:
+            - docs
+            - examples_and_tests
+            - ruyi_runtime
+            - ruyic
+            - stdlib
+        depends_on: []
+        related_to: []
+    build_system:
+        dir_name: Ruyi 编译工具链构建与发布体系
+        title: Ruyi 编译工具链构建与发布体系
+        scope: []
+        source_files:
+            - Cargo.toml
+            - Makefile
+            - .github/workflows/ci.yml
+            - examples/run_examples.sh
+            - docs/versioning.md
+            - crates/ruyic/Cargo.toml
+            - crates/ruyi_runtime/Cargo.toml
+            - rustfmt.toml
+        children: []
+        depends_on: []
+        related_to: []
+    configuration_system:
+        dir_name: Ruyi 编译工具链配置系统
+        title: Ruyi 编译工具链配置系统
+        scope: []
+        source_files:
+            - Cargo.toml
+            - crates/ruyic/Cargo.toml
+            - crates/ruyi_runtime/Cargo.toml
+            - crates/ruyic/src/main.rs
+            - crates/ruyic/src/driver.rs
+            - crates/ruyic/src/diagnostics/render.rs
+            - rustfmt.toml
+        children: []
+        depends_on: []
+        related_to: []
+    dependency_management:
+        dir_name: Rust Cargo Workspace 依赖管理
+        title: Rust Cargo Workspace 依赖管理
+        scope: []
+        source_files:
+            - Cargo.toml
+            - Cargo.lock
+            - crates/ruyic/Cargo.toml
+            - crates/ruyi_runtime/Cargo.toml
+            - .github/workflows/ci.yml
+        children: []
+        depends_on: []
+        related_to: []
+    docs:
+        dir_name: 项目文档与规范
+        title: 项目文档与规范
+        scope:
+            - docs/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    error_handling:
+        dir_name: Ruyi 错误处理体系：编译期诊断与运行时异常
+        title: Ruyi 错误处理体系：编译期诊断与运行时异常
+        scope: []
+        source_files:
+            - crates/ruyic/src/diagnostics/codes.rs
+            - crates/ruyic/src/diagnostics/render.rs
+            - crates/ruyic/src/driver.rs
+            - crates/ruyi_runtime/src/exception.rs
+            - crates/ruyi_runtime/src/exception/types.rs
+            - stdlib/error.ry
+            - stdlib/result.ry
+            - TRY_CATCH_AUDIT.md
+        children: []
+        depends_on: []
+        related_to: []
+    examples_and_tests:
+        dir_name: Ruyi 语言示例与集成测试套件
+        title: Ruyi 语言示例与集成测试套件
+        scope:
+            - examples/
+            - test/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    logging_system:
+        dir_name: 日志与诊断系统
+        title: 日志与诊断系统
+        scope: []
+        source_files:
+            - Cargo.toml
+            - crates/ruyic/Cargo.toml
+            - crates/ruyic/src/main.rs
+            - crates/ruyic/src/diagnostics/mod.rs
+            - crates/ruyic/src/diagnostics/render.rs
+            - crates/ruyic/src/diagnostics/codes.rs
+        children: []
+        depends_on: []
+        related_to: []
+    ruyi_runtime:
+        dir_name: Ruyi 语言运行时核心
+        title: Ruyi 语言运行时核心
+        scope:
+            - crates/ruyi_runtime/
+        source_files: []
+        children:
+            - ruyi_runtime/builtins_and_alloc
+            - ruyi_runtime/exception
+            - ruyi_runtime/gc
+        depends_on: []
+        related_to:
+            - path: ruyic/runtime
+    ruyi_runtime/builtins_and_alloc:
+        dir_name: Ruyi 运行时内置函数与内存管理
+        title: Ruyi 运行时内置函数与内存管理
+        scope:
+            - crates/ruyi_runtime/src/builtins.rs
+            - crates/ruyi_runtime/src/alloc.rs
+            - crates/ruyi_runtime/src/arc.rs
+            - crates/ruyi_runtime/src/c_exports.rs
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: stdlib
+    ruyi_runtime/exception:
+        dir_name: Ruyi 异常处理与 LLVM Landing Pad 生成
+        title: Ruyi 异常处理与 LLVM Landing Pad 生成
+        scope:
+            - crates/ruyi_runtime/src/exception/
+            - crates/ruyi_runtime/src/exception.rs
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: ruyic/codegen
+    ruyi_runtime/gc:
+        dir_name: 分代垃圾回收器
+        title: 分代垃圾回收器
+        scope:
+            - crates/ruyi_runtime/src/gc/
+            - crates/ruyi_runtime/src/gc.rs
+            - crates/ruyi_runtime/src/gc_exports.rs
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: ruyic/codegen
+    ruyic:
+        dir_name: Ruyi 编译器核心引擎
+        title: Ruyi 编译器核心引擎
+        scope:
+            - crates/ruyic/
+        source_files: []
+        children:
+            - ruyic/codegen
+            - ruyic/diagnostics
+            - ruyic/gc
+            - ruyic/lexer
+            - ruyic/macro_expand
+            - ruyic/parser
+            - ruyic/runtime
+            - ruyic/tests
+            - ruyic/typechecker
+        depends_on: []
+        related_to: []
+    ruyic/codegen:
+        dir_name: LLVM IR 代码生成引擎
+        title: LLVM IR 代码生成引擎
+        scope:
+            - crates/ruyic/src/codegen/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: ruyi_runtime/exception
+            - path: ruyi_runtime/gc
+    ruyic/diagnostics:
+        dir_name: 编译器诊断与错误渲染
+        title: 编译器诊断与错误渲染
+        scope:
+            - crates/ruyic/src/diagnostics/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    ruyic/gc:
+        dir_name: 内存分配与垃圾回收骨架
+        title: 内存分配与垃圾回收骨架
+        scope:
+            - crates/ruyic/src/gc/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    ruyic/lexer:
+        dir_name: Ruyi 语言词法分析器
+        title: Ruyi 语言词法分析器
+        scope:
+            - crates/ruyic/src/lexer/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    ruyic/macro_expand:
+        dir_name: 宏展开与卫生性处理
+        title: 宏展开与卫生性处理
+        scope:
+            - crates/ruyic/src/macro_expand/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    ruyic/parser:
+        dir_name: Ruyi语言语法解析器
+        title: Ruyi语言语法解析器
+        scope:
+            - crates/ruyic/src/parser/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    ruyic/runtime:
+        dir_name: 运行时基础服务
+        title: 运行时基础服务
+        scope:
+            - crates/ruyic/src/runtime/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: ruyi_runtime
+    ruyic/tests:
+        dir_name: Ruyi 编译器集成测试与性能基准
+        title: Ruyi 编译器集成测试与性能基准
+        scope:
+            - crates/ruyic/tests/
+            - crates/ruyic/benches/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    ruyic/typechecker:
+        dir_name: Ruyi 渐进式类型检查器
+        title: Ruyi 渐进式类型检查器
+        scope:
+            - crates/ruyic/src/typechecker/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    stdlib:
+        dir_name: Ruyi 标准库核心功能模块
+        title: Ruyi 标准库核心功能模块
+        scope:
+            - stdlib/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: ruyi_runtime/builtins_and_alloc

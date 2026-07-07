@@ -57,13 +57,13 @@ pub struct TryContext<'ctx> {
 }
 
 /// Context for code generation, holding LLVM constructs and variable mappings.
-pub struct CodegenContext<'ctx, 'm> {
+pub struct CodegenContext<'ctx, 'm, 'env> {
     pub context: &'ctx Context,
     pub module: &'m Module<'ctx>,
-    pub builder: Builder<'ctx>,
-    pub variables: HashMap<String, (inkwell::values::PointerValue<'ctx>, Type)>,
-    pub current_function: Option<FunctionValue<'ctx>>,
-    pub loop_stack: Vec<(
+    pub(crate) builder: Builder<'ctx>,
+    pub(crate) variables: HashMap<String, (inkwell::values::PointerValue<'ctx>, Type)>,
+    pub(crate) current_function: Option<FunctionValue<'ctx>>,
+    pub(crate) loop_stack: Vec<(
         inkwell::basic_block::BasicBlock<'ctx>,
         inkwell::basic_block::BasicBlock<'ctx>,
     )>,
@@ -76,7 +76,7 @@ pub struct CodegenContext<'ctx, 'm> {
     pub async_return_bb: Option<inkwell::basic_block::BasicBlock<'ctx>>,
     /// Async state machine support: waker pointer for await expressions
     pub waker_ptr: Option<inkwell::values::PointerValue<'ctx>>,
-    pub try_stack: Vec<TryContext<'ctx>>,
+    pub(crate) try_stack: Vec<TryContext<'ctx>>,
     pub class_fields: HashMap<String, Vec<(String, Type)>>,
     pub class_struct_types: HashMap<String, inkwell::types::StructType<'ctx>>,
     pub enum_struct_types: HashMap<String, inkwell::types::StructType<'ctx>>,
@@ -88,16 +88,24 @@ pub struct CodegenContext<'ctx, 'm> {
     /// Maps function name to (rest_param_index, element_type) for rest parameter handling.
     pub rest_params: HashMap<String, (usize, Type)>,
     /// Tracks the return type of the current function for null sentinel handling.
-    pub current_return_type: Option<Type>,
+    pub(crate) current_return_type: Option<Type>,
     /// Tracks the expected type for the current expression being compiled (for null literal handling).
-    pub expected_expr_type: Option<Type>,
+    pub(crate) expected_expr_type: Option<Type>,
     /// When true, codegen errors for class/trait/impl declarations are logged as warnings
     /// instead of failing. Used when compiling stdlib modules that may use unsupported patterns.
-    pub allow_partial_codegen: bool,
+    pub(crate) allow_partial_codegen: bool,
+    /// Optional type environment from the type checker. When present, variable type lookups
+    /// prioritize the type checker's inferred types over annotation-derived types.
+    pub(crate) type_environment: Option<&'env crate::typechecker::environment::TypeEnvironment>,
 }
 
-impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
-    pub fn new(context: &'ctx Context, module: &'m Module<'ctx>, builder: Builder<'ctx>) -> Self {
+impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
+    pub fn new(
+        context: &'ctx Context,
+        module: &'m Module<'ctx>,
+        builder: Builder<'ctx>,
+        type_environment: Option<&'env crate::typechecker::environment::TypeEnvironment>,
+    ) -> Self {
         Self {
             context,
             module,
@@ -121,10 +129,16 @@ impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
             current_return_type: None,
             expected_expr_type: None,
             allow_partial_codegen: false,
+            type_environment,
         }
     }
 
     /// Push a new GC root scope for a function.
+    ///
+    /// Prefer [`CodegenContext::gc_root_scope`] which returns a RAII guard
+    /// guaranteeing the matching `pop_gc_root_scope` runs on every exit
+    /// path (including `?` propagation and panics). This bare method is
+    /// kept for internal use by the guard itself.
     pub fn push_gc_root_scope(&mut self) {
         self.gc_roots.push(Vec::new());
     }
@@ -136,18 +150,39 @@ impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
                 let llvm_ty = super::types::ruyi_type_to_llvm(self.context, ty);
                 if llvm_ty.is_pointer_type() {
                     let loaded = self
-                        .builder
+                        .builder()
                         .build_load(*ptr, "root_val")
                         .into_pointer_value();
-                    super::builtins::build_gc_remove_root(&self.builder, &self.module, loaded);
+                    super::builtins::build_gc_remove_root(self.builder(), &self.module, loaded);
                 }
             }
         }
     }
 
     /// Pop the current GC root scope.
+    ///
+    /// Prefer using the [`GcRootScopeGuard`] returned by
+    /// [`CodegenContext::gc_root_scope`]. Calling this bare method is
+    /// only safe when the surrounding code is guaranteed to reach the
+    /// call site on every exit path; otherwise `gc_roots` will leak a
+    /// stale scope and the GC may hold onto dead objects.
     pub fn pop_gc_root_scope(&mut self) {
         self.gc_roots.pop();
+    }
+
+    /// Push a new GC root scope and return a RAII guard that will pop it
+    /// automatically on drop, even when the surrounding code exits via
+    /// `?` propagation, panic, or an explicit `return` of a `Result::Err`.
+    ///
+    /// # Safety
+    ///
+    /// The guard holds a raw pointer to `self` so that other `&mut ctx`
+    /// borrows remain possible while the guard is alive. The caller must
+    /// ensure that `self` outlives the guard and is not moved during the
+    /// guard's lifetime. In practice this is satisfied by binding the
+    /// guard in a local scope where `self` is a stable `&mut` borrow.
+    pub unsafe fn gc_root_scope(&mut self) -> GcRootScopeGuard<'ctx, 'm, 'env> {
+        GcRootScopeGuard::push(self)
     }
 
     /// Register a local variable as a GC root and emit `ruyi_gc_add_root`.
@@ -157,11 +192,191 @@ impl<'ctx, 'm> CodegenContext<'ctx, 'm> {
             let llvm_ty = super::types::ruyi_type_to_llvm(self.context, &ty);
             if llvm_ty.is_pointer_type() {
                 let loaded = self
-                    .builder
+                    .builder()
                     .build_load(ptr, "root_val")
                     .into_pointer_value();
-                super::builtins::build_gc_add_root(&self.builder, &self.module, loaded);
+                super::builtins::build_gc_add_root(self.builder(), &self.module, loaded);
             }
+        }
+    }
+
+    /// Get a reference to the LLVM IR builder.
+    pub fn builder(&self) -> &Builder<'ctx> {
+        &self.builder
+    }
+
+    /// Get a reference to the variable map.
+    pub fn variables(&self) -> &HashMap<String, (inkwell::values::PointerValue<'ctx>, Type)> {
+        &self.variables
+    }
+
+    /// Get a mutable reference to the variable map.
+    pub fn variables_mut(&mut self) -> &mut HashMap<String, (inkwell::values::PointerValue<'ctx>, Type)> {
+        &mut self.variables
+    }
+
+    /// Look up a variable by name.
+    ///
+    /// When a `type_environment` is set, the returned type is taken from the
+    /// type checker (falling back to the annotation-derived type stored in the
+    /// local map). The LLVM pointer value always comes from the local map.
+    pub fn lookup_variable(&self, name: &str) -> Option<(inkwell::values::PointerValue<'ctx>, Type)> {
+        self.variables.get(name).map(|(ptr, ty)| {
+            let final_ty = self
+                .type_environment
+                .and_then(|env| env.lookup(name))
+                .cloned()
+                .unwrap_or_else(|| ty.clone());
+            (*ptr, final_ty)
+        })
+    }
+
+    /// Define (insert) a variable into the map.
+    pub fn define_variable(
+        &mut self,
+        name: String,
+        val: (inkwell::values::PointerValue<'ctx>, Type),
+    ) -> Option<(inkwell::values::PointerValue<'ctx>, Type)> {
+        self.variables.insert(name, val)
+    }
+
+    /// Remove a variable from the map.
+    pub fn remove_variable(
+        &mut self,
+        name: &str,
+    ) -> Option<(inkwell::values::PointerValue<'ctx>, Type)> {
+        self.variables.remove(name)
+    }
+
+    /// Get the current function being generated.
+    pub fn current_function(&self) -> Option<FunctionValue<'ctx>> {
+        self.current_function
+    }
+
+    /// Set the current function being generated.
+    pub fn set_current_function(&mut self, func: Option<FunctionValue<'ctx>>) {
+        self.current_function = func;
+    }
+
+    /// Push a new loop context (break target, continue target).
+    pub fn push_loop(
+        &mut self,
+        break_bb: inkwell::basic_block::BasicBlock<'ctx>,
+        continue_bb: inkwell::basic_block::BasicBlock<'ctx>,
+    ) {
+        self.loop_stack.push((break_bb, continue_bb));
+    }
+
+    /// Pop the innermost loop context.
+    pub fn pop_loop(&mut self) {
+        self.loop_stack.pop();
+    }
+
+    /// Get the innermost loop context.
+    pub fn current_loop(
+        &self,
+    ) -> Option<(inkwell::basic_block::BasicBlock<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)> {
+        self.loop_stack.last().copied()
+    }
+
+    /// Push a new try context.
+    pub fn push_try(&mut self, try_ctx: TryContext<'ctx>) {
+        self.try_stack.push(try_ctx);
+    }
+
+    /// Pop the innermost try context.
+    pub fn pop_try(&mut self) {
+        self.try_stack.pop();
+    }
+
+    /// Get a reference to the innermost try context.
+    pub fn current_try(&self) -> Option<&TryContext<'ctx>> {
+        self.try_stack.last()
+    }
+
+    /// Check whether the try stack is empty.
+    pub fn try_stack_is_empty(&self) -> bool {
+        self.try_stack.is_empty()
+    }
+
+    /// Get the current function's return type.
+    pub fn current_return_type(&self) -> Option<&Type> {
+        self.current_return_type.as_ref()
+    }
+
+    /// Set the current function's return type.
+    pub fn set_current_return_type(&mut self, ty: Option<Type>) {
+        self.current_return_type = ty;
+    }
+
+    /// Get the expected expression type.
+    pub fn expected_expr_type(&self) -> Option<&Type> {
+        self.expected_expr_type.as_ref()
+    }
+
+    /// Set the expected expression type.
+    pub fn set_expected_expr_type(&mut self, ty: Option<Type>) {
+        self.expected_expr_type = ty;
+    }
+
+    /// Check whether partial codegen is allowed.
+    pub fn allow_partial_codegen(&self) -> bool {
+        self.allow_partial_codegen
+    }
+
+    /// Set whether partial codegen is allowed.
+    pub fn set_allow_partial_codegen(&mut self, allow: bool) {
+        self.allow_partial_codegen = allow;
+    }
+}
+
+/// RAII guard that owns a single GC root scope pushed by
+/// [`CodegenContext::push_gc_root_scope`] and pops it on `Drop`.
+///
+/// This guarantees that the matching `pop_gc_root_scope` is always
+/// reached, including on `?` propagation, `Result::Err` early returns,
+/// and panics — the cases where the bare push/pop pair is easy to leak.
+///
+/// The guard is `#[must_use]` so that an accidental
+/// `ctx.gc_root_scope();` (which would drop the guard immediately and
+/// undo the push) is a compile-time warning.
+///
+/// # Safety
+///
+/// Constructed via [`GcRootScopeGuard::push`], which is the only safe
+/// construction path. The guard stores a raw pointer to the parent
+/// context; the caller must ensure the context outlives the guard and
+/// is not moved for the guard's lifetime. Local-scope use satisfies
+/// both requirements.
+#[must_use = "GcRootScopeGuard pops its scope on drop; binding it to `_` discards the scope immediately"]
+pub struct GcRootScopeGuard<'ctx, 'm, 'env> {
+    ctx: *mut CodegenContext<'ctx, 'm, 'env>,
+}
+
+impl<'ctx, 'm, 'env> GcRootScopeGuard<'ctx, 'm, 'env> {
+    /// Push a new GC root scope on `ctx` and return a guard that will
+    /// pop it on drop.
+    ///
+    /// # Safety
+    ///
+    /// `ctx` must outlive the returned guard and must not be moved for
+    /// the guard's lifetime. The guard holds a raw pointer, so the
+    /// borrow checker will not enforce this — the caller is responsible.
+    pub unsafe fn push(ctx: &mut CodegenContext<'ctx, 'm, 'env>) -> Self {
+        ctx.push_gc_root_scope();
+        Self { ctx: ctx as *mut _ }
+    }
+}
+
+impl<'ctx, 'm, 'env> Drop for GcRootScopeGuard<'ctx, 'm, 'env> {
+    fn drop(&mut self) {
+        // SAFETY: The guard's lifetime is bound to the mutable borrow
+        // of the context at the push site. The context is guaranteed
+        // to be alive when the guard is dropped because the guard
+        // lives in a scope where the context is still accessible.
+        // SAFETY: pop_gc_root_scope guaranteed by GcRootScopeGuard Drop
+        unsafe {
+            (*self.ctx).pop_gc_root_scope();
         }
     }
 }
@@ -189,7 +404,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
     /// Generate LLVM IR from a typed AST program.
     pub fn generate(&self, program: &Program) -> Result<(), String> {
-        self.generate_with_tracker(program, &MonomorphizationTracker::new())
+        self.generate_with_env(program, &MonomorphizationTracker::new(), None)
     }
 
     /// Generate LLVM IR from a typed AST program with monomorphization tracker.
@@ -198,9 +413,20 @@ impl<'ctx> CodeGenerator<'ctx> {
         program: &Program,
         tracker: &MonomorphizationTracker,
     ) -> Result<(), String> {
+        self.generate_with_env(program, tracker, None)
+    }
+
+    /// Generate LLVM IR from a typed AST program with monomorphization tracker
+    /// and an optional type environment.
+    pub fn generate_with_env<'env>(
+        &self,
+        program: &Program,
+        tracker: &MonomorphizationTracker,
+        type_env: Option<&'env crate::typechecker::environment::TypeEnvironment>,
+    ) -> Result<(), String> {
         let mut ctx =
-            CodegenContext::new(self.context, &self.module, self.context.create_builder());
-        ctx.allow_partial_codegen = self.allow_partial_codegen;
+            CodegenContext::new(self.context, &self.module, self.context.create_builder(), type_env);
+        ctx.set_allow_partial_codegen(self.allow_partial_codegen);
 
         declare_builtins(self.context, &self.module);
 
@@ -235,8 +461,8 @@ impl<'ctx> CodeGenerator<'ctx> {
             .module
             .add_function(llvm_main_name, i32_ty.fn_type(&[], false), None);
         let entry_bb = ctx.context.append_basic_block(main_fn, "entry");
-        ctx.builder.position_at_end(entry_bb);
-        ctx.current_function = Some(main_fn);
+        ctx.builder().position_at_end(entry_bb);
+        ctx.set_current_function(Some(main_fn));
 
         // Save entry block position before compiling declarations
         let main_entry_bb = entry_bb;
@@ -361,7 +587,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                             crate::parser::ast::Declaration::Class { .. }
                             | crate::parser::ast::Declaration::Impl { .. }
                             | crate::parser::ast::Declaration::Trait { .. } => {
-                                if !ctx.allow_partial_codegen {
+                                if !ctx.allow_partial_codegen() {
                                     return Err(format!("codegen error: {}", _e));
                                 }
                             }
@@ -378,7 +604,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                         }
                     }
                     if let Err(_e) = compile_declaration(&mut ctx, decl) {
-                        if !ctx.allow_partial_codegen {
+                        if !ctx.allow_partial_codegen() {
                             return Err(format!("codegen error: {}", _e));
                         }
                     }
@@ -391,8 +617,8 @@ impl<'ctx> CodeGenerator<'ctx> {
         }
 
         // Restore builder position to entry main block
-        ctx.builder.position_at_end(main_entry_bb);
-        ctx.current_function = Some(main_fn);
+        ctx.builder().position_at_end(main_entry_bb);
+        ctx.set_current_function(Some(main_fn));
 
         // Declare main function parameters as local variables
         if let Some(params) = main_params {
@@ -407,7 +633,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                     .map(Type::from_annotation)
                     .unwrap_or(Type::Dynamic);
                 let llvm_ty = ruyi_type_to_llvm(ctx.context, &param_ty);
-                let ptr = ctx.builder.build_alloca(llvm_ty, &param_name);
+                let ptr = ctx.builder().build_alloca(llvm_ty, &param_name);
                 // Main has no external params, so just initialize with zero
                 let zero = match param_ty {
                     Type::Int => {
@@ -426,11 +652,11 @@ impl<'ctx> CodeGenerator<'ctx> {
                             .const_null(),
                     ),
                 };
-                ctx.builder.build_store(ptr, zero);
+                ctx.builder().build_store(ptr, zero);
                 if crate::codegen::builtins::is_gc_managed(&param_ty) {
                     ctx.add_gc_root(ptr, param_ty.clone());
                 }
-                ctx.variables.insert(param_name, (ptr, param_ty));
+                ctx.define_variable(param_name, (ptr, param_ty));
             }
         }
 
@@ -439,7 +665,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             compile_block(&mut ctx, body)?;
         }
 
-        let current_bb = ctx.builder.get_insert_block().unwrap();
+        let current_bb = ctx.builder().get_insert_block().unwrap();
         if current_bb.get_terminator().is_none() {
             if has_async_main {
                 if let Some(async_main) = ctx.module.get_function("_ruyi_async_main") {
@@ -453,17 +679,17 @@ impl<'ctx> CodeGenerator<'ctx> {
                         .module
                         .get_function("ruyi_spawn")
                         .expect("ruyi_spawn not declared");
-                    ctx.builder
+                    ctx.builder()
                         .build_call(spawn_fn, &[future_ptr.into()], "spawn_main");
                     let scheduler_fn = ctx
                         .module
                         .get_function("ruyi_run_scheduler")
                         .expect("ruyi_run_scheduler not declared");
-                    ctx.builder.build_call(scheduler_fn, &[], "run_scheduler");
+                    ctx.builder().build_call(scheduler_fn, &[], "run_scheduler");
                 }
             }
             let zero = BasicValueEnum::IntValue(i32_ty.const_int(0, false));
-            ctx.builder.build_return(Some(&zero));
+            ctx.builder().build_return(Some(&zero));
         }
 
         Ok(())
@@ -578,7 +804,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 /// Per spec Section 10.3, each specialization of a generic function
 /// gets its own LLVM function with the mangled name.
 fn compile_monomorphized_function<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     mono_func: &MonomorphizedFunction,
 ) -> Result<(), String> {
     let fn_type =
@@ -588,24 +814,25 @@ fn compile_monomorphized_function<'ctx>(
         .add_function(&mono_func.mangled_name, fn_type, None);
 
     let entry_bb = ctx.context.append_basic_block(function, "entry");
-    let prev_function = ctx.current_function;
-    let prev_return_type = ctx.current_return_type.clone();
-    ctx.current_function = Some(function);
-    ctx.current_return_type = Some(mono_func.return_type.clone());
-    let prev_block = ctx.builder.get_insert_block();
-    ctx.builder.position_at_end(entry_bb);
+    let prev_function = ctx.current_function();
+    let prev_return_type = ctx.current_return_type().cloned();
+    ctx.set_current_function(Some(function));
+    ctx.set_current_return_type(Some(mono_func.return_type.clone()));
+    let prev_block = ctx.builder().get_insert_block();
+    ctx.builder().position_at_end(entry_bb);
 
     // Allocate parameters
     let mut prev_vars = std::collections::HashMap::new();
-    ctx.push_gc_root_scope();
+    // RAII guard: pop_gc_root_scope guaranteed by GcRootScopeGuard Drop
+    let _gc_scope_guard = unsafe { ctx.gc_root_scope() };
 
     for (i, param_ty) in mono_func.param_types.iter().enumerate() {
         let param_name = format!("arg_{}", i);
         let llvm_ty = ruyi_type_to_llvm(ctx.context, param_ty);
-        let ptr = ctx.builder.build_alloca(llvm_ty, &param_name);
+        let ptr = ctx.builder().build_alloca(llvm_ty, &param_name);
 
         if let Some(param_value) = function.get_nth_param(i as u32) {
-            ctx.builder.build_store(ptr, param_value);
+            ctx.builder().build_store(ptr, param_value);
         }
 
         if super::builtins::is_gc_managed(param_ty) {
@@ -621,27 +848,27 @@ fn compile_monomorphized_function<'ctx>(
     }
 
     // Ensure the function has a terminator
-    let current_bb = ctx.builder.get_insert_block().unwrap();
+    let current_bb = ctx.builder().get_insert_block().unwrap();
     if current_bb.get_terminator().is_none() {
         use inkwell::values::BasicValueEnum;
         ctx.emit_gc_root_removals();
         match &mono_func.return_type {
             Type::Void | Type::Never => {
-                ctx.builder.build_return(None);
+                ctx.builder().build_return(None);
             }
             Type::Int => {
                 let zero = ctx.context.i64_type().const_int(0, true);
-                ctx.builder
+                ctx.builder()
                     .build_return(Some(&BasicValueEnum::IntValue(zero)));
             }
             Type::Float => {
                 let zero = ctx.context.f64_type().const_float(0.0);
-                ctx.builder
+                ctx.builder()
                     .build_return(Some(&BasicValueEnum::FloatValue(zero)));
             }
             Type::Bool => {
                 let zero = ctx.context.bool_type().const_int(0, false);
-                ctx.builder
+                ctx.builder()
                     .build_return(Some(&BasicValueEnum::IntValue(zero)));
             }
             _ => {
@@ -650,22 +877,20 @@ fn compile_monomorphized_function<'ctx>(
                     .i8_type()
                     .ptr_type(Default::default())
                     .const_null();
-                ctx.builder
+                ctx.builder()
                     .build_return(Some(&BasicValueEnum::PointerValue(null_ptr)));
             }
         }
     }
 
-    ctx.pop_gc_root_scope();
-
     // Restore previous state
-    ctx.current_function = prev_function;
-    ctx.current_return_type = prev_return_type;
+    ctx.set_current_function(prev_function);
+    ctx.set_current_return_type(prev_return_type);
     if let Some(block) = prev_block {
-        ctx.builder.position_at_end(block);
+        ctx.builder().position_at_end(block);
     }
     for (name, old) in prev_vars {
-        ctx.variables.insert(name, old);
+        ctx.define_variable(name, old);
     }
 
     Ok(())

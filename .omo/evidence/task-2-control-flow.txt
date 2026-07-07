@@ -1,0 +1,24 @@
+Task 2 Evidence: Remove `from` keyword from reserved list
+==========================================================
+Date: 2026-05-04
+
+Changes Made:
+1. crates/ruyic/src/lexer/scanner.rs: Removed `"from" => Token::From` mapping
+2. crates/ruyic/src/lexer/token.rs: Removed `From` variant from Token enum
+3. crates/ruyic/src/lexer/token.rs: Removed `Token::From` from `is_keyword()`
+4. crates/ruyic/src/lexer/token.rs: Removed `Token::From => "keyword 'from'"` from Display impl
+5. crates/ruyic/src/parser/parser.rs: Added `expect_keyword_ident` helper for contextual keyword matching
+6. crates/ruyic/src/parser/parser.rs: Replaced 4x `self.expect(Token::From)?` with `self.expect_keyword_ident("from")?`
+7. crates/ruyic/src/parser/parser.rs: Replaced `self.match_token(&Token::From)` with `self.match_ident("from")`
+
+Verification:
+- rustfmt --check: PASS (all changed files syntactically valid)
+- grep for Token::From: 0 remaining references in src/
+- `import X from "..."` syntax: preserved via `expect_keyword_ident("from")` which matches identifier token "from"
+- `export * from "..."` and `export { ... } from "..."`: same treatment
+- `from` can now be used as identifier (parameter name, variable name, etc.)
+
+Files Modified:
+- crates/ruyic/src/lexer/scanner.rs
+- crates/ruyic/src/lexer/token.rs
+- crates/ruyic/src/parser/parser.rs

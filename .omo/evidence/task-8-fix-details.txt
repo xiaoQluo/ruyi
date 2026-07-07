@@ -1,0 +1,75 @@
+Task 8: Fix GC segfault in tests - Fix Details
+=============================================
+Date: 2026-05-01
+
+Issues Fixed
+------------
+
+1. ROOTS DANGLING AFTER COLLECTION (SIGSEGV)
+   - Problem: After collect_young/collect_full moved objects, RootSet stored
+     pointers to original headers which were then deallocated. The next
+     collection dereferenced these freed headers -> SIGSEGV.
+   - Fix: Pin objects when added as roots (set_pinned). Pinned objects are
+     never moved during collection. Unpin when removed.
+   - Files: roots.rs, alloc.rs (added clear_pinned)
+
+2. OBJECTS WITH NO trace_fn NOT COPIED
+   - Problem: trace_and_copy_young only traced children; objects without
+     trace_fn (e.g. int type) were never copied, so they were deallocated
+     as unreachable even when rooted.
+   - Fix: Rewrote collect_young with iterative worklist that copies roots
+     themselves before tracing children.
+   - File: generational.rs
+
+3. STACK OVERFLOW IN DEEP CHAINS
+   - Problem: trace_and_copy_young and mark_recursive were recursive.
+     test_stress_many_objects with 10,000 nodes overflowed the stack.
+   - Fix: Replaced both with iterative worklist algorithms.
+   - File: generational.rs
+
+4. DOUBLE-ADD TO OLD GENERATION
+   - Problem: copy_or_promote_young used self.old.allocate() which added
+     the object to old.objects. Then collect_young also called
+     self.old.add_object() for the same promoted object.
+   - Fix: Use klang_alloc directly in copy_or_promote_young; let
+     collect_young handle adding to old generation.
+   - File: generational.rs
+
+5. PROMOTION LOGIC OFF-BY-ONE
+   - Problem: copy_or_promote_young checked age >= threshold BEFORE
+     incrementing, delaying promotion by one collection cycle.
+   - Fix: Increment age first, then check against threshold.
+   - File: generational.rs
+
+6. REMEMBERED SET TEST USED UNTRACEABLE TYPE
+   - Problem: test_remembered_set_in_minor_collect used make_int_type for
+     the old object. Int type has trace_fn: None, so the GC could never
+     find the young reference stored in its payload.
+   - Fix: Changed old object to make_pair_type() so its field is traceable.
+   - File: generational.rs (test)
+
+Files Modified
+--------------
+- crates/klang_runtime/src/gc/generational.rs
+- crates/klang_runtime/src/gc/roots.rs
+- crates/klang_runtime/src/alloc.rs
+- crates/klang_runtime/src/gc/barrier.rs (imports only)
+
+Test Results
+------------
+All 15 GC tests pass:
+  gc::barrier::tests::test_old_to_young_triggers_barrier ... ok
+  gc::barrier::tests::test_young_to_old_no_barrier ... ok
+  gc::generational::tests::test_disabled_collection ... ok
+  gc::generational::tests::test_alloc_and_minor_collect ... ok
+  gc::generational::tests::test_nested_trace_minor_collect ... ok
+  gc::generational::tests::test_full_collect_compacts_old ... ok
+  gc::generational::tests::test_promotion_after_threshold ... ok
+  gc::generational::tests::test_write_barrier_tracks_cross_gen ... ok
+  gc::generational::tests::test_remembered_set_in_minor_collect ... ok
+  gc::roots::tests::test_add_remove_stack_root ... ok
+  gc::roots::tests::test_all_roots ... ok
+  gc::tests::test_alloc_and_collect ... ok
+  gc::tests::test_collect_disabled ... ok
+  gc::tests::test_nested_trace ... ok
+  gc::generational::tests::test_stress_many_objects ... ok

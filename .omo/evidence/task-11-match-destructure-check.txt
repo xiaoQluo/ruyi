@@ -1,0 +1,15 @@
+Task: Match with destructuring (nullable)
+Test file: task-11-match-destructure.ry
+Compilation: PASSED
+LLVM IR generated: .sisyphus/evidence/target/task-11-match-destructure.ll
+
+Generated instructions:
+- %ptr_int = ptrtoint i8* %opt1 to i64
+- %is_null = icmp eq i64 %ptr_int, 0
+- br i1 %is_null, label %null_arm_0, label %null_arm_1
+- In null_arm_1: %v = alloca i8*, align 8; store i8* %opt1, i8** %v, align 8
+
+The nullable match correctly generates:
+1. Null check via ptrtoint + icmp eq
+2. Conditional branch to null arm or value arm
+3. Variable binding (v) in the value arm

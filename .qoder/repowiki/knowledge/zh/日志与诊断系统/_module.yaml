@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: logging_system
+title: 日志与诊断系统
+scope: []
+source_files:
+    - Cargo.toml
+    - crates/ruyic/Cargo.toml
+    - crates/ruyic/src/main.rs
+    - crates/ruyic/src/diagnostics/mod.rs
+    - crates/ruyic/src/diagnostics/render.rs
+    - crates/ruyic/src/diagnostics/codes.rs
+depends_on: []
+related_to: []

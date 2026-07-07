@@ -1,0 +1,50 @@
+{
+  "active_plan": "/Users/luozegang/code/test/ruyi/.sisyphus/plans/remaining-issues.md",
+  "started_at": "2026-06-26T01:58:56.322Z",
+  "session_ids": [
+    "opencode:ses_0feaee29cffeg3eGnWYyKPSckr"
+  ],
+  "session_origins": {
+    "opencode:ses_0feaee29cffeg3eGnWYyKPSckr": "direct"
+  },
+  "plan_name": "remaining-issues",
+  "agent": "atlas",
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "修复 `test_from_annotation_generic` — 泛型注解解析",
+      "session_id": "ses_0fe57c2eeffezPH70qwE9pKfDv",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-06-26T02:03:28.770Z"
+    },
+    "todo:4": {
+      "task_key": "todo:4",
+      "task_label": "4",
+      "task_title": "Tuple 类型生成 LLVM struct",
+      "session_id": "ses_0fd1c1c9cffeAPQRxshZ3G4tMH",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-06-26T08:05:48.152Z"
+    },
+    "todo:8": {
+      "task_key": "todo:8",
+      "task_label": "8",
+      "task_title": "TypeEnvironment variables 作用域接入 Codegen",
+      "session_id": "ses_0fcfcbe6fffeodxJtEuctEpB80",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-06-26T08:39:19.184Z"
+    },
+    "todo:10": {
+      "task_key": "todo:10",
+      "task_label": "10",
+      "task_title": "老年代 GC 标记-压缩",
+      "session_id": "ses_0fce6f046ffeX37NK2dB9005Nt",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-06-26T09:13:22.711Z"
+    }
+  }
+}

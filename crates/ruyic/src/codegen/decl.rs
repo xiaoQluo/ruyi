@@ -18,7 +18,7 @@ use crate::typechecker::types::Type;
 
 /// Compile a declaration.
 pub fn compile_declaration<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     decl: &Declaration,
 ) -> Result<(), String> {
     match decl {
@@ -66,7 +66,7 @@ pub fn compile_declaration<'ctx>(
 }
 
 fn compile_binding<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     binding: &Binding,
 ) -> Result<(), String> {
     let name = match &binding.pattern {
@@ -78,42 +78,42 @@ fn compile_binding<'ctx>(
     let (ty, _llvm_ty, ptr) = if let Some(annotation) = &binding.ty {
         let ty = Type::from_annotation(annotation);
         let _llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
-        let ptr = ctx.builder.build_alloca(_llvm_ty, &name);
+        let ptr = ctx.builder().build_alloca(_llvm_ty, &name);
         (ty, _llvm_ty, ptr)
     } else if let Some(init) = &binding.init {
         // Infer type from initialization expression
         let init_result = compile_expr(ctx, init)?;
         let ty = init_result.ty;
         let llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
-        let ptr = ctx.builder.build_alloca(llvm_ty, &name);
-        ctx.builder.build_store(ptr, init_result.value);
-        ctx.variables.insert(name, (ptr, ty));
+        let ptr = ctx.builder().build_alloca(llvm_ty, &name);
+        ctx.builder().build_store(ptr, init_result.value);
+        ctx.define_variable(name, (ptr, ty));
         return Ok(());
     } else {
         let ty = Type::Dynamic;
         let _llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
-        let ptr = ctx.builder.build_alloca(_llvm_ty, &name);
+        let ptr = ctx.builder().build_alloca(_llvm_ty, &name);
         (ty, _llvm_ty, ptr)
     };
 
     if let Some(init) = &binding.init {
-        let prev_expected = ctx.expected_expr_type.clone();
-        ctx.expected_expr_type = Some(ty.clone());
-        let init_result = compile_expr(ctx, init)?;
-        ctx.expected_expr_type = prev_expected;
-        ctx.builder.build_store(ptr, init_result.value);
+let prev_expected = ctx.expected_expr_type().cloned();
+        ctx.set_expected_expr_type(Some(ty.clone()));
+        let init_result = super::expr::compile_expr(ctx, init)?;
+        ctx.set_expected_expr_type(prev_expected);
+        ctx.builder().build_store(ptr, init_result.value);
     }
 
     if is_gc_managed(&ty) {
         ctx.add_gc_root(ptr, ty.clone());
     }
 
-    ctx.variables.insert(name, (ptr, ty));
+    ctx.define_variable(name, (ptr, ty));
     Ok(())
 }
 
 pub fn predeclare_function<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     name: &str,
     params: &[crate::parser::ast::Param],
     return_type: Option<&crate::parser::ast::TypeAnnotation>,
@@ -141,7 +141,7 @@ pub fn predeclare_function<'ctx>(
 }
 
 pub fn compile_function<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     name: &str,
     params: &[crate::parser::ast::Param],
     return_type: Option<&crate::parser::ast::TypeAnnotation>,
@@ -198,20 +198,24 @@ pub fn compile_function<'ctx>(
     };
 
     // Save current function and builder position
-    let prev_function = ctx.current_function;
-    let prev_return_type = ctx.current_return_type.clone();
-    ctx.current_function = Some(function);
-    ctx.current_return_type = Some(ret_type.clone());
+    let prev_function = ctx.current_function();
+    let prev_return_type = ctx.current_return_type().cloned();
+    ctx.set_current_function(Some(function));
+    ctx.set_current_return_type(Some(ret_type.clone()));
 
     // Create entry basic block
     let entry_bb = ctx.context.append_basic_block(function, "entry");
-    let prev_block = ctx.builder.get_insert_block();
-    ctx.builder.position_at_end(entry_bb);
+    let prev_block = ctx.builder().get_insert_block();
+    ctx.builder().position_at_end(entry_bb);
 
     // Save previous variables and create new scope
     let mut prev_vars = std::collections::HashMap::new();
 
-    ctx.push_gc_root_scope();
+    // SAFETY: pop_gc_root_scope guaranteed by GcRootGuard Drop.
+    // The previous bare `?` on `get_nth_param` could leak the scope on
+    // the defensive error path; the RAII guard closes that gap and any
+    // future `?` propagation introduced between push and pop.
+    let _gc_scope_guard = unsafe { ctx.gc_root_scope() };
 
     // Allocate parameters
     for (i, param) in params.iter().enumerate() {
@@ -222,18 +226,18 @@ pub fn compile_function<'ctx>(
 
         let param_ty = param_types.get(i).cloned().unwrap_or(Type::Dynamic);
         let llvm_ty = ruyi_type_to_llvm(ctx.context, &param_ty);
-        let ptr = ctx.builder.build_alloca(llvm_ty, &param_name);
+        let ptr = ctx.builder().build_alloca(llvm_ty, &param_name);
 
         let param_value = function
             .get_nth_param(i as u32)
             .ok_or_else(|| format!("Missing parameter {}", i))?;
-        ctx.builder.build_store(ptr, param_value);
+        ctx.builder().build_store(ptr, param_value);
 
         if is_gc_managed(&param_ty) {
             ctx.add_gc_root(ptr, param_ty.clone());
         }
 
-        if let Some(old) = ctx.variables.insert(param_name.clone(), (ptr, param_ty)) {
+        if let Some(old) = ctx.define_variable(param_name.clone(), (ptr, param_ty)) {
             prev_vars.insert(param_name, old);
         }
     }
@@ -246,9 +250,9 @@ pub fn compile_function<'ctx>(
     // some intermediate basic blocks may lack terminators.
     for bb in function.get_basic_blocks() {
         if bb.get_terminator().is_none() {
-            ctx.builder.position_at_end(bb);
+            ctx.builder().position_at_end(bb);
             if ret_type == Type::Void {
-                ctx.builder.build_return(None);
+                ctx.builder().build_return(None);
             } else {
                 let default_val = match ret_type {
                     Type::Int => {
@@ -267,30 +271,28 @@ pub fn compile_function<'ctx>(
                             .const_null(),
                     ),
                 };
-                ctx.builder.build_return(Some(&default_val));
+                ctx.builder().build_return(Some(&default_val));
             }
         }
     }
 
-    ctx.pop_gc_root_scope();
-
     // Restore previous state
-    ctx.current_function = prev_function;
-    ctx.current_return_type = prev_return_type;
+    ctx.set_current_function(prev_function);
+    ctx.set_current_return_type(prev_return_type);
     if let Some(block) = prev_block {
-        ctx.builder.position_at_end(block);
+        ctx.builder().position_at_end(block);
     }
 
     // Restore variables
     for (name, old) in prev_vars {
-        ctx.variables.insert(name, old);
+        ctx.define_variable(name, old);
     }
 
     result
 }
 
 fn build_combined_fields<'ctx>(
-    ctx: &CodegenContext<'ctx, '_>,
+    ctx: &CodegenContext<'ctx, '_, '_>,
     class_name: &str,
     own_fields: &[(String, Type)],
 ) -> Vec<(String, Type)> {
@@ -307,7 +309,7 @@ fn build_combined_fields<'ctx>(
 }
 
 fn compile_class<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     name: &str,
     extends: Option<&Expr>,
     body: &[ClassElement],
@@ -499,7 +501,7 @@ fn compile_class<'ctx>(
 }
 
 fn compile_impl<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     trait_name: &str,
     for_type: &crate::parser::ast::TypeAnnotation,
     body: &[crate::parser::ast::ClassElement],
@@ -548,7 +550,7 @@ fn compile_impl<'ctx>(
                     return_type.as_ref(),
                     method_body,
                 ) {
-                    if ctx.allow_partial_codegen {
+                    if ctx.allow_partial_codegen() {
                         log::warn!("Skipping impl async method codegen for {}: {}", mangled_name, e);
                     } else {
                         return Err(e);
@@ -564,7 +566,7 @@ fn compile_impl<'ctx>(
                     None,
                     method_body,
                 ) {
-                    if ctx.allow_partial_codegen {
+                    if ctx.allow_partial_codegen() {
                         log::warn!("Skipping method codegen for {}: {}", method_name, e);
                     } else {
                         return Err(e);

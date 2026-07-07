@@ -1,0 +1,83 @@
+=== async_comprehensive.ry ===
+Exit code: 1
+Stderr: error: parse error: expected 'fn' after 'async' at line 52, column 21
+
+=== classes_and_objects.ry ===
+Exit code: 1
+Stderr:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+error: codegen error: Unsupported binary operator: Power
+
+=== control_flow.ry ===
+Exit code: 1
+Stderr: error: parse error: Expected identifier but found 'keyword 'from'' at line 57, column 19
+
+=== error_handling.ry ===
+Exit code: 1
+Stderr: error: parse error: Unexpected token 'keyword 'catch'' at line 143, column 5
+
+=== functions.ry ===
+Exit code: 1
+Stderr: error: parse error: Expected '=>' but found '':'' at line 101, column 23
+
+=== generics_comprehensive.ry ===
+Exit code: 1
+Stderr: error: parse error: Expected ';' but found ''!'' at line 50, column 22
+
+=== pattern_matching.ry ===
+Exit code: 1
+Stderr: error: parse error: Expected ';' but found ''}'' at line 176, column 26
+
+=== traits.ry ===
+Exit code: 1
+Stderr: error: error: Type mismatch: expected `dyn Printable`, but found `string`
+error: Type mismatch: expected `dyn Printable`, but found `int`
+
+=== try_catch.ry ===
+Exit code: 1
+Stderr:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
+Undefined symbols for architecture x86_64:
+  "___gxx_personality_v0", referenced from:
+      /private/var/folders/9r/sw15qxmx1lj76t248w7q_sj40000gn/T/ruyi_temp.o
+ld: symbol(s) not found for architecture x86_64
+clang: error: linker command failed with exit code 1 (use -v to see invocation)
+error: codegen error: Linking failed
+
+=== type_system.ry ===
+Exit code: 1
+Stderr: error: parse error: expected type at line 25, column 18
+
+=== v04_features.ry ===
+Exit code: 1
+Stderr:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+error: codegen error: Invalid operands for +
+
+=== v04_minimal.ry ===
+Exit code: 1
+Stderr:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+error: codegen error: Invalid operands for +
+
+=== v04_simple.ry ===
+Exit code: 1
+Stderr:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+error: codegen error: Invalid operands for +
+
+=== v05_demo.ry ===
+Exit code: 1
+Stderr: error: error: Unknown variable: `Timestamp`
+error: Unknown variable: `Random`
+
+=== v05_tests.ry ===
+Exit code: 2
+Stderr: error: unexpected argument '--test' found
+
+  tip: to pass '--test' as a value, use '-- --test'
+
+Usage: ruyic [OPTIONS] [INPUT]
+
+For more information, try '--help'.
+
+=== variables_and_types.ry ===
+Exit code: 1
+Stderr:     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
+error: codegen error: Unsupported binary operator: Power
+

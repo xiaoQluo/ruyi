@@ -1,0 +1,12 @@
+Task 2: Clean examples/target/ completed at 2026年 5月 4日 星期一 21时17分05秒 CST
+
+Remaining contents:
+total 8
+drwxr-xr-x@  4 luozegang  staff  128  5月  4 21:16 .
+drwxr-xr-x  29 luozegang  staff  928  5月  4 21:15 ..
+drwxr-xr-x   3 luozegang  staff   96  5月  4 09:59 target
+-rw-r--r--   1 luozegang  staff   14  5月  4 09:58 test_bigint.ry
+
+Files removed:
+binaries: array, async, compare_test, control_flow, fibonacci, fibonacci_test, float_math, generics, generics_simple, generics_test, hello, ternary, test_gen, try_catch
+.ll files: array.ll, async.ll

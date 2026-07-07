@@ -1,0 +1,98 @@
+# Optional Chaining Integration Test Evidence
+
+## Test File: test/optional_chaining.ry
+
+```ruyi
+/**
+ * Optional chaining integration test
+ *
+ * @author test
+ * @date 2026-05-04
+ */
+
+class Container {
+    prop: string;
+    fn new(prop: string) {
+        self.prop = prop;
+    }
+}
+
+class Inner {
+    value: string;
+    fn new(value: string) {
+        self.value = value;
+    }
+}
+
+class Outer {
+    inner: Inner?;
+    fn new(inner: Inner?) {
+        self.inner = inner;
+    }
+}
+
+// Test 1: null object -> null result
+let obj: Container? = null;
+print(obj?.prop);
+
+// Test 2: valid object -> correct property
+let obj2 = Container.new("value");
+print(obj2?.prop);
+
+// Test 3: deep chain short-circuit (inner is null)
+let out = Outer.new(null);
+print(out?.inner?.value);
+
+// Test 4: null at start of chain
+let nullStart: Container? = null;
+print(nullStart?.prop);
+
+// Test 5: valid deep chain
+let validInner = Inner.new("deep");
+let validOut = Outer.new(validInner);
+print(validOut?.inner?.value);
+```
+
+## Verification Results
+
+### 1. Type Check (--check)
+```
+$ ./target/release/ruyic test/optional_chaining.ry --check
+Type checking passed.
+```
+
+### 2. LLVM IR Emission (--emit-llvm)
+```
+$ ./target/release/ruyic test/optional_chaining.ry --emit-llvm
+LLVM IR written to: test/target/optional_chaining.ll
+```
+
+### 3. icmp eq null patterns in LLVM IR
+Found 7 null check patterns using `icmp eq i64 %obj_int, 0`:
+
+```
+  %is_null = icmp eq i64 %obj_int, 0
+  %is_null4 = icmp eq i64 %obj_int3, 0
+  %is_null16 = icmp eq i64 %obj_int15, 0
+  %is_null22 = icmp eq i64 %obj_int21, 0
+  %is_null30 = icmp eq i64 %obj_int29, 0
+  %is_null44 = icmp eq i64 %obj_int43, 0
+  %is_null53 = icmp eq i64 %obj_int52, 0
+```
+
+Each optional chaining operation generates:
+1. `ptrtoint` to convert pointer to i64
+2. `icmp eq i64 ..., 0` to check for null
+3. `br` to conditionally branch to null/non_null blocks
+4. `phi` to merge results
+
+## Summary
+
+- [x] test/optional_chaining.ry created with ?. operator tests
+- [x] ruyic --check passes
+- [x] ruyic --emit-llvm shows icmp eq null patterns (7 instances)
+
+## Limitations
+
+- Optional chaining currently only works on class instances (not plain objects)
+- Linking fails due to missing ___cxa_begin_catch symbol (runtime issue, not language issue)

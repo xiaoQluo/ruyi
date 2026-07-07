@@ -1,0 +1,25 @@
+=== JS Feature Cleanup Verification ===
+Date: 2026-05-01
+
+File: docs/spec.md Section 7 - JavaScript Feature Removal
+
+Removed features with alternatives:
+1. undefined -> null (single null value)
+2. var -> let/const (block-scoped)
+3. == and != -> === and !== (strict equality only)
+4. Implicit type coercion -> Explicit conversion
+5. Prototype chain -> class/trait
+6. with statement -> None (removed)
+7. arguments object -> Rest parameters ...args
+8. Octal literals with leading 0 -> 0o prefix
+9. function keyword -> fn
+10. function*/generators -> async/await, iterators
+11. this binding complexity -> Lexical self
+12. Dynamic property access -> Index signatures
+13. eval() -> None (removed)
+14. delete on properties -> null assignment
+15. typeof null === "object" bug -> Fixed
+16. Sparse arrays -> Dense arrays with null
+17. Number/String/Boolean wrappers -> Primitive types only
+
+All removals include rationale and Klang alternatives.

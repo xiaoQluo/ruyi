@@ -72,7 +72,7 @@ impl<'ctx> VTableRegistry<'ctx> {
 
 /// Generate vtables for all impl declarations in a program.
 pub fn generate_vtables<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     program: &crate::parser::ast::Program,
 ) -> VTableRegistry<'ctx> {
     let mut registry = VTableRegistry::new();
@@ -142,7 +142,7 @@ pub fn generate_vtables<'ctx>(
 
 /// Emit vtable initializers after all functions have been compiled.
 pub fn emit_vtable_initializers<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     registry: &VTableRegistry<'ctx>,
 ) {
     for vtable in registry.vtables.values() {
@@ -176,14 +176,14 @@ pub fn emit_vtable_initializers<'ctx>(
 
 /// Create a trait object (fat pointer) from a concrete value.
 pub fn create_trait_object<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     registry: &VTableRegistry<'ctx>,
     value: BasicValueEnum<'ctx>,
     value_ty: &Type,
     trait_name: &str,
 ) -> Option<TraitObject<'ctx>> {
     let type_name = match value_ty {
-        Type::Named(name) | Type::Generic { base: name, .. } => name.clone(),
+            Type::Named(name, _) | Type::Generic { base: name, .. } => name.clone(),
         _ => return None,
     };
 
@@ -195,17 +195,17 @@ pub fn create_trait_object<'ctx>(
         let alloca = ctx
             .builder
             .build_alloca(ruyi_type_to_llvm(ctx.context, value_ty), "trait_data");
-        ctx.builder.build_store(alloca, value);
+        ctx.builder().build_store(alloca, value);
         alloca
     };
 
-    let void_data = ctx.builder.build_bitcast(
+    let void_data = ctx.builder().build_bitcast(
         data_ptr,
         ctx.context.i8_type().ptr_type(Default::default()),
         "data_void",
     );
 
-    let vtable_ptr = ctx.builder.build_bitcast(
+    let vtable_ptr = ctx.builder().build_bitcast(
         vtable.vtable_global.as_pointer_value(),
         ctx.context.i8_type().ptr_type(Default::default()),
         "vtable_ptr",
@@ -220,7 +220,7 @@ pub fn create_trait_object<'ctx>(
 
 /// Perform a dynamic dispatch call through a trait object.
 pub fn build_dynamic_dispatch<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     registry: &VTableRegistry<'ctx>,
     trait_obj: &TraitObject<'ctx>,
     method_name: &str,
@@ -246,7 +246,7 @@ pub fn build_dynamic_dispatch<'ctx>(
         .builder
         .build_load(vtable_typed.into_pointer_value(), "vtable_loaded");
 
-    let method_ptr = match ctx.builder.build_extract_value(
+    let method_ptr = match ctx.builder().build_extract_value(
         vtable_loaded.into_struct_value(),
         *idx as u32,
         &format!("method_{}", method_name),
@@ -271,7 +271,7 @@ pub fn build_dynamic_dispatch<'ctx>(
         let callable: inkwell::values::CallableValue<'ctx> = fn_ptr
             .try_into()
             .map_err(|_| format!("Failed to create callable for method {}", method_name))?;
-        ctx.builder
+        ctx.builder()
             .build_call(callable, &call_args, &format!("dyn_call_{}", method_name))
     };
 

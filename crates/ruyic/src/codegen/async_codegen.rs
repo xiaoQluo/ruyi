@@ -210,7 +210,7 @@ fn count_awaits_in_expr(expr: &Expr) -> usize {
 /// 2. `{name}$poll` – poll function that drives the state machine.
 /// 3. `{name}` – thin wrapper that calls `$new` and returns the future pointer.
 pub fn compile_async_function<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     name: &str,
     params: &[crate::parser::ast::Param],
     return_type: Option<&crate::parser::ast::TypeAnnotation>,
@@ -252,8 +252,8 @@ pub fn compile_async_function<'ctx>(
     let result_field_idx = (param_types.len() + 2) as u32;
 
     // ── Save current codegen state ─────────────────────────────
-    let prev_function = ctx.current_function;
-    let prev_block = ctx.builder.get_insert_block();
+    let prev_function = ctx.current_function();
+    let prev_block = ctx.builder().get_insert_block();
     let mut prev_vars = std::collections::HashMap::new();
 
     let saved_async_state_field_ptr = ctx.async_state_field_ptr;
@@ -282,16 +282,16 @@ pub fn compile_async_function<'ctx>(
     let poll_return = ctx.context.append_basic_block(poll_fn, "async_return");
     let poll_done = ctx.context.append_basic_block(poll_fn, "done");
 
-    ctx.builder.position_at_end(poll_entry);
+    ctx.builder().position_at_end(poll_entry);
     let raw_state_ptr = poll_fn.get_nth_param(0).unwrap().into_pointer_value();
     let waker_ptr = poll_fn.get_nth_param(1).unwrap().into_pointer_value();
     let state_ptr_val = ctx
-        .builder
+        .builder()
         .build_bitcast(raw_state_ptr, state_ptr_type, "state")
         .into_pointer_value();
 
     let state_field_ptr_poll = unsafe {
-        ctx.builder.build_gep(
+        ctx.builder().build_gep(
             state_ptr_val,
             &[
                 i32_ty.const_int(0, false),
@@ -301,20 +301,24 @@ pub fn compile_async_function<'ctx>(
         )
     };
     let current_state = ctx
-        .builder
+        .builder()
         .build_load(state_field_ptr_poll, "current_state")
         .into_int_value();
 
-    ctx.builder.build_switch(
+    ctx.builder().build_switch(
         current_state,
         poll_done,
         &[(i32_ty.const_int(0, false), poll_start)],
     );
 
     // Start block: load params from state into locals and compile body
-    ctx.builder.position_at_end(poll_start);
-    ctx.current_function = Some(poll_fn);
-    ctx.push_gc_root_scope();
+    ctx.builder().position_at_end(poll_start);
+    ctx.set_current_function(Some(poll_fn));
+    // SAFETY: pop_gc_root_scope guaranteed by GcRootScopeGuard Drop.
+    // The poll body has no `?` paths between push and pop today, but
+    // the guard defends against future additions of fallible calls
+    // (e.g. new intrinsics) in the per-param setup loop.
+    let _gc_scope_guard = unsafe { ctx.gc_root_scope() };
 
     for (i, param) in params.iter().enumerate() {
         let param_name = match &param.pattern {
@@ -323,10 +327,10 @@ pub fn compile_async_function<'ctx>(
         };
         let param_ty = param_types.get(i).cloned().unwrap_or(Type::Dynamic);
         let llvm_ty = ruyi_type_to_llvm(ctx.context, &param_ty);
-        let local_ptr = ctx.builder.build_alloca(llvm_ty, &param_name);
+        let local_ptr = ctx.builder().build_alloca(llvm_ty, &param_name);
 
         let field_ptr = unsafe {
-            ctx.builder.build_gep(
+            ctx.builder().build_gep(
                 state_ptr_val,
                 &[
                     i32_ty.const_int(0, false),
@@ -336,9 +340,9 @@ pub fn compile_async_function<'ctx>(
             )
         };
         let loaded = ctx
-            .builder
+            .builder()
             .build_load(field_ptr, &format!("param_{}_val", i));
-        ctx.builder.build_store(local_ptr, loaded);
+        ctx.builder().build_store(local_ptr, loaded);
 
         if is_gc_managed(&param_ty) {
             ctx.add_gc_root(local_ptr, param_ty.clone());
@@ -354,7 +358,7 @@ pub fn compile_async_function<'ctx>(
 
     // Pre-compute result field pointer for async return interception
     let result_field_ptr = unsafe {
-        ctx.builder.build_gep(
+        ctx.builder().build_gep(
             state_ptr_val,
             &[
                 i32_ty.const_int(0, false),
@@ -371,9 +375,9 @@ pub fn compile_async_function<'ctx>(
 
     let body_result = compile_block(ctx, body);
 
-    let body_end_bb = ctx.builder.get_insert_block().unwrap();
+    let body_end_bb = ctx.builder().get_insert_block().unwrap();
     if body_end_bb.get_terminator().is_none() {
-        ctx.builder.build_unconditional_branch(poll_return);
+        ctx.builder().build_unconditional_branch(poll_return);
     }
 
     // Restore async context fields before building poll_return
@@ -383,31 +387,30 @@ pub fn compile_async_function<'ctx>(
     ctx.waker_ptr = None;
 
     // Async return block: set state=done and return Ready(1)
-    ctx.builder.position_at_end(poll_return);
-    ctx.builder
+    ctx.builder().position_at_end(poll_return);
+    ctx.builder()
         .build_store(state_field_ptr_poll, i32_ty.const_int(1, false));
-    ctx.builder.build_return(Some(&i32_ty.const_int(1, false)));
+    ctx.builder().build_return(Some(&i32_ty.const_int(1, false)));
 
     // Done block: return Ready(1)
-    ctx.builder.position_at_end(poll_done);
-    ctx.builder.build_return(Some(&i32_ty.const_int(1, false)));
+    ctx.builder().position_at_end(poll_done);
+    ctx.builder().build_return(Some(&i32_ty.const_int(1, false)));
 
-    ctx.pop_gc_root_scope();
-    ctx.current_function = prev_function;
+    ctx.set_current_function(prev_function);
 
     for (name, old) in prev_vars {
-        ctx.variables.insert(name, old);
+        ctx.define_variable(name, old);
     }
 
     // ── Fill in $new body (now that $poll exists) ──────────────
     let new_entry = ctx.context.append_basic_block(new_fn, "entry");
-    let prev_builder_block = ctx.builder.get_insert_block();
-    ctx.builder.position_at_end(new_entry);
+    let prev_builder_block = ctx.builder().get_insert_block();
+    ctx.builder().position_at_end(new_entry);
 
     let struct_size = state_struct_type.size_of().unwrap();
-    let alloc_ptr = build_gc_alloc(&ctx.builder, &ctx.module, struct_size);
+    let alloc_ptr = build_gc_alloc(ctx.builder(), &ctx.module, struct_size);
     let state_ptr = ctx
-        .builder
+        .builder()
         .build_bitcast(alloc_ptr, state_ptr_type, "state_ptr")
         .into_pointer_value();
 
@@ -417,7 +420,7 @@ pub fn compile_async_function<'ctx>(
         .expect("poll function should exist");
     let poll_fn_ptr_val = poll_fn.as_global_value().as_pointer_value();
     let poll_fn_field_ptr = unsafe {
-        ctx.builder.build_gep(
+        ctx.builder().build_gep(
             state_ptr,
             &[
                 i32_ty.const_int(0, false),
@@ -426,10 +429,10 @@ pub fn compile_async_function<'ctx>(
             "poll_fn_field",
         )
     };
-    ctx.builder.build_store(poll_fn_field_ptr, poll_fn_ptr_val);
+    ctx.builder().build_store(poll_fn_field_ptr, poll_fn_ptr_val);
 
     let state_field_ptr_new = unsafe {
-        ctx.builder.build_gep(
+        ctx.builder().build_gep(
             state_ptr,
             &[
                 i32_ty.const_int(0, false),
@@ -438,13 +441,13 @@ pub fn compile_async_function<'ctx>(
             "state_field",
         )
     };
-    ctx.builder
+    ctx.builder()
         .build_store(state_field_ptr_new, i32_ty.const_int(0, false));
 
     for (i, _param) in params.iter().enumerate() {
         let param_val = new_fn.get_nth_param(i as u32).unwrap();
         let field_ptr = unsafe {
-            ctx.builder.build_gep(
+            ctx.builder().build_gep(
                 state_ptr,
                 &[
                     i32_ty.const_int(0, false),
@@ -453,13 +456,13 @@ pub fn compile_async_function<'ctx>(
                 &format!("param_{}_field", i),
             )
         };
-        ctx.builder.build_store(field_ptr, param_val);
+        ctx.builder().build_store(field_ptr, param_val);
     }
 
-    ctx.builder.build_return(Some(&alloc_ptr));
+    ctx.builder().build_return(Some(&alloc_ptr));
 
     if let Some(block) = prev_builder_block {
-        ctx.builder.position_at_end(block);
+        ctx.builder().position_at_end(block);
     }
 
     // ── 3. Wrapper function: name ──────────────────────────────
@@ -476,16 +479,16 @@ pub fn compile_async_function<'ctx>(
     let wrapper_fn = ctx.module.add_function(wrapper_name, wrapper_fn_type, None);
 
     let wrapper_entry = ctx.context.append_basic_block(wrapper_fn, "entry");
-    ctx.builder.position_at_end(wrapper_entry);
+    ctx.builder().position_at_end(wrapper_entry);
 
     let mut wrapper_args = Vec::new();
     for i in 0..params.len() {
         wrapper_args.push(wrapper_fn.get_nth_param(i as u32).unwrap().into());
     }
 
-    let new_call = ctx.builder.build_call(new_fn, &wrapper_args, "new_call");
+    let new_call = ctx.builder().build_call(new_fn, &wrapper_args, "new_call");
     let future_ptr = new_call.try_as_basic_value().left().unwrap();
-    ctx.builder.build_return(Some(&future_ptr));
+    ctx.builder().build_return(Some(&future_ptr));
 
     // ── Restore builder position ───────────────────────────────
     ctx.async_state_field_ptr = saved_async_state_field_ptr;
@@ -494,7 +497,7 @@ pub fn compile_async_function<'ctx>(
     ctx.waker_ptr = saved_waker_ptr;
 
     if let Some(block) = prev_block {
-        ctx.builder.position_at_end(block);
+        ctx.builder().position_at_end(block);
     }
 
     body_result
@@ -506,7 +509,7 @@ pub fn compile_async_function<'ctx>(
 /// Inside an async poll function it calls `ruyi_async_poll` with the waker,
 /// then loads the actual result from the future's state struct.
 pub fn compile_await<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     expr: &Expr,
 ) -> Result<super::expr::ExprResult<'ctx>, String> {
     let inner_result = compile_expr(ctx, expr)?;
@@ -519,7 +522,7 @@ pub fn compile_await<'ctx>(
     let future_ptr = inner_result.value.into_pointer_value();
 
     let poll_result =
-        super::builtins::build_ruyi_async_poll(&ctx.builder, &ctx.module, future_ptr, waker);
+        super::builtins::build_ruyi_async_poll(ctx.builder(), &ctx.module, future_ptr, waker);
 
     let result_ty = match &inner_result.ty {
         Type::Future(inner) => *inner.clone(),
@@ -529,27 +532,27 @@ pub fn compile_await<'ctx>(
     let _result_llvm: inkwell::types::BasicTypeEnum<'ctx> = ctx.context.i64_type().into();
     let result_val = if matches!(inner_result.ty, Type::Future(_)) {
         let state_as_i8_ptr = ctx
-            .builder
+            .builder()
             .build_bitcast(future_ptr, i8_ptr, "state_as_i8")
             .into_pointer_value();
 
         let result_offset = 8 + 8 + 8;
         let result_ptr = unsafe {
-            ctx.builder.build_gep(
+            ctx.builder().build_gep(
                 state_as_i8_ptr,
                 &[i32_ty.const_int(result_offset as u64, false)],
                 "result_ptr",
             )
         };
         let typed_result_ptr = ctx
-            .builder
+            .builder()
             .build_bitcast(
                 result_ptr,
                 ctx.context.i64_type().ptr_type(Default::default()),
                 "typed_result_ptr",
             )
             .into_pointer_value();
-        ctx.builder.build_load(typed_result_ptr, "await_result")
+        ctx.builder().build_load(typed_result_ptr, "await_result")
     } else {
         BasicValueEnum::IntValue(poll_result)
     };

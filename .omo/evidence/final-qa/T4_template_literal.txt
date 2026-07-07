@@ -1,0 +1,70 @@
+; ModuleID = 't_template'
+source_filename = "t_template"
+
+@str_lit = private unnamed_addr constant [6 x i8] c"World\00", align 1
+@str_lit.2 = private unnamed_addr constant [8 x i8] c"Hello, \00", align 1
+@str_lit.3 = private unnamed_addr constant [2 x i8] c"!\00", align 1
+@fmt_str = private unnamed_addr constant [4 x i8] c"%s\0A\00", align 1
+
+declare i32 @printf(i8*, ...)
+
+declare i8* @ruyi_gc_alloc(i64)
+
+declare void @ruyi_gc_collect()
+
+declare void @ruyi_gc_add_root(i8*)
+
+declare void @ruyi_gc_remove_root(i8*)
+
+declare void @ruyi_gc_write_barrier(i8*, i8*)
+
+declare void @ruyi_throw(i8*)
+
+declare i8* @ruyi_get_pending_exception()
+
+declare void @ruyi_clear_pending_exception()
+
+declare i8* @ruyi_str_concat(i8*, i8*)
+
+declare i8* @ruyi_begin_catch(i8*)
+
+declare void @ruyi_end_catch()
+
+declare i32 @ruyi_async_poll(i8*, i8*)
+
+declare i8* @ruyi_await(i8*)
+
+declare i8* @ruyi_spawn(i8*)
+
+declare void @ruyi_wake_task(i8*)
+
+declare void @ruyi_run_scheduler()
+
+declare i8* @ruyi_obj_keys(i8*)
+
+declare i8* @ruyi_iter_next(i8*)
+
+declare i8* @ruyi_bigint_from_str(i8*)
+
+declare i8* @ruyi_obj_get(i8*, i8*)
+
+define i32 @main() {
+entry:
+  call void @main.1()
+  ret i32 0
+}
+
+define void @main.1() {
+entry:
+  %name = alloca i8*, align 8
+  store i8* getelementptr inbounds ([6 x i8], [6 x i8]* @str_lit, i32 0, i32 0), i8** %name, align 8
+  %name1 = load i8*, i8** %name, align 8
+  %str_concat = call i8* @ruyi_str_concat(i8* getelementptr inbounds ([8 x i8], [8 x i8]* @str_lit.2, i32 0, i32 0), i8* %name1)
+  %str_concat2 = call i8* @ruyi_str_concat(i8* %str_concat, i8* getelementptr inbounds ([2 x i8], [2 x i8]* @str_lit.3, i32 0, i32 0))
+  %greeting = alloca i8*, align 8
+  store i8* %str_concat2, i8** %greeting, align 8
+  %greeting3 = load i8*, i8** %greeting, align 8
+  %print_str = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @fmt_str, i32 0, i32 0), i8* %greeting3)
+  ret void
+}
+Note: Template concat via string + operator (template literals not yet)

@@ -1,0 +1,354 @@
+// =============================================================================
+// Null Safety - Ruyi Nullable Type System
+// =============================================================================
+// Covers: nullable type declarations (T?), null checks, optional chaining (?.),
+//         nullish coalescing (??), null assertion (!), type narrowing,
+//         nullable fields in classes, nullable function parameters/returns
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 1. Nullable Type Declarations
+// -----------------------------------------------------------------------------
+// In Ruyi there is no `undefined` — only `null`.
+// A type `T?` can hold values of type `T` or `null`.
+// Non-nullable types CANNOT hold null (compile error).
+
+let name: string = "Ruyi";        // cannot be null
+let maybe_name: string? = null;   // can be null
+let count: int = 42;              // cannot be null
+let maybe_count: int? = null;     // can be null
+
+// Nullable assignment from non-null value is always valid
+let present: string? = "hello";   // string? holding a string
+let absent: string? = null;       // string? holding null
+
+// -----------------------------------------------------------------------------
+// 2. Null Checks
+// -----------------------------------------------------------------------------
+// Use `=== null` and `!== null` to test for null.
+// Ruyi enforces strict comparison (no == / !=).
+
+fn null_check_demo() {
+  print("--- Null Checks ---\n");
+
+  let value: string? = "hello";
+
+  if (value !== null) {
+    print("value is not null\n");
+  }
+
+  let empty: string? = null;
+
+  if (empty === null) {
+    print("empty is null\n");
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 3. Type Narrowing
+// -----------------------------------------------------------------------------
+// After a null check, the compiler narrows the type within the guarded scope.
+// Inside `if (x !== null)`, x is treated as the non-nullable type T.
+
+fn find_user(id: int): string? {
+  if (id === 1) {
+    return "Alice";
+  }
+  return null;
+}
+
+fn type_narrowing_demo() {
+  print("--- Type Narrowing ---\n");
+
+  let user: string? = find_user(1);
+
+  if (user !== null) {
+    // Inside this block, user is narrowed to `string`
+    // We can safely call string methods
+    print("found user: ");
+    print(user);
+    print("\n");
+  }
+
+  let missing: string? = find_user(999);
+
+  if (missing === null) {
+    print("user not found\n");
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 4. Optional Chaining (?.)
+// -----------------------------------------------------------------------------
+// The `?.` operator safely accesses properties on nullable values.
+// If the receiver is null, the entire expression evaluates to null
+// without throwing an error.
+
+class Address {
+  city: string;
+  zip: string;
+  fn new(city: string, zip: string) {
+    self.city = city;
+    self.zip = zip;
+  }
+}
+
+class Person {
+  name: string;
+  address: Address?;
+  fn new(name: string) {
+    self.name = name;
+    self.address = null;
+  }
+  fn with_address(name: string, addr: Address) {
+    self.name = name;
+    self.address = addr;
+  }
+}
+
+fn optional_chaining_demo() {
+  print("--- Optional Chaining ---\n");
+
+  let addr = Address.new("Beijing", "100000");
+  let alice = Person.new("Alice");
+  alice.with_address("Alice", addr);
+
+  let bob = Person.new("Bob");
+  // bob.address is null
+
+  // Safe property access
+  let alice_city = alice.address?.city;
+  if (alice_city !== null) {
+    print("Alice's city: ");
+    print(alice_city);
+    print("\n");
+  }
+
+  // Chained optional access: returns null safely
+  let bob_city = bob.address?.city;
+  if (bob_city === null) {
+    print("Bob has no city (address is null)\n");
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 5. Nullish Coalescing (??)
+// -----------------------------------------------------------------------------
+// The `??` operator provides a default value when the left side is null.
+// Unlike `||`, it ONLY triggers on null (not on falsy values like 0 or "").
+
+fn nullish_coalescing_demo() {
+  print("--- Nullish Coalescing ---\n");
+
+  // Basic usage
+  let name: string? = null;
+  let display: string = name ?? "anonymous";
+  print("null ?? \"anonymous\": ");
+  print(display);
+  print("\n");
+
+  // With non-null value
+  let present: string? = "Alice";
+  let result: string = present ?? "fallback";
+  print("\"Alice\" ?? \"fallback\": ");
+  print(result);
+  print("\n");
+
+  // With integers
+  let count: int? = null;
+  let safe_count: int = count ?? 0;
+  print("null ?? 0: ");
+  print(safe_count);
+  print("\n");
+
+  // Chained coalescing (try multiple sources)
+  let primary: string? = null;
+  let secondary: string? = null;
+  let tertiary: string? = "found it";
+  let final_value: string = primary ?? secondary ?? tertiary;
+  print("chained ??: ");
+  print(final_value);
+  print("\n");
+
+  // Important: ?? does NOT trigger on falsy non-null values
+  let zero: int? = 0;
+  let kept_zero: int = zero ?? 99;
+  print("0 ?? 99 = ");
+  print(kept_zero);
+  print(" (?? preserves 0, only replaces null)\n");
+}
+
+// -----------------------------------------------------------------------------
+// 6. Null Assertion (!)
+// -----------------------------------------------------------------------------
+// The postfix `!` operator asserts that a nullable value is NOT null.
+// If the value IS null at runtime, a runtime error is thrown.
+// Use this ONLY when you are certain the value is not null.
+
+fn null_assertion_demo() {
+  print("--- Null Assertion ---\n");
+
+  // Safe usage: value from a nullable function return
+  let maybe_user: string? = find_user(1);
+  // Use ! when you are certain the value is not null
+  // (e.g., after validation logic not expressible as a type guard)
+  let safe: string = maybe_user!;
+  print("asserted non-null: ");
+  print(safe);
+  print("\n");
+
+  // Type narrowing is preferred over ! when possible
+  let user: string? = find_user(1);
+  if (user !== null) {
+    // Inside this block, user is narrowed to string automatically
+    // No need for ! here — the compiler already knows it's non-null
+    let confirmed: string = user;
+    print("confirmed user: ");
+    print(confirmed);
+    print("\n");
+  }
+
+  // WARNING: Using ! on a null value causes a runtime error!
+  // let danger: string? = null;
+  // let crash: string = danger!;  // Runtime error: null assertion failed
+  print("warning: value! on null throws a runtime error\n");
+}
+
+// -----------------------------------------------------------------------------
+// 7. Nullable Function Parameters and Return Types
+// -----------------------------------------------------------------------------
+// Functions can accept nullable parameters and return nullable values.
+
+fn parse_int_safe(s: string): int? {
+  // Simulating a fallible parse: only "42" works
+  if (s === "42") {
+    return 42;
+  }
+  return null;
+}
+
+fn greet_user(name: string?) {
+  let display = name ?? "guest";
+  print("Hello, ");
+  print(display);
+  print("!\n");
+}
+
+fn nullable_function_demo() {
+  print("--- Nullable Functions ---\n");
+
+  // Successful parse
+  let parsed: int? = parse_int_safe("42");
+  if (parsed !== null) {
+    print("parsed: ");
+    print(parsed);
+    print("\n");
+  }
+
+  // Failed parse
+  let failed: int? = parse_int_safe("abc");
+  if (failed === null) {
+    print("parse failed for \"abc\"\n");
+  }
+
+  // Nullable parameter
+  greet_user("Alice");
+  greet_user(null);
+}
+
+// -----------------------------------------------------------------------------
+// 8. Nullable Class Fields
+// -----------------------------------------------------------------------------
+// Class fields can be nullable to represent optional data.
+
+class Config {
+  host: string;
+  port: int;
+  timeout: int?;
+  label: string?;
+  fn new(host: string, port: int) {
+    self.host = host;
+    self.port = port;
+    self.timeout = null;
+    self.label = null;
+  }
+}
+
+fn nullable_fields_demo() {
+  print("--- Nullable Class Fields ---\n");
+
+  let cfg = Config.new("localhost", 8080);
+
+  print("host: ");
+  print(cfg.host);
+  print("\n");
+  print("port: ");
+  print(cfg.port);
+  print("\n");
+
+  // timeout is null — use default
+  let effective_timeout: int = cfg.timeout ?? 30;
+  print("timeout: ");
+  print(effective_timeout);
+  print(" (default)\n");
+
+  // label is null
+  let effective_label: string = cfg.label ?? "unnamed";
+  print("label: ");
+  print(effective_label);
+  print(" (default)\n");
+}
+
+// -----------------------------------------------------------------------------
+// 9. Combining Null Safety Features
+// -----------------------------------------------------------------------------
+fn combined_demo() {
+  print("--- Combined Null Safety ---\n");
+
+  // Optional chaining + nullish coalescing
+  let person = Person.new("Charlie");
+  let city: string = person.address?.city ?? "unknown city";
+  print("Charlie's city: ");
+  print(city);
+  print("\n");
+
+  // Type narrowing + assertion
+  let value: string? = find_user(1);
+  if (value !== null) {
+    let len: int = value.length();
+    print("user name length: ");
+    print(len);
+    print("\n");
+  }
+
+  // Null check before mutation
+  let config = Config.new("example.com", 443);
+  if (config.timeout === null) {
+    print("setting default timeout\n");
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+  print("=== Null Safety Demo ===\n\n");
+
+  null_check_demo();
+  print("\n");
+  type_narrowing_demo();
+  print("\n");
+  optional_chaining_demo();
+  print("\n");
+  nullish_coalescing_demo();
+  print("\n");
+  null_assertion_demo();
+  print("\n");
+  nullable_function_demo();
+  print("\n");
+  nullable_fields_demo();
+  print("\n");
+  combined_demo();
+
+  print("\nAll null safety demos completed successfully!\n");
+}

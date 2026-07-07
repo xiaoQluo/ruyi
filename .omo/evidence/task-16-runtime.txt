@@ -1,0 +1,42 @@
+Task 16: Async/Await with Green Thread Runtime - Runtime Evidence
+===================================================================
+
+1. Async Runtime Module Created
+   - File: crates/klang_runtime/src/async_runtime.rs
+   - Exports: Poll, KlangFuture, Waker, Task, TaskId, WorkStealingDeque, Scheduler, JoinAll, Race
+
+2. Core Types
+   - `Poll<T>` enum with `Ready(T)` and `Pending` variants
+   - `KlangFuture` trait with `poll(&mut self, waker: &Waker) -> Poll<Self::Output>`
+   - `Waker` struct with `wake()` method that re-queues tasks
+   - `TaskId` newtype wrapper for usize
+
+3. Work-Stealing Scheduler
+   - `WorkStealingDeque<T>` with push_bottom, pop_bottom, steal_top
+   - `SchedulerInner` with per-worker queues, global queue, task map
+   - `Scheduler` with configurable number of OS worker threads
+   - Task lifecycle: spawn -> poll -> (ready|pending -> wake -> re-poll)
+   - Work stealing: workers steal from top of other workers' queues when local queue is empty
+
+4. Runtime Helpers
+   - `klang_await(future: *mut u8) -> *mut u8` - C-compatible runtime helper
+   - `AsyncException` struct for capturing exceptions in async contexts
+   - `register_async_roots` placeholder for GC integration
+
+5. Combinators
+   - `JoinAll<F, T>` - waits for all futures, returns Vec<T>
+   - `Race<F>` - returns result of first future to complete
+
+6. Test Results (cargo test --package klang_runtime --lib --test async_runtime --no-default-features)
+   - 48 tests passed (40 lib + 8 async_runtime integration)
+   - 0 failed
+
+7. GC Integration
+   - `register_async_roots` function provided as integration point
+   - In a full implementation, suspended async tasks would be traced as GC roots
+   - The scheduler's task table holds futures that may contain GC pointers
+
+8. Exception Propagation
+   - `AsyncException` captures exception pointers inside futures
+   - `rethrow()` method propagates captured exceptions to the awaiting context
+   - This aligns with spec Section 14.4: exceptions in async functions propagate through Future

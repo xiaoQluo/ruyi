@@ -1,0 +1,41 @@
+# .spec-superflow.yaml — lightweight state machine
+# Derived data. Always rebuildable from artifacts. Lost/corrupt → fall back to content-level detection.
+
+# === Core state ===
+state: exploring
+workflow: auto
+
+# === Hashes (fast staleness detection) ===
+artifacts_hash: null
+contract_hash: null
+
+# === Execution progress ===
+execution_mode: null
+batches_completed: 0
+test_result: null
+
+# === Metadata ===
+change_name: stdlib合理性检查
+last_transition: 2026-07-06T08:55:45.905Z
+last_transition_from: null
+last_transition_to: null
+
+# === Decision points ===
+dp_0_decisions: 变更名:stdlib合理性检查; 意图:审查Ruyi标准库8个模块的正确性、完备性、合理性; 约束:只读审查不修改代码、全部模块平权; 沟通:一次性呈览报告
+dp_0_result: confirmed
+dp_0_confirmed: true
+dp_0_timestamp: 2026-07-06T08:56:16Z
+dp_1_result: null
+dp_1_timestamp: null
+dp_2_result: null
+dp_2_timestamp: null
+dp_3_result: null
+dp_3_timestamp: null
+dp_4_result: null
+dp_4_timestamp: null
+dp_5_result: null
+dp_5_timestamp: null
+dp_6_result: null
+dp_6_timestamp: null
+dp_7_result: null
+dp_7_timestamp: null

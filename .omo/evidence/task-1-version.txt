@@ -1,0 +1,8 @@
+Task: Verify ruyic --version matches v0.5.x
+Date: 2026-05-04
+
+Command: /Users/mac/code/test/ruyi/target/release/ruyic --version
+Output:
+ruyic 0.5.0
+
+Result: PASS - version 0.5.0 matches expected v0.5.x range

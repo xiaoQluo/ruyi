@@ -1,0 +1,138 @@
+# Task 13 Full Verification Evidence
+
+**Date:** 2026-05-04
+**Task:** Full verification run — rebuild compiler, run all examples, verify no regressions
+
+---
+
+## 1. Build Compiler
+
+**Command:** `LLVM_SYS_140_PREFIX=/usr/local/opt/llvm@14 cargo build --release`
+
+**Result:** ✅ SUCCESS
+
+```
+warning: `ruyic` (lib) generated 15 warnings (run `cargo fix --lib -p ruyic` to apply 7 suggestions)
+warning: `ruyic` (bin "ruyic") generated 1 warning (run `cargo fix --bin "ruyic" -p ruyic` to apply 1 suggestion)
+    Finished `release` profile [optimized] target(s) in 0.18s
+```
+
+**Binary:** `./target/release/ruyic` — built and ready
+
+---
+
+## 2. Parser Tests
+
+**Command:** `cargo test -p ruyic --test parser`
+
+**Result:** ⚠️ CANNOT RUN — LLVM not available in test environment
+
+```
+error: No suitable version of LLVM was found system-wide or pointed
+              to by LLVM_SYS_140_PREFIX.
+```
+
+The tests require LLVM 14 to be available, which is not present in this build environment.
+Note: The compilation itself succeeded with LLVM, so the tests would run if LLVM were available.
+
+---
+
+## 3. Examples Verification
+
+**Command:** `bash examples/run_examples.sh --verify`
+
+**Result:** ❌ FAILED — 12 compilation errors, 1 runtime error
+
+### Summary
+| Metric | Count |
+|--------|-------|
+| Total | 25 |
+| Passed | 9 |
+| Expected failures (EXP_FAIL) | 4 |
+| Failed (unexpected) | 12 |
+| Compilation errors | 15 |
+
+### PASS (9 examples)
+- array ✅
+- async ✅
+- compare_test ✅
+- fibonacci ✅
+- float_math ✅
+- generics_simple ✅
+- generics ✅
+- hello ✅
+- ternary ✅
+
+### Expected Failures (EXP_FAIL) — 4
+- classes_and_objects — Power operator not implemented
+- v05_demo — Timestamp/Random builtins not implemented
+- v05_tests — `--test` CLI flag not implemented
+- variables_and_types — Power operator not implemented
+
+### Unexpected Failures (12)
+- async_comprehensive — parse error at line 59: `*` token
+- control_flow — parse error at line 99: `:` token
+- error_handling — parse error at line 164: `}` token
+- functions — parse error at line 103: `)` token
+- generics_comprehensive — parse error at line 50: `!` token
+- pattern_matching — type errors (toString, body, status, etc.)
+- traits — codegen: Function not found: toString
+- type_system — parse error at line 86: `!` token
+- v04_features — codegen: Function not found: T_format
+- v04_minimal — codegen: Function not found: Point_format
+- v04_simple — codegen: Function not found: Point_format
+- try_catch — runtime error (exit 132)
+
+---
+
+## 4. Individual Compilation of 10 Examples
+
+**Command:** `./target/release/ruyic examples/<file>.ry -o examples/target/<file>`
+
+### Results
+
+| Example | Exit Code | Error |
+|---------|-----------|-------|
+| control_flow.ry | 1 | parse error: Expected ';' but found ':' at line 99, column 8 |
+| functions.ry | 1 | parse error: Unexpected token ')' at line 103, column 11 |
+| async_comprehensive.ry | 1 | parse error: Expected identifier but found '*' at line 59, column 9 |
+| pattern_matching.ry | 1 | Type errors: toString, body, status, first, second + type mismatches |
+| generics_comprehensive.ry | 1 | parse error: Expected ';' but found '!' at line 50, column 22 |
+| error_handling.ry | 1 | parse error: Expected ';' but found '}' at line 164, column 3 |
+| type_system.ry | 1 | parse error: Expected ';' but found '!' at line 86, column 30 |
+| traits.ry | 1 | codegen error: Function not found: toString |
+| v04_minimal.ry | 1 | codegen error: Function not found: Point_format |
+| v04_simple.ry | 1 | codegen error: Function not found: Point_format |
+| v04_features.ry | 1 | codegen error: Function not found: T_format |
+
+**0 of 10 examples compiled successfully** — all have remaining issues.
+
+---
+
+## 5. Evidence Summary
+
+The build environment does not have LLVM 14 available for running tests (only for building).
+All 10 "fixed" examples still fail to compile.
+
+**Remaining issues by category:**
+
+1. **Parser errors** (8 examples):
+   - `:` token in unusual position (control_flow.ry:99)
+   - `)` token unexpected (functions.ry:103)
+   - `*` token unexpected (async_comprehensive.ry:59)
+   - `!` token unexpected (generics_comprehensive.ry:50, type_system.ry:86)
+   - `}` without semicolon (error_handling.ry:164)
+
+2. **Type errors** (pattern_matching.ry):
+   - Unknown variable: toString, body, status, first, second
+   - Type mismatches: Array<int> vs Array<dyn>
+
+3. **Codegen errors** (3 v04 examples + traits):
+   - Function not found: toString, Point_format, T_format
+
+4. **Runtime error** (try_catch):
+   - Exit 132 (SIGILL) — likely illegal instruction in exception handling
+
+---
+
+**Status:** INCOMPLETE — bugs remain unfixed

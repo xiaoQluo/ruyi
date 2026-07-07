@@ -836,7 +836,7 @@ TypeAliasDeclaration ::
 
 **Examples**:
 ```ruyi
-type Result<T, E> = Ok<T> | Err<E>;
+type Result<T, E> = Ok<T, E> | Err<T, E>;
 type Callback<T> = fn(T) -> void;
 type Point2D = { x: float, y: float };
 ```
@@ -1865,24 +1865,35 @@ fn map<T, U>(arr: Array<T>, f: fn(T) -> U): Array<U> {
 ### 5.3 Generic Classes
 
 ```ruyi
-class Option<T> {
-  value: T?;
+class Some<T> {
+  value: T;
 
-  fn new(value: T?) {
+  fn new(value: T) {
     self.value = value;
   }
 
-  fn isSome(): bool {
-    return self.value !== null;
+  fn isSome(self): bool {
+    return true;
   }
 
-  fn unwrap(): T {
-    if (self.value === null) {
-      throw Error("unwrap on None");
-    }
+  fn unwrap(self): T {
     return self.value;
   }
 }
+
+class None {
+  fn new() { }
+
+  fn isSome(self): bool {
+    return false;
+  }
+
+  fn unwrap(self): never {
+    throw RuntimeError.new("unwrap on None");
+  }
+}
+
+type Option<T> = Some<T> | None;
 
 class Map<K, V> {
   fn get(key: K): V?;
@@ -2824,16 +2835,25 @@ name = getUser();     // reassignment resets narrowing
 Nullable types interact with generics as follows:
 
 ```ruyi
-class Option<T> {
-  value: T?;
+class Some<T> {
+  value: T;
 
-  fn unwrap(): T {
-    if (self.value === null) {
-      throw Error("unwrap on None");
-    }
-    return self.value;    // narrowed to T
+  fn new(value: T) {
+    self.value = value;
+  }
+
+  fn unwrap(self): T {
+    return self.value;    // directly returns T
   }
 }
+
+class None {
+  fn unwrap(self): never {
+    throw RuntimeError.new("unwrap on None");
+  }
+}
+
+type Option<T> = Some<T> | None;
 ```
 
 `Option<T>` and `T?` are distinct. `Option<T>` is a wrapper type that can carry additional methods, while `T?` is a built-in nullable type.
@@ -2945,14 +2965,14 @@ When `dyn` is used as a type argument:
 Type aliases can be generic:
 
 ```ruyi
-type Result<T, E> = Ok<T> | Err<E>;
+type Result<T, E> = Ok<T, E> | Err<T, E>;
 type Callback<T> = fn(T) -> void;
 ```
 
 Generic type aliases are expanded at use sites:
 
 ```
-Result<int, Error>  expands to  Ok<int> | Err<Error>
+Result<int, Error>  expands to  Ok<int, Error> | Err<int, Error>
 ```
 
 ### 10.6 Variance

@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: ruyic/parser
+title: Ruyi语言语法解析器
+scope:
+    - crates/ruyic/src/parser/
+source_files: []
+depends_on: []
+related_to: []

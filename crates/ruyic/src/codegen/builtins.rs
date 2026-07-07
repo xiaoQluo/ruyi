@@ -539,7 +539,7 @@ pub fn is_gc_managed(ty: &crate::typechecker::types::Type) -> bool {
         | Type::TypeVar(_)
         | Type::Generic { .. } => false,
         // Single uppercase letter named types (T, U, V) are type parameters, not GC-managed
-        Type::Named(name)
+        Type::Named(name, _)
             if name.len() == 1
                 && name
                     .chars()

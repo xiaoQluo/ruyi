@@ -1,0 +1,3 @@
+=== T10: Impl For ===
+Codegen accepts trait/impl syntax
+Note: string concatenation issue prevents full codegen

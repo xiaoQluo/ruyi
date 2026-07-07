@@ -1,0 +1,68 @@
+; ModuleID = 'test_for'
+source_filename = "test_for"
+
+@fmt_int = private unnamed_addr constant [5 x i8] c"%ld\0A\00", align 1
+
+declare i32 @printf(i8*, ...)
+
+declare i8* @ruyi_gc_alloc(i64)
+
+declare void @ruyi_gc_collect()
+
+declare void @ruyi_gc_add_root(i8*)
+
+declare void @ruyi_gc_remove_root(i8*)
+
+declare void @ruyi_gc_write_barrier(i8*, i8*)
+
+declare void @ruyi_throw(i8*)
+
+declare i8* @ruyi_get_pending_exception()
+
+declare void @ruyi_clear_pending_exception()
+
+declare i8* @ruyi_str_concat(i8*, i8*)
+
+declare i8* @ruyi_begin_catch(i8*)
+
+declare void @ruyi_end_catch()
+
+declare i32 @ruyi_async_poll(i8*, i8*)
+
+declare i8* @ruyi_spawn(i8*)
+
+declare void @ruyi_wake_task(i8*)
+
+declare void @ruyi_run_scheduler()
+
+declare i8* @ruyi_obj_keys(i8*)
+
+declare i8* @ruyi_iter_next(i8*)
+
+declare i8* @ruyi_bigint_from_str(i8*)
+
+define i32 @main() {
+entry:
+  %i = alloca i64, align 8
+  store i64 0, i64* %i, align 4
+  br label %for_cond
+
+for_cond:                                         ; preds = %for_update, %entry
+  %i1 = load i64, i64* %i, align 4
+  %lt = icmp slt i64 %i1, 3
+  br i1 %lt, label %for_body, label %for_end
+
+for_body:                                         ; preds = %for_cond
+  %i2 = load i64, i64* %i, align 4
+  %print_int = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([5 x i8], [5 x i8]* @fmt_int, i32 0, i32 0), i64 %i2)
+  br label %for_update
+
+for_update:                                       ; preds = %for_body
+  %i3 = load i64, i64* %i, align 4
+  %add = add i64 %i3, 1
+  store i64 %add, i64* %i, align 4
+  br label %for_cond
+
+for_end:                                          ; preds = %for_cond
+  ret i32 0
+}

@@ -1,0 +1,20 @@
+Task 3: Fix function type syntax — accept `fn(): type` in addition to `fn() -> type`
+================================================================================
+
+Change made in: crates/ruyic/src/parser/parser.rs (lines 1690-1694)
+
+Before:
+  self.expect(Token::RParen)?;
+  // Note: lexer tokenizes -> as FatArrow due to a bug, so we use FatArrow here
+  self.expect(Token::FatArrow)?;
+  let return_type = Box::new(self.parse_type()?);
+
+After:
+  self.expect(Token::RParen)?;
+  // Accept both `->` (FatArrow) and `:` as return type separator
+  if !self.match_token(&Token::FatArrow) && !self.match_token(&Token::Colon) {
+      return Err(self.error("expected '->' or ':' after function type parameters"));
+  }
+  let return_type = Box::new(self.parse_type()?);
+
+Verification: cargo check -p ruyic passed (only pre-existing warnings)

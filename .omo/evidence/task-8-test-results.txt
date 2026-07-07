@@ -1,0 +1,43 @@
+Task 8: GC Test Results
+=======================
+Command: export LLVM_SYS_140_PREFIX=/usr/local/opt/llvm@14 && cargo test -p klang_runtime gc
+Date: 2026-05-01
+
+Output:
+------
+   Compiling klang_runtime v0.1.0 (/Users/mac/code/test/klang/crates/klang_runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.51s
+     Running unittests src/lib.rs (target/debug/deps/klang_runtime-f3de1958203c8283)
+
+running 15 tests
+test gc::barrier::tests::test_old_to_young_triggers_barrier ... ok
+test gc::barrier::tests::test_young_to_old_no_barrier ... ok
+test gc::generational::tests::test_disabled_collection ... ok
+test gc::generational::tests::test_alloc_and_minor_collect ... ok
+test gc::generational::tests::test_nested_trace_minor_collect ... ok
+test gc::generational::tests::test_full_collect_compacts_old ... ok
+test gc::generational::tests::test_promotion_after_threshold ... ok
+test gc::generational::tests::test_write_barrier_tracks_cross_gen ... ok
+test gc::generational::tests::test_remembered_set_in_minor_collect ... ok
+test gc::roots::tests::test_add_remove_stack_root ... ok
+test gc::roots::tests::test_all_roots ... ok
+test gc::tests::test_alloc_and_collect ... ok
+test gc::tests::test_collect_disabled ... ok
+test gc::tests::test_nested_trace ... ok
+test gc::generational::tests::test_stress_many_objects ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 21 filtered out; finished in 0.17s
+
+     Running tests/exception.rs (target/debug/deps/exception-37ad01e2deb25534)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.00s
+
+     Running tests/runtime.rs (target/debug/deps/runtime-6e4cd88409edf550)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+Summary: ALL 15 GC TESTS PASS. No warnings. No segfaults.

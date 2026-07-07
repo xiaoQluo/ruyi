@@ -1,0 +1,15 @@
+schema_version: 1
+module_path: build_system
+title: Ruyi 编译工具链构建与发布体系
+scope: []
+source_files:
+    - Cargo.toml
+    - Makefile
+    - .github/workflows/ci.yml
+    - examples/run_examples.sh
+    - docs/versioning.md
+    - crates/ruyic/Cargo.toml
+    - crates/ruyi_runtime/Cargo.toml
+    - rustfmt.toml
+depends_on: []
+related_to: []

@@ -668,7 +668,7 @@ fn test_check_generic_function() {
 #[test]
 fn test_check_generic_function_two_params() {
     let result =
-        check_program("fn map<T, U>(arr: Array<T>, f: fn(T) -> U): Array<U> { return arr; }");
+        check_program("fn apply<T, U>(arr: Array<T>, f: fn(T) -> U): Array<T> { return arr; }");
     assert_no_errors(&result);
 }
 

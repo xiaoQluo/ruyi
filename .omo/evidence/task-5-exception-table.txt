@@ -1,0 +1,13 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+     Running tests/runtime.rs (target/debug/deps/runtime-757e7a45f9355e9f)
+
+running 6 tests
+test test_exception_table_integration ... ok
+test test_klang_alloc_arc ... ok
+test test_klang_alloc_roundtrip ... ok
+test test_landing_pad_descriptor_builder ... ok
+test test_mark_sweep_lifecycle ... ok
+test test_klang_context_inkwell_types ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

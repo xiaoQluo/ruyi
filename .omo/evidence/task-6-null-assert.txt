@@ -1,0 +1,68 @@
+# Task 6: Null Assertion Operator (!)
+
+## Implementation Complete - 2026-05-04
+
+### Changes Made
+
+#### 1. AST (`crates/ruyic/src/parser/ast.rs`)
+Added `NullAssert(Box<Expr>)` variant to the `Expr` enum (line 260):
+```rust
+NullAssert(Box<Expr>),
+```
+
+#### 2. Parser (`crates/ruyic/src/parser/parser.rs`)
+Added postfix `!` handling in `parse_expr_bp` (line 1283-1287):
+```rust
+if self.check(&Token::Not) {
+    self.advance();
+    lhs = Expr::NullAssert(Box::new(lhs));
+    continue;
+}
+```
+
+#### 3. Typechecker (`crates/ruyic/src/typechecker/inference.rs`)
+Added `NullAssert` case in `synthesize` method (line 719-731):
+```rust
+Expr::NullAssert(expr) => {
+    let ty = self.synthesize(expr);
+    match &ty {
+        Type::Nullable(inner) => *inner.clone(),
+        Type::Null => Type::Never,
+        _ => {
+            self.diagnostics.add_error(DiagnosticKind::Other {
+                message: format!("cannot use null assertion on non-nullable type `{}`", ty),
+            });
+            ty
+        }
+    }
+}
+```
+
+#### 4. Codegen (`crates/ruyic/src/codegen/expr.rs`)
+Added `NullAssert` case (line 47):
+```rust
+Expr::NullAssert(expr) => compile_expr(ctx, expr),
+```
+
+### Verification
+
+```bash
+$ LLVM_SYS_140_PREFIX=/usr/local/opt/llvm@14 cargo check -p ruyic
+   Compiling llvm-sys v140.1.3
+   Compiling inkwell v0.2.0
+    Checking ruyi_runtime v0.4.1
+    Checking ruyic v0.4.1
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.08s
+```
+
+Status: **PASS** (with pre-existing warnings unrelated to this change)
+
+### Design Notes
+
+1. **No runtime check**: Null assertion is purely a compile-time type coercion
+2. **Type rules**:
+   - `T?` (Nullable) → `T` (non_null)
+   - `null` → `never` (unreachable)
+   - Non-nullable types trigger an error
+3. **Postfix only**: The `!` in postfix position (after expressions) is null assertion; prefix `!` remains logical not (handled by `Unary` / `Expr::Unary { op: Not, ... }`)
+4. **No Example Files Modified**: Per requirements, no `.ry` files were changed

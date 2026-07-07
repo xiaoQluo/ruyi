@@ -1,0 +1,11 @@
+=== T1: For Loop IR ===
+; ModuleID = 't_for_loop'
+source_filename = "t_for_loop"
+  br label %for_cond
+for_cond:                                         ; preds = %for_update, %entry
+  br i1 %lt, label %for_body, label %for_end
+for_body:                                         ; preds = %for_cond
+  br label %for_update
+for_update:                                       ; preds = %for_body
+  br label %for_cond
+for_end:                                          ; preds = %for_cond

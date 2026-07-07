@@ -1,0 +1,23 @@
+cargo build: SUCCESS
+cargo test: SUCCESS (0 tests, 0 failures)
+
+Binary verification:
+$ ./target/debug/klangc --version
+klangc 0.1.0
+
+Build output:
+warning: field `gc_enabled` is never read
+  --> crates/klang_runtime/src/gc.rs:32:5
+   |
+31 | pub struct Collector {
+   |            --------- field in this struct
+32 |     gc_enabled: bool,
+   |     ^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling klang_runtime v0.1.0 (/Users/mac/code/test/crates/klang_runtime)
+warning: `klang_runtime` (lib) generated 1 warning
+
+   Compiling klangc v0.1.0 (/Users/mac/code/test/crates/klangc)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.83s

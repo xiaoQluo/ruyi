@@ -1,0 +1,41 @@
+QA Evidence: Task 7 - Exception Handling Runtime Integration
+============================================================
+
+Scenario 1: Runtime functions wired to Itanium C++ ABI
+-------------------------------------------------------
+
+$ grep -n "_Unwind_RaiseException\|__cxa_begin_catch\|__cxa_end_catch" crates/ruyi_runtime/src/exception/runtime.rs
+
+14: /// via the Itanium C++ ABI `_Unwind_RaiseException`.
+32:         fn _Unwind_RaiseException(exc: *mut std::ffi::c_void) -> i32;
+34:     let _reason = _Unwind_RaiseException(exc as *mut std::ffi::c_void);
+52: /// Called from a catch handler landing pad. Invokes `__cxa_begin_catch`
+60:         fn __cxa_begin_catch(unwind_exception: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+62:     __cxa_begin_catch(exception_ptr as *mut _);
+70: /// calling `__cxa_end_catch`.
+73:         fn __cxa_end_catch();
+75:     unsafe { __cxa_end_catch() }
+
+Verification: PASS
+- ruyi_throw calls _Unwind_RaiseException (lines 32-34)
+- ruyi_begin_catch calls __cxa_begin_catch (lines 60-62)
+- ruyi_end_catch calls __cxa_end_catch (lines 73-75)
+
+Scenario 2: Runtime compiles without inkwell
+--------------------------------------------
+
+$ cargo check -p ruyi_runtime --no-default-features
+    Checking ruyi_runtime v0.4.1
+    Finished dev profile [unoptimized + debuginfo] target(s)
+
+$ cargo test -p ruyi_runtime --no-default-features --lib
+running 44 tests
+test result: ok. 44 passed; 0 failed; 0 ignored
+
+Verification: PASS
+
+Notes
+-----
+- The `#[cfg_attr(test, link(name = "c++abi"))]` attribute ensures test binaries link against the system C++ ABI library on macOS.
+- `_Unwind_RaiseException` is declared with `*mut std::ffi::c_void` to avoid `improper_ctypes` warnings from the `String` field inside `UnwindException` (only used behind a pointer).
+- `ruyi_begin_catch` calls `__cxa_begin_catch` for ABI compliance but manually computes the payload pointer via `&mut (*unwind_exc).payload` since we allocate `UnwindException` directly rather than using `__cxa_allocate_exception`.

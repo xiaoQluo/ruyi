@@ -1,0 +1,17 @@
+// Test: impl Trait for string (built-in type)
+// QA for task-10-impl-string
+
+trait Printable {
+  fn format(self): string;
+}
+
+impl Printable for string {
+  fn format(self): string {
+    return self;
+  }
+}
+
+fn main() {
+  let s: string = "hello";
+  print(s.format());
+}

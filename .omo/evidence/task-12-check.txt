@@ -1,0 +1,8 @@
+# Task 12: Thread-Local GC Heap - QA Evidence
+
+## cargo check -p ruyi_runtime --no-default-features
+```
+    Checking ruyi_runtime v0.4.1 (/Users/mac/code/test/ruyi/crates/ruyi_runtime)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.23s
+```
+✓ Compiles cleanly with no warnings

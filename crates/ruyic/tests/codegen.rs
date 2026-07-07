@@ -372,6 +372,41 @@ fn helper_ruyic_path_detection() {
     // Just verify the function works - actual path may or may not exist in test env
 }
 
+// ── Tuple Codegen Tests ───────────────────────────────────────
+
+#[test]
+#[ignore]
+fn codegen_tuple_literal_and_access() {
+    let source = r#"
+let t = (1, "hello");
+print(t.0);
+print(t.1);
+"#;
+    assert_output(source, "1\nhello");
+}
+
+#[test]
+#[ignore]
+fn codegen_tuple_mixed_types() {
+    let source = r#"
+let t = (42, true, "world");
+print(t.0);
+print(t.1);
+print(t.2);
+"#;
+    assert_output(source, "42\ntrue\nworld");
+}
+
+#[test]
+#[ignore]
+fn codegen_tuple_field_arithmetic() {
+    let source = r#"
+let t = (10, 20);
+print(t.0 + t.1);
+"#;
+    assert_output(source, "30");
+}
+
 #[test]
 fn helper_compile_failure_report() {
     // Test that compile_and_run returns a meaningful error for invalid source

@@ -93,6 +93,8 @@ export class File {
      * @param lines Array of lines to write
      */
     static fn writeLines(path: string, lines: Array<string>): void {
+        // Uses Unix line endings (\n). On platforms requiring \r\n, the
+        // runtime handles line-ending translation where applicable.
         let content = __string_join(lines, "\n");
         __io_file_write_text(path, content);
     }
@@ -104,6 +106,8 @@ export class File {
      * @return Future that completes when write is done
      */
     static async fn writeLinesAsync(path: string, lines: Array<string>): Future<void> {
+        // Uses Unix line endings (\n). On platforms requiring \r\n, the
+        // runtime handles line-ending translation where applicable.
         let content = __string_join(lines, "\n");
         return __io_file_write_text_async(path, content);
     }
@@ -118,6 +122,15 @@ export class File {
     }
 
     /**
+     * Checks if a file or directory exists (async version).
+     * @param path Path to check
+     * @return Future resolving to true if path exists, false otherwise
+     */
+    static async fn existsAsync(path: string): Future<bool> {
+        return __io_file_exists_async(path);
+    }
+
+    /**
      * Checks if path is a directory.
      * @param path Path to check
      * @return true if path is a directory
@@ -127,12 +140,30 @@ export class File {
     }
 
     /**
+     * Checks if path is a directory (async version).
+     * @param path Path to check
+     * @return Future resolving to true if path is a directory
+     */
+    static async fn isDirectoryAsync(path: string): Future<bool> {
+        return __io_is_directory_async(path);
+    }
+
+    /**
      * Checks if path is a file.
      * @param path Path to check
      * @return true if path is a file
      */
     static fn isFile(path: string): bool {
         return __io_is_file(path);
+    }
+
+    /**
+     * Checks if path is a file (async version).
+     * @param path Path to check
+     * @return Future resolving to true if path is a file
+     */
+    static async fn isFileAsync(path: string): Future<bool> {
+        return __io_is_file_async(path);
     }
 
     /**

@@ -13,11 +13,16 @@ export class Error {
 
     fn new(message: string) {
         self.message = message;
+        // stackTrace populated by runtime during throw
         self.stackTrace = [];
     }
 
     fn getMessage(self): string {
         return self.message;
+    }
+
+    fn getStackTrace(self): Array<string> {
+        return self.stackTrace;
     }
 
     fn toString(self): string {
@@ -37,19 +42,26 @@ export class RuntimeError extends Error {
     }
 }
 
+/** Base class for logic/programming errors (assertions, invalid arguments). */
+export class LogicError extends Error {
+    fn new(message: string) {
+        super.new(message);
+    }
+}
+
 export class RangeError extends Error {
     fn new(message: string) {
         super.new(message);
     }
 }
 
-export class AssertionError extends Error {
+export class AssertionError extends LogicError {
     fn new(message: string) {
         super.new(message);
     }
 }
 
-export class ArgumentError extends Error {
+export class ArgumentError extends LogicError {
     fn new(message: string) {
         super.new(message);
     }

@@ -1,0 +1,35 @@
+Task: Verify LLVM environment and --test flag
+Date: 2026-05-04
+
+=== LLVM_SYS_140_PREFIX ===
+Status: FAIL - Environment variable is NOT set
+Output: LLVM_SYS_140_PREFIX=(not set)
+Impact: Full build requiring inkwell/llvm-sys will fail.
+        Only runtime-only development (--no-default-features) is possible.
+
+=== ruyic --help (--test flag check) ===
+Status: FAIL - --test flag NOT found in help output
+
+Full --help output:
+Ruyi compiler - compiles .ry source files to native binaries
+
+Usage: ruyic [OPTIONS] [INPUT]
+
+Arguments:
+  [INPUT]  Input file to compile
+
+Options:
+  -o, --output <OUTPUT>  Output file path
+  -O <OPT_LEVEL>         Optimization level (0, 1, 2)
+      --target <TARGET>  Target triple (e.g., x86_64-unknown-linux-gnu)
+      --emit-llvm        Emit LLVM IR instead of compiling
+      --emit-ast         Emit AST (for debugging)
+      --emit-typed-ast   Emit typed AST (for debugging)
+      --check            Parse and type check only (no codegen)
+  -h, --help             Print help
+  -V, --version          Print version
+
+Summary:
+- LLVM_SYS_140_PREFIX: NOT SET
+- --test flag:         NOT PRESENT
+- version (0.5.0):    PASS

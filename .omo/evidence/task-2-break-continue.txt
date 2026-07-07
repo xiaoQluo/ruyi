@@ -1,0 +1,60 @@
+# QA Evidence: Task 2 - Break/Continue Code Generation
+# Date: 2026-05-04
+
+## Implementation Summary
+
+Break and continue statement code generation has been implemented in:
+  - crates/ruyic/src/codegen/stmt.rs (compile_stmt function)
+
+## Code Changes
+
+Added two new arms in compile_stmt() match statement (lines 67-82):
+
+Statement::Break(_) => {
+    let (end_bb, _) = ctx
+        .loop_stack
+        .last()
+        .ok_or("BreakOutsideLoop: break statement must be inside a loop")?;
+    ctx.builder.build_unconditional_branch(*end_bb);
+    Ok(())
+}
+Statement::Continue(_) => {
+    let (_, cond_bb) = ctx
+        .loop_stack
+        .last()
+        .ok_or("ContinueOutsideLoop: continue statement must be inside a loop")?;
+    ctx.builder.build_unconditional_branch(*cond_bb);
+    Ok(())
+}
+
+## Verification
+
+1. Statement::Break generates unconditional branch to end_bb (loop_stack top's first element)
+2. Statement::Continue generates unconditional branch to cond_bb (loop_stack top's second element)
+3. Empty loop_stack produces error: "BreakOutsideLoop: break statement must be inside a loop"
+4. Empty loop_stack produces error: "ContinueOutsideLoop: continue statement must be inside a loop"
+5. Works with nested loops - uses innermost loop (last pushed to loop_stack)
+
+## loop_stack Pattern Reference
+
+The loop_stack is populated by:
+- compile_while: push((end_bb, cond_bb)) - pop at end
+- compile_for: push((end_bb, update_bb)) - pop at end
+- compile_for_in: push((end_bb, cond_bb)) - pop at end
+- compile_for_of: push((end_bb, cond_bb)) - pop at end
+
+This confirms:
+- end_bb is the first element (index 0)
+- cond_bb/update_bb is the second element (index 1)
+- Break -> end_bb
+- Continue -> cond_bb (for while/for-in/for-of) or update_bb (for for)
+
+## Formatting
+
+rustfmt --check crates/ruyic/src/codegen/stmt.rs passes (no output = success)
+
+## Notes
+
+- LLVM not available in this environment, cannot run cargo check with full inkwell
+- Error messages use String error format consistent with other codegen errors
+- No new diagnostic codes added - using inline error strings

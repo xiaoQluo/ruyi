@@ -1,0 +1,37 @@
+# Klang-Specific Token Evidence
+
+## Optional Chaining (`?.`)
+Source: `user?.name`
+Tokens: [Ident("user"), OptChain, Ident("name"), Eof]
+
+## Nullish Coalescing (`??`)
+Source: `val ?? default`
+Tokens: [Ident("val"), Nullish, Ident("default"), Eof]
+
+## Spread/Rest (`...`)
+Source: `[a, ...rest]`
+Tokens: [LBracket, Ident("a"), Comma, Spread, Ident("rest"), RBracket, Eof]
+
+## Arrow Function (`=>`)
+Source: `(x) => x * 2`
+Tokens: [LParen, Ident("x"), RParen, FatArrow, Ident("x"), Star, Int(2), Eof]
+
+## Strict Equality (`===`, `!==`)
+Source: `a === b !== c`
+Tokens: [Ident("a"), StrictEquals, Ident("b"), StrictNotEquals, Ident("c"), Eof]
+
+## Template String with Interpolation
+Source: `` `hello ${name}` ``
+Tokens: [TemplateString("hello "), TemplateExprStart, Ident("name"), TemplateExprEnd, TemplateString(""), Eof]
+
+## Multi-Interpolation Template
+Source: `` `a ${x} b ${y} c` ``
+Tokens: [
+  TemplateString("a "), TemplateExprStart, Ident("x"), TemplateExprEnd,
+  TemplateString(" b "), TemplateExprStart, Ident("y"), TemplateExprEnd,
+  TemplateString(" c"), Eof
+]
+
+## Compound Assignment Operators
+Source: `**= >>= >>>= &&= ||= ??=`
+Tokens: [PowerAssign, ShrAssign, UShrAssign, AndAssign, OrAssign, NullishAssign, Eof]

@@ -1,0 +1,185 @@
+warning: unused variable: `stmt`
+    --> crates/klangc/src/parser/parser.rs:1271:17
+     |
+1271 |                 stmt => Expr::Grouping(Box::new(Expr::Identifier("__block__".into()))), // placeholder
+     |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_stmt`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `peek` and `peek_token` are never used
+  --> crates/klangc/src/parser/parser.rs:30:8
+   |
+11 | impl Parser {
+   | ----------- methods in this implementation
+...
+30 |     fn peek(&self, offset: usize) -> Option<&TokenWithLocation> {
+   |        ^^^^
+...
+34 |     fn peek_token(&self, offset: usize) -> Option<&Token> {
+   |        ^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `klangc` (lib) generated 2 warnings (run `cargo fix --lib -p klangc` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.04s
+     Running tests/parser.rs (target/debug/deps/parser-b5239d32c5a7b60c)
+
+running 155 tests
+test test_block_empty ... ok
+test test_break_with_label ... ok
+test test_break_simple ... ok
+test test_block_nested ... ok
+test test_block_multiple ... ok
+test test_class_with_method ... ok
+test test_const_destructure ... ok
+test test_continue_simple ... ok
+test test_class_simple ... ok
+test test_class_static_field ... ok
+test test_class_with_extends ... ok
+test test_const_simple ... ok
+test test_continue_with_label ... ok
+test test_empty_statement ... ok
+test test_error_class_missing_name ... ok
+test test_error_expected_declaration ... ok
+test test_error_import_missing_from ... ok
+test test_error_invalid_type ... ok
+test test_error_match_missing_paren ... ok
+test test_error_missing_closing_brace ... ok
+test test_error_invalid_arrow_params ... ok
+test test_error_missing_semicolon ... ok
+test test_error_try_without_brace ... ok
+test test_error_unexpected_eof ... ok
+test test_error_unexpected_token ... ok
+test test_error_unexpected_token_in_expr ... ok
+test test_export_declaration ... ok
+test test_export_named ... ok
+test test_export_default_expr ... ok
+test test_export_reexport_all ... ok
+test test_expr_array_literal ... ok
+test test_expr_array_with_spread ... ok
+test test_expr_arrow_block ... ok
+test test_expr_arrow_grouping ... ok
+test test_expr_arrow_single_param ... ok
+test test_expr_assign_bitwise ... ok
+test test_expr_assign_logical ... ok
+test test_expr_assign_compound ... ok
+test test_expr_await ... ok
+test test_expr_assign_simple ... ok
+test test_expr_await_call ... ok
+test test_expr_bigint_literal ... ok
+test test_expr_binary_arithmetic ... ok
+test test_expr_binary_comparison ... ok
+test test_expr_binary_bitwise ... ok
+test test_expr_binary_logical ... ok
+test test_expr_binary_power ... ok
+test test_expr_binary_precedence ... ok
+test test_expr_boolean_literal ... ok
+test test_expr_binary_shift ... ok
+test test_expr_call_with_args ... ok
+test test_expr_call ... ok
+test test_expr_chained_member ... ok
+test test_expr_class ... ok
+test test_expr_conditional ... ok
+test test_expr_class_named ... ok
+test test_expr_float_literal ... ok
+test test_expr_conditional_nested ... ok
+test test_expr_function ... ok
+test test_expr_function_async ... ok
+test test_expr_function_named ... ok
+test test_expr_grouping ... ok
+test test_expr_grouping_nested ... ok
+test test_expr_if ... ok
+test test_expr_if_else ... ok
+test test_expr_index ... ok
+test test_expr_int_literal ... ok
+test test_expr_match ... ok
+test test_expr_member ... ok
+test test_expr_match_block_body ... ok
+test test_expr_new ... ok
+test test_expr_new_with_args ... ok
+test test_expr_null_literal ... ok
+test test_expr_object_literal ... ok
+test test_expr_object_shorthand ... ok
+test test_expr_object_spread ... ok
+test test_expr_optional_call ... ok
+test test_expr_optional_member ... ok
+test test_expr_sequence_error ... ok
+test test_expr_string_literal ... ok
+test test_expr_template_simple ... ok
+test test_expr_template_multi_interpolation ... ok
+test test_expr_template_with_interpolation ... ok
+test test_expr_this_super_self ... ok
+test test_expr_unary_increment_decrement ... ok
+test test_expr_unary_keywords ... ok
+test test_expr_unary_minus ... ok
+test test_expr_unary_not ... ok
+test test_expr_unary_plus_tilde ... ok
+test test_fn_generic ... ok
+test test_fn_no_return_type ... ok
+test test_fn_async ... ok
+test test_fn_simple ... ok
+test test_for_in ... ok
+test test_for_c_style ... ok
+test test_for_infinite ... ok
+test test_for_of_async ... ok
+test test_for_of ... ok
+test test_if_else ... ok
+test test_if_let ... ok
+test test_if_let_else ... ok
+test test_import_default ... ok
+test test_import_named ... ok
+test test_import_namespace ... ok
+test test_import_string_only ... ok
+test test_if_simple ... ok
+test test_let_multiple ... ok
+test test_let_no_init ... ok
+test test_let_simple ... ok
+test test_macro_empty_rules ... ok
+test test_let_with_type ... ok
+test test_macro_multiple_rules ... ok
+test test_macro_rule_with_tokens ... ok
+test test_macro_simple ... ok
+test test_match_expr_body ... ok
+test test_match_statement_simple ... ok
+test test_match_wildcard ... ok
+test test_match_with_guard ... ok
+test test_pattern_array ... ok
+test test_pattern_as ... ok
+test test_pattern_identifier ... ok
+test test_pattern_literal ... ok
+test test_pattern_or ... ok
+test test_pattern_object ... ok
+test test_pattern_rest ... ok
+test test_program_empty ... ok
+test test_pattern_wildcard ... ok
+test test_program_multiple_items ... ok
+test test_program_with_comments ... ok
+test test_return_without_value ... ok
+test test_return_with_value ... ok
+test test_throw ... ok
+test test_trait_empty ... ok
+test test_trait_generic ... ok
+test test_trait_simple ... ok
+test test_trait_with_field ... ok
+test test_try_catch_finally ... ok
+test test_try_catch ... ok
+test test_try_catch_typed ... ok
+test test_try_finally_only ... ok
+test test_type_alias_array ... ok
+test test_type_alias_function ... ok
+test test_type_alias_generic ... ok
+test test_type_alias_simple ... ok
+test test_type_array ... ok
+test test_type_function ... ok
+test test_type_generic ... ok
+test test_type_nullable ... ok
+test test_type_simple ... ok
+test test_type_object ... ok
+test test_type_tuple ... ok
+test test_while_condition ... ok
+test test_while_let ... ok
+test test_while_nested ... ok
+test test_while_simple ... ok
+
+test result: ok. 155 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

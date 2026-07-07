@@ -88,7 +88,7 @@ impl TypeInference {
             "Error",
             Type::Function {
                 params: vec![Type::String],
-                return_type: Box::new(Type::Named("Error".into())),
+                return_type: Box::new(Type::Named("Error".into(), vec![])),
             },
         );
         Self {
@@ -287,7 +287,7 @@ impl TypeInference {
                     let generic_def = make_generic_class_def(name, type_params, &mut self.tracker);
                     self.tracker.register_generic(generic_def);
                 }
-                let class_type = Type::Named(name.clone());
+                let class_type = Type::Named(name.clone(), vec![]);
                 self.env.declare_let(name, class_type.clone());
 
                 self.class_stack.push(name.clone());
@@ -667,11 +667,19 @@ impl TypeInference {
 
                 // Report non-exhaustive match
                 if !analysis.is_exhaustive {
-                    self.diagnostics
-                        .add_error(DiagnosticKind::NonExhaustiveMatch {
-                            scrutinee_type: match_ty.clone(),
-                            missing: analysis.missing_cases.clone(),
-                        });
+                    if match_ty.requires_exhaustive_match() {
+                        self.diagnostics
+                            .add_error(DiagnosticKind::NonExhaustiveMatch {
+                                scrutinee_type: match_ty.clone(),
+                                missing: analysis.missing_cases.clone(),
+                            });
+                    } else {
+                        self.diagnostics
+                            .add_warning(DiagnosticKind::NonExhaustiveMatch {
+                                scrutinee_type: match_ty.clone(),
+                                missing: analysis.missing_cases.clone(),
+                            });
+                    }
                 }
 
                 // Report redundant pattern
@@ -1078,11 +1086,13 @@ impl TypeInference {
                 }
             }
             Expr::Sequence(exprs) => {
-                let mut last_ty = Type::Void;
-                for e in exprs {
-                    last_ty = self.synthesize(e);
+                if exprs.len() > 1 {
+                    Type::Tuple(exprs.iter().map(|e| self.synthesize(e)).collect())
+                } else if let Some(e) = exprs.last() {
+                    self.synthesize(e)
+                } else {
+                    Type::Void
                 }
-                last_ty
             }
             Expr::Function {
                 name: _,
@@ -1120,8 +1130,8 @@ impl TypeInference {
             Expr::New { callee, args: _ } => {
                 let callee_ty = self.synthesize(callee);
                 match callee_ty {
-                    Type::Named(name) => Type::Named(name),
-                    Type::Generic { base, .. } => Type::Named(base),
+                    Type::Named(name, fields) => Type::Named(name, fields),
+                    Type::Generic { base, .. } => Type::Named(base, vec![]),
                     _ => Type::Dynamic,
                 }
             }
@@ -1322,7 +1332,7 @@ impl TypeInference {
 
     fn substitute_self_type(&self, ty: &Type, self_type: &Type) -> Type {
         match ty {
-            Type::Named(name) if name == "Self" || name == "self" => self_type.clone(),
+            Type::Named(name, _) if name == "Self" || name == "self" => self_type.clone(),
             Type::Nullable(inner) => {
                 Type::Nullable(Box::new(self.substitute_self_type(inner, self_type)))
             }
@@ -1371,12 +1381,19 @@ impl TypeInference {
         }
 
         let result = match obj_ty {
+            Type::Tuple(types) => {
+                if let Ok(index) = prop_name.parse::<usize>() {
+                    types.get(index).cloned().unwrap_or(Type::Dynamic)
+                } else {
+                    Type::Dynamic
+                }
+            }
             Type::Object(fields) => fields
                 .iter()
                 .find(|f| f.name == prop_name)
                 .map(|f| f.ty.clone())
                 .unwrap_or(Type::Dynamic),
-            Type::Named(ref type_name) => {
+            Type::Named(ref type_name, _) => {
                 if let Some((_trait_name, method)) = self
                     .trait_registry
                     .resolve_impl_method(type_name, prop_name)
@@ -1503,7 +1520,7 @@ impl TypeInference {
                         if let Expr::Identifier(name) = left.as_ref() {
                             if let Expr::Identifier(class_name) = right.as_ref() {
                                 if true_branch {
-                                    self.env.narrow(name, Type::Named(class_name.clone()));
+                                    self.env.narrow(name, Type::Named(class_name.clone(), vec![]));
                                 }
                             }
                         }
@@ -1531,7 +1548,7 @@ impl TypeInference {
             Pattern::Object(fields) => {
                 let obj_fields = match ty {
                     Type::Object(f) => Some(f),
-                    Type::Named(_) => None,
+                    Type::Named(_, _) => None,
                     _ => return,
                 };
 

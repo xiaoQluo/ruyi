@@ -1,0 +1,7 @@
+=== T11: Match Switch/Br ===
+  switch i64 %x1, label %int_arm_2 [
+    i64 1, label %int_arm_0
+    i64 2, label %int_arm_1
+  br label %match_merge
+  br label %match_merge
+  br label %match_merge

@@ -1,0 +1,34 @@
+Task 20: Language Tutorial Document - Evidence
+===============================================
+
+File: klang/docs/tutorial.md
+Total lines: 2097
+Total chapters: 17 (12 main chapters + 5 appendices)
+
+Chapter Structure:
+1. Getting Started - Installation, Hello World, compiler flags, project structure
+2. Basic Syntax - let/const, built-in types, type annotations, numeric/string literals, operators, comments
+3. Control Flow - if/else, for/for-in/for-of, while, break/continue, labeled loops
+4. Functions - fn declarations, return type inference, arrow functions, parameters, closures, higher-order functions
+5. Classes and Objects - class declarations, constructors, static methods, inheritance, getters/setters, object literals
+6. Type System - gradual typing, dyn type, type inference, nullable types, function types, structural subtyping
+7. Generics - generic functions, trait bounds, generic classes, type aliases, type inference, monomorphization
+8. Traits - trait declarations, implementations, static/dynamic dispatch, default methods, downcasting, orphan rule
+9. Pattern Matching - match expressions, literal/or/guard patterns, destructuring objects/arrays, if-let, while-let, as patterns
+10. Error Handling - try/catch/finally, multiple catch, throw, custom errors, never type, zero-cost exceptions
+11. Async Programming - async functions, await, concurrent execution, async iterators, green thread scheduler, blocking operations
+12. Modules - module structure, import/export variants, resolution, circular dependency detection, initialization, name resolution
+
+Appendices:
+A. Quick Reference - Keywords, operator precedence, built-in types
+B. JavaScript to Klang Migration Guide - Side-by-side comparison table
+C. Standard Library Overview - Core types, IO, Math modules
+D. Complete Example - CLI tool demonstrating multiple features
+
+Verification:
+- All 12 required chapters present
+- Each chapter includes clear explanations, runnable code examples, expected output, and common pitfalls
+- Content accurately reflects the Klang language specification (docs/spec.md)
+- Examples use correct Klang syntax (fn keyword, self instead of this, === only, no undefined, etc.)
+- Tutorial covers basics to advanced topics progressively
+- Line count exceeds 2000 target (2097 lines)

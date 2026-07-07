@@ -1,0 +1,36 @@
+Task: Fix match arm block body parsing — allow bare expression without semicolon
+File: crates/ruyic/src/parser/parser.rs
+Change: Lines 1055-1083
+
+PROBLEM:
+Match arm blocks like `{ -n }` failed to parse because parse_function_body()
+required all statements to end with `;`. The expression `-n` has no trailing
+semicolon, causing parse_expression_statement() -> expect(SemiColon) to fail.
+
+ROOT CAUSE:
+- parse_function_body() calls parse_statement() in a loop
+- parse_statement() delegates to parse_expression_statement() for expressions
+- parse_expression_statement() unconditionally requires Token::SemiColon
+- In match arm blocks, the last expression is a value return and doesn't need `;`
+
+FIX:
+Replaced the parse_function_body() call with inline body parsing that:
+1. Routes keyword-started statements (if, while, for, return, let, const, etc.)
+   to the existing parse_statement() for correct handling
+2. Treats everything else as an expression with OPTIONAL semicolon
+   - If a semicolon follows, consume it
+   - If not (next token is `}`), the expression is still valid
+
+This is a targeted fix that only affects match arm block bodies, not function
+bodies or statement parsing globally.
+
+VERIFICATION:
+cargo check -p ruyic = PASS (no new warnings)
+
+TEST CASE (examples/pattern_matching.ry:174-178):
+  fn absoluteValue(n: int): int {
+    return match (n) {
+      n if (n < 0) => { -n }
+      _ => { n }
+    };
+  }

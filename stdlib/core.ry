@@ -1,11 +1,13 @@
 /**
  * Ruyi Standard Library - Core Types and Operations
  *
- * Provides fundamental type methods and operations for primitives.
+ * Provides fundamental type methods and operations for primitives,
+ * numeric parsing functions (parseInt/parseFloat), and basic math
+ * functions (min/max/abs) plus math constants (PI, E).
  * This module is automatically available to all Ruyi programs.
  *
  * @author Ruyi Team
- * @date 2026-05-02
+ * @date 2026-07-06
  */
 
 // Int class - integer operations
@@ -27,4 +29,84 @@ export class Bool {
     fn toString(self: bool): string {
         return ruyi_bool_to_string(self);
     }
+}
+
+// ============================================================
+// Numeric Parsing Functions
+// ============================================================
+
+/**
+ * Parses a string as an integer.
+ * @param s String to parse
+ * @return Parsed integer
+ * @throws ParseError if the string is not a valid integer
+ */
+export fn parseInt(s: string): int {
+    return ruyi_parse_int(s);
+}
+
+/**
+ * Parses a string as a float.
+ * @param s String to parse
+ * @return Parsed float
+ * @throws ParseError if the string is not a valid float
+ */
+export fn parseFloat(s: string): float {
+    return ruyi_parse_float(s);
+}
+
+// ============================================================
+// Math Functions
+// ============================================================
+
+/**
+ * Mathematical constant PI.
+ */
+export const PI: float = 3.141592653589793;
+
+/**
+ * Mathematical constant E (Euler's number).
+ */
+export const E: float = 2.718281828459045;
+
+/**
+ * Returns the smaller of two integers.
+ */
+export fn min(a: int, b: int): int {
+    return if (a < b) { a } else { b };
+}
+
+/**
+ * Returns the larger of two integers.
+ */
+export fn max(a: int, b: int): int {
+    return if (a > b) { a } else { b };
+}
+
+/**
+ * Returns the absolute value of an integer.
+ */
+export fn abs(x: int): int {
+    return if (x < 0) { -x } else { x };
+}
+
+/**
+ * Returns the smaller of two floats.
+ */
+export fn minFloat(a: float, b: float): float {
+    return if (a < b) { a } else { b };
+}
+
+/**
+ * Returns the larger of two floats.
+ */
+export fn maxFloat(a: float, b: float): float {
+    return if (a > b) { a } else { b };
+}
+
+/**
+ * Returns the absolute value of a float.
+ */
+export fn absFloat(x: float): float {
+    return if (x < 0.0) { -x } else { x };
 }

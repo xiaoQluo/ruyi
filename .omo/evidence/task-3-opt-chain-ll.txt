@@ -1,0 +1,13 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.03s
+LLVM IR written to: /tmp/target/test_opt_chain.ll
+1:; ModuleID = 'test_opt_chain'
+2:source_filename = "test_opt_chain"
+58:  %is_null = icmp eq i64 %obj_int, 0
+59:  br i1 %is_null, label %opt_null, label %opt_non_null
+61:opt_non_null:                                     ; preds = %entry
+65:  br label %opt_merge
+67:opt_null:                                         ; preds = %entry
+68:  br label %opt_merge
+70:opt_merge:                                        ; preds = %opt_non_null, %opt_null
+71:  %opt_phi = phi i64 [ 0, %opt_null ], [ %x, %opt_non_null ]
+73:  store i64 %opt_phi, i64* %x2, align 4

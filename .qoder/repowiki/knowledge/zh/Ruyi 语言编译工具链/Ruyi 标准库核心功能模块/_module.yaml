@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: stdlib
+title: Ruyi 标准库核心功能模块
+scope:
+    - stdlib/
+source_files: []
+depends_on: []
+related_to:
+    - path: ruyi_runtime/builtins_and_alloc

@@ -1,0 +1,53 @@
+============================================================
+Klang Integration Test Framework - Task 7 Evidence
+============================================================
+Date: 2026-05-01
+Task: 7 - Test infrastructure + integration test framework
+============================================================
+
+FRAMEWORK VERIFICATION
+---------------------
+Test discovery mechanism: PASS
+  - Discovered 4 test cases in tests/integration/cases/basic/
+
+Test case structure:
+  - hello_world.kl + hello_world.expected
+  - arithmetic.kl + arithmetic.expected
+  - variables.kl + variables.expected
+  - control_flow.kl + control_flow.expected
+
+Positive test workflow:
+  - Compile .kl file to temp binary
+  - Execute binary and capture stdout
+  - Compare output to .expected file
+  - Clean up temp binary
+
+Negative test framework:
+  - Expects compilation to fail
+  - Reads .error file for expected error pattern
+  - Validates error message contains pattern
+
+TEST RUNNER FEATURES
+-------------------
+- discover_tests(): Recursively discovers .kl files in subdirectories
+- run_positive_test(): Compile + run + compare workflow
+- run_negative_test(): Compile (expect failure) + validate error message
+- get_klangc_path(): Resolves klangc binary path (env var, CARGO_BIN_EXE, target/debug, target/release)
+- run_integration_tests(): Main orchestrator
+- print_summary(): Formatted test results output
+
+TEST DISCOVERY OUTPUT
+--------------------
+Test cases discovered:
+  - basic/hello_world
+  - basic/arithmetic
+  - basic/variables
+  - basic/control_flow
+
+FRAMEWORK COMPILATION
+--------------------
+cargo check --tests: PASS (with warnings about unused fields - expected)
+
+============================================================
+END OF EVIDENCE
+============================================================

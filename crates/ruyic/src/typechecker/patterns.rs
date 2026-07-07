@@ -68,8 +68,6 @@ fn pattern_covered_cases(pattern: &Pattern, scrutinee_type: &Type) -> HashSet<St
         }
         Pattern::Identifier(name) => {
             cases.insert(name.clone());
-            // Identifier patterns are exhaustive (bind any value)
-            cases.insert("_".to_string());
         }
         Pattern::Literal(expr) => {
             let case = match expr.as_ref() {
@@ -146,6 +144,54 @@ fn pattern_covered_cases(pattern: &Pattern, scrutinee_type: &Type) -> HashSet<St
     cases
 }
 
+/// Extracts the value pattern for a specific field from an object pattern string.
+///
+/// Object pattern strings have the form `{{field1:pattern1, field2:pattern2}}`.
+/// This function locates `field_name:` and returns the corresponding value pattern,
+/// properly handling nested braces and brackets.
+fn extract_field_pattern(covered_str: &str, field_name: &str) -> Option<String> {
+    let prefix = format!("{}:", field_name);
+    let start = covered_str.find(&prefix)?;
+    let mut value_start = start + prefix.len();
+
+    while value_start < covered_str.len() && covered_str.as_bytes()[value_start] == b' ' {
+        value_start += 1;
+    }
+
+    let mut depth = 0i32;
+    let mut value_end = value_start;
+    for (i, ch) in covered_str[value_start..].char_indices() {
+        match ch {
+            '{' | '[' | '(' => depth += 1,
+            '}' | ']' | ')' => {
+                if depth == 0 {
+                    value_end = value_start + i;
+                    break;
+                }
+                depth -= 1;
+            }
+            ',' => {
+                if depth == 0 {
+                    value_end = value_start + i;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if value_end == value_start {
+        value_end = covered_str.len();
+    }
+
+    let value = covered_str[value_start..value_end].trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
 /// Finds missing cases for exhaustiveness checking.
 fn find_missing_cases(scrutinee_type: &Type, covered: &HashSet<String>) -> Vec<String> {
     match scrutinee_type {
@@ -196,13 +242,22 @@ fn find_missing_cases(scrutinee_type: &Type, covered: &HashSet<String>) -> Vec<S
         }
         Type::Object(fields) => {
             let mut missing = vec![];
+            let fully_covered =
+                covered.contains("_") || covered.iter().any(|c| c.starts_with("..."));
+            if fully_covered {
+                return missing;
+            }
             for field in fields {
                 let field_name = &field.name;
-                if !covered
-                    .iter()
-                    .any(|c| c.contains(&format!("{}:", field_name)))
-                {
-                    missing.push(format!(".{}", field_name));
+                let mut field_covered: HashSet<String> = HashSet::new();
+                for c in covered {
+                    if let Some(pattern) = extract_field_pattern(c, field_name) {
+                        field_covered.insert(pattern);
+                    }
+                }
+                let field_missing = find_missing_cases(&field.ty, &field_covered);
+                for m in field_missing {
+                    missing.push(format!("{}: {}", field_name, m));
                 }
             }
             missing
@@ -215,11 +270,32 @@ fn find_missing_cases(scrutinee_type: &Type, covered: &HashSet<String>) -> Vec<S
             }
             all_missing
         }
-        Type::Named(name) => {
+        Type::Named(name, fields) => {
             if covered.contains("_") || covered.contains(name) {
                 vec![]
-            } else {
+            } else if fields.is_empty() {
                 vec![name.clone()]
+            } else {
+                let mut missing = vec![];
+                let fully_covered =
+                    covered.contains("_") || covered.iter().any(|c| c.starts_with("..."));
+                if fully_covered {
+                    return missing;
+                }
+                for field in fields {
+                    let field_name = &field.name;
+                    let mut field_covered: HashSet<String> = HashSet::new();
+                    for c in covered {
+                        if let Some(pattern) = extract_field_pattern(c, field_name) {
+                            field_covered.insert(pattern);
+                        }
+                    }
+                    let field_missing = find_missing_cases(&field.ty, &field_covered);
+                    for m in field_missing {
+                        missing.push(format!("{}: {}", field_name, m));
+                    }
+                }
+                missing
             }
         }
         _ => {
@@ -273,8 +349,8 @@ mod tests {
         ];
         let result = analyze_patterns(&arms);
         assert!(result.is_exhaustive);
-        assert!(result.has_redundancy);
-        assert_eq!(result.redundant_arm, Some(1));
+        assert!(!result.has_redundancy);
+        assert_eq!(result.redundant_arm, None);
     }
 
     #[test]
@@ -340,5 +416,102 @@ mod tests {
         let ty = Type::Int;
         let cases = pattern_covered_cases(&pattern, &ty);
         assert!(cases.contains(&"x".to_string()));
+    }
+
+    #[test]
+    fn test_object_deep_field_value_exhaustiveness() {
+        let obj_type = Type::Object(vec![ObjectField {
+            name: "status".to_string(),
+            ty: Type::Bool,
+            optional: false,
+        }]);
+        let pattern_true = Pattern::Object(vec![ObjectPatternField::Property {
+            key: "status".to_string(),
+            pattern: Pattern::Literal(Box::new(crate::parser::ast::Expr::BooleanLiteral(true))),
+        }]);
+        let arms = vec![(&pattern_true, &obj_type)];
+        let result = analyze_patterns(&arms);
+        assert!(!result.is_exhaustive);
+        assert!(result.missing_cases.contains(&"status: false".to_string()));
+    }
+
+    #[test]
+    fn test_object_field_fully_covered() {
+        let obj_type = Type::Object(vec![ObjectField {
+            name: "status".to_string(),
+            ty: Type::Bool,
+            optional: false,
+        }]);
+        let pattern_both = Pattern::Object(vec![ObjectPatternField::Property {
+            key: "status".to_string(),
+            pattern: Pattern::Wildcard,
+        }]);
+        let arms = vec![(&pattern_both, &obj_type)];
+        let result = analyze_patterns(&arms);
+        assert!(result.is_exhaustive);
+        assert!(result.missing_cases.is_empty());
+    }
+
+    #[test]
+    fn test_named_type_field_exhaustiveness() {
+        let point_type = Type::Named(
+            "Point".to_string(),
+            vec![
+                ObjectField {
+                    name: "x".to_string(),
+                    ty: Type::Bool,
+                    optional: false,
+                },
+                ObjectField {
+                    name: "y".to_string(),
+                    ty: Type::Bool,
+                    optional: false,
+                },
+            ],
+        );
+        let pattern_true = Pattern::Object(vec![
+            ObjectPatternField::Property {
+                key: "x".to_string(),
+                pattern: Pattern::Literal(Box::new(crate::parser::ast::Expr::BooleanLiteral(true))),
+            },
+            ObjectPatternField::Property {
+                key: "y".to_string(),
+                pattern: Pattern::Literal(Box::new(crate::parser::ast::Expr::BooleanLiteral(true))),
+            },
+        ]);
+        let arms = vec![(&pattern_true, &point_type)];
+        let result = analyze_patterns(&arms);
+        assert!(!result.is_exhaustive);
+        assert!(result.missing_cases.contains(&"x: false".to_string()));
+        assert!(result.missing_cases.contains(&"y: false".to_string()));
+    }
+
+    #[test]
+    fn test_named_type_field_fully_covered() {
+        let point_type = Type::Named(
+            "Point".to_string(),
+            vec![ObjectField {
+                name: "x".to_string(),
+                ty: Type::Bool,
+                optional: false,
+            }],
+        );
+        let pattern_wildcard = Pattern::Object(vec![ObjectPatternField::Property {
+            key: "x".to_string(),
+            pattern: Pattern::Wildcard,
+        }]);
+        let arms = vec![(&pattern_wildcard, &point_type)];
+        let result = analyze_patterns(&arms);
+        assert!(result.is_exhaustive);
+        assert!(result.missing_cases.is_empty());
+    }
+
+    #[test]
+    fn test_named_type_no_fields_fallback() {
+        let named_type = Type::Named("SomeClass".to_string(), vec![]);
+        let arms: Vec<(&Pattern, &Type)> = vec![];
+        let result = analyze_patterns(&arms);
+        assert!(!result.is_exhaustive);
+        assert!(result.missing_cases.contains(&"any".to_string()));
     }
 }

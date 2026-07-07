@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: ruyic/typechecker
+title: Ruyi 渐进式类型检查器
+scope:
+    - crates/ruyic/src/typechecker/
+source_files: []
+depends_on: []
+related_to: []

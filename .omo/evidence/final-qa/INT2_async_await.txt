@@ -1,0 +1,20 @@
+=== Integration: async + await ===
+; ModuleID = 't_int_async_await'
+source_filename = "t_int_async_await"
+declare i8* @ruyi_await(i8*)
+declare void @ruyi_run_scheduler()
+  %async_main_call = call i8* @_ruyi_async_main()
+  %spawn_main = call i8* @ruyi_spawn(i8* %async_main_call)
+  call void @ruyi_run_scheduler()
+  %gc_alloc = call i8* @ruyi_gc_alloc(i64 ptrtoint ({ i32 (i8*, i8*)*, i32, i64, i8 }* getelementptr ({ i32 (i8*, i8*)*, i32, i64, i8 }, { i32 (i8*, i8*)*, i32, i64, i8 }* null, i32 1) to i64))
+  %new_call = call i8* @"delay$new"(i64 %0)
+  ret i8* %new_call
+  %gc_alloc = call i8* @ruyi_gc_alloc(i64 ptrtoint ({ i32 (i8*, i8*)*, i32, i8 }* getelementptr ({ i32 (i8*, i8*)*, i32, i8 }, { i32 (i8*, i8*)*, i32, i8 }* null, i32 1) to i64))
+  %call = call i8* @delay(i64 10)
+  %call1 = call i8* @delay(i64 10)
+  %async_poll = call i32 @ruyi_async_poll(i8* %call1, i8* %1)
+  %result_ptr = getelementptr i8, i8* %call1, i32 24
+  %await_result = load i64, i64* %typed_result_ptr, align 4
+  %print_str = call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([4 x i8], [4 x i8]* @fmt_str, i32 0, i32 0), i8* getelementptr inbounds ([5 x i8], [5 x i8]* @str_lit, i32 0, i32 0))
+  %new_call = call i8* @"main$new"()
+  ret i8* %new_call

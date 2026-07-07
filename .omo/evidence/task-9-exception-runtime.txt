@@ -1,0 +1,56 @@
+Task 9 Evidence: Exception Runtime LLVM Implementation
+======================================================
+
+Files Created:
+- crates/klang_runtime/src/exception/types.rs
+- crates/klang_runtime/src/exception/landing_pad.rs
+- crates/klang_runtime/src/exception/runtime.rs
+- crates/klang_runtime/tests/exception.rs
+
+Files Modified:
+- crates/klang_runtime/src/exception.rs (added submodule declarations)
+- crates/klang_runtime/src/lib.rs (added new exports)
+- crates/klang_runtime/src/gc/barrier.rs (fixed missing klang_dealloc import)
+- crates/klang_runtime/src/gc/roots.rs (fixed missing klang_dealloc import)
+- crates/klang_runtime/src/gc/generational.rs (created stub for compilation)
+- crates/klang_runtime/src/gc/old.rs (existed)
+- crates/klang_runtime/src/gc/young.rs (existed)
+
+Test Results:
+- cargo test --test exception: 13/13 passed
+- cargo test (all klang_runtime tests): 47/47 passed
+
+Features Implemented:
+1. Exception Types (types.rs):
+   - ExceptionType enum: Error, TypeError, RangeError, RuntimeError
+   - Mapping to builtin_type_ids
+   - ExceptionObject C-layout struct with type_tag, message, stack_trace
+   - UnwindException header for Itanium ABI compatibility
+   - KLANG_EXCEPTION_CLASS magic number
+
+2. Landing Pad Generation (landing_pad.rs):
+   - LandingPadGenerator struct with inkwell integration
+   - build_landing_pad: generates LLVM landingpad instruction with catch clauses and cleanup
+   - build_invoke: generates invoke instruction for try-region calls
+   - build_resume: generates resume for unhandled exceptions
+   - build_eh_typeid_for: calls llvm.eh.typeid.for intrinsic
+   - build_catch_dispatch: chains catch handler comparisons and branches
+   - extract_exception_ptr / extract_selector: unpacks landing-pad result
+
+3. Exception Runtime (runtime.rs):
+   - klang_throw: creates KlangException and initiates unwind (panic-based for now)
+   - klang_begin_catch: extracts exception object from unwind pointer
+   - klang_end_catch: marks end of catch block
+   - klang_finally: preserves pending exception through finally block
+   - klang_match_exception: type-based catch filtering
+   - ExceptionRuntime LLVM builder: build_throw, build_begin_catch, build_end_catch, build_finally, build_try_region
+
+4. Tests (tests/exception.rs):
+   - Exception type ID and matching tests
+   - Exception object layout tests
+   - klang_match_exception tests
+   - klang_finally behavior tests (preservation, null handling)
+   - Exception propagation simulation (nested try/catch)
+   - Finally guarantee on uncaught exception
+   - Inkwell tests: landing pad generation, runtime function declarations,
+     type info globals, exception ptr/selector extraction, try region building

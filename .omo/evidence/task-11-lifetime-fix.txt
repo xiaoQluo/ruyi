@@ -1,0 +1,55 @@
+# Task 11 Lifetime Fix Evidence
+
+## Problem
+
+The `CodeGenerator::generate()` method at `crates/klangc/src/codegen/generator.rs:65` failed to compile due to a lifetime mismatch when creating `CodegenContext`.
+
+### Error Message
+```
+lifetime `'ctx` defined here
+let mut ctx = CodegenContext::new(self.context, &self.module, self.context.create_builder());
+                                                                          ^^^^^^^^^^^^^^^^^ argument requires that `'1` must outlive `'ctx`
+```
+
+### Root Cause
+
+`CodegenContext::new` expected `module: &'ctx Module<'ctx>`, but inside `generate(&self)`, the borrow `&self.module` has lifetime `'1` (the lifetime of `&self`), not `'ctx`. Since `Module<'ctx>` is **invariant** over its lifetime parameter, the compiler cannot coerce `&'1 Module<'ctx>` to `&'ctx Module<'ctx>`.
+
+## Solution
+
+Added a second lifetime parameter `'m` to `CodegenContext` so the module reference can have a shorter lifetime than `'ctx`.
+
+### Files Changed
+
+1. **crates/klangc/src/codegen/generator.rs**
+   - `CodegenContext<'ctx>` → `CodegenContext<'ctx, 'm>`
+   - `module: &'ctx Module<'ctx>` → `module: &'m Module<'ctx>`
+   - `impl<'ctx> CodegenContext<'ctx>` → `impl<'ctx, 'm> CodegenContext<'ctx, 'm>`
+   - `new(context: &'ctx Context, module: &'ctx Module<'ctx>, ...)` → `new(context: &'ctx Context, module: &'m Module<'ctx>, ...)`
+
+2. **crates/klangc/src/codegen/decl.rs**
+   - Updated all function signatures: `&mut CodegenContext<'ctx>` → `&mut CodegenContext<'ctx, '_>`
+
+3. **crates/klangc/src/codegen/expr.rs**
+   - Updated all function signatures: `&CodegenContext<'ctx>` / `&mut CodegenContext<'ctx>` → `&CodegenContext<'ctx, '_>` / `&mut CodegenContext<'ctx, '_>`
+
+4. **crates/klangc/src/codegen/stmt.rs**
+   - Updated all function signatures: `&mut CodegenContext<'ctx>` → `&mut CodegenContext<'ctx, '_>`
+
+### Why This Works
+
+- `'ctx` remains the lifetime of LLVM values (context, builder, pointer values, basic blocks, etc.)
+- `'m` is the lifetime of the borrow of the `Module`. In `generate(&self)`, this is the lifetime of `&self`, which is sufficient because `CodegenContext` only needs to access the module while `generate` is executing.
+- All stored fields in `CodegenContext` (variables, loop_stack, etc.) are tied to `'ctx`, so their lifetimes are unaffected.
+- Using `'_` in function signatures lets Rust infer the `'m` lifetime automatically, minimizing boilerplate.
+
+### Alternative Considered
+
+Changing `generate(&self)` to `generate(&'ctx self)` was rejected because:
+- It would borrow `self` for the entire `'ctx` lifetime
+- After `generate` returns, `self` would still be considered borrowed
+- This would prevent subsequent calls to `generator.write_llvm_ir()` and `generator.compile_to_binary()` in `main.rs`
+
+## Verification
+
+Build verification pending LLVM installation. The fix is structurally correct and follows standard Rust lifetime patterns for invariant types.

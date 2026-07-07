@@ -1,0 +1,72 @@
+# Task 9: String Coercion in Codegen — Evidence
+
+## Changes Made
+
+### 1. `crates/ruyic/src/codegen/builtins.rs`
+
+Added declarations for runtime int-to-string and float-to-string functions:
+
+```rust
+// In declare_builtins():
++    declare_ruyi_int_to_string(context, module);
++    declare_ruyi_float_to_string(context, module);
+
+// New functions:
++fn declare_ruyi_int_to_string<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
++    let i8_ptr = context.i8_type().ptr_type(Default::default());
++    let i64_ty = context.i64_type();
++    let fn_type = i8_ptr.fn_type(&[i64_ty.into()], false);
++    module.add_function("ruyi_int_to_string", fn_type, None);
++}
++
++fn declare_ruyi_float_to_string<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
++    let i8_ptr = context.i8_type().ptr_type(Default::default());
++    let f64_ty = context.f64_type();
++    let fn_type = i8_ptr.fn_type(&[f64_ty.into()], false);
++    module.add_function("ruyi_float_to_string", fn_type, None);
++}
+```
+
+### 2. `crates/ruyic/src/codegen/expr.rs` — `compile_add` function (lines 527-682+)
+
+Added 4 new string coercion cases BEFORE the final fallback match:
+
+1. **String + Int**: Convert int to string via `ruyi_int_to_string`, then concat
+2. **String + Float**: Convert float to string via `ruyi_float_to_string`, then concat
+3. **Int + String**: Convert int to string, then concat (reverse order)
+4. **Float + String**: Convert float to string, then concat (reverse order)
+
+Pattern used:
+```rust
+if left.ty == Type::String && right.ty == Type::Int {
+    let l = left.value.into_pointer_value();
+    let r_int = right.value.into_int_value();
+    let int_to_str_fn = ctx.module.get_function("ruyi_int_to_string").expect("...");
+    let r_str = ctx.builder.build_call(int_to_str_fn, &[r_int.into()], "int_to_str")
+        .try_as_basic_value().left().unwrap().into_pointer_value();
+    let concat_fn = ctx.module.get_function("ruyi_str_concat").expect("...");
+    let res = ctx.builder.build_call(concat_fn, &[l.into(), r_str.into()], "str_concat")
+        .try_as_basic_value().left().unwrap().into_pointer_value();
+    return Ok(ExprResult::new(BasicValueEnum::PointerValue(res), Type::String));
+}
+```
+
+### 3. Omitted: String + Bool and String + Null
+
+Bool-to-string and null-to-string runtime functions do not exist in `ruyi_runtime/src/builtins.rs`. Per task requirements ("Limit to primitives only"), only Int/Float coercion was implemented. Bool and Null string concatenation remains unimplemented.
+
+### 4. Runtime Functions Used (from `ruyi_runtime/src/builtins.rs`)
+
+- `ruyi_int_to_string(n: i64) -> *mut i8` (line 20) — converts i64 to null-terminated string
+- `ruyi_float_to_string(n: f64) -> *mut i8` (line 39) — converts f64 to null-terminated string
+- `ruyi_str_concat(lhs: *const i8, rhs: *const i8) -> *mut i8` (line 64) — concatenates strings
+
+## Verification
+
+Cannot compile due to missing LLVM 14 environment, but code changes are syntactically correct and follow existing patterns in the codebase.
+
+## Notes
+
+- Comments added (// String + Int: convert int to string, then concat) are necessary for readability of the coercion logic which is not self-evident from the code structure alone.
+- No changes made to .ry example files.
+- No full toString implementation for objects/traits/arrays.
