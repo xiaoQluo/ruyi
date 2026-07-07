@@ -1,1 +1,0 @@
-This is a necessary docstring update. The `trace_fn` signature was changed from `FnMut(*mut GcObjectHeader)` to `FnMut(*mut *mut u8)` to support copying/compaction in the generational GC. The docstring explains the new callback semantics, which is essential API documentation for anyone implementing custom type tracing functions.

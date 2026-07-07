@@ -1,1 +1,0 @@
-gc/old.rs docstrings: Necessary public API documentation. Struct docstring explains the role of old generation. Safety docstring on `allocate` is mandatory for unsafe functions.

@@ -1,4 +1,0 @@
-=== T9: GC Roots ===
-Declarations found:
-declare void @ruyi_gc_add_root(i8*)
-declare void @ruyi_gc_remove_root(i8*)

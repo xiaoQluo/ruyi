@@ -1,7 +1,0 @@
-fn main() {
-  let opt: string? = "hello";
-  match (opt) {
-    null => { print("none"); }
-    v => { print(v); }
-  }
-}

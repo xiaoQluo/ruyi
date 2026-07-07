@@ -1,1 +1,0 @@
-gc/young.rs docstrings: Necessary public API documentation. The struct docstring explains the role of the young generation in the GC architecture. The `allocate` method has a safety docstring which is mandatory for unsafe functions.

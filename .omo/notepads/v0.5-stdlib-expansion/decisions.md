@@ -1,4 +1,0 @@
-- Chose Rust `regex` crate (v1.10) over POSIX C regex for safety, UTF-8 support, and idiomatic Rust integration.
-- Represented compiled regex as opaque `*mut i8` handle (Box<Regex>) rather than GC-managed object, because regex objects are not Ruyi values and need explicit cleanup via `ruyi_regex_free`.
-- Allocated result strings from `ruyi_regex_replace` and elements of `ruyi_regex_split` through GC (`ruyi_gc_alloc`) to match existing runtime string ownership contract.
-- Declared `__builtin_regex_compile` return type as `Type::Dynamic` in the typechecker because the opaque handle has no named Ruyi type yet.

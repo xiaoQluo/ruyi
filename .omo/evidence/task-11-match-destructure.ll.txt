@@ -1,2 +1,0 @@
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.05s
-LLVM IR written to: .sisyphus/evidence/target/task-11-match-destructure.ll

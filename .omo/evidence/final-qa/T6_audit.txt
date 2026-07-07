@@ -1,2 +1,0 @@
-=== T6: Audit Report ===
-TRY_CATCH_AUDIT.md exists

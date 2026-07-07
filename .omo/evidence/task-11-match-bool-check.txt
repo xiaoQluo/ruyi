@@ -1,9 +1,0 @@
-Task: Match on bool
-Test file: task-11-match-bool.ry
-Compilation: PASSED
-LLVM IR generated: .sisyphus/evidence/target/task-11-match-bool.ll
-
-Generated instructions:
-- br i1 %flag1, label %bool_arm_0, label %bool_arm_1
-
-The match on bool correctly generates a conditional branch (br) instruction.

@@ -1,6 +1,0 @@
-BigInt Literal Code Generation - QA Evidence
-==============================================
-
-Test File: let x = 100n;
-
-Result: Type checking passed.

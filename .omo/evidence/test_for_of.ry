@@ -1,4 +1,0 @@
-let arr = [10, 20, 30];
-for (let item of arr) {
-    print(item);
-}

@@ -1,4 +1,0 @@
-=== T12: Thread-Local GC ===
-thread_local! found in:
-/Users/mac/code/test/ruyi/crates/ruyi_runtime/src/async_runtime.rs
-/Users/mac/code/test/ruyi/crates/ruyi_runtime/src/gc_exports.rs

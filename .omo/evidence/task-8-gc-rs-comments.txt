@@ -1,6 +1,0 @@
-gc.rs comment justification:
-- Lines 15-26, 31-100, 105-109: Existing docstrings from the original file, preserved for API documentation of MarkSweepCollector.
-- Lines 120, 125, 132, 139, 159: Existing inline comments preserved during edit.
-- Lines 188-191: NEW docstring for `Collector` struct. Necessary because this is a public API change - Collector now wraps GenerationalCollector instead of MarkSweepCollector, and users need to know this.
-- Lines 214-216: Existing docstring preserved from original file.
-- Lines 273, 280, 289, 330, 336, 361: Existing test comments preserved from original file.
