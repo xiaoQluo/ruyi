@@ -334,14 +334,10 @@ impl TypeInference {
                 impl_type
             }
             Declaration::TypeAlias {
-                name,
+                name: _,
                 type_params: _,
                 ty,
-            } => {
-                let alias_type = Type::from_annotation(ty);
-                self.env.declare_let(name, alias_type.clone());
-                alias_type
-            }
+            } => Type::from_annotation(ty),
             Declaration::Macro { name, rules: _ } => {
                 self.env.declare_let(name, Type::Dynamic);
                 Type::Dynamic
