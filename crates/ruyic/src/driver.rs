@@ -538,7 +538,7 @@ impl Driver {
         }
 
         // Phase 3: Macro expansion
-        let expanded = expand_macros(&program, &self.macro_registry)?;
+        let expanded = expand_macros(&program, &mut self.macro_registry)?;
 
         // Phase 4: Type checking
         let mut checker = TypeChecker::new();
@@ -635,7 +635,7 @@ impl Driver {
     pub fn type_check(&mut self, source: &str) -> Result<TypeCheckResult, CompileError> {
         let mut parser = RuyiParser::new(source)?;
         let program = parser.parse()?;
-        let expanded = expand_macros(&program, &self.macro_registry)?;
+        let expanded = expand_macros(&program, &mut self.macro_registry)?;
         let mut checker = TypeChecker::new();
         Ok(checker.check(&expanded))
     }

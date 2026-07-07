@@ -237,8 +237,8 @@ fn main() {
         b.iter(|| {
             let mut parser = Parser::new(black_box(TYPECHECK_SOURCE_SMALL)).unwrap();
             let ast = parser.parse().unwrap();
-            let registry = MacroRegistry::with_builtins();
-            let expanded = expand_macros(&ast, &registry).unwrap();
+            let mut registry = MacroRegistry::with_builtins();
+            let expanded = expand_macros(&ast, &mut registry).unwrap();
             let mut checker = TypeChecker::new();
             checker.check(&expanded);
         });
@@ -251,8 +251,8 @@ fn main() {
         b.iter(|| {
             let mut parser = Parser::new(black_box(TYPECHECK_SOURCE_MEDIUM)).unwrap();
             let ast = parser.parse().unwrap();
-            let registry = MacroRegistry::with_builtins();
-            let expanded = expand_macros(&ast, &registry).unwrap();
+            let mut registry = MacroRegistry::with_builtins();
+            let expanded = expand_macros(&ast, &mut registry).unwrap();
             let mut checker = TypeChecker::new();
             checker.check(&expanded);
         });
@@ -265,8 +265,8 @@ fn main() {
         b.iter(|| {
             let mut parser = Parser::new(black_box(TYPECHECK_SOURCE_LARGE)).unwrap();
             let ast = parser.parse().unwrap();
-            let registry = MacroRegistry::with_builtins();
-            let expanded = expand_macros(&ast, &registry).unwrap();
+            let mut registry = MacroRegistry::with_builtins();
+            let expanded = expand_macros(&ast, &mut registry).unwrap();
             let mut checker = TypeChecker::new();
             checker.check(&expanded);
         });
@@ -279,8 +279,8 @@ fn main() {
         b.iter(|| {
             let mut parser = Parser::new(black_box(CODEGEN_SOURCE_SMALL)).unwrap();
             let ast = parser.parse().unwrap();
-            let registry = MacroRegistry::with_builtins();
-            let expanded = expand_macros(&ast, &registry).unwrap();
+            let mut registry = MacroRegistry::with_builtins();
+            let expanded = expand_macros(&ast, &mut registry).unwrap();
             let context = inkwell::context::Context::create();
             let generator = CodeGenerator::new(&context, "bench");
             generator.generate(&expanded).unwrap();
@@ -294,8 +294,8 @@ fn main() {
         b.iter(|| {
             let mut parser = Parser::new(black_box(CODEGEN_SOURCE_MEDIUM)).unwrap();
             let ast = parser.parse().unwrap();
-            let registry = MacroRegistry::with_builtins();
-            let expanded = expand_macros(&ast, &registry).unwrap();
+            let mut registry = MacroRegistry::with_builtins();
+            let expanded = expand_macros(&ast, &mut registry).unwrap();
             let context = inkwell::context::Context::create();
             let generator = CodeGenerator::new(&context, "bench");
             generator.generate(&expanded).unwrap();
@@ -309,8 +309,8 @@ fn main() {
         b.iter(|| {
             let mut parser = Parser::new(black_box(CODEGEN_SOURCE_LARGE)).unwrap();
             let ast = parser.parse().unwrap();
-            let registry = MacroRegistry::with_builtins();
-            let expanded = expand_macros(&ast, &registry).unwrap();
+            let mut registry = MacroRegistry::with_builtins();
+            let expanded = expand_macros(&ast, &mut registry).unwrap();
             let context = inkwell::context::Context::create();
             let generator = CodeGenerator::new(&context, "bench");
             generator.generate(&expanded).unwrap();

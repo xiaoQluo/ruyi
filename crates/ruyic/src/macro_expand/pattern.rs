@@ -280,17 +280,23 @@ impl PatternMatcher {
         }
     }
 
-    /// Captures tokens until a delimiter.
     fn capture_until_delimiter(&mut self) -> Option<Vec<Token>> {
         let start = self.pos;
+        let mut depth = 0;
 
         while let Some(token) = self.input.get(self.pos) {
             match token {
-                Token::Comma | Token::SemiColon | Token::RParen => break,
-                _ => {
-                    self.pos += 1;
+                Token::LParen | Token::LBracket | Token::LBrace => depth += 1,
+                Token::RParen | Token::RBracket | Token::RBrace => {
+                    if depth == 0 {
+                        break;
+                    }
+                    depth -= 1;
                 }
+                Token::Comma | Token::SemiColon if depth == 0 => break,
+                _ => {}
             }
+            self.pos += 1;
         }
 
         if self.pos > start {

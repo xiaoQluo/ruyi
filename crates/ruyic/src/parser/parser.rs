@@ -1184,7 +1184,7 @@ impl Parser {
 
     // Expressions
 
-    fn parse_expression(&mut self) -> Result<Expr, ParseError> {
+    pub fn parse_expression(&mut self) -> Result<Expr, ParseError> {
         self.parse_expr_bp(0)
     }
 

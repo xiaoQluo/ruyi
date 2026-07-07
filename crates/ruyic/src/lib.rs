@@ -13,8 +13,8 @@ pub fn compile(source: &str) -> Result<crate::parser::ast::Program, String> {
     let mut parser = Parser::new(source).map_err(|e| e.to_string())?;
     let ast = parser.parse().map_err(|e| e.to_string())?;
 
-    let registry = MacroRegistry::with_builtins();
-    let expanded = expand_macros(&ast, &registry).map_err(|e| e.to_string())?;
+    let mut registry = MacroRegistry::with_builtins();
+    let expanded = expand_macros(&ast, &mut registry).map_err(|e| e.to_string())?;
 
     Ok(expanded)
 }
