@@ -195,6 +195,30 @@ pub extern "C" fn ruyi_bigint_from_str(s: *const i8) -> *mut i8 {
     }
 }
 
+/// Compare two bigints for equality.
+///
+/// Returns non-zero (true) if the two bigints represent the same value,
+/// zero (false) otherwise. In this staged implementation the bigint
+/// payload is a decimal string, so equality is decided by byte-wise
+/// comparison of the underlying storage. A real arbitrary-precision
+/// representation will replace this placeholder once integrated.
+///
+/// # Safety
+///
+/// `a` and `b` must either be null or pointers returned by
+/// `ruyi_bigint_from_str`.
+#[no_mangle]
+pub extern "C" fn ruyi_bigint_eq(a: *mut i8, b: *mut i8) -> i8 {
+    if a.is_null() || b.is_null() {
+        return (a == b) as i8;
+    }
+    unsafe {
+        let a_bytes = CStr::from_ptr(a).to_bytes();
+        let b_bytes = CStr::from_ptr(b).to_bytes();
+        (a_bytes == b_bytes) as i8
+    }
+}
+
 /// Access a field of a Ruyi object by offset.
 ///
 /// `obj` is treated as a pointer to an object layout where the first
@@ -1124,6 +1148,47 @@ mod tests {
     fn test_ruyi_bigint_from_str_null() {
         let result = ruyi_bigint_from_str(std::ptr::null());
         assert!(result.is_null());
+    }
+
+    #[test]
+    fn test_ruyi_bigint_eq_same_value() {
+        let s = CString::new("12345678901234567890").unwrap();
+        unsafe {
+            let a = ruyi_bigint_from_str(s.as_ptr());
+            let b = ruyi_bigint_from_str(s.as_ptr());
+            assert_eq!(ruyi_bigint_eq(a, b), 1);
+            dealloc(a as *mut u8, Layout::from_size_align(21, 1).unwrap());
+            dealloc(b as *mut u8, Layout::from_size_align(21, 1).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_ruyi_bigint_eq_different_value() {
+        let s1 = CString::new("100").unwrap();
+        let s2 = CString::new("200").unwrap();
+        unsafe {
+            let a = ruyi_bigint_from_str(s1.as_ptr());
+            let b = ruyi_bigint_from_str(s2.as_ptr());
+            assert_eq!(ruyi_bigint_eq(a, b), 0);
+            dealloc(a as *mut u8, Layout::from_size_align(4, 1).unwrap());
+            dealloc(b as *mut u8, Layout::from_size_align(4, 1).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_ruyi_bigint_eq_both_null() {
+        assert_eq!(ruyi_bigint_eq(std::ptr::null_mut(), std::ptr::null_mut()), 1);
+    }
+
+    #[test]
+    fn test_ruyi_bigint_eq_one_null() {
+        let s = CString::new("42").unwrap();
+        unsafe {
+            let a = ruyi_bigint_from_str(s.as_ptr());
+            assert_eq!(ruyi_bigint_eq(a, std::ptr::null_mut()), 0);
+            assert_eq!(ruyi_bigint_eq(std::ptr::null_mut(), a), 0);
+            dealloc(a as *mut u8, Layout::from_size_align(3, 1).unwrap());
+        }
     }
 
     #[test]
