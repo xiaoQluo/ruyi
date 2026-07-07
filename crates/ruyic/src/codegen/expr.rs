@@ -447,6 +447,16 @@ pub fn compile_expr<'ctx>(
         } => compile_member_access(ctx, object, property, *optional),
         Expr::Match { value, arms } => compile_match_expr(ctx, value, arms),
         Expr::Sequence(exprs) => compile_tuple_literal(ctx, exprs),
+        Expr::Block(stmts) => {
+            use crate::codegen::stmt::compile_stmt;
+            for s in stmts {
+                compile_stmt(ctx, s)?;
+            }
+            Ok(ExprResult::new(
+                BasicValueEnum::IntValue(ctx.context.i64_type().const_int(0, false)),
+                Type::Void,
+            ))
+        }
         _ => Err(format!("Unsupported expression: {:?}", expr)),
     }
 }
