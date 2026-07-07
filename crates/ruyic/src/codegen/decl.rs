@@ -61,7 +61,8 @@ pub fn compile_declaration<'ctx>(
             ..
         } => compile_impl(ctx, trait_name, for_type, body),
         Declaration::Trait { .. } => Ok(()),
-        _ => Err(format!("Unsupported declaration: {:?}", decl)),
+        Declaration::Macro { .. } => Ok(()),
+        Declaration::TypeAlias { .. } => Ok(()),
     }
 }
 

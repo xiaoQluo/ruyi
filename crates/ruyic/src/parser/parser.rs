@@ -2132,6 +2132,11 @@ impl Parser {
                 self.advance();
                 Some(Pattern::Literal(Box::new(Expr::IntLiteral(i))))
             }
+            Some(Token::BigInt(s)) => {
+                let s = s.clone();
+                self.advance();
+                Some(Pattern::Literal(Box::new(Expr::BigIntLiteral(s))))
+            }
             Some(Token::Float(f)) => {
                 let f = *f;
                 self.advance();

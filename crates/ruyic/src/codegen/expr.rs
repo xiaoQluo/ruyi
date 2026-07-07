@@ -578,7 +578,7 @@ fn compile_null_literal<'ctx>(ctx: &CodegenContext<'ctx, '_, '_>) -> Result<Expr
     }
 }
 
-fn compile_bigint_literal<'ctx>(
+pub fn compile_bigint_literal<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_, '_>,
     n: &str,
 ) -> Result<ExprResult<'ctx>, String> {

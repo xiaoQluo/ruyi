@@ -34,6 +34,7 @@ pub fn declare_builtins<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     declare_ruyi_obj_keys(context, module);
     declare_ruyi_iter_next(context, module);
     declare_ruyi_bigint_from_str(context, module);
+    declare_ruyi_bigint_eq(context, module);
     declare_ruyi_obj_get(context, module);
     declare_ruyi_int_to_string(context, module);
     declare_ruyi_float_to_string(context, module);
@@ -574,6 +575,30 @@ pub fn build_ruyi_bigint_from_str<'ctx>(
         .left()
         .unwrap()
         .into_pointer_value();
+    Ok(result)
+}
+
+fn declare_ruyi_bigint_eq<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = context.i8_type().fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+    module.add_function("ruyi_bigint_eq", fn_type, None);
+}
+
+pub fn build_ruyi_bigint_eq<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    a: inkwell::values::PointerValue<'ctx>,
+    b: inkwell::values::PointerValue<'ctx>,
+) -> Result<inkwell::values::IntValue<'ctx>, String> {
+    let fn_val = module
+        .get_function("ruyi_bigint_eq")
+        .ok_or("ruyi_bigint_eq not declared")?;
+    let result = builder
+        .build_call(fn_val, &[a.into(), b.into()], "bigint_eq")
+        .try_as_basic_value()
+        .left()
+        .unwrap()
+        .into_int_value();
     Ok(result)
 }
 

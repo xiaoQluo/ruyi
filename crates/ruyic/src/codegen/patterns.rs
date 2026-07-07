@@ -10,8 +10,8 @@ use inkwell::types::BasicType;
  */
 use inkwell::values::BasicValueEnum;
 use inkwell::IntPredicate;
-
-use crate::codegen::expr::{compile_expr, ExprResult};
+use crate::codegen::builtins::build_ruyi_bigint_eq;
+use crate::codegen::expr::{compile_bigint_literal, compile_expr, ExprResult};
 use crate::codegen::generator::CodegenContext;
 use crate::codegen::stmt::compile_block;
 use crate::parser::ast::{Expr, MatchArm, Pattern};
@@ -33,7 +33,8 @@ pub fn compile_match_stmt<'ctx>(
 
     // Build dispatch and arm blocks based on scrutinee type
     match scrutinee.ty {
-        Type::Int | Type::BigInt => compile_int_match(ctx, &scrutinee, arms, merge_bb),
+        Type::Int => compile_int_match(ctx, &scrutinee, arms, merge_bb),
+        Type::BigInt => compile_bigint_match(ctx, &scrutinee, arms, merge_bb),
         Type::Bool => compile_bool_match(ctx, &scrutinee, arms, merge_bb),
         Type::String => compile_string_match(ctx, &scrutinee, arms, merge_bb),
         Type::Nullable(_) | Type::Null => compile_nullable_match(ctx, &scrutinee, arms, merge_bb),
@@ -834,6 +835,114 @@ fn compile_array_match<'ctx>(
             .map(|(len, bb)| (i64_ty.const_int(*len, false), *bb))
             .collect::<Vec<_>>(),
     );
+
+    compile_arm_bodies(ctx, arms, &arm_bbs, merge_bb, scrutinee)
+}
+
+/// BigInt match using sequential dispatch via `ruyi_bigint_eq`.
+///
+/// Each arm is checked in order. Literal patterns call the runtime
+/// `ruyi_bigint_eq` to compare the opaque bigint pointer with the
+/// constant created from the literal string. Wildcard and identifier
+/// arms act as a default match.
+fn compile_bigint_match<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
+    scrutinee: &ExprResult<'ctx>,
+    arms: &[MatchArm],
+    merge_bb: inkwell::basic_block::BasicBlock<'ctx>,
+) -> Result<(), String> {
+    let func = ctx.current_function().ok_or("No current function")?;
+    let scrutinee_ptr = match scrutinee.value {
+        BasicValueEnum::PointerValue(p) => p,
+        _ => return Err("BigInt match requires pointer scrutinee".to_string()),
+    };
+
+    let arm_bbs: Vec<_> = (0..arms.len())
+        .map(|i| {
+            ctx.context
+                .append_basic_block(func, &format!("bigint_arm_{}", i))
+        })
+        .collect();
+    let check_bbs: Vec<_> = (0..arms.len())
+        .map(|i| {
+            ctx.context
+                .append_basic_block(func, &format!("bigint_check_{}", i))
+        })
+        .collect();
+
+    let entry_bb = ctx.context.append_basic_block(func, "bigint_match_entry");
+    ctx.builder().build_unconditional_branch(entry_bb);
+
+    for (i, arm) in arms.iter().enumerate() {
+        let current = if i == 0 { entry_bb } else { check_bbs[i - 1] };
+        let next = check_bbs.get(i).copied().unwrap_or(merge_bb);
+        ctx.builder().position_at_end(current);
+
+        match &arm.pattern {
+            Pattern::Literal(lit) => {
+                if let Expr::BigIntLiteral(n) = lit.as_ref() {
+                    let lit_result = compile_bigint_literal(ctx, n)?;
+                    let lit_ptr = match lit_result.value {
+                        BasicValueEnum::PointerValue(p) => p,
+                        _ => return Err("BigInt literal must be a pointer".to_string()),
+                    };
+                    let eq_i8 = build_ruyi_bigint_eq(ctx.builder(), &ctx.module, scrutinee_ptr, lit_ptr)?;
+                    let is_match = ctx.builder().build_int_compare(
+                        IntPredicate::NE,
+                        eq_i8,
+                        ctx.context.i8_type().const_int(0, false),
+                        &format!("bigint_eq_{}", i),
+                    );
+                    ctx.builder()
+                        .build_conditional_branch(is_match, arm_bbs[i], next);
+                } else {
+                    ctx.builder().build_unconditional_branch(next);
+                }
+            }
+            Pattern::Or(patterns) => {
+                let i8_ty = ctx.context.i8_type();
+                let mut final_match = i8_ty.const_int(0, false);
+                let mut had_literal = false;
+                for p in patterns {
+                    if let Pattern::Literal(lit) = p {
+                        if let Expr::BigIntLiteral(n) = lit.as_ref() {
+                            had_literal = true;
+                            let lit_result = compile_bigint_literal(ctx, n)?;
+                            let lit_ptr = match lit_result.value {
+                                BasicValueEnum::PointerValue(p) => p,
+                                _ => return Err("BigInt literal must be a pointer".to_string()),
+                            };
+                            let eq_i8 = build_ruyi_bigint_eq(
+                                ctx.builder(),
+                                &ctx.module,
+                                scrutinee_ptr,
+                                lit_ptr,
+                            )?;
+                            final_match = ctx.builder().build_or(final_match, eq_i8, "bigint_or");
+                        }
+                    }
+                }
+                if had_literal {
+                    let is_match = ctx.builder().build_int_compare(
+                        IntPredicate::NE,
+                        final_match,
+                        i8_ty.const_int(0, false),
+                        &format!("bigint_or_match_{}", i),
+                    );
+                    ctx.builder()
+                        .build_conditional_branch(is_match, arm_bbs[i], next);
+                } else {
+                    ctx.builder().build_unconditional_branch(next);
+                }
+            }
+            Pattern::Wildcard | Pattern::Identifier(_) => {
+                ctx.builder().build_unconditional_branch(arm_bbs[i]);
+            }
+            _ => {
+                ctx.builder().build_unconditional_branch(next);
+            }
+        }
+    }
 
     compile_arm_bodies(ctx, arms, &arm_bbs, merge_bb, scrutinee)
 }

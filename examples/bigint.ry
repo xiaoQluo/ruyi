@@ -122,12 +122,38 @@ fn match_bigint(n: bigint): string {
   }
 }
 
+fn classify_bigint(n: bigint): string {
+  match (n) {
+    0n => { return "zero"; }
+    1n => { return "one"; }
+    42n => { return "answer"; }
+    100n | 200n => { return "round hundred"; }
+    _ => { return "other"; }
+  }
+}
+
 fn pattern_matching_demo() {
   print("--- BigInt in Pattern Matching ---\n");
 
   let result = match_bigint(42n);
   print("match result: ");
   print(result);
+  print("\n");
+
+  print("classify_bigint(0n) = ");
+  print(classify_bigint(0n));
+  print("\n");
+  print("classify_bigint(1n) = ");
+  print(classify_bigint(1n));
+  print("\n");
+  print("classify_bigint(42n) = ");
+  print(classify_bigint(42n));
+  print("\n");
+  print("classify_bigint(200n) = ");
+  print(classify_bigint(200n));
+  print("\n");
+  print("classify_bigint(999n) = ");
+  print(classify_bigint(999n));
   print("\n");
 }
 
