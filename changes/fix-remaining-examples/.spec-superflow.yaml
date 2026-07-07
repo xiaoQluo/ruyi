@@ -2,7 +2,7 @@
 # Derived data. Always rebuildable from artifacts. Lost/corrupt → fall back to content-level detection.
 
 # === Core state ===
-state: approved-for-build
+state: closed
 workflow: hotfix
 
 # === Hashes (fast staleness detection) ===
@@ -11,14 +11,14 @@ contract_hash: null
 
 # === Execution progress ===
 execution_mode: hotfix
-batches_completed: 0
-test_result: null
+batches_completed: 2
+test_result: "33/33 examples pass; cargo test lexer 57/57, macro_expand 15/15, ruyic lib 132/132, ruyi_runtime 72/72; 5 pre-existing diagnostics test failures unchanged; no new warnings introduced"
 
 # === Metadata ===
 change_name: fix-remaining-examples
 last_transition: 2026-07-07T00:00:00Z
-last_transition_from: exploring
-last_transition_to: approved-for-build
+last_transition_from: approved-for-build
+last_transition_to: closed
 
 # === Decision points ===
 dp_0_decisions: "变更名:fix-remaining-examples; 意图:修复 examples/run_examples.sh 剩余 2 个失败(macros.ry lexer $ 合并, type_aliases.ry 顶层 let segfault),目标 33/33 PASS"
@@ -31,10 +31,11 @@ dp_2_result: approved
 dp_2_timestamp: 2026-07-07T00:00:00Z
 dp_3_result: approved
 dp_3_timestamp: 2026-07-07T00:00:00Z
-dp_4_result: null
-dp_4_timestamp: null
-dp_5_result: null
-dp_5_timestamp: null
+dp_4_result: approved
+dp_4_timestamp: 2026-07-07T00:00:00Z
+dp_5_result: approved
+dp_5_timestamp: 2026-07-07T00:00:00Z
+dp_5_summary: "33/33 examples pass. Both pre-existing bugs resolved: macros.ry macro pattern matcher (lexer $ + 5 macro_expand bugs + Expr::Block codegen) and type_aliases.ry top-level let global allocation."
 dp_6_result: null
 dp_6_timestamp: null
 dp_7_result: null
