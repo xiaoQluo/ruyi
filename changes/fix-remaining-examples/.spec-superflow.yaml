@@ -1,0 +1,41 @@
+# .spec-superflow.yaml — lightweight state machine
+# Derived data. Always rebuildable from artifacts. Lost/corrupt → fall back to content-level detection.
+
+# === Core state ===
+state: approved-for-build
+workflow: hotfix
+
+# === Hashes (fast staleness detection) ===
+artifacts_hash: null
+contract_hash: null
+
+# === Execution progress ===
+execution_mode: hotfix
+batches_completed: 0
+test_result: null
+
+# === Metadata ===
+change_name: fix-remaining-examples
+last_transition: 2026-07-07T00:00:00Z
+last_transition_from: exploring
+last_transition_to: approved-for-build
+
+# === Decision points ===
+dp_0_decisions: "变更名:fix-remaining-examples; 意图:修复 examples/run_examples.sh 剩余 2 个失败(macros.ry lexer $ 合并, type_aliases.ry 顶层 let segfault),目标 33/33 PASS"
+dp_0_result: confirmed
+dp_0_confirmed: true
+dp_0_timestamp: 2026-07-07T00:00:00Z
+dp_1_result: null
+dp_1_timestamp: null
+dp_2_result: approved
+dp_2_timestamp: 2026-07-07T00:00:00Z
+dp_3_result: approved
+dp_3_timestamp: 2026-07-07T00:00:00Z
+dp_4_result: null
+dp_4_timestamp: null
+dp_5_result: null
+dp_5_timestamp: null
+dp_6_result: null
+dp_6_timestamp: null
+dp_7_result: null
+dp_7_timestamp: null
