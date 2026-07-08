@@ -1,5 +1,7 @@
 use ruyic::parser::Parser;
 use ruyic::typechecker::diagnostics::{DiagnosticBag, DiagnosticKind};
+use ruyic::typechecker::inference::TypeInference;
+use ruyic::typechecker::traits::TraitRegistry;
 /**
  * Comprehensive tests for the Ruyi gradual type checker.
  *
@@ -616,6 +618,25 @@ fn get_var_type(source: &str, var_name: &str) -> Option<Type> {
     result.env.lookup(var_name).cloned()
 }
 
+fn synthesize_expr(
+    source: &str,
+    expr_source: &str,
+    class_name: Option<&str>,
+    in_function: bool,
+) -> Option<Type> {
+    let mut parser = Parser::new(source).ok()?;
+    let program = parser.parse().ok()?;
+    let mut expr_parser = Parser::new(expr_source).ok()?;
+    let expr = expr_parser.parse_expression().ok()?;
+    let mut inference = TypeInference::new(TraitRegistry::new());
+    Some(inference.synthesize_after_check(
+        &program,
+        &expr,
+        class_name,
+        in_function,
+    ))
+}
+
 // ── Literal Inference ─────────────────────────────────────────
 
 #[test]
@@ -1000,7 +1021,7 @@ fn test_check_new_expression() {
 #[test]
 fn test_check_self_expression() {
     let result = check_program("let x = self;");
-    assert_no_errors(&result);
+    assert!(result.has_errors, "self at module level should be an error");
 }
 
 #[test]
@@ -1725,5 +1746,38 @@ fn test_trait_bound_dyn_always_passes() {
             .iter()
             .map(|d| d.message())
             .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn test_self_in_method_has_class_type() {
+    let source = "class Point { x: int; y: int; fn sum(self): int { return self.x + self.y; } }";
+    assert_eq!(
+        synthesize_expr(source, "self", Some("Point"), false),
+        Some(Type::Named("Point".into(), vec![]))
+    );
+    assert_eq!(
+        synthesize_expr(source, "self.x", Some("Point"), false),
+        Some(Type::Int)
+    );
+}
+
+#[test]
+fn test_self_outside_class_is_error() {
+    let result = check_program("let x = self;");
+    assert!(result.has_errors, "self at module level should error");
+    let has_e4002 = result
+        .diagnostics
+        .iter()
+        .any(|d| d.message().contains("E4002"));
+    assert!(has_e4002, "expected diagnostic E4002");
+}
+
+#[test]
+fn test_self_in_nested_closure_is_dynamic() {
+    let source = "class Point { x: int; fn m(self): int { let f = fn() { return self; }; return 0; } }";
+    assert_eq!(
+        synthesize_expr(source, "self", None, true),
+        Some(Type::Dynamic)
     );
 }

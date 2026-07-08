@@ -22,6 +22,7 @@ use crate::typechecker::generics::{
 };
 use crate::typechecker::traits::TraitRegistry;
 use crate::typechecker::types::{ObjectField, Type};
+use std::collections::HashMap;
 
 /// Result of type inference on a program.
 #[derive(Debug)]
@@ -49,6 +50,7 @@ pub struct TypeInference {
     tracker: MonomorphizationTracker,
     trait_registry: TraitRegistry,
     class_stack: Vec<String>,
+    class_fields: HashMap<String, Vec<ObjectField>>,
 }
 
 impl TypeInference {
@@ -99,10 +101,11 @@ impl TypeInference {
             tracker: MonomorphizationTracker::new(),
             trait_registry,
             class_stack: Vec::new(),
+            class_fields: HashMap::new(),
         }
     }
 
-    pub fn infer_program(mut self, program: &crate::parser::ast::Program) -> InferenceResult {
+    pub fn infer_program(&mut self, program: &crate::parser::ast::Program) -> InferenceResult {
         // Pass 1: Collect all function declarations (signatures only)
         // This enables forward references - functions can call other functions defined later
         for item in &program.items {
@@ -157,10 +160,35 @@ impl TypeInference {
             self.infer_module_item(item);
         }
         InferenceResult {
-            typed_env: self.env,
-            diagnostics: self.diagnostics,
-            tracker: self.tracker,
+            typed_env: std::mem::take(&mut self.env),
+            diagnostics: std::mem::take(&mut self.diagnostics),
+            tracker: std::mem::take(&mut self.tracker),
         }
+    }
+
+    /// Type-checks a program and then synthesizes an expression in an optional
+    /// class/function context. Primarily intended for tests that need to inspect
+    /// the inferred type of expressions inside classes or nested functions.
+    pub fn synthesize_after_check(
+        &mut self,
+        program: &crate::parser::ast::Program,
+        expr: &Expr,
+        class_name: Option<&str>,
+        in_function: bool,
+    ) -> Type {
+        self.infer_program(program);
+        if let Some(class_name) = class_name {
+            self.class_stack.push(class_name.to_string());
+            if let Some(fields) = self.class_fields.get(class_name).cloned() {
+                for field in fields {
+                    self.env.declare_let(&field.name, field.ty);
+                }
+            }
+        }
+        if in_function {
+            self.return_type_stack.push(Type::Void);
+        }
+        self.synthesize(expr)
     }
 
     fn infer_module_item(&mut self, item: &ModuleItem) {
@@ -379,10 +407,22 @@ impl TypeInference {
                 };
 
                 let method_type = Type::Function {
-                    params: param_types,
+                    params: param_types.clone(),
                     return_type: Box::new(fn_ret_type),
                 };
                 self.env.declare_let(&method_name, method_type);
+
+                self.env.push_scope();
+                for (param, ty) in params.iter().zip(param_types.iter()) {
+                    self.env
+                        .declare_param(&pattern_name(&param.pattern), ty.clone());
+                }
+                self.return_type_stack.push(ret_type.clone());
+                for stmt in body {
+                    self.infer_statement(stmt);
+                }
+                self.return_type_stack.pop();
+                self.env.pop_scope();
             }
             crate::parser::ast::ClassElement::Field {
                 name: prop_name,
@@ -404,7 +444,17 @@ impl TypeInference {
                 } else {
                     Type::Dynamic
                 };
-                self.env.declare_let(&field_name, field_type);
+                self.env.declare_let(&field_name, field_type.clone());
+                if let Some(class_name) = self.class_stack.last() {
+                    self.class_fields
+                        .entry(class_name.clone())
+                        .or_default()
+                        .push(ObjectField {
+                            name: field_name.clone(),
+                            ty: field_type,
+                            optional: false,
+                        });
+                }
             }
             crate::parser::ast::ClassElement::Empty => {}
         }
@@ -735,7 +785,19 @@ impl TypeInference {
                     .add_error(DiagnosticKind::UnknownVariable { name: name.clone() });
                 Type::Error
             }),
-            Expr::This | Expr::Super | Expr::SelfExpr => Type::Dynamic,
+            Expr::This | Expr::Super => Type::Dynamic,
+            Expr::SelfExpr => {
+                if let Some(class_name) = self.class_stack.last() {
+                    Type::Named(class_name.clone(), vec![])
+                } else if self.return_type_stack.is_empty() {
+                    self.diagnostics.add_error(DiagnosticKind::Other {
+                        message: "E4002: self used outside of class method".into(),
+                    });
+                    Type::Error
+                } else {
+                    Type::Dynamic
+                }
+            }
             Expr::TemplateLiteral(parts) => {
                 for part in parts {
                     if let crate::parser::ast::TemplatePart::Expr(e) = part {
@@ -1016,6 +1078,7 @@ impl TypeInference {
                 body,
                 is_async,
             } => {
+                let saved_class_stack = std::mem::take(&mut self.class_stack);
                 let param_types: Vec<Type> = params
                     .iter()
                     .map(|p| {
@@ -1052,6 +1115,7 @@ impl TypeInference {
                 }
 
                 self.env.pop_scope();
+                self.class_stack = saved_class_stack;
 
                 let fn_ret_type = if *is_async {
                     Type::Future(Box::new(ret_type))
@@ -1098,6 +1162,7 @@ impl TypeInference {
                 body,
                 is_async,
             } => {
+                let saved_class_stack = std::mem::take(&mut self.class_stack);
                 let param_types: Vec<Type> = params
                     .iter()
                     .map(|p| {
@@ -1110,6 +1175,23 @@ impl TypeInference {
                     .as_ref()
                     .map(Type::from_annotation)
                     .unwrap_or_else(|| self.infer_return_type(body));
+
+                self.env.push_scope();
+                for (param, ty) in params.iter().zip(param_types.iter()) {
+                    self.env
+                        .declare_param(&pattern_name(&param.pattern), ty.clone());
+                }
+                let expected_ret = return_type
+                    .as_ref()
+                    .map(Type::from_annotation)
+                    .unwrap_or_else(|| ret_type.clone());
+                self.return_type_stack.push(expected_ret);
+                for stmt in body {
+                    let _ = self.infer_statement(stmt);
+                }
+                self.return_type_stack.pop();
+                self.env.pop_scope();
+                self.class_stack = saved_class_stack;
 
                 let fn_ret_type = if *is_async {
                     Type::Future(Box::new(ret_type))
@@ -1390,7 +1472,14 @@ impl TypeInference {
                 .map(|f| f.ty.clone())
                 .unwrap_or(Type::Dynamic),
             Type::Named(ref type_name, _) => {
-                if let Some((_trait_name, method)) = self
+                if let Some(field_ty) = self
+                    .class_fields
+                    .get(type_name)
+                    .and_then(|fields| fields.iter().find(|f| f.name == prop_name))
+                    .map(|f| f.ty.clone())
+                {
+                    field_ty
+                } else if let Some((_trait_name, method)) = self
                     .trait_registry
                     .resolve_impl_method(type_name, prop_name)
                 {
@@ -1715,7 +1804,7 @@ mod tests {
     fn infer_type(source: &str) -> Type {
         let mut parser = Parser::new(source).expect("lexer should not fail");
         let program = parser.parse().expect("parse should succeed");
-        let inference = TypeInference::new(TraitRegistry::new());
+        let mut inference = TypeInference::new(TraitRegistry::new());
         let result = inference.infer_program(&program);
         // Return the type of the first declaration's variable
         result
