@@ -2906,7 +2906,13 @@ pub(crate) fn compile_new<'ctx>(
         _ => return Err("Complex new expressions not yet supported".to_string()),
     };
 
-    let total_size = ctx.context.i64_type().const_int(64, false);
+    let struct_ty = ctx
+        .class_struct_types
+        .get(&class_name)
+        .ok_or_else(|| format!("compile_new: unknown class '{}'", class_name))?;
+    let total_size = struct_ty
+        .size_of()
+        .ok_or_else(|| format!("compile_new: class '{}' has no size", class_name))?;
     let ptr = super::builtins::build_gc_alloc(ctx.builder(), &ctx.module, total_size);
 
     let ctor_name = format!("{}_new", class_name);

@@ -415,3 +415,45 @@ fn helper_compile_failure_report() {
     // We just verify it doesn't panic
     let _ = result;
 }
+
+// ── Class Allocation Size Regression Tests ─────────────────────
+
+/// Regression test for REQ-CAP1-001: compile_new must allocate the
+/// actual LLVM struct size, not a hardcoded 64 bytes.
+#[test]
+#[ignore]
+fn test_new_class_8_fields() {
+    let source = r#"
+class Wide {
+    a: int;
+    b: int;
+    c: int;
+    d: int;
+    e: int;
+    f: int;
+    g: int;
+    h: int;
+    fn new() {}
+}
+fn main() {
+    let w = Wide.new();
+    w.a = 1;
+    w.b = 2;
+    w.c = 3;
+    w.d = 4;
+    w.e = 5;
+    w.f = 6;
+    w.g = 7;
+    w.h = 8;
+    print(w.a);
+    print(w.b);
+    print(w.c);
+    print(w.d);
+    print(w.e);
+    print(w.f);
+    print(w.g);
+    print(w.h);
+}
+"#;
+    assert_output(source, "1\n2\n3\n4\n5\n6\n7\n8");
+}
