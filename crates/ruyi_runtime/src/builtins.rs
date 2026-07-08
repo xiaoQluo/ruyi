@@ -13,7 +13,7 @@ use crate::gc_exports::ruyi_gc_alloc;
  */
 use std::alloc::{alloc, Layout};
 use std::collections::{HashMap, HashSet};
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 
 /// Convert an i64 to a newly allocated null-terminated string.
 ///
@@ -239,6 +239,92 @@ pub extern "C" fn ruyi_member_access(obj: *mut i8, offset: i64) -> *mut i8 {
         let fields = obj.add(std::mem::size_of::<i64>()) as *mut *mut i8;
         *fields.add(offset as usize)
     }
+}
+
+/// Build a HashMap of field-name to value pointer from a Ruyi object.
+///
+/// Object layout: `[field_count: i64][key_0: *mut i8][value_0: *mut i8]...`
+/// Each key is expected to be a null-terminated UTF-8 string.
+fn object_field_map(obj: *mut i8) -> Option<HashMap<String, *mut i8>> {
+    if obj.is_null() {
+        return None;
+    }
+    unsafe {
+        let field_count = *(obj as *mut i64);
+        if field_count < 0 {
+            return Some(HashMap::new());
+        }
+        let mut map = HashMap::with_capacity(field_count as usize);
+        let field_size = 2 * std::mem::size_of::<*mut i8>();
+        for i in 0..field_count as usize {
+            let slot = obj.add(std::mem::size_of::<i64>() + i * field_size) as *mut *mut i8;
+            let key_ptr = *slot;
+            let value_ptr = *slot.add(1);
+            if key_ptr.is_null() {
+                continue;
+            }
+            // SAFETY: key_ptr is a null-terminated C string owned by the object.
+            let key_str = CStr::from_ptr(key_ptr).to_str().ok()?;
+            map.insert(key_str.to_string(), value_ptr);
+        }
+        Some(map)
+    }
+}
+
+/// Look up a field by name in a Ruyi object.
+///
+/// Returns a pointer to the field value, or null if the object is null,
+/// the key is null, or the key is not present.
+#[no_mangle]
+pub extern "C" fn ruyi_obj_get(obj: *mut i8, key: *const i8) -> *mut i8 {
+    if key.is_null() {
+        return std::ptr::null_mut();
+    }
+    let map = match object_field_map(obj) {
+        Some(m) => m,
+        None => return std::ptr::null_mut(),
+    };
+    // SAFETY: key is a null-terminated C string from the caller.
+    let key_bytes = unsafe { CStr::from_ptr(key).to_bytes() };
+    let key_str = match std::str::from_utf8(key_bytes) {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match map.get(key_str) {
+        Some(&value) => value,
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Return all field names of a Ruyi object as a Ruyi array of C strings.
+///
+/// Returns an empty array for a null object or an object with no fields.
+#[no_mangle]
+pub extern "C" fn ruyi_obj_keys(obj: *mut i8) -> *mut i8 {
+    let map = match object_field_map(obj) {
+        Some(m) => m,
+        None => return ruyi_array_alloc(0),
+    };
+    let count = map.len() as i64;
+    let arr = ruyi_array_alloc(count);
+    if arr.is_null() {
+        return std::ptr::null_mut();
+    }
+    unsafe {
+        // Claim the full capacity so ruyi_array_set can write each slot.
+        *(arr as *mut i64) = count;
+    }
+    let mut idx: i64 = 0;
+    for key in map.keys() {
+        let c_key = match CString::new(key.as_str()) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let ptr = c_key.into_raw();
+        ruyi_array_set(arr, idx, ptr as i64);
+        idx += 1;
+    }
+    arr
 }
 
 /// Get the length of a Ruyi array.
