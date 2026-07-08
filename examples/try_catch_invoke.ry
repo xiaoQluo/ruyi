@@ -1,0 +1,17 @@
+// Try/catch exception propagation — end-to-end demo for the
+// `invoke` + `landingpad` mechanism. A throw inside a called function
+// must propagate to the enclosing try/catch (REQ-TCI-001).
+fn innerThrow(): void {
+  throw Error("boom");
+}
+
+fn main(): int {
+  try {
+    innerThrow();
+    print("not caught");
+  } catch (e) {
+    print("caught");
+    return 0;
+  }
+  return 1;
+}

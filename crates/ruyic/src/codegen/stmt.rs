@@ -6,12 +6,14 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-use inkwell::types::{BasicType, BasicTypeEnum};
+use inkwell::types::BasicType;
 use inkwell::values::BasicValueEnum;
+
+use ruyi_exception::landing_pad::LandingPadGenerator;
 
 use super::builtins::{build_ruyi_clear_pending_exception, build_ruyi_get_pending_exception};
 use super::expr::{compile_expr, ExprResult};
-use super::generator::{CodegenContext, TryContext};
+use super::generator::{CodegenContext, TryContext, TryFrame, TryStackGuard};
 use crate::parser::ast::{Expr, Statement};
 use crate::typechecker::types::Type;
 
@@ -682,40 +684,26 @@ fn compile_throw<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>, expr: &Expr) -> R
         } else {
             ctx.builder().build_unconditional_branch(try_ctx.merge_bb);
         }
+        // After branch, create unreachable block for subsequent code
+        if let Some(func) = ctx.current_function() {
+            let unreachable_bb = ctx.context.append_basic_block(func, "throw.unreachable");
+            ctx.builder().position_at_end(unreachable_bb);
+            ctx.builder().build_unreachable();
+        }
     } else {
         ctx.builder()
             .build_call(throw_fn, &[exc_ptr.into()], "throw");
-        ctx.emit_gc_root_removals();
+        // ruyi_throw sets thread-local pending exception and returns.
+        // Emit a return so the caller's exception check (or invoke landing
+        // pad) can detect the pending exception and unwind properly.
         if let Some(func) = ctx.current_function() {
-            let fn_type = func.get_type();
-            let ret_ty = fn_type.get_return_type();
-            match ret_ty {
-                None => {
-                    ctx.builder().build_return(None);
-                }
-                Some(ty) => match ty {
-                    BasicTypeEnum::IntType(t) => {
-                        let zero = t.const_int(0, false);
-                        ctx.builder()
-                            .build_return(Some(&BasicValueEnum::IntValue(zero)));
-                    }
-                    BasicTypeEnum::FloatType(t) => {
-                        let zero = t.const_float(0.0);
-                        ctx.builder()
-                            .build_return(Some(&BasicValueEnum::FloatValue(zero)));
-                    }
-                    BasicTypeEnum::PointerType(t) => {
-                        let null = t.const_null();
-                        ctx.builder()
-                            .build_return(Some(&BasicValueEnum::PointerValue(null)));
-                    }
-                    _ => {
-                        ctx.builder().build_return(None);
-                    }
-                },
+            // ruyi_throw set the pending exception; return immediately so the
+            // caller's exception check (or invoke landing pad) catches it.
+            if let Some(ret_type) = func.get_type().get_return_type() {
+                ctx.builder().build_return(Some(&ret_type.const_zero()));
+            } else {
+                ctx.builder().build_return(None);
             }
-        } else {
-            return Err("throw outside function".to_string());
         }
     }
 
@@ -734,6 +722,9 @@ fn compile_try<'ctx>(
 
     let try_body_bb = ctx.context.append_basic_block(func, "try_body");
     let merge_bb = ctx.context.append_basic_block(func, "try_merge");
+    // T4: new landing-pad and resume blocks for LLVM exception handling
+    let landing_pad_bb = ctx.context.append_basic_block(func, "try.landingpad");
+    let resume_bb = ctx.context.append_basic_block(func, "try.resume");
 
     let catch_bb = if !catch.is_empty() {
         Some(ctx.context.append_basic_block(func, "try_catch"))
@@ -765,9 +756,18 @@ fn compile_try<'ctx>(
         catch_bb,
         finally_bb,
         merge_bb,
-        landing_pad_bb: None,
+        landing_pad_bb: Some(landing_pad_bb),
     };
     ctx.push_try(try_ctx);
+
+    let try_frame = TryFrame {
+        landing_pad_bb,
+        catch_bb,
+        finally_bb,
+        exception_ptr,
+    };
+    // SAFETY: ctx outlives the guard; guard is local-scoped and pops on drop
+    let _try_guard = unsafe { TryStackGuard::push(ctx, try_frame) };
 
     compile_block(ctx, body)?;
 
@@ -782,42 +782,94 @@ fn compile_try<'ctx>(
 
     ctx.pop_try();
 
-    for catch_clause in catch {
-        let cb = catch_bb.unwrap();
-        ctx.builder().position_at_end(cb);
+    // ── T4: LLVM landing-pad generation (for invoke-based exception handling) ──
+    let landing_pad_val;
+    {
+        let lp_gen = LandingPadGenerator::new(&ctx.context, &ctx.module, ctx.builder());
 
-        build_ruyi_clear_pending_exception(ctx.builder(), &ctx.module);
+        // Create per-catch handler blocks; type_id = 0 is catch-all for ruyi exception type
+        let mut catch_handlers: Vec<(
+            ruyi_exception::TryTypeId,
+            inkwell::basic_block::BasicBlock<'ctx>,
+        )> = Vec::new();
+        for (i, _) in catch.iter().enumerate() {
+            let handler_bb =
+                ctx.context
+                    .append_basic_block(func, &format!("try.catch.{}", i));
+            catch_handlers.push((0u32, handler_bb));
+        }
 
-        let exc_val = ctx
-            .builder()
-            .build_load(exception_ptr, "exc_val")
-            .into_pointer_value();
-        if let Some(pattern) = &catch_clause.pattern {
-            match pattern {
-                crate::parser::ast::Pattern::Identifier(name) => {
-                    let local_ptr = ctx.builder().build_alloca(i8_ptr, name);
-                    ctx.builder().build_store(local_ptr, exc_val);
-                    let var_ty = catch_clause
-                        .ty
-                        .as_ref()
-                        .map(Type::from_annotation)
-                        .unwrap_or(Type::Dynamic);
-                    ctx.define_variable(name.clone(), (local_ptr, var_ty));
+        let catch_type_ids: Vec<ruyi_exception::TryTypeId> =
+            catch_handlers.iter().map(|(id, _)| *id).collect();
+        let has_cleanup = finally.is_some();
+
+        ctx.builder().position_at_end(landing_pad_bb);
+        landing_pad_val =
+            lp_gen.build_landing_pad(&catch_type_ids, has_cleanup, "landingpad");
+
+        // Extract exception pointer and store it for catch blocks to access
+        let exc_ptr = lp_gen.extract_exception_ptr(landing_pad_val);
+        ctx.builder().build_store(exception_ptr, exc_ptr);
+
+        // Dispatch from landing-pad to first catch handler (catch-all mode).
+        // Must be called while builder is still positioned inside landing_pad_bb
+        // so the branch is emitted from the correct block.
+        lp_gen.build_catch_dispatch(landing_pad_val, &catch_handlers, finally_bb, resume_bb);
+
+        // Forward old catch_bb (used by compile_throw/build_exception_check)
+        // to the first handler block so both old and new paths reach the same code
+        if let Some(cb) = catch_bb {
+            ctx.builder().position_at_end(cb);
+            ctx.builder()
+                .build_unconditional_branch(catch_handlers[0].1);
+        }
+
+        // Compile per-clause catch handlers
+        for (i, catch_clause) in catch.iter().enumerate() {
+            let handler_bb = catch_handlers[i].1;
+            ctx.builder().position_at_end(handler_bb);
+
+            build_ruyi_clear_pending_exception(ctx.builder(), &ctx.module);
+
+            let exc_val = ctx
+                .builder()
+                .build_load(exception_ptr, "exc_val")
+                .into_pointer_value();
+            if let Some(pattern) = &catch_clause.pattern {
+                match pattern {
+                    crate::parser::ast::Pattern::Identifier(name) => {
+                        let local_ptr = ctx.builder().build_alloca(i8_ptr, name);
+                        ctx.builder().build_store(local_ptr, exc_val);
+                        let var_ty = catch_clause
+                            .ty
+                            .as_ref()
+                            .map(Type::from_annotation)
+                            .unwrap_or(Type::Dynamic);
+                        ctx.define_variable(name.clone(), (local_ptr, var_ty));
+                    }
+                    _ => {}
                 }
-                _ => {}
+            }
+
+            compile_block(ctx, &catch_clause.body)?;
+
+            let catch_end = ctx.builder().get_insert_block().unwrap();
+            if catch_end.get_terminator().is_none() {
+                if let Some(fb) = finally_bb {
+                    ctx.builder().build_unconditional_branch(fb);
+                } else {
+                    ctx.builder().build_unconditional_branch(merge_bb);
+                }
             }
         }
+    }
+    // _try_guard drops here, popping try_frame_stack
 
-        compile_block(ctx, &catch_clause.body)?;
-
-        let catch_end = ctx.builder().get_insert_block().unwrap();
-        if catch_end.get_terminator().is_none() {
-            if let Some(fb) = finally_bb {
-                ctx.builder().build_unconditional_branch(fb);
-            } else {
-                ctx.builder().build_unconditional_branch(merge_bb);
-            }
-        }
+    // Uncaught exception: build resume block
+    {
+        let lp_gen = LandingPadGenerator::new(&ctx.context, &ctx.module, ctx.builder());
+        ctx.builder().position_at_end(resume_bb);
+        lp_gen.build_resume(landing_pad_val);
     }
 
     if let Some(finally_stmts) = finally {

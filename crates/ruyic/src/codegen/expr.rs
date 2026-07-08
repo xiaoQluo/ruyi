@@ -7,9 +7,11 @@ use inkwell::types::BasicType;
  * @author Ruyi Team
  * @date 2026-05-01
  */
-use inkwell::values::{BasicValue, BasicValueEnum};
+use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue};
 use inkwell::FloatPredicate;
 use inkwell::IntPredicate;
+
+use ruyi_exception::landing_pad::LandingPadGenerator;
 
 use super::generator::CodegenContext;
 use super::types::{function_type_from_ruyi, ruyi_type_to_llvm};
@@ -1987,6 +1989,44 @@ fn compile_unary<'ctx>(
     }
 }
 
+/// Build a function call: uses `invoke` when inside a try context (for EH propagation
+/// through landing pads), otherwise uses a plain `call` instruction.
+fn build_call_or_invoke<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
+    func: FunctionValue<'ctx>,
+    args: &[inkwell::values::BasicMetadataValueEnum<'ctx>],
+    name: &str,
+) -> inkwell::values::CallSiteValue<'ctx> {
+    use inkwell::values::BasicMetadataValueEnum;
+    match ctx.try_frame_stack.last().map(|f| f.landing_pad_bb) {
+        Some(unwind_bb) => {
+            let then_bb = ctx.context.append_basic_block(
+                ctx.current_function().unwrap(),
+                &format!("{}.then", name),
+            );
+            let invoke_args: Vec<BasicValueEnum<'ctx>> = args
+                .iter()
+                .map(|v| match *v {
+                    BasicMetadataValueEnum::IntValue(iv) => iv.as_basic_value_enum(),
+                    BasicMetadataValueEnum::FloatValue(fv) => fv.as_basic_value_enum(),
+                    BasicMetadataValueEnum::PointerValue(pv) => pv.as_basic_value_enum(),
+                    BasicMetadataValueEnum::StructValue(sv) => sv.as_basic_value_enum(),
+                    BasicMetadataValueEnum::ArrayValue(av) => av.as_basic_value_enum(),
+                    BasicMetadataValueEnum::VectorValue(vv) => vv.as_basic_value_enum(),
+                    BasicMetadataValueEnum::MetadataValue(_) => {
+                        unreachable!("MetadataValue not used as function argument")
+                    }
+                })
+                .collect();
+            let lp_gen = LandingPadGenerator::new(&ctx.context, &ctx.module, ctx.builder());
+            let invoke = lp_gen.build_invoke(func, &invoke_args, then_bb, unwind_bb, name);
+            ctx.builder().position_at_end(then_bb);
+            invoke
+        }
+        None => ctx.builder().build_call(func, args, name),
+    }
+}
+
 fn compile_call<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_, '_>,
     callee: &Expr,
@@ -2291,7 +2331,8 @@ fn compile_call<'ctx>(
                 let func_ptr_val = ctx.builder().build_load(ptr, "func_ptr");
                 let func_ptr = func_ptr_val.into_pointer_value();
 
-                let mut arg_values = Vec::new();
+                let mut arg_values: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> =
+                    Vec::new();
                 for arg in args {
                     match arg {
                         crate::parser::ast::Argument::Expr(e) => {
@@ -2406,7 +2447,7 @@ fn compile_call<'ctx>(
         }
     }
 
-    let call_site = ctx.builder().build_call(func, &arg_values, "call");
+    let call_site = build_call_or_invoke(ctx, func, &arg_values, "call");
     let value = call_site.try_as_basic_value().left();
 
     let is_async = ctx.module.get_function(&format!("{}$poll", name)).is_some();

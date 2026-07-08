@@ -58,6 +58,17 @@ pub struct TryContext<'ctx> {
     pub landing_pad_bb: Option<inkwell::basic_block::BasicBlock<'ctx>>,
 }
 
+/// Represents a single try-block's exception-handling frame on the invoke stack.
+///
+/// Used by `compile_try` (T4) to register an unwind target, and by `compile_call`
+/// (T5) to decide whether to emit `invoke` instead of `call`.
+pub struct TryFrame<'ctx> {
+    pub landing_pad_bb: inkwell::basic_block::BasicBlock<'ctx>,
+    pub catch_bb: Option<inkwell::basic_block::BasicBlock<'ctx>>,
+    pub finally_bb: Option<inkwell::basic_block::BasicBlock<'ctx>>,
+    pub exception_ptr: inkwell::values::PointerValue<'ctx>,
+}
+
 /// Context for code generation, holding LLVM constructs and variable mappings.
 pub struct CodegenContext<'ctx, 'm, 'env> {
     pub context: &'ctx Context,
@@ -80,6 +91,7 @@ pub struct CodegenContext<'ctx, 'm, 'env> {
     /// Async state machine support: waker pointer for await expressions
     pub waker_ptr: Option<inkwell::values::PointerValue<'ctx>>,
     pub(crate) try_stack: Vec<TryContext<'ctx>>,
+    pub try_frame_stack: Vec<TryFrame<'ctx>>,
     pub class_fields: HashMap<String, Vec<(String, Type)>>,
     pub class_struct_types: HashMap<String, inkwell::types::StructType<'ctx>>,
     pub enum_struct_types: HashMap<String, inkwell::types::StructType<'ctx>>,
@@ -123,6 +135,7 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
             async_return_bb: None,
             waker_ptr: None,
             try_stack: Vec::new(),
+            try_frame_stack: Vec::new(),
             class_fields: HashMap::new(),
             class_struct_types: HashMap::new(),
             enum_struct_types: HashMap::new(),
@@ -398,6 +411,40 @@ impl<'ctx, 'm, 'env> Drop for GcRootScopeGuard<'ctx, 'm, 'env> {
         // SAFETY: pop_gc_root_scope guaranteed by GcRootScopeGuard Drop
         unsafe {
             (*self.ctx).pop_gc_root_scope();
+        }
+    }
+}
+
+#[must_use = "TryStackGuard pops its frame on drop; binding it to `_` discards the frame immediately"]
+pub struct TryStackGuard<'ctx, 'm, 'env> {
+    ctx: *mut CodegenContext<'ctx, 'm, 'env>,
+}
+
+impl<'ctx, 'm, 'env> TryStackGuard<'ctx, 'm, 'env> {
+    /// Push a `TryFrame` onto `ctx.try_frame_stack` and return a guard
+    /// that pops it on drop.
+    ///
+    /// # Safety
+    ///
+    /// `ctx` must outlive the returned guard and must not be moved for
+    /// the guard's lifetime. The guard stores a raw pointer, so the
+    /// borrow checker will not enforce this — the caller is responsible.
+    pub unsafe fn push(ctx: &mut CodegenContext<'ctx, 'm, 'env>, frame: TryFrame<'ctx>) -> Self {
+        ctx.try_frame_stack.push(frame);
+        Self { ctx: ctx as *mut _ }
+    }
+}
+
+impl<'ctx, 'm, 'env> Drop for TryStackGuard<'ctx, 'm, 'env> {
+    fn drop(&mut self) {
+        // SAFETY: The guard's lifetime is bound to the mutable borrow
+        // of the context at the push site. The context is guaranteed
+        // to be alive when the guard is dropped.
+        unsafe {
+            (*self.ctx)
+                .try_frame_stack
+                .pop()
+                .expect("TryStackGuard: try_frame_stack underflow on drop");
         }
     }
 }
@@ -1028,5 +1075,42 @@ fn ruyi_type_to_zero<'ctx>(
         Type::Bool => BasicValueEnum::IntValue(context.bool_type().const_int(0, false)),
         Type::Null => BasicValueEnum::IntValue(context.i64_type().const_int(0, false)),
         _ => BasicValueEnum::IntValue(context.i64_type().const_int(0, false)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_try_stack_push_pop() {
+        let context = Context::create();
+        let module = context.create_module("test");
+        let builder = context.create_builder();
+        let mut ctx = CodegenContext::new(&context, &module, builder, None);
+
+        let func_type = context.void_type().fn_type(&[], false);
+        let func = module.add_function("test_fn", func_type, None);
+        let bb = context.append_basic_block(func, "entry");
+        ctx.builder().position_at_end(bb);
+
+        let i8_ptr_type = context.i8_type().ptr_type(Default::default());
+        let exception_ptr = ctx.builder().build_alloca(i8_ptr_type, "exc_ptr");
+
+        let frame = TryFrame {
+            landing_pad_bb: bb,
+            catch_bb: Some(bb),
+            finally_bb: None,
+            exception_ptr,
+        };
+
+        assert_eq!(ctx.try_frame_stack.len(), 0);
+
+        {
+            let _guard = unsafe { TryStackGuard::push(&mut ctx, frame) };
+            assert_eq!(ctx.try_frame_stack.len(), 1);
+        }
+
+        assert_eq!(ctx.try_frame_stack.len(), 0);
     }
 }

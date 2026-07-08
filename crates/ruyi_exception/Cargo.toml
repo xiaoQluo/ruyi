@@ -1,0 +1,14 @@
+[package]
+name = "ruyi_exception"
+version = "0.5.5"
+edition = "2021"
+authors = ["Ruyi Team"]
+license = "MIT OR Apache-2.0"
+description = "Shared exception-handling helpers for the Ruyi compiler and runtime"
+
+[dependencies]
+inkwell = { workspace = true, features = ["llvm14-0"], optional = true }
+
+[features]
+default = []
+llvm14 = ["dep:inkwell"]

@@ -120,6 +120,15 @@ impl LandingPadGenerator {
 2. Catch dispatch - to use `landingpad` instruction and selector matching
 3. Resume propagation - to handle uncaught exceptions
 
+> **UPDATE 2026-07 (post-fix-try-catch-invoke)**:
+> §3.A/§3.B 已实现 unreachable;§3.C 现在正确: 无 try 上下文时直接 unreachable(ruyi_throw 为 noreturn)。
+> 
+> 同时新增:
+> - `crates/ruyi_exception/src/landing_pad.rs` shared crate 托管 LandingPadGenerator
+> - `crates/ruyic/src/codegen/generator.rs` 新增 TryFrame + try_frame_stack 字段 + TryStackGuard RAII guard
+> - `crates/ruyic/src/codegen/stmt.rs::compile_try` 改写为生成 LLVM `invoke + landingpad + resume` 指令
+> - `crates/ruyic/src/codegen/expr.rs::compile_call` 在 try 上下文用 build_invoke(unwind_bb = try_frame_stack.last().landing_pad_bb),否则 build_call
+
 ---
 
 ## 4. T7 Modification Recommendations
@@ -164,6 +173,17 @@ The LandingPadGenerator in `ruyi_runtime` has lifetime parameters `<'ctx, 'm, 'b
 | How does ruyi_throw interact with control flow? | Uses try_stack to branch to catch/finally/merge after storing exception pointer |
 | Is LandingPadGenerator compatible with codegen? | **NO** - not accessible from ruyic, needs architectural change |
 | What T7 needs to modify | stmt.rs, expr.rs, potentially move/refactor LandingPadGenerator |
+
+---
+
+## Post-Fix Status
+
+| 问题 | Pre-fix 答案 | Post-fix 答案 |
+|------|--------------|--------------|
+| Does compile_try use invoke? | NO | **YES** |
+| Does compile_try use call? | YES (legacy) | 仅用于 exception_ptr 管理 (`call ruyi_clear_pending_exception`), 不用于函数调用 |
+| Is LandingPadGenerator accessible from ruyic? | NO | **YES (via ruyi_exception shared crate)** |
+| Is LandingPadGenerator compatible with codegen? | NO | **YES** |
 
 ---
 

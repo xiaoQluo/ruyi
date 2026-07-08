@@ -129,7 +129,7 @@ pub mod llvm {
     use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
     use inkwell::AddressSpace;
 
-    use crate::exception::landing_pad::llvm::LandingPadGenerator;
+    use crate::exception::landing_pad::{LandingPadGenerator, TryTypeId};
     use crate::exception::types::ExceptionType;
 
     /// High-level LLVM exception runtime builder.
@@ -221,7 +221,10 @@ pub mod llvm {
             finally_block: Option<BasicBlock<'ctx>>,
             resume_bb: BasicBlock<'ctx>,
         ) -> BasicValueEnum<'ctx> {
-            let type_ids: Vec<u64> = catch_handlers.iter().map(|(ty, _)| ty.type_id()).collect();
+            let type_ids: Vec<TryTypeId> = catch_handlers
+                .iter()
+                .map(|(ty, _)| ty.type_id() as TryTypeId)
+                .collect();
             let landing_pad =
                 self.lpad_gen
                     .build_landing_pad(&type_ids, finally_block.is_some(), "lpad");
@@ -230,7 +233,7 @@ pub mod llvm {
                 landing_pad,
                 &catch_handlers
                     .iter()
-                    .map(|(ty, bb)| (ty.type_id(), *bb))
+                    .map(|(ty, bb)| (ty.type_id() as TryTypeId, *bb))
                     .collect::<Vec<_>>(),
                 finally_block,
                 resume_bb,
