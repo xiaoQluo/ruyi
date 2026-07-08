@@ -1,3 +1,4 @@
+use crate::gc_exports::ruyi_gc_alloc;
 /**
  * Built-in runtime functions for Ruyi.
  *
@@ -13,7 +14,6 @@
 use std::alloc::{alloc, Layout};
 use std::collections::{HashMap, HashSet};
 use std::ffi::CStr;
-use crate::gc_exports::ruyi_gc_alloc;
 
 /// Convert an i64 to a newly allocated null-terminated string.
 ///
@@ -192,6 +192,30 @@ pub extern "C" fn ruyi_bigint_from_str(s: *const i8) -> *mut i8 {
         std::ptr::copy_nonoverlapping(bytes.as_ptr(), out as *mut u8, bytes.len());
         *out.add(bytes.len()) = 0;
         out
+    }
+}
+
+/// Compare two bigints for equality.
+///
+/// Returns non-zero (true) if the two bigints represent the same value,
+/// zero (false) otherwise. In this staged implementation the bigint
+/// payload is a decimal string, so equality is decided by byte-wise
+/// comparison of the underlying storage. A real arbitrary-precision
+/// representation will replace this placeholder once integrated.
+///
+/// # Safety
+///
+/// `a` and `b` must either be null or pointers returned by
+/// `ruyi_bigint_from_str`.
+#[no_mangle]
+pub extern "C" fn ruyi_bigint_eq(a: *mut i8, b: *mut i8) -> i8 {
+    if a.is_null() || b.is_null() {
+        return (a == b) as i8;
+    }
+    unsafe {
+        let a_bytes = CStr::from_ptr(a).to_bytes();
+        let b_bytes = CStr::from_ptr(b).to_bytes();
+        (a_bytes == b_bytes) as i8
     }
 }
 
@@ -540,12 +564,20 @@ pub extern "C" fn __string_join(arr: *mut i8, separator: *const i8) -> *mut i8 {
         for i in 0..len {
             let elem = *data.add(i as usize);
             if i > 0 {
-                std::ptr::copy_nonoverlapping(sep_bytes.as_ptr(), out.add(pos) as *mut u8, sep_bytes.len());
+                std::ptr::copy_nonoverlapping(
+                    sep_bytes.as_ptr(),
+                    out.add(pos) as *mut u8,
+                    sep_bytes.len(),
+                );
                 pos += sep_bytes.len();
             }
             if elem != 0 {
                 let elem_bytes = CStr::from_ptr(elem as *const i8).to_bytes();
-                std::ptr::copy_nonoverlapping(elem_bytes.as_ptr(), out.add(pos) as *mut u8, elem_bytes.len());
+                std::ptr::copy_nonoverlapping(
+                    elem_bytes.as_ptr(),
+                    out.add(pos) as *mut u8,
+                    elem_bytes.len(),
+                );
                 pos += elem_bytes.len();
             }
         }
@@ -672,8 +704,8 @@ pub extern "C" fn __string_replace_all(
             }
         }
 
-        let output_size = input_bytes.len()
-            + count * replacement_bytes.len().saturating_sub(pattern_bytes.len());
+        let output_size =
+            input_bytes.len() + count * replacement_bytes.len().saturating_sub(pattern_bytes.len());
         let layout = Layout::from_size_align(output_size + 1, 1).unwrap();
         let out = alloc(layout) as *mut i8;
         if out.is_null() {
@@ -728,7 +760,9 @@ pub extern "C" fn __string_contains(haystack: *const i8, needle: *const i8) -> b
         if needle_bytes.is_empty() {
             return true;
         }
-        haystack_bytes.windows(needle_bytes.len()).any(|w| w == needle_bytes)
+        haystack_bytes
+            .windows(needle_bytes.len())
+            .any(|w| w == needle_bytes)
     }
 }
 
@@ -842,7 +876,11 @@ pub extern "C" fn __string_char_code_at(s: *const i8, index: i64) -> i64 {
         }
         let s_bytes = CStr::from_ptr(s).to_bytes();
         let s_str = std::str::from_utf8_unchecked(s_bytes);
-        s_str.chars().nth(index as usize).map(|c| c as u32 as i64).unwrap_or(-1)
+        s_str
+            .chars()
+            .nth(index as usize)
+            .map(|c| c as u32 as i64)
+            .unwrap_or(-1)
     }
 }
 
@@ -882,8 +920,20 @@ pub extern "C" fn __string_substring(s: *const i8, start: i64, end: i64) -> *mut
         let s_bytes = CStr::from_ptr(s).to_bytes();
         let s_str = std::str::from_utf8_unchecked(s_bytes);
         let len = s_str.len() as i64;
-        let start = if start < 0 { 0 } else if start > len { len } else { start } as usize;
-        let end = if end < 0 { 0 } else if end > len { len } else { end } as usize;
+        let start = if start < 0 {
+            0
+        } else if start > len {
+            len
+        } else {
+            start
+        } as usize;
+        let end = if end < 0 {
+            0
+        } else if end > len {
+            len
+        } else {
+            end
+        } as usize;
         let end = if end < start { start } else { end };
         let sub = &s_str[start..end];
         let bytes = sub.as_bytes();
@@ -1127,6 +1177,50 @@ mod tests {
     }
 
     #[test]
+    fn test_ruyi_bigint_eq_same_value() {
+        let s = CString::new("12345678901234567890").unwrap();
+        unsafe {
+            let a = ruyi_bigint_from_str(s.as_ptr());
+            let b = ruyi_bigint_from_str(s.as_ptr());
+            assert_eq!(ruyi_bigint_eq(a, b), 1);
+            dealloc(a as *mut u8, Layout::from_size_align(21, 1).unwrap());
+            dealloc(b as *mut u8, Layout::from_size_align(21, 1).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_ruyi_bigint_eq_different_value() {
+        let s1 = CString::new("100").unwrap();
+        let s2 = CString::new("200").unwrap();
+        unsafe {
+            let a = ruyi_bigint_from_str(s1.as_ptr());
+            let b = ruyi_bigint_from_str(s2.as_ptr());
+            assert_eq!(ruyi_bigint_eq(a, b), 0);
+            dealloc(a as *mut u8, Layout::from_size_align(4, 1).unwrap());
+            dealloc(b as *mut u8, Layout::from_size_align(4, 1).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_ruyi_bigint_eq_both_null() {
+        assert_eq!(
+            ruyi_bigint_eq(std::ptr::null_mut(), std::ptr::null_mut()),
+            1
+        );
+    }
+
+    #[test]
+    fn test_ruyi_bigint_eq_one_null() {
+        let s = CString::new("42").unwrap();
+        unsafe {
+            let a = ruyi_bigint_from_str(s.as_ptr());
+            assert_eq!(ruyi_bigint_eq(a, std::ptr::null_mut()), 0);
+            assert_eq!(ruyi_bigint_eq(std::ptr::null_mut(), a), 0);
+            dealloc(a as *mut u8, Layout::from_size_align(3, 1).unwrap());
+        }
+    }
+
+    #[test]
     fn test_ruyi_member_access() {
         unsafe {
             let obj = ruyi_object_alloc(3);
@@ -1201,7 +1295,14 @@ mod tests {
             let cstr = CStr::from_ptr(result);
             assert_eq!(cstr.to_str().unwrap(), "hello, world");
             dealloc(result as *mut u8, Layout::from_size_align(13, 1).unwrap());
-            dealloc(arr as *mut u8, Layout::from_size_align(std::mem::size_of::<i64>() * 2 + 2 * std::mem::size_of::<i64>(), std::mem::align_of::<i64>()).unwrap());
+            dealloc(
+                arr as *mut u8,
+                Layout::from_size_align(
+                    std::mem::size_of::<i64>() * 2 + 2 * std::mem::size_of::<i64>(),
+                    std::mem::align_of::<i64>(),
+                )
+                .unwrap(),
+            );
         }
     }
 
@@ -1215,7 +1316,14 @@ mod tests {
             let cstr = CStr::from_ptr(result);
             assert_eq!(cstr.to_str().unwrap(), "");
             dealloc(result as *mut u8, Layout::from_size_align(1, 1).unwrap());
-            dealloc(arr as *mut u8, Layout::from_size_align(std::mem::size_of::<i64>() * 2, std::mem::align_of::<i64>()).unwrap());
+            dealloc(
+                arr as *mut u8,
+                Layout::from_size_align(
+                    std::mem::size_of::<i64>() * 2,
+                    std::mem::align_of::<i64>(),
+                )
+                .unwrap(),
+            );
         }
     }
 
@@ -1259,7 +1367,8 @@ mod tests {
         let pattern = CString::new("hello").unwrap();
         let replacement = CString::new("hi").unwrap();
         unsafe {
-            let result = __string_replace_all(input.as_ptr(), pattern.as_ptr(), replacement.as_ptr());
+            let result =
+                __string_replace_all(input.as_ptr(), pattern.as_ptr(), replacement.as_ptr());
             assert!(!result.is_null());
             let cstr = CStr::from_ptr(result);
             assert_eq!(cstr.to_str().unwrap(), "hi world hi");
@@ -1273,7 +1382,8 @@ mod tests {
         let pattern = CString::new("xyz").unwrap();
         let replacement = CString::new("abc").unwrap();
         unsafe {
-            let result = __string_replace_all(input.as_ptr(), pattern.as_ptr(), replacement.as_ptr());
+            let result =
+                __string_replace_all(input.as_ptr(), pattern.as_ptr(), replacement.as_ptr());
             assert!(!result.is_null());
             let cstr = CStr::from_ptr(result);
             assert_eq!(cstr.to_str().unwrap(), "hello world");
@@ -1287,7 +1397,8 @@ mod tests {
         let pattern = CString::new("").unwrap();
         let replacement = CString::new("x").unwrap();
         unsafe {
-            let result = __string_replace_all(input.as_ptr(), pattern.as_ptr(), replacement.as_ptr());
+            let result =
+                __string_replace_all(input.as_ptr(), pattern.as_ptr(), replacement.as_ptr());
             assert!(!result.is_null());
             let cstr = CStr::from_ptr(result);
             assert_eq!(cstr.to_str().unwrap(), "hello");

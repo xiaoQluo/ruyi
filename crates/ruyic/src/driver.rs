@@ -172,11 +172,7 @@ impl ModuleResolver {
 
     /// Resolve a module path to an absolute path.
     /// Looks in RUYI_HOME/stdlib, search paths, and project directories.
-    pub fn resolve(
-        &self,
-        source: &str,
-        base_path: Option<&Path>,
-    ) -> Result<PathBuf, CompileError> {
+    pub fn resolve(&self, source: &str, base_path: Option<&Path>) -> Result<PathBuf, CompileError> {
         // Remove quotes from the source path
         let module_name = source.trim_matches('"');
 
@@ -330,7 +326,7 @@ impl Driver {
 
     /// Auto-load essential stdlib modules.
     fn auto_load_stdlib(&mut self) -> Result<(), CompileError> {
-        let stdlib_modules = ["error", "core", "collections"];
+        let stdlib_modules = ["error", "core", "option", "collections"];
 
         for module_name in &stdlib_modules {
             let module_path = PathBuf::from(format!("stdlib/{}.ry", module_name));
@@ -416,8 +412,7 @@ impl Driver {
                     // Process re-exports (outside the immutable borrow).
                     for (source, dir) in &reexport_sources {
                         let reexport_path = self.resolver.resolve(source, Some(dir))?;
-                        let reexport_canonical =
-                            self.resolver.canonical_path(&reexport_path);
+                        let reexport_canonical = self.resolver.canonical_path(&reexport_path);
                         if !self
                             .resolver
                             .loaded_modules
@@ -426,16 +421,13 @@ impl Driver {
                             let module_source = fs::read_to_string(&reexport_path)?;
                             let mut module_parser = RuyiParser::new(&module_source)?;
                             let mut module_ast = module_parser.parse()?;
-                            module_ast =
-                                self.resolve_imports(module_ast, &reexport_path)?;
+                            module_ast = self.resolve_imports(module_ast, &reexport_path)?;
                             self.resolver
                                 .loaded_modules
                                 .insert(reexport_canonical.clone(), module_ast);
                         }
-                        if let Some(reexport_module) = self
-                            .resolver
-                            .loaded_modules
-                            .get(&reexport_canonical)
+                        if let Some(reexport_module) =
+                            self.resolver.loaded_modules.get(&reexport_canonical)
                         {
                             for reexport_item in &reexport_module.items {
                                 Self::push_unwrapped(&mut program, reexport_item);
@@ -452,14 +444,14 @@ impl Driver {
                         // Aliases: import { x as y } → const y = x;
                         for named_import in &import_decl.named {
                             if let Some(alias) = &named_import.alias {
-                                program.items.push(
-                                    crate::parser::ast::ModuleItem::Declaration(
+                                program
+                                    .items
+                                    .push(crate::parser::ast::ModuleItem::Declaration(
                                         crate::parser::ast::Declaration::Const(vec![
                                             crate::parser::ast::Binding {
-                                                pattern:
-                                                    crate::parser::ast::Pattern::Identifier(
-                                                        alias.clone(),
-                                                    ),
+                                                pattern: crate::parser::ast::Pattern::Identifier(
+                                                    alias.clone(),
+                                                ),
                                                 init: Some(Box::new(
                                                     crate::parser::ast::Expr::Identifier(
                                                         named_import.name.clone(),
@@ -468,8 +460,7 @@ impl Driver {
                                                 ty: None,
                                             },
                                         ]),
-                                    ),
-                                );
+                                    ));
                             }
                         }
 
@@ -480,24 +471,21 @@ impl Driver {
                                 Self::collect_export_names(module_item, &mut props);
                             }
                             if !props.is_empty() {
-                                program.items.push(
-                                    crate::parser::ast::ModuleItem::Declaration(
+                                program
+                                    .items
+                                    .push(crate::parser::ast::ModuleItem::Declaration(
                                         crate::parser::ast::Declaration::Const(vec![
                                             crate::parser::ast::Binding {
-                                                pattern:
-                                                    crate::parser::ast::Pattern::Identifier(
-                                                        ns.clone(),
-                                                    ),
+                                                pattern: crate::parser::ast::Pattern::Identifier(
+                                                    ns.clone(),
+                                                ),
                                                 init: Some(Box::new(
-                                                    crate::parser::ast::Expr::ObjectLiteral(
-                                                        props,
-                                                    ),
+                                                    crate::parser::ast::Expr::ObjectLiteral(props),
                                                 )),
                                                 ty: None,
                                             },
                                         ]),
-                                    ),
-                                );
+                                    ));
                             }
                         }
                     }
@@ -538,7 +526,7 @@ impl Driver {
         }
 
         // Phase 3: Macro expansion
-        let expanded = expand_macros(&program, &self.macro_registry)?;
+        let expanded = expand_macros(&program, &mut self.macro_registry)?;
 
         // Phase 4: Type checking
         let mut checker = TypeChecker::new();
@@ -582,7 +570,7 @@ impl Driver {
         // unsupported patterns in stdlib (e.g., chained member access).
         generator.allow_partial_codegen = true;
 
-        generator.generate(&expanded)?;
+        generator.generate_with_env(&expanded, &type_result.tracker, Some(&type_result.env))?;
 
         // Phase 6: Output
         let output_path = options
@@ -635,17 +623,14 @@ impl Driver {
     pub fn type_check(&mut self, source: &str) -> Result<TypeCheckResult, CompileError> {
         let mut parser = RuyiParser::new(source)?;
         let program = parser.parse()?;
-        let expanded = expand_macros(&program, &self.macro_registry)?;
+        let expanded = expand_macros(&program, &mut self.macro_registry)?;
         let mut checker = TypeChecker::new();
         Ok(checker.check(&expanded))
     }
 
     /// Push a module item to the program, unwrapping `Export` into the contained `Declaration`
     /// so the typechecker can see it (it skips `ModuleItem::Export` items).
-    fn push_unwrapped(
-        program: &mut Program,
-        item: &crate::parser::ast::ModuleItem,
-    ) {
+    fn push_unwrapped(program: &mut Program, item: &crate::parser::ast::ModuleItem) {
         match item {
             crate::parser::ast::ModuleItem::Export(export) => match export {
                 crate::parser::ast::ExportDecl::Declaration(decl) => {
@@ -661,8 +646,9 @@ impl Driver {
                     body,
                     is_async,
                 } => {
-                    program.items.push(
-                        crate::parser::ast::ModuleItem::Declaration(
+                    program
+                        .items
+                        .push(crate::parser::ast::ModuleItem::Declaration(
                             crate::parser::ast::Declaration::Function {
                                 name: name.clone(),
                                 type_params: type_params.clone(),
@@ -671,8 +657,7 @@ impl Driver {
                                 body: body.clone(),
                                 is_async: *is_async,
                             },
-                        ),
-                    );
+                        ));
                 }
                 crate::parser::ast::ExportDecl::DefaultClass {
                     name,
@@ -681,8 +666,9 @@ impl Driver {
                     body,
                     annotations,
                 } => {
-                    program.items.push(
-                        crate::parser::ast::ModuleItem::Declaration(
+                    program
+                        .items
+                        .push(crate::parser::ast::ModuleItem::Declaration(
                             crate::parser::ast::Declaration::Class {
                                 name: name.clone(),
                                 type_params: type_params.clone(),
@@ -690,8 +676,7 @@ impl Driver {
                                 body: body.clone(),
                                 annotations: annotations.clone(),
                             },
-                        ),
-                    );
+                        ));
                 }
                 // Named, ReExportAll, ReExportNamed, DefaultExpr are not declarations;
                 // they are processed separately or left as-is.
@@ -714,15 +699,15 @@ impl Driver {
                     crate::parser::ast::Declaration::Function { name, .. } => Some(name.clone()),
                     crate::parser::ast::Declaration::Class { name, .. } => Some(name.clone()),
                     crate::parser::ast::Declaration::Const(bindings)
-                    | crate::parser::ast::Declaration::Let(bindings) => bindings.first().and_then(
-                        |b| {
+                    | crate::parser::ast::Declaration::Let(bindings) => {
+                        bindings.first().and_then(|b| {
                             if let crate::parser::ast::Pattern::Identifier(n) = &b.pattern {
                                 Some(n.clone())
                             } else {
                                 None
                             }
-                        },
-                    ),
+                        })
+                    }
                     _ => None,
                 },
                 crate::parser::ast::ExportDecl::DefaultFunction { name, .. }

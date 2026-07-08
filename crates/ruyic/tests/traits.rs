@@ -154,8 +154,8 @@ fn test_trait_bound_check() {
     let registry = build_registry(
         "trait Printable { fn format(self): string; }\nimpl Printable for int { fn format(self): string { return \"\"; } }"
     );
-    assert!(registry.check_bound(&Type::Named("int".into()), "Printable"));
-    assert!(!registry.check_bound(&Type::Named("string".into()), "Printable"));
+    assert!(registry.check_bound(&Type::Named("int".into(), vec![]), "Printable"));
+    assert!(!registry.check_bound(&Type::Named("string".into(), vec![]), "Printable"));
 }
 
 // ── Trait Objects (dyn) ──────────────────────────────────────

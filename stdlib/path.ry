@@ -46,7 +46,7 @@ export class Path {
     static fn basenameNoExt(path: string): string {
         let base = __path_basename(path);
         let lastDot = base.lastIndexOf(".");
-        if (lastDot === null) {
+        if (lastDot < 0) {
             return base;
         }
         return base.substring(0, lastDot);
@@ -88,7 +88,7 @@ export class Path {
      * @return true if path is relative (not absolute)
      */
     static fn isRelative(path: string): bool {
-        return __path_is_absolute(path) === false;
+        return !__path_is_absolute(path);
     }
 
     /**
@@ -120,7 +120,7 @@ export class Path {
      */
     static fn withoutExt(path: string): string {
         let ext = __path_extname(path);
-        if (ext.isEmpty()) {
+        if (ext === "") {
             return path;
         }
         return path.substring(0, path.length() - ext.length());

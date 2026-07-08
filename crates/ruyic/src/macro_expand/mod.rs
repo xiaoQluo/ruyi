@@ -154,7 +154,7 @@ impl Default for MacroRegistry {
     }
 }
 
-pub fn expand_macros(program: &Program, registry: &MacroRegistry) -> MacroResult<Program> {
+pub fn expand_macros(program: &Program, registry: &mut MacroRegistry) -> MacroResult<Program> {
     let mut expander = expand::MacroExpander::new(registry);
     expander.expand_program(program)
 }

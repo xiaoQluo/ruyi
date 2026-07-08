@@ -836,7 +836,7 @@ TypeAliasDeclaration ::
 
 **示例**:
 ```ruyi
-type Result<T, E> = Ok<T> | Err<E>;
+type Result<T, E> = Ok<T, E> | Err<T, E>;
 type Callback<T> = fn(T) -> void;
 type Point2D = { x: float, y: float };
 ```
@@ -1865,24 +1865,35 @@ fn map<T, U>(arr: Array<T>, f: fn(T) -> U): Array<U> {
 ### 5.3 泛型类
 
 ```ruyi
-class Option<T> {
-  value: T?;
+class Some<T> {
+  value: T;
 
-  fn new(value: T?) {
+  fn new(value: T) {
     self.value = value;
   }
 
-  fn isSome(): bool {
-    return self.value !== null;
+  fn isSome(self): bool {
+    return true;
   }
 
-  fn unwrap(): T {
-    if (self.value === null) {
-      throw Error("unwrap on None");
-    }
+  fn unwrap(self): T {
     return self.value;
   }
 }
+
+class None {
+  fn new() { }
+
+  fn isSome(self): bool {
+    return false;
+  }
+
+  fn unwrap(self): never {
+    throw RuntimeError.new("unwrap on None");
+  }
+}
+
+type Option<T> = Some<T> | None;
 
 class Map<K, V> {
   fn get(key: K): V?;
@@ -2797,16 +2808,25 @@ name = getUser();     // 重新赋值会重置收窄
 可空类型与泛型的交互方式如下：
 
 ```ruyi
-class Option<T> {
-  value: T?;
+class Some<T> {
+  value: T;
 
-  fn unwrap(): T {
-    if (self.value === null) {
-      throw Error("unwrap on None");
-    }
-    return self.value;    // 收窄为 T
+  fn new(value: T) {
+    self.value = value;
+  }
+
+  fn unwrap(self): T {
+    return self.value;    // 直接返回 T
   }
 }
+
+class None {
+  fn unwrap(self): never {
+    throw RuntimeError.new("unwrap on None");
+  }
+}
+
+type Option<T> = Some<T> | None;
 ```
 
 `Option<T>` 与 `T?` 是不同的。`Option<T>` 是可以携带额外方法的包装类型，而 `T?` 是内置的可空类型。
@@ -2918,14 +2938,14 @@ let y = identity(x);    // T = dyn, 返回 dyn
 类型别名可以是泛型的：
 
 ```ruyi
-type Result<T, E> = Ok<T> | Err<E>;
+type Result<T, E> = Ok<T, E> | Err<T, E>;
 type Callback<T> = fn(T) -> void;
 ```
 
 泛型类型别名在使用点展开：
 
 ```
-Result<int, Error>  expands to  Ok<int> | Err<Error>
+Result<int, Error>  expands to  Ok<int, Error> | Err<int, Error>
 ```
 
 ### 10.6 型变
@@ -3689,8 +3709,7 @@ Ruyi 使用 `RUYI_HOME` 环境变量定位安装目录：
 | 模块 | 说明 |
 |------|------|
 | `core` | 基础类型方法（`string`、`int`、`float`、`bool` 的 trait impl，自动加载） |
-| `option` | `Option<T>` 枚举（`Some`/`None`）用于可空值处理 |
-| `result` | `Result<T, E>` 枚举（`Ok`/`Err`）用于错误处理 |
+| `option` | `Option<T>`（`Some`/`None`）和 `Result<T, E>`（`Ok`/`Err`）用于可空值处理和错误处理（自动加载） |
 | `error` | 错误层次结构（`Error`、`TypeError`、`RuntimeError`、`RangeError`、`AssertionError`、`ArgumentError`、`NullError`、`ArithmeticError`、`IteratorError`、`ParseError`）以及 `assert()` 和 `assertNotNull()` |
 | `collections` | 泛型集合（`Array<T>`、`Map<K, V>`、`Set<T>`）和 `Iterator<T>` 特征 |
 | `string` | 纯字符串工具函数（`join`、`fromCharCode`、`fromCharCodes`、`concat`、`template`、`processTemplate`） |
@@ -3706,8 +3725,7 @@ import { File } from "./io";
 import { Path } from "./path";
 import { Process, getEnv } from "./process";
 import { assert, assertNotNull } from "./error";
-import { Option, Some, None } from "./option";
-import { Result, Ok, Err } from "./result";
+import { Option, Some, None, Result, Ok, Err } from "./option";
 import { Array, Map, Set, Iterator } from "./collections";
 ```
 

@@ -29,6 +29,12 @@ impl RootSet {
         if ptr.is_null() {
             return;
         }
+        // Validate alignment before dereferencing.
+        // GC objects are always 8-byte aligned (alignment of GcObjectHeader).
+        let addr = ptr as usize;
+        if addr % std::mem::align_of::<GcObjectHeader>() != 0 {
+            return;
+        }
         let header = GcObjectHeader::from_payload(ptr);
         (*header).set_pinned();
         self.stack_roots.lock().unwrap().push(header);
@@ -40,6 +46,10 @@ impl RootSet {
     /// `ptr` must have been previously passed to `add_stack_root`.
     pub unsafe fn remove_stack_root(&self, ptr: *mut u8) {
         if ptr.is_null() {
+            return;
+        }
+        let addr = ptr as usize;
+        if addr % std::mem::align_of::<GcObjectHeader>() != 0 {
             return;
         }
         let header = GcObjectHeader::from_payload(ptr);
@@ -58,6 +68,10 @@ impl RootSet {
         if ptr.is_null() {
             return;
         }
+        let addr = ptr as usize;
+        if addr % std::mem::align_of::<GcObjectHeader>() != 0 {
+            return;
+        }
         let header = GcObjectHeader::from_payload(ptr);
         (*header).set_pinned();
         self.global_roots.lock().unwrap().push(header);
@@ -69,6 +83,10 @@ impl RootSet {
     /// `ptr` must have been previously passed to `add_global_root`.
     pub unsafe fn remove_global_root(&self, ptr: *mut u8) {
         if ptr.is_null() {
+            return;
+        }
+        let addr = ptr as usize;
+        if addr % std::mem::align_of::<GcObjectHeader>() != 0 {
             return;
         }
         let header = GcObjectHeader::from_payload(ptr);

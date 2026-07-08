@@ -72,11 +72,10 @@ fn test_operator_keywords() {
 #[test]
 fn test_identifiers() {
     assert_tokens(
-        "x _myVar $element firstName camelCaseName",
+        "x _myVar firstName camelCaseName",
         &[
             Token::Ident("x".into()),
             Token::Ident("_myVar".into()),
-            Token::Ident("$element".into()),
             Token::Ident("firstName".into()),
             Token::Ident("camelCaseName".into()),
             Token::Eof,

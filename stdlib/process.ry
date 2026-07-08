@@ -8,6 +8,8 @@
  * @date 2026-05-02
  */
 
+import { Error } from "./error";
+
 // ============================================================
 // Process Class
 // ============================================================
@@ -389,7 +391,7 @@ export class ProcessResult {
 /**
  * Exception thrown when a process operation fails.
  */
-export class ProcessException {
+export class ProcessException extends Error {
     /**
      * The error message.
      */
@@ -407,6 +409,7 @@ export class ProcessException {
      */
     static fn create(message: string, process: Process? = null): ProcessException {
         let ex = ProcessException();
+        super.new(message);
         ex.message = message;
         ex.process = process;
         return ex;
@@ -429,13 +432,25 @@ export class ProcessException {
  * Signal constants for process termination.
  */
 export class Signal {
+    // POSIX signal constants (not available on Windows)
     static HUP: int = 1;    // Hangup
-    static INT: int = 2;    // Interrupt (Ctrl+C)
     static QUIT: int = 3;   // Quit (Ctrl+\)
     static KILL: int = 9;   // Kill (cannot be caught)
-    static TERM: int = 15;   // Termination (default)
     static USR1: int = 10;  // User-defined signal 1
     static USR2: int = 12;  // User-defined signal 2
+
+    // Universal signals (available on all platforms)
+    static INT: int = 2;    // Interrupt (Ctrl+C)
+    static TERM: int = 15;  // Termination (default)
+
+    /**
+     * Checks whether a signal is available on the current platform.
+     * @param signal Signal number to check
+     * @return true if the signal is available, false otherwise
+     */
+    static fn isAvailable(signal: int): bool {
+        return __process_signal_available(signal);
+    }
 }
 
 // ============================================================

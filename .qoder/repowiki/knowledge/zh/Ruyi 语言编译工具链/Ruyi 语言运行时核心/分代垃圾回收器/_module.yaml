@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: ruyi_runtime/gc
+title: 分代垃圾回收器
+scope:
+    - crates/ruyi_runtime/src/gc/
+    - crates/ruyi_runtime/src/gc.rs
+    - crates/ruyi_runtime/src/gc_exports.rs
+source_files: []
+depends_on: []
+related_to:
+    - path: ruyic/codegen

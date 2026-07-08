@@ -1,0 +1,295 @@
+// =============================================================================
+// Type Aliases - Ruyi Type Alias Declarations
+// =============================================================================
+// Covers: simple type aliases, generic type aliases, function type aliases,
+//         type aliases for readability, domain modeling with aliases
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 1. Simple Type Aliases
+// -----------------------------------------------------------------------------
+// The `type` keyword creates a named alias for an existing type.
+// Syntax: type Name = UnderlyingType ;
+// Type aliases improve code readability and serve as documentation.
+
+type Name = string;
+type Age = int;
+type Score = float;
+type ID = int;
+
+// The underlying types are used directly in variable declarations.
+// The type alias serves as a readable name in documentation and design.
+let user_name: string = "Alice";      // type alias: Name
+let user_age: int = 30;               // type alias: Age
+let user_score: float = 95.5;         // type alias: Score
+let user_id: int = 1001;              // type alias: ID
+
+fn simple_alias_demo() {
+  print("--- Simple Type Aliases ---\n");
+
+  print("type Name = string;\n");
+  print("type Age = int;\n");
+  print("type Score = float;\n");
+  print("type ID = int;\n\n");
+
+  print("user_name (Name): ");
+  print(user_name);
+  print("\n");
+  print("user_age (Age): ");
+  print(user_age);
+  print("\n");
+  print("user_score (Score): ");
+  print(user_score);
+  print("\n");
+  print("user_id (ID): ");
+  print(user_id);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 2. Type Aliases for Complex Types
+// -----------------------------------------------------------------------------
+// Type aliases shine when simplifying complex or verbose type annotations.
+
+// Function type aliases (document the intended signature)
+type Formatter = fn(string, int) -> string;
+type Predicate = fn(int) -> bool;
+type Callback = fn(string) -> void;
+
+// Object type aliases (document the expected shape)
+type Point2D = { x: float, y: float };
+type Point3D = { x: float, y: float, z: float };
+type StringPair = { first: string, second: string };
+
+fn complex_type_demo() {
+  print("--- Complex Type Aliases ---\n");
+
+  // Using the underlying types directly
+  let point: { x: float, y: float } = { x: 1.0, y: 2.0 };
+  print("Point2D: {x: ");
+  print(point.x);
+  print(", y: ");
+  print(point.y);
+  print("}\n");
+
+  let space: { x: float, y: float, z: float } = { x: 1.0, y: 2.0, z: 3.0 };
+  print("Point3D: {x: ");
+  print(space.x);
+  print(", y: ");
+  print(space.y);
+  print(", z: ");
+  print(space.z);
+  print("}\n");
+}
+
+// -----------------------------------------------------------------------------
+// 3. Function Type Aliases in Action
+// -----------------------------------------------------------------------------
+// Type aliases document intended function signatures.
+
+// Predicate<T> = fn(T) -> bool
+fn apply_predicate(value: int, pred: fn(int) -> bool): bool {
+  return pred(value);
+}
+
+fn function_type_demo() {
+  print("--- Function Type Aliases ---\n");
+
+  // Using Predicate pattern (fn(int) -> bool)
+  let is_positive = (n: int) => n > 0;
+  let result = apply_predicate(42, is_positive);
+  print("is_positive(42): ");
+  print(result);
+  print("\n");
+
+  let is_even = (n: int) => n % 2 === 0;
+  let even_result = apply_predicate(7, is_even);
+  print("is_even(7): ");
+  print(even_result);
+  print("\n");
+
+  // Using Callback pattern (fn(string) -> void)
+  let log = (msg: string) => {
+    print("LOG: ");
+    print(msg);
+    print("\n");
+  };
+  log("type aliases are powerful");
+}
+
+// -----------------------------------------------------------------------------
+// 4. Generic Type Aliases (Syntax Demo)
+// -----------------------------------------------------------------------------
+// Type aliases can have type parameters for generic abstractions.
+// These serve as documentation for generic type patterns.
+
+// type Pair<A, B> = { first: A, second: B };
+// type Triple<A, B, C> = { first: A, second: B, third: C };
+
+fn generic_alias_demo() {
+  print("--- Generic Type Aliases ---\n");
+
+  // Using the underlying object types directly
+  let int_pair: { first: int, second: int } = { first: 1, second: 2 };
+  print("Pair<int,int>: {first: ");
+  print(int_pair.first);
+  print(", second: ");
+  print(int_pair.second);
+  print("}\n");
+
+  let mixed: { first: string, second: int } = { first: "age", second: 25 };
+  print("Pair<string,int>: {first: ");
+  print(mixed.first);
+  print(", second: ");
+  print(mixed.second);
+  print("}\n");
+
+  let triple: { first: string, second: int, third: bool } = { first: "active", second: 1, third: true };
+  print("Triple: {first: ");
+  print(triple.first);
+  print(", second: ");
+  print(triple.second);
+  print(", third: ");
+  print(triple.third);
+  print("}\n");
+}
+
+// -----------------------------------------------------------------------------
+// 5. Type Aliases for Domain Modeling
+// -----------------------------------------------------------------------------
+// Type aliases help model domain concepts clearly.
+// Even though the compiler sees the underlying type,
+// the alias name communicates intent in the code.
+
+// Domain: Physics
+type Meters = float;
+type Seconds = float;
+type MetersPerSecond = float;
+
+fn calculate_speed(distance: float, time: float): float {
+  return distance / time;
+}
+
+// Domain: Temperature
+type Celsius = float;
+type Fahrenheit = float;
+
+fn celsius_to_fahrenheit(c: float): float {
+  return c * 9.0 / 5.0 + 32.0;
+}
+
+// Domain: User System
+type UserId = int;
+type UserName = string;
+type Email = string;
+
+fn find_user(id: int): string {
+  return "User_" + id.toString();
+}
+
+fn send_email(to: string, subject: string) {
+  print("sending email to: ");
+  print(to);
+  print(" subject: ");
+  print(subject);
+  print("\n");
+}
+
+fn domain_modeling_demo() {
+  print("--- Domain Modeling with Type Aliases ---\n");
+
+  // Physics: speed calculation
+  let speed = calculate_speed(100.0, 9.58);
+  print("100m sprint speed: ");
+  print(speed);
+  print(" m/s\n");
+
+  // Temperature conversion
+  let boiling: float = 100.0;  // Celsius
+  let boiling_f = celsius_to_fahrenheit(boiling);
+  print("100 C = ");
+  print(boiling_f);
+  print(" F\n");
+
+  // User system
+  let id: int = 42;  // UserId
+  let name = find_user(id);
+  print("found user: ");
+  print(name);
+  print("\n");
+
+  let email: string = "alice@example.com";  // Email
+  send_email(email, "Hello Ruyi");
+}
+
+// -----------------------------------------------------------------------------
+// 6. Nullable Type Aliases
+// -----------------------------------------------------------------------------
+// Type aliases can reference nullable types too.
+
+// type OptionalName = string?;
+// type OptionalId = int?;
+
+fn nullable_alias_demo() {
+  print("--- Nullable Type Aliases ---\n");
+
+  let name: string? = "Bob";
+  let missing: string? = null;
+
+  let display = name ?? "unknown";
+  print("name: ");
+  print(display);
+  print("\n");
+
+  let fallback = missing ?? "anonymous";
+  print("missing: ");
+  print(fallback);
+  print("\n");
+
+  // Nullable int
+  let maybe_id: int? = null;
+  let safe_id: int = maybe_id ?? 0;
+  print("default id: ");
+  print(safe_id);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 7. Alias Summary
+// -----------------------------------------------------------------------------
+fn alias_summary() {
+  print("--- Type Alias Summary ---\n");
+  print("type Name = string;           // simple alias\n");
+  print("type Predicate = fn(int) -> bool;  // function alias\n");
+  print("type Point2D = { x: float, y: float };  // object alias\n");
+  print("type Pair<A, B> = { first: A, second: B };  // generic alias\n");
+  print("type OptionalName = string?;  // nullable alias\n\n");
+  print("Benefits:\n");
+  print("  - Improves code readability\n");
+  print("  - Documents domain concepts\n");
+  print("  - Simplifies complex type annotations\n");
+  print("  - Makes refactoring easier\n");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+  print("=== Type Aliases Demo ===\n\n");
+
+  simple_alias_demo();
+  print("\n");
+  complex_type_demo();
+  print("\n");
+  function_type_demo();
+  print("\n");
+  generic_alias_demo();
+  print("\n");
+  domain_modeling_demo();
+  print("\n");
+  nullable_alias_demo();
+  print("\n");
+  alias_summary();
+
+  print("\nAll type alias demos completed successfully!\n");
+}

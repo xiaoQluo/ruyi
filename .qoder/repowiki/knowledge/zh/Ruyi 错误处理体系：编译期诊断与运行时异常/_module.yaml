@@ -1,0 +1,15 @@
+schema_version: 1
+module_path: error_handling
+title: Ruyi 错误处理体系：编译期诊断与运行时异常
+scope: []
+source_files:
+    - crates/ruyic/src/diagnostics/codes.rs
+    - crates/ruyic/src/diagnostics/render.rs
+    - crates/ruyic/src/driver.rs
+    - crates/ruyi_runtime/src/exception.rs
+    - crates/ruyi_runtime/src/exception/types.rs
+    - stdlib/error.ry
+    - stdlib/result.ry
+    - TRY_CATCH_AUDIT.md
+depends_on: []
+related_to: []

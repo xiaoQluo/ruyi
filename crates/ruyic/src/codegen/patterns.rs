@@ -1,3 +1,9 @@
+use crate::codegen::builtins::build_ruyi_bigint_eq;
+use crate::codegen::expr::{compile_bigint_literal, compile_expr, ExprResult};
+use crate::codegen::generator::CodegenContext;
+use crate::codegen::stmt::compile_block;
+use crate::parser::ast::{Expr, MatchArm, Pattern};
+use crate::typechecker::types::Type;
 use inkwell::types::BasicType;
 /**
  * Pattern matching code generation for Ruyi.
@@ -11,29 +17,24 @@ use inkwell::types::BasicType;
 use inkwell::values::BasicValueEnum;
 use inkwell::IntPredicate;
 
-use crate::codegen::expr::{compile_expr, ExprResult};
-use crate::codegen::generator::CodegenContext;
-use crate::codegen::stmt::compile_block;
-use crate::parser::ast::{Expr, MatchArm, Pattern};
-use crate::typechecker::types::Type;
-
 /// Compiles a match statement to LLVM IR.
 ///
 /// Generates a dispatch structure (switch, br, or icmp chain) based on
 /// the scrutinee type, then compiles each arm body in its own basic block.
 /// All arms converge at a merge block.
 pub fn compile_match_stmt<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     value: &Expr,
     arms: &[MatchArm],
 ) -> Result<(), String> {
     let scrutinee = compile_expr(ctx, value)?;
-    let func = ctx.current_function.ok_or("No current function")?;
+    let func = ctx.current_function().ok_or("No current function")?;
     let merge_bb = ctx.context.append_basic_block(func, "match_merge");
 
     // Build dispatch and arm blocks based on scrutinee type
     match scrutinee.ty {
-        Type::Int | Type::BigInt => compile_int_match(ctx, &scrutinee, arms, merge_bb),
+        Type::Int => compile_int_match(ctx, &scrutinee, arms, merge_bb),
+        Type::BigInt => compile_bigint_match(ctx, &scrutinee, arms, merge_bb),
         Type::Bool => compile_bool_match(ctx, &scrutinee, arms, merge_bb),
         Type::String => compile_string_match(ctx, &scrutinee, arms, merge_bb),
         Type::Nullable(_) | Type::Null => compile_nullable_match(ctx, &scrutinee, arms, merge_bb),
@@ -47,27 +48,25 @@ pub fn compile_match_stmt<'ctx>(
 /// For `Identifier(name)`, creates a stack slot and stores the scrutinee.
 /// For `Wildcard`, no-op. For other patterns, currently no-op.
 pub fn bind_pattern<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     pattern: &Pattern,
     scrutinee: &ExprResult<'ctx>,
 ) -> Result<(), String> {
     match pattern {
         Pattern::Identifier(name) => {
             let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &scrutinee.ty);
-            let ptr = ctx.builder.build_alloca(llvm_ty, name);
-            ctx.builder.build_store(ptr, scrutinee.value);
-            ctx.variables
-                .insert(name.clone(), (ptr, scrutinee.ty.clone()));
+            let ptr = ctx.builder().build_alloca(llvm_ty, name);
+            ctx.builder().build_store(ptr, scrutinee.value);
+            ctx.define_variable(name.clone(), (ptr, scrutinee.ty.clone()));
             Ok(())
         }
         Pattern::Wildcard => Ok(()),
         Pattern::As(inner, alias) => {
             bind_pattern(ctx, inner, scrutinee)?;
             let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &scrutinee.ty);
-            let ptr = ctx.builder.build_alloca(llvm_ty, alias);
-            ctx.builder.build_store(ptr, scrutinee.value);
-            ctx.variables
-                .insert(alias.clone(), (ptr, scrutinee.ty.clone()));
+            let ptr = ctx.builder().build_alloca(llvm_ty, alias);
+            ctx.builder().build_store(ptr, scrutinee.value);
+            ctx.define_variable(alias.clone(), (ptr, scrutinee.ty.clone()));
             Ok(())
         }
         Pattern::Literal(_) => Ok(()),
@@ -78,7 +77,7 @@ pub fn bind_pattern<'ctx>(
 }
 
 pub fn bind_array_pattern<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     elements: &[crate::parser::ast::ArrayPatternElement],
     scrutinee: &ExprResult<'ctx>,
 ) -> Result<(), String> {
@@ -107,15 +106,15 @@ pub fn bind_array_pattern<'ctx>(
 
                 let offset = i32_ty.const_int((16 + idx * 8) as u64, false);
                 let elem_ptr = unsafe {
-                    ctx.builder
+                    ctx.builder()
                         .build_gep(array_ptr, &[offset], &format!("elem_ptr_{}", idx))
                 };
-                let typed_ptr = ctx.builder.build_bitcast(
+                let typed_ptr = ctx.builder().build_bitcast(
                     elem_ptr,
                     llvm_ty.ptr_type(Default::default()),
                     &format!("elem_typed_ptr_{}", idx),
                 );
-                let loaded = ctx.builder.build_load(
+                let loaded = ctx.builder().build_load(
                     typed_ptr.into_pointer_value(),
                     &format!("loaded_elem_{}", idx),
                 );
@@ -123,9 +122,9 @@ pub fn bind_array_pattern<'ctx>(
                     Pattern::Identifier(n) => n.clone(),
                     _ => format!("_anon_{}", idx),
                 };
-                let ptr = ctx.builder.build_alloca(llvm_ty, &name);
-                ctx.builder.build_store(ptr, loaded);
-                ctx.variables.insert(name, (ptr, elem_ty));
+                let ptr = ctx.builder().build_alloca(llvm_ty, &name);
+                ctx.builder().build_store(ptr, loaded);
+                ctx.define_variable(name, (ptr, elem_ty));
 
                 idx += 1;
             }
@@ -141,7 +140,7 @@ pub fn bind_array_pattern<'ctx>(
 }
 
 pub fn bind_object_pattern<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     fields: &[crate::parser::ast::ObjectPatternField],
     scrutinee: &ExprResult<'ctx>,
 ) -> Result<(), String> {
@@ -152,7 +151,7 @@ pub fn bind_object_pattern<'ctx>(
 
     let i32_ty = ctx.context.i32_type();
 
-    if let Type::Named(class_name) = &scrutinee.ty {
+    if let Type::Named(class_name, _) = &scrutinee.ty {
         let class_fields: Vec<_> = ctx
             .class_fields
             .get(class_name)
@@ -163,7 +162,7 @@ pub fn bind_object_pattern<'ctx>(
             .get(class_name)
             .ok_or_else(|| format!("No struct type for class: {}", class_name))?;
 
-        let struct_ptr = ctx.builder.build_pointer_cast(
+        let struct_ptr = ctx.builder().build_pointer_cast(
             obj_ptr,
             struct_type.ptr_type(Default::default()),
             "obj_struct_cast",
@@ -182,7 +181,7 @@ pub fn bind_object_pattern<'ctx>(
                     let (_, field_ty) = &class_fields[field_index];
 
                     let field_ptr = unsafe {
-                        ctx.builder.build_gep(
+                        ctx.builder().build_gep(
                             struct_ptr,
                             &[
                                 i32_ty.const_int(0, false),
@@ -191,7 +190,7 @@ pub fn bind_object_pattern<'ctx>(
                             &format!("{}_ptr", key),
                         )
                     };
-                    let field_val = ctx.builder.build_load(field_ptr, key);
+                    let field_val = ctx.builder().build_load(field_ptr, key);
 
                     bind_pattern(ctx, inner, &ExprResult::new(field_val, field_ty.clone()))?;
                 }
@@ -203,7 +202,7 @@ pub fn bind_object_pattern<'ctx>(
                     let (_, field_ty) = &class_fields[field_index];
 
                     let field_ptr = unsafe {
-                        ctx.builder.build_gep(
+                        ctx.builder().build_gep(
                             struct_ptr,
                             &[
                                 i32_ty.const_int(0, false),
@@ -212,12 +211,12 @@ pub fn bind_object_pattern<'ctx>(
                             &format!("{}_ptr", name),
                         )
                     };
-                    let field_val = ctx.builder.build_load(field_ptr, name);
+                    let field_val = ctx.builder().build_load(field_ptr, name);
 
                     let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, field_ty);
-                    let ptr = ctx.builder.build_alloca(llvm_ty, name);
-                    ctx.builder.build_store(ptr, field_val);
-                    ctx.variables.insert(name.clone(), (ptr, field_ty.clone()));
+                    let ptr = ctx.builder().build_alloca(llvm_ty, name);
+                    ctx.builder().build_store(ptr, field_val);
+                    ctx.define_variable(name.clone(), (ptr, field_ty.clone()));
                 }
                 _ => {}
             }
@@ -237,16 +236,18 @@ pub fn bind_object_pattern<'ctx>(
 
                     let offset = i32_ty.const_int((field_index * 8) as u64, false);
                     let field_ptr = unsafe {
-                        ctx.builder
+                        ctx.builder()
                             .build_gep(obj_ptr, &[offset], &format!("{}_ptr", key))
                     };
-                    let typed_ptr = ctx.builder.build_bitcast(
+                    let typed_ptr = ctx.builder().build_bitcast(
                         field_ptr,
                         super::types::ruyi_type_to_llvm(ctx.context, field_ty)
                             .ptr_type(Default::default()),
                         &format!("{}_typed_ptr", key),
                     );
-                    let field_val = ctx.builder.build_load(typed_ptr.into_pointer_value(), key);
+                    let field_val = ctx
+                        .builder()
+                        .build_load(typed_ptr.into_pointer_value(), key);
 
                     bind_pattern(ctx, inner, &ExprResult::new(field_val, field_ty.clone()))?;
                 }
@@ -259,21 +260,23 @@ pub fn bind_object_pattern<'ctx>(
 
                     let offset = i32_ty.const_int((field_index * 8) as u64, false);
                     let field_ptr = unsafe {
-                        ctx.builder
+                        ctx.builder()
                             .build_gep(obj_ptr, &[offset], &format!("{}_ptr", name))
                     };
-                    let typed_ptr = ctx.builder.build_bitcast(
+                    let typed_ptr = ctx.builder().build_bitcast(
                         field_ptr,
                         super::types::ruyi_type_to_llvm(ctx.context, field_ty)
                             .ptr_type(Default::default()),
                         &format!("{}_typed_ptr", name),
                     );
-                    let field_val = ctx.builder.build_load(typed_ptr.into_pointer_value(), name);
+                    let field_val = ctx
+                        .builder()
+                        .build_load(typed_ptr.into_pointer_value(), name);
 
                     let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, field_ty);
-                    let ptr = ctx.builder.build_alloca(llvm_ty, name);
-                    ctx.builder.build_store(ptr, field_val);
-                    ctx.variables.insert(name.clone(), (ptr, field_ty.clone()));
+                    let ptr = ctx.builder().build_alloca(llvm_ty, name);
+                    ctx.builder().build_store(ptr, field_val);
+                    ctx.define_variable(name.clone(), (ptr, field_ty.clone()));
                 }
                 _ => {}
             }
@@ -289,23 +292,23 @@ pub fn bind_object_pattern<'ctx>(
 /// compiles the arm statements, and adds a branch to merge if
 /// the arm doesn't already terminate.
 fn compile_arm_bodies<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     arms: &[MatchArm],
     arm_bbs: &[inkwell::basic_block::BasicBlock<'ctx>],
     merge_bb: inkwell::basic_block::BasicBlock<'ctx>,
     scrutinee: &ExprResult<'ctx>,
 ) -> Result<(), String> {
     for (i, arm) in arms.iter().enumerate() {
-        ctx.builder.position_at_end(arm_bbs[i]);
+        ctx.builder().position_at_end(arm_bbs[i]);
         bind_pattern(ctx, &arm.pattern, scrutinee)?;
         compile_block(ctx, &arm.body)?;
-        if let Some(bb) = ctx.builder.get_insert_block() {
+        if let Some(bb) = ctx.builder().get_insert_block() {
             if bb.get_terminator().is_none() {
-                ctx.builder.build_unconditional_branch(merge_bb);
+                ctx.builder().build_unconditional_branch(merge_bb);
             }
         }
     }
-    ctx.builder.position_at_end(merge_bb);
+    ctx.builder().position_at_end(merge_bb);
     Ok(())
 }
 
@@ -319,7 +322,7 @@ fn compile_arm_bodies<'ctx>(
 /// chain: each arm checks pattern match, evaluates guard, and branches
 /// to body or falls through to the next arm.
 fn compile_int_match<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     scrutinee: &ExprResult<'ctx>,
     arms: &[MatchArm],
     merge_bb: inkwell::basic_block::BasicBlock<'ctx>,
@@ -334,12 +337,12 @@ fn compile_int_match<'ctx>(
 
 /// Switch-based integer match (no guards).
 fn compile_int_match_switch<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     scrutinee: &ExprResult<'ctx>,
     arms: &[MatchArm],
     merge_bb: inkwell::basic_block::BasicBlock<'ctx>,
 ) -> Result<(), String> {
-    let func = ctx.current_function.ok_or("No current function")?;
+    let func = ctx.current_function().ok_or("No current function")?;
 
     let mut arm_bbs = Vec::with_capacity(arms.len());
     let mut cases: Vec<(
@@ -379,8 +382,8 @@ fn compile_int_match_switch<'ctx>(
 
     let default_block = default_bb.unwrap_or_else(|| {
         let trap = ctx.context.append_basic_block(func, "match_trap");
-        ctx.builder.position_at_end(trap);
-        ctx.builder.build_unreachable();
+        ctx.builder().position_at_end(trap);
+        ctx.builder().build_unreachable();
         trap
     });
 
@@ -389,7 +392,7 @@ fn compile_int_match_switch<'ctx>(
         _ => return Err("Int match requires integer scrutinee".to_string()),
     };
 
-    ctx.builder
+    ctx.builder()
         .build_switch(scrutinee_int, default_block, &cases);
 
     compile_arm_bodies(ctx, arms, &arm_bbs, merge_bb, scrutinee)
@@ -400,12 +403,12 @@ fn compile_int_match_switch<'ctx>(
 /// Each arm checks pattern match, then evaluates guard if present.
 /// If guard fails, falls through to the next arm.
 fn compile_int_match_sequential<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     scrutinee: &ExprResult<'ctx>,
     arms: &[MatchArm],
     merge_bb: inkwell::basic_block::BasicBlock<'ctx>,
 ) -> Result<(), String> {
-    let func = ctx.current_function.ok_or("No current function")?;
+    let func = ctx.current_function().ok_or("No current function")?;
     let i64_ty = ctx.context.i64_type();
 
     let scrutinee_int = match scrutinee.value {
@@ -421,7 +424,7 @@ fn compile_int_match_sequential<'ctx>(
         .collect();
 
     let entry_bb = ctx.context.append_basic_block(func, "int_seq_entry");
-    ctx.builder.build_unconditional_branch(entry_bb);
+    ctx.builder().build_unconditional_branch(entry_bb);
 
     // Create check blocks for all arms except the last
     let check_bbs: Vec<_> = (0..arms.len().saturating_sub(1))
@@ -442,21 +445,21 @@ fn compile_int_match_sequential<'ctx>(
 
         let current_bb = if i == 0 { entry_bb } else { check_bbs[i - 1] };
 
-        ctx.builder.position_at_end(current_bb);
+        ctx.builder().position_at_end(current_bb);
 
         match &arm.pattern {
             Pattern::Literal(lit) => {
                 if let Expr::IntLiteral(n) = lit.as_ref() {
-                    let is_match = ctx.builder.build_int_compare(
+                    let is_match = ctx.builder().build_int_compare(
                         inkwell::IntPredicate::EQ,
                         scrutinee_int,
                         i64_ty.const_int(*n as u64, true),
                         &format!("int_seq_check_{}", i),
                     );
-                    ctx.builder
+                    ctx.builder()
                         .build_conditional_branch(is_match, arm_bbs[i], next_bb);
                 } else {
-                    ctx.builder.build_unconditional_branch(next_bb);
+                    ctx.builder().build_unconditional_branch(next_bb);
                 }
             }
             Pattern::Or(patterns) => {
@@ -464,13 +467,13 @@ fn compile_int_match_sequential<'ctx>(
                 for p in patterns {
                     if let Pattern::Literal(lit) = p {
                         if let Expr::IntLiteral(n) = lit.as_ref() {
-                            let is_eq = ctx.builder.build_int_compare(
+                            let is_eq = ctx.builder().build_int_compare(
                                 inkwell::IntPredicate::EQ,
                                 scrutinee_int,
                                 i64_ty.const_int(*n as u64, true),
                                 &format!("int_seq_or_check_{}", i),
                             );
-                            final_match = ctx.builder.build_or(
+                            final_match = ctx.builder().build_or(
                                 final_match,
                                 is_eq,
                                 &format!("int_seq_or_{}", i),
@@ -478,21 +481,21 @@ fn compile_int_match_sequential<'ctx>(
                         }
                     }
                 }
-                ctx.builder
+                ctx.builder()
                     .build_conditional_branch(final_match, arm_bbs[i], next_bb);
             }
             Pattern::Wildcard | Pattern::Identifier(_) => {
-                ctx.builder.build_unconditional_branch(arm_bbs[i]);
+                ctx.builder().build_unconditional_branch(arm_bbs[i]);
             }
             _ => {
-                ctx.builder.build_unconditional_branch(next_bb);
+                ctx.builder().build_unconditional_branch(next_bb);
             }
         }
     }
 
     // Now compile arm bodies
     for (i, arm) in arms.iter().enumerate() {
-        ctx.builder.position_at_end(arm_bbs[i]);
+        ctx.builder().position_at_end(arm_bbs[i]);
 
         bind_pattern(ctx, &arm.pattern, scrutinee)?;
 
@@ -506,24 +509,24 @@ fn compile_int_match_sequential<'ctx>(
             } else {
                 merge_bb
             };
-            ctx.builder.build_conditional_branch(
+            ctx.builder().build_conditional_branch(
                 guard_val.value.into_int_value(),
                 body_bb,
                 next_bb,
             );
-            ctx.builder.position_at_end(body_bb);
+            ctx.builder().position_at_end(body_bb);
         }
 
         compile_block(ctx, &arm.body)?;
 
-        if let Some(bb) = ctx.builder.get_insert_block() {
+        if let Some(bb) = ctx.builder().get_insert_block() {
             if bb.get_terminator().is_none() {
-                ctx.builder.build_unconditional_branch(merge_bb);
+                ctx.builder().build_unconditional_branch(merge_bb);
             }
         }
     }
 
-    ctx.builder.position_at_end(merge_bb);
+    ctx.builder().position_at_end(merge_bb);
     Ok(())
 }
 
@@ -532,12 +535,12 @@ fn compile_int_match_sequential<'ctx>(
 /// `true` and `false` literal arms get direct branches. Wildcard or
 /// identifier arms act as the default for the missing branch.
 fn compile_bool_match<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     scrutinee: &ExprResult<'ctx>,
     arms: &[MatchArm],
     merge_bb: inkwell::basic_block::BasicBlock<'ctx>,
 ) -> Result<(), String> {
-    let func = ctx.current_function.ok_or("No current function")?;
+    let func = ctx.current_function().ok_or("No current function")?;
 
     let mut arm_bbs = Vec::with_capacity(arms.len());
     let mut true_bb: Option<inkwell::basic_block::BasicBlock<'ctx>> = None;
@@ -576,7 +579,7 @@ fn compile_bool_match<'ctx>(
         _ => return Err("Bool match requires boolean scrutinee".to_string()),
     };
 
-    ctx.builder
+    ctx.builder()
         .build_conditional_branch(cond_val, true_target, false_target);
 
     compile_arm_bodies(ctx, arms, &arm_bbs, merge_bb, scrutinee)
@@ -588,12 +591,12 @@ fn compile_bool_match<'ctx>(
 /// pointer equality for string literals. A chain of conditional
 /// branches is generated.
 fn compile_string_match<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     scrutinee: &ExprResult<'ctx>,
     arms: &[MatchArm],
     merge_bb: inkwell::basic_block::BasicBlock<'ctx>,
 ) -> Result<(), String> {
-    let func = ctx.current_function.ok_or("No current function")?;
+    let func = ctx.current_function().ok_or("No current function")?;
 
     let mut arm_bbs = Vec::with_capacity(arms.len());
     let mut literal_arms: Vec<(String, inkwell::basic_block::BasicBlock<'ctx>)> = Vec::new();
@@ -635,7 +638,7 @@ fn compile_string_match<'ctx>(
     let mut check_bbs: Vec<inkwell::basic_block::BasicBlock<'ctx>> = Vec::new();
     for (i, (s, target_bb)) in literal_arms.iter().enumerate() {
         let check_bb = if i == 0 {
-            ctx.builder.get_insert_block().unwrap()
+            ctx.builder().get_insert_block().unwrap()
         } else {
             ctx.context
                 .append_basic_block(func, &format!("str_check_{}", i))
@@ -644,10 +647,10 @@ fn compile_string_match<'ctx>(
             check_bbs.push(check_bb);
         }
 
-        ctx.builder.position_at_end(check_bb);
-        let lit_global = ctx.builder.build_global_string_ptr(s, "match_str_lit");
+        ctx.builder().position_at_end(check_bb);
+        let lit_global = ctx.builder().build_global_string_ptr(s, "match_str_lit");
         let cmp_result = ctx
-            .builder
+            .builder()
             .build_call(
                 strcmp_fn,
                 &[scrutinee_ptr.into(), lit_global.as_pointer_value().into()],
@@ -657,7 +660,7 @@ fn compile_string_match<'ctx>(
             .left()
             .unwrap()
             .into_int_value();
-        let is_equal = ctx.builder.build_int_compare(
+        let is_equal = ctx.builder().build_int_compare(
             IntPredicate::EQ,
             cmp_result,
             i32_ty.const_int(0, false),
@@ -671,7 +674,7 @@ fn compile_string_match<'ctx>(
             default_bb.unwrap_or(merge_bb)
         };
 
-        ctx.builder
+        ctx.builder()
             .build_conditional_branch(is_equal, *target_bb, next_bb);
     }
 
@@ -684,12 +687,12 @@ fn compile_string_match<'ctx>(
 /// arms match the non-null value. Pointer types are checked with
 /// ptr-to-int; integer types use -1 (all-ones) as a sentinel.
 fn compile_nullable_match<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     scrutinee: &ExprResult<'ctx>,
     arms: &[MatchArm],
     merge_bb: inkwell::basic_block::BasicBlock<'ctx>,
 ) -> Result<(), String> {
-    let func = ctx.current_function.ok_or("No current function")?;
+    let func = ctx.current_function().ok_or("No current function")?;
 
     let mut arm_bbs = Vec::with_capacity(arms.len());
     let mut null_bb: Option<inkwell::basic_block::BasicBlock<'ctx>> = None;
@@ -729,8 +732,8 @@ fn compile_nullable_match<'ctx>(
     // Generate null check
     let is_null = match scrutinee.value {
         BasicValueEnum::PointerValue(p) => {
-            let ptr_int = ctx.builder.build_ptr_to_int(p, i64_ty, "ptr_int");
-            ctx.builder.build_int_compare(
+            let ptr_int = ctx.builder().build_ptr_to_int(p, i64_ty, "ptr_int");
+            ctx.builder().build_int_compare(
                 IntPredicate::EQ,
                 ptr_int,
                 i64_ty.const_int(0, false),
@@ -739,7 +742,7 @@ fn compile_nullable_match<'ctx>(
         }
         BasicValueEnum::IntValue(v) => {
             // For nullable primitives (erased to inner type), use -1 (all-ones) sentinel
-            ctx.builder.build_int_compare(
+            ctx.builder().build_int_compare(
                 IntPredicate::EQ,
                 v,
                 i64_ty.const_all_ones(),
@@ -752,7 +755,7 @@ fn compile_nullable_match<'ctx>(
     let null_target = null_bb.or(default_bb).unwrap_or(merge_bb);
     let value_target = value_bb.or(default_bb).unwrap_or(merge_bb);
 
-    ctx.builder
+    ctx.builder()
         .build_conditional_branch(is_null, null_target, value_target);
 
     compile_arm_bodies(ctx, arms, &arm_bbs, merge_bb, scrutinee)
@@ -764,12 +767,12 @@ fn compile_nullable_match<'ctx>(
 /// (e.g., `[]`, `[x]`, `[x, y]`) become length equality checks. Wildcard or
 /// identifier arms serve as the default.
 fn compile_array_match<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     scrutinee: &ExprResult<'ctx>,
     arms: &[MatchArm],
     merge_bb: inkwell::basic_block::BasicBlock<'ctx>,
 ) -> Result<(), String> {
-    let func = ctx.current_function.ok_or("No current function")?;
+    let func = ctx.current_function().ok_or("No current function")?;
     let array_ptr = match scrutinee.value {
         BasicValueEnum::PointerValue(p) => p,
         _ => return Err("Array match requires pointer scrutinee".to_string()),
@@ -778,12 +781,12 @@ fn compile_array_match<'ctx>(
     let i64_ty = ctx.context.i64_type();
 
     // Get array length: first 8 bytes of array memory store the length
-    let len_ptr = ctx.builder.build_pointer_cast(
+    let len_ptr = ctx.builder().build_pointer_cast(
         array_ptr,
         i64_ty.ptr_type(Default::default()),
         "array_len_ptr",
     );
-    let array_len = ctx.builder.build_load(len_ptr, "array_len");
+    let array_len = ctx.builder().build_load(len_ptr, "array_len");
 
     let mut arm_bbs = Vec::with_capacity(arms.len());
     let mut length_cases: Vec<(u64, inkwell::basic_block::BasicBlock<'ctx>)> = Vec::new();
@@ -828,7 +831,7 @@ fn compile_array_match<'ctx>(
 
     let default_block = default_bb.unwrap_or(merge_bb);
 
-    ctx.builder.build_switch(
+    ctx.builder().build_switch(
         array_len.into_int_value(),
         default_block,
         &length_cases
@@ -840,20 +843,129 @@ fn compile_array_match<'ctx>(
     compile_arm_bodies(ctx, arms, &arm_bbs, merge_bb, scrutinee)
 }
 
+/// BigInt match using sequential dispatch via `ruyi_bigint_eq`.
+///
+/// Each arm is checked in order. Literal patterns call the runtime
+/// `ruyi_bigint_eq` to compare the opaque bigint pointer with the
+/// constant created from the literal string. Wildcard and identifier
+/// arms act as a default match.
+fn compile_bigint_match<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
+    scrutinee: &ExprResult<'ctx>,
+    arms: &[MatchArm],
+    merge_bb: inkwell::basic_block::BasicBlock<'ctx>,
+) -> Result<(), String> {
+    let func = ctx.current_function().ok_or("No current function")?;
+    let scrutinee_ptr = match scrutinee.value {
+        BasicValueEnum::PointerValue(p) => p,
+        _ => return Err("BigInt match requires pointer scrutinee".to_string()),
+    };
+
+    let arm_bbs: Vec<_> = (0..arms.len())
+        .map(|i| {
+            ctx.context
+                .append_basic_block(func, &format!("bigint_arm_{}", i))
+        })
+        .collect();
+    let check_bbs: Vec<_> = (0..arms.len())
+        .map(|i| {
+            ctx.context
+                .append_basic_block(func, &format!("bigint_check_{}", i))
+        })
+        .collect();
+
+    let entry_bb = ctx.context.append_basic_block(func, "bigint_match_entry");
+    ctx.builder().build_unconditional_branch(entry_bb);
+
+    for (i, arm) in arms.iter().enumerate() {
+        let current = if i == 0 { entry_bb } else { check_bbs[i - 1] };
+        let next = check_bbs.get(i).copied().unwrap_or(merge_bb);
+        ctx.builder().position_at_end(current);
+
+        match &arm.pattern {
+            Pattern::Literal(lit) => {
+                if let Expr::BigIntLiteral(n) = lit.as_ref() {
+                    let lit_result = compile_bigint_literal(ctx, n)?;
+                    let lit_ptr = match lit_result.value {
+                        BasicValueEnum::PointerValue(p) => p,
+                        _ => return Err("BigInt literal must be a pointer".to_string()),
+                    };
+                    let eq_i8 =
+                        build_ruyi_bigint_eq(ctx.builder(), &ctx.module, scrutinee_ptr, lit_ptr)?;
+                    let is_match = ctx.builder().build_int_compare(
+                        IntPredicate::NE,
+                        eq_i8,
+                        ctx.context.i8_type().const_int(0, false),
+                        &format!("bigint_eq_{}", i),
+                    );
+                    ctx.builder()
+                        .build_conditional_branch(is_match, arm_bbs[i], next);
+                } else {
+                    ctx.builder().build_unconditional_branch(next);
+                }
+            }
+            Pattern::Or(patterns) => {
+                let i8_ty = ctx.context.i8_type();
+                let mut final_match = i8_ty.const_int(0, false);
+                let mut had_literal = false;
+                for p in patterns {
+                    if let Pattern::Literal(lit) = p {
+                        if let Expr::BigIntLiteral(n) = lit.as_ref() {
+                            had_literal = true;
+                            let lit_result = compile_bigint_literal(ctx, n)?;
+                            let lit_ptr = match lit_result.value {
+                                BasicValueEnum::PointerValue(p) => p,
+                                _ => return Err("BigInt literal must be a pointer".to_string()),
+                            };
+                            let eq_i8 = build_ruyi_bigint_eq(
+                                ctx.builder(),
+                                &ctx.module,
+                                scrutinee_ptr,
+                                lit_ptr,
+                            )?;
+                            final_match = ctx.builder().build_or(final_match, eq_i8, "bigint_or");
+                        }
+                    }
+                }
+                if had_literal {
+                    let is_match = ctx.builder().build_int_compare(
+                        IntPredicate::NE,
+                        final_match,
+                        i8_ty.const_int(0, false),
+                        &format!("bigint_or_match_{}", i),
+                    );
+                    ctx.builder()
+                        .build_conditional_branch(is_match, arm_bbs[i], next);
+                } else {
+                    ctx.builder().build_unconditional_branch(next);
+                }
+            }
+            Pattern::Wildcard | Pattern::Identifier(_) => {
+                ctx.builder().build_unconditional_branch(arm_bbs[i]);
+            }
+            _ => {
+                ctx.builder().build_unconditional_branch(next);
+            }
+        }
+    }
+
+    compile_arm_bodies(ctx, arms, &arm_bbs, merge_bb, scrutinee)
+}
+
 /// Generic fallback match for unsupported types.
 ///
 /// For Named types (classes), generates field-by-field comparison chains.
 /// For other types, evaluates each arm in order with no optimisation.
 fn compile_generic_match<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     scrutinee: &ExprResult<'ctx>,
     arms: &[MatchArm],
     merge_bb: inkwell::basic_block::BasicBlock<'ctx>,
 ) -> Result<(), String> {
-    let func = ctx.current_function.ok_or("No current function")?;
+    let func = ctx.current_function().ok_or("No current function")?;
 
     // For Named types (classes), try to generate field-based dispatch
-    if let Type::Named(class_name) = &scrutinee.ty {
+    if let Type::Named(class_name, _) = &scrutinee.ty {
         let fields_opt = ctx.class_fields.get(class_name).cloned();
         let struct_type_opt = ctx.class_struct_types.get(class_name).cloned();
         if let (Some(fields), Some(struct_type)) = (fields_opt, struct_type_opt) {
@@ -879,7 +991,7 @@ fn compile_generic_match<'ctx>(
         }
     }
 
-    ctx.builder.build_unconditional_branch(target_bb);
+    ctx.builder().build_unconditional_branch(target_bb);
     compile_arm_bodies(ctx, arms, &arm_bbs, merge_bb, scrutinee)
 }
 
@@ -905,14 +1017,14 @@ fn has_literal_object_checks(pattern: &Pattern) -> bool {
 /// the corresponding object fields. If all checks pass, jumps to that
 /// arm's body. Otherwise, falls through to the next arm.
 fn compile_object_match<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     scrutinee: &ExprResult<'ctx>,
     arms: &[MatchArm],
     merge_bb: inkwell::basic_block::BasicBlock<'ctx>,
     fields: &[(String, Type)],
     struct_type: inkwell::types::StructType<'ctx>,
 ) -> Result<(), String> {
-    let func = ctx.current_function.ok_or("No current function")?;
+    let func = ctx.current_function().ok_or("No current function")?;
     let obj_ptr = match scrutinee.value {
         BasicValueEnum::PointerValue(p) => p,
         _ => return Err("Object match requires pointer scrutinee".to_string()),
@@ -965,11 +1077,11 @@ fn compile_object_match<'ctx>(
 
     // Entry: branch to first check or first arm
     let entry_bb = ctx.context.append_basic_block(func, "obj_match_entry");
-    ctx.builder.build_unconditional_branch(entry_bb);
-    ctx.builder.position_at_end(entry_bb);
+    ctx.builder().build_unconditional_branch(entry_bb);
+    ctx.builder().position_at_end(entry_bb);
 
     let first_target = check_bbs.iter().find_map(|x| *x).unwrap_or(arm_bbs[0]);
-    ctx.builder.build_unconditional_branch(first_target);
+    ctx.builder().build_unconditional_branch(first_target);
 
     // Build each check block
     for (arm_idx, check_bb_opt) in check_bbs.iter().enumerate() {
@@ -978,7 +1090,7 @@ fn compile_object_match<'ctx>(
             None => continue,
         };
 
-        ctx.builder.position_at_end(check_bb);
+        ctx.builder().position_at_end(check_bb);
 
         let checks = collect_object_pattern_checks(&arms[arm_idx].pattern, fields)?;
         let next_bb = if arm_idx + 1 < check_bbs.len() {
@@ -1046,7 +1158,7 @@ fn collect_object_pattern_checks(
 }
 
 fn chain_object_checks<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     checks: &[FieldCheck],
     obj_ptr: inkwell::values::PointerValue<'ctx>,
     struct_type: inkwell::types::StructType<'ctx>,
@@ -1056,14 +1168,14 @@ fn chain_object_checks<'ctx>(
     i32_ty: inkwell::types::IntType<'ctx>,
 ) -> Result<(), String> {
     if checks.is_empty() {
-        ctx.builder.build_unconditional_branch(success_bb);
+        ctx.builder().build_unconditional_branch(success_bb);
         return Ok(());
     }
 
-    let func = ctx.current_function.ok_or("No current function")?;
+    let func = ctx.current_function().ok_or("No current function")?;
 
     // Cast object pointer to struct type
-    let struct_ptr = ctx.builder.build_pointer_cast(
+    let struct_ptr = ctx.builder().build_pointer_cast(
         obj_ptr,
         struct_type.ptr_type(Default::default()),
         "obj_struct_cast",
@@ -1071,7 +1183,7 @@ fn chain_object_checks<'ctx>(
 
     for (i, check) in checks.iter().enumerate() {
         let field_ptr = unsafe {
-            ctx.builder.build_gep(
+            ctx.builder().build_gep(
                 struct_ptr,
                 &[
                     i32_ty.const_int(0, false),
@@ -1081,10 +1193,10 @@ fn chain_object_checks<'ctx>(
             )
         };
         let field_val = ctx
-            .builder
+            .builder()
             .build_load(field_ptr, &format!("field_val_{}", i));
 
-        let is_match = ctx.builder.build_int_compare(
+        let is_match = ctx.builder().build_int_compare(
             IntPredicate::EQ,
             field_val.into_int_value(),
             i64_ty.const_int(check.expected_value as u64, true),
@@ -1095,11 +1207,11 @@ fn chain_object_checks<'ctx>(
             let next_check_bb = ctx
                 .context
                 .append_basic_block(func, &format!("next_check_{}", i));
-            ctx.builder
+            ctx.builder()
                 .build_conditional_branch(is_match, next_check_bb, fail_bb);
-            ctx.builder.position_at_end(next_check_bb);
+            ctx.builder().position_at_end(next_check_bb);
         } else {
-            ctx.builder
+            ctx.builder()
                 .build_conditional_branch(is_match, success_bb, fail_bb);
         }
     }

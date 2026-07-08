@@ -546,7 +546,7 @@ impl Parser {
         let name = self.expect_ident()?;
         let type_params = self.parse_type_params()?;
         self.expect(Token::Assign)?;
-        let ty = self.parse_type_annotation()?;
+        let ty = self.parse_type()?;
         self.expect(Token::SemiColon)?;
         Ok(Declaration::TypeAlias {
             name,
@@ -563,9 +563,11 @@ impl Parser {
         while !self.check(&Token::RBrace) && !self.is_at_end() {
             self.expect(Token::LParen)?;
             let pattern = self.parse_macro_tokens_until(&Token::RParen)?;
+            self.expect(Token::RParen)?;
             self.expect(Token::FatArrow)?;
             self.expect(Token::LBrace)?;
             let body = self.parse_macro_tokens_until(&Token::RBrace)?;
+            self.expect(Token::RBrace)?;
             rules.push(MacroRule { pattern, body });
         }
         self.expect(Token::RBrace)?;
@@ -1182,7 +1184,7 @@ impl Parser {
 
     // Expressions
 
-    fn parse_expression(&mut self) -> Result<Expr, ParseError> {
+    pub fn parse_expression(&mut self) -> Result<Expr, ParseError> {
         self.parse_expr_bp(0)
     }
 
@@ -1828,6 +1830,19 @@ impl Parser {
     }
 
     fn parse_type(&mut self) -> Result<TypeAnnotation, ParseError> {
+        let mut parts: Vec<TypeAnnotation> = Vec::new();
+        parts.push(self.parse_postfix_type()?);
+        while self.match_token(&Token::Pipe) {
+            parts.push(self.parse_postfix_type()?);
+        }
+        if parts.len() == 1 {
+            Ok(parts.into_iter().next().unwrap())
+        } else {
+            Ok(TypeAnnotation::Union(parts))
+        }
+    }
+
+    fn parse_postfix_type(&mut self) -> Result<TypeAnnotation, ParseError> {
         let mut ty = self.parse_primary_type()?;
         if self.match_token(&Token::Question) {
             ty = TypeAnnotation::Nullable(Box::new(ty));
@@ -2116,6 +2131,11 @@ impl Parser {
                 let i = *i;
                 self.advance();
                 Some(Pattern::Literal(Box::new(Expr::IntLiteral(i))))
+            }
+            Some(Token::BigInt(s)) => {
+                let s = s.clone();
+                self.advance();
+                Some(Pattern::Literal(Box::new(Expr::BigIntLiteral(s))))
             }
             Some(Token::Float(f)) => {
                 let f = *f;

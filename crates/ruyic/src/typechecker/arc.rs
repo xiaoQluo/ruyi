@@ -57,7 +57,7 @@ impl ArcClassRegistry {
     /// Returns `true` if the given type is an ARC-managed class.
     pub fn is_arc_type(&self, ty: &Type) -> bool {
         match ty {
-            Type::Named(name) => self.is_arc_class(name),
+            Type::Named(name, _) => self.is_arc_class(name),
             Type::Generic { base, .. } => self.is_arc_class(base),
             _ => false,
         }
@@ -107,8 +107,8 @@ mod tests {
         let mut registry = ArcClassRegistry::new();
         registry.arc_classes.insert("ArcBox".into());
 
-        assert!(registry.is_arc_type(&Type::Named("ArcBox".into())));
-        assert!(!registry.is_arc_type(&Type::Named("GcBox".into())));
+        assert!(registry.is_arc_type(&Type::Named("ArcBox".into(), vec![])));
+        assert!(!registry.is_arc_type(&Type::Named("GcBox".into(), vec![])));
         assert!(registry.is_arc_type(&Type::Generic {
             base: "ArcBox".into(),
             args: vec![Type::Int],

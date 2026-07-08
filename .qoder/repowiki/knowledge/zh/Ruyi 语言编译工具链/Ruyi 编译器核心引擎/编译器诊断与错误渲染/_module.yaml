@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: ruyic/diagnostics
+title: 编译器诊断与错误渲染
+scope:
+    - crates/ruyic/src/diagnostics/
+source_files: []
+depends_on: []
+related_to: []

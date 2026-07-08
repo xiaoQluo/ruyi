@@ -172,7 +172,7 @@ impl TraitRegistry {
     /// Check if a type implements a trait.
     pub fn implements(&self, ty: &Type, trait_name: &str) -> bool {
         match ty {
-            Type::Named(name) | Type::Generic { base: name, .. } => self
+            Type::Named(name, _) | Type::Generic { base: name, .. } => self
                 .type_trait_impls
                 .contains_key(&(name.clone(), trait_name.to_string())),
             Type::String | Type::Int | Type::Float | Type::Bool => self
@@ -186,7 +186,7 @@ impl TraitRegistry {
     /// Get the impl index for a (type, trait) pair.
     pub fn get_impl_index(&self, ty: &Type, trait_name: &str) -> Option<usize> {
         match ty {
-            Type::Named(name) | Type::Generic { base: name, .. } => self
+            Type::Named(name, _) | Type::Generic { base: name, .. } => self
                 .type_trait_impls
                 .get(&(name.clone(), trait_name.to_string()))
                 .copied(),
@@ -217,7 +217,7 @@ impl TraitRegistry {
                     if !trait_method.has_default && !impl_info.methods.contains(method_name) {
                         let for_type_str = type_annotation_name(&impl_info.for_type);
                         diagnostics.add_error(DiagnosticKind::TraitNotImplemented {
-                            ty: Type::Named(for_type_str.clone()),
+                            ty: Type::Named(for_type_str.clone(), vec![]),
                             trait_name: format!("{}::{}", impl_info.trait_name, method_name),
                         });
                     }
@@ -384,7 +384,7 @@ mod tests {
         let registry = registry_from_source(
             "trait Printable { fn format(self): string; }\nimpl Printable for int { fn format(self): string { return \"\"; } }"
         );
-        assert!(registry.implements(&Type::Named("int".into()), "Printable"));
+        assert!(registry.implements(&Type::Named("int".into(), vec![]), "Printable"));
     }
 
     #[test]
@@ -402,7 +402,7 @@ mod tests {
         let registry = registry_from_source(
             "trait Printable { fn format(self): string; }\nimpl Printable for int { fn format(self): string { return \"\"; } }"
         );
-        assert!(registry.check_bound(&Type::Named("int".into()), "Printable"));
-        assert!(!registry.check_bound(&Type::Named("string".into()), "Printable"));
+        assert!(registry.check_bound(&Type::Named("int".into(), vec![]), "Printable"));
+        assert!(!registry.check_bound(&Type::Named("string".into(), vec![]), "Printable"));
     }
 }

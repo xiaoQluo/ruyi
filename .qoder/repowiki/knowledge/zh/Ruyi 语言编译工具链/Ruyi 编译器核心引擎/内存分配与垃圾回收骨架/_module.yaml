@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: ruyic/gc
+title: 内存分配与垃圾回收骨架
+scope:
+    - crates/ruyic/src/gc/
+source_files: []
+depends_on: []
+related_to: []

@@ -51,7 +51,7 @@ fn test_type_display() {
         .to_string(),
         "fn(int, string) -> bool"
     );
-    assert_eq!(Type::Named("MyClass".into()).to_string(), "MyClass");
+    assert_eq!(Type::Named("MyClass".into(), vec![]).to_string(), "MyClass");
     assert_eq!(
         Type::Generic {
             base: "Array".into(),
@@ -256,7 +256,7 @@ fn test_from_annotation() {
     );
     assert_eq!(
         Type::from_annotation(&TypeAnnotation::Identifier("MyClass".into())),
-        Type::Named("MyClass".into())
+        Type::Named("MyClass".into(), vec![])
     );
 }
 
@@ -290,15 +290,29 @@ fn test_from_annotation_function() {
 #[test]
 fn test_from_annotation_generic() {
     use ruyic::parser::ast::TypeAnnotation;
+    // Array<T> is normalized from Generic to Type::Array
     let gen_type = TypeAnnotation::Generic {
         base: "Array".into(),
         args: vec![TypeAnnotation::Identifier("int".into())],
     };
     assert_eq!(
         Type::from_annotation(&gen_type),
+        Type::Array(Box::new(Type::Int))
+    );
+
+    // Non-Array generics remain as Type::Generic
+    let map_type = TypeAnnotation::Generic {
+        base: "Map".into(),
+        args: vec![
+            TypeAnnotation::Identifier("string".into()),
+            TypeAnnotation::Identifier("int".into()),
+        ],
+    };
+    assert_eq!(
+        Type::from_annotation(&map_type),
         Type::Generic {
-            base: "Array".into(),
-            args: vec![Type::Int],
+            base: "Map".into(),
+            args: vec![Type::String, Type::Int],
         }
     );
 }

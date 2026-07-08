@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: ruyic/macro_expand
+title: 宏展开与卫生性处理
+scope:
+    - crates/ruyic/src/macro_expand/
+source_files: []
+depends_on: []
+related_to: []

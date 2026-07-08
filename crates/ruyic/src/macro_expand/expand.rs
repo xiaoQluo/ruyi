@@ -2,19 +2,19 @@ use crate::lexer::token::Token;
 use crate::macro_expand::hygiene::StandardHygieneContext;
 use crate::macro_expand::pattern::{parse_pattern, PatternMatcher};
 use crate::macro_expand::{MacroError, MacroRegistry, MacroResult, MacroRule, MAX_EXPANSION_DEPTH};
-use crate::parser::ast::{Argument, MatchArm};
+use crate::parser::ast::{Argument, ClassElement, MatchArm};
 use crate::parser::ast::{Declaration, Expr, ForInit, ModuleItem, Program, Statement};
 
-pub struct MacroExpander {
-    registry: MacroRegistry,
+pub struct MacroExpander<'a> {
+    registry: &'a mut MacroRegistry,
     depth: usize,
     hygiene_ctx: StandardHygieneContext,
 }
 
-impl MacroExpander {
-    pub fn new(registry: &MacroRegistry) -> Self {
+impl<'a> MacroExpander<'a> {
+    pub fn new(registry: &'a mut MacroRegistry) -> Self {
         Self {
-            registry: registry.clone(),
+            registry,
             depth: 0,
             hygiene_ctx: StandardHygieneContext::new(),
         }
@@ -54,7 +54,168 @@ impl MacroExpander {
                 self.registry.add_macro(name.clone(), rules.clone());
                 Ok(decl.clone())
             }
+            Declaration::Let(bindings) | Declaration::Const(bindings) => {
+                let expanded_bindings: Result<Vec<_>, MacroError> = bindings
+                    .iter()
+                    .map(|b| -> MacroResult<_> {
+                        Ok(crate::parser::ast::Binding {
+                            pattern: b.pattern.clone(),
+                            init: match &b.init {
+                                Some(e) => Some(Box::new(self.expand_expression(e)?)),
+                                None => None,
+                            },
+                            ty: b.ty.clone(),
+                        })
+                    })
+                    .collect();
+                Ok(match decl {
+                    Declaration::Let(_) => Declaration::Let(expanded_bindings?),
+                    Declaration::Const(_) => Declaration::Const(expanded_bindings?),
+                    _ => unreachable!(),
+                })
+            }
+            Declaration::Function {
+                name,
+                type_params,
+                params,
+                return_type,
+                body,
+                is_async,
+            } => {
+                let body_expanded: Vec<Statement> = body
+                    .iter()
+                    .map(|s| self.expand_statement(s))
+                    .collect::<MacroResult<Vec<_>>>()?;
+                Ok(Declaration::Function {
+                    name: name.clone(),
+                    type_params: type_params.clone(),
+                    params: params.clone(),
+                    return_type: return_type.clone(),
+                    body: body_expanded,
+                    is_async: *is_async,
+                })
+            }
+            Declaration::Class {
+                name,
+                type_params,
+                extends,
+                body,
+                annotations,
+            } => {
+                let body_expanded: Vec<ClassElement> = body
+                    .iter()
+                    .map(|elem| self.expand_class_element(elem))
+                    .collect::<MacroResult<Vec<_>>>()?;
+                Ok(Declaration::Class {
+                    name: name.clone(),
+                    type_params: type_params.clone(),
+                    extends: extends.clone(),
+                    body: body_expanded,
+                    annotations: annotations.clone(),
+                })
+            }
+            Declaration::Impl {
+                type_params,
+                trait_name,
+                trait_args,
+                for_type,
+                body,
+            } => {
+                let body_expanded: Vec<ClassElement> = body
+                    .iter()
+                    .map(|elem| self.expand_class_element(elem))
+                    .collect::<MacroResult<Vec<_>>>()?;
+                Ok(Declaration::Impl {
+                    type_params: type_params.clone(),
+                    trait_name: trait_name.clone(),
+                    trait_args: trait_args.clone(),
+                    for_type: for_type.clone(),
+                    body: body_expanded,
+                })
+            }
             _ => Ok(decl.clone()),
+        }
+    }
+
+    fn expand_class_element(&mut self, elem: &ClassElement) -> MacroResult<ClassElement> {
+        match elem {
+            ClassElement::Method {
+                name,
+                type_params,
+                params,
+                return_type,
+                body,
+                is_async,
+                is_static,
+                is_getter,
+                is_setter,
+            } => {
+                let body_expanded: Vec<Statement> = body
+                    .iter()
+                    .map(|s| self.expand_statement(s))
+                    .collect::<MacroResult<Vec<_>>>()?;
+                Ok(ClassElement::Method {
+                    name: name.clone(),
+                    type_params: type_params.clone(),
+                    params: params.clone(),
+                    return_type: return_type.clone(),
+                    body: body_expanded,
+                    is_async: *is_async,
+                    is_static: *is_static,
+                    is_getter: *is_getter,
+                    is_setter: *is_setter,
+                })
+            }
+            ClassElement::Field {
+                name,
+                ty,
+                init,
+                is_static,
+            } => {
+                let init_expanded = match init {
+                    Some(e) => Some(Box::new(self.expand_expression(e)?)),
+                    None => None,
+                };
+                Ok(ClassElement::Field {
+                    name: name.clone(),
+                    ty: ty.clone(),
+                    init: init_expanded,
+                    is_static: *is_static,
+                })
+            }
+            ClassElement::Empty => Ok(ClassElement::Empty),
+        }
+    }
+
+    fn expand_statement_to_expr(&mut self, stmt: &Statement) -> MacroResult<Expr> {
+        match stmt {
+            Statement::Expression(e) => self.expand_expression(e),
+            Statement::Block(stmts) => {
+                let expanded: Result<Vec<Statement>, _> =
+                    stmts.iter().map(|s| self.expand_statement(s)).collect();
+                Ok(Expr::Block(expanded?))
+            }
+            Statement::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                let cond = Box::new(self.expand_expression(condition)?);
+                let then_b = Box::new(self.expand_statement_to_expr(then_branch)?);
+                let else_b = match else_branch {
+                    Some(e) => Some(Box::new(self.expand_statement_to_expr(e)?)),
+                    None => None,
+                };
+                Ok(Expr::If {
+                    condition: cond,
+                    then_branch: then_b,
+                    else_branch: else_b,
+                })
+            }
+            _ => {
+                let expanded = self.expand_statement(stmt)?;
+                Ok(Expr::Block(vec![expanded]))
+            }
         }
     }
 
@@ -214,7 +375,7 @@ impl MacroExpander {
                     .collect();
 
                 if let Expr::Identifier(name) = &callee_expanded {
-                    if self.registry.contains(name.as_str()) && !is_buildin_expr(expr) {
+                    if self.registry.contains(name.as_str()) {
                         return self.expand_macro_call(name.as_str(), &args_expanded?);
                     }
                 }
@@ -316,11 +477,14 @@ impl MacroExpander {
         self.depth += 1;
 
         let arg_tokens = args_to_tokens(args);
-        let expansion = if let Some(rules) = self.registry.get_macro(name) {
+        let (expansion, captures) = if let Some(rules) = self.registry.get_macro(name) {
             let rules = rules.to_vec();
             self.expand_with_rules(name, &rules, &arg_tokens)?
         } else if let Some(builtin) = self.registry.get_builtin(name) {
-            (builtin.expand)(&arg_tokens, &self.hygiene_ctx)?
+            (
+                (builtin.expand)(&arg_tokens, &self.hygiene_ctx)?,
+                std::collections::HashMap::new(),
+            )
         } else {
             return Err(MacroError::NoMatchingRule {
                 macro_name: name.to_string(),
@@ -330,22 +494,36 @@ impl MacroExpander {
 
         self.depth -= 1;
 
-        let expanded_tokens = apply_template(
-            &expansion,
-            &std::collections::HashMap::new(),
-            &self.hygiene_ctx,
-        );
+        let expanded_tokens = apply_template(&expansion, &captures, &self.hygiene_ctx);
         let source = tokens_to_source(&expanded_tokens);
-
-        let mut parser =
-            crate::parser::Parser::new(&source).map_err(|e| MacroError::InvalidInvocation {
+        let program = if source.trim().ends_with(';') {
+            let mut parser =
+                crate::parser::Parser::new(&source).map_err(|e| MacroError::InvalidInvocation {
+                    macro_name: name.to_string(),
+                    message: e.to_string(),
+                })?;
+            parser.parse().map_err(|e| MacroError::InvalidInvocation {
                 macro_name: name.to_string(),
                 message: e.to_string(),
+            })?
+        } else {
+            let wrapped = format!("( {} )", source);
+            let mut parser = crate::parser::Parser::new(&wrapped).map_err(|e| {
+                MacroError::InvalidInvocation {
+                    macro_name: name.to_string(),
+                    message: e.to_string(),
+                }
             })?;
-        let program = parser.parse().map_err(|e| MacroError::InvalidInvocation {
-            macro_name: name.to_string(),
-            message: e.to_string(),
-        })?;
+            let expr = parser
+                .parse_expression()
+                .map_err(|e| MacroError::InvalidInvocation {
+                    macro_name: name.to_string(),
+                    message: e.to_string(),
+                })?;
+            Program {
+                items: vec![ModuleItem::Statement(Statement::Expression(Box::new(expr)))],
+            }
+        };
 
         if let Some(ModuleItem::Statement(Statement::Expression(e))) = program.items.first() {
             self.expand_expression(e)
@@ -360,6 +538,23 @@ impl MacroExpander {
         } else if let Some(ModuleItem::Statement(s)) = program.items.first() {
             match s {
                 Statement::Expression(e) => self.expand_expression(e),
+                Statement::If {
+                    condition,
+                    then_branch,
+                    else_branch,
+                } => {
+                    let cond = Box::new(self.expand_expression(condition)?);
+                    let then_b = Box::new(self.expand_statement_to_expr(then_branch)?);
+                    let else_b = match else_branch {
+                        Some(e) => Some(Box::new(self.expand_statement_to_expr(e)?)),
+                        None => None,
+                    };
+                    Ok(Expr::If {
+                        condition: cond,
+                        then_branch: then_b,
+                        else_branch: else_b,
+                    })
+                }
                 _ => {
                     let expanded = self.expand_statement(s)?;
                     Ok(Expr::Block(vec![expanded]))
@@ -375,13 +570,16 @@ impl MacroExpander {
         _name: &str,
         rules: &[MacroRule],
         input: &[Token],
-    ) -> MacroResult<Vec<Token>> {
+    ) -> MacroResult<(
+        Vec<Token>,
+        std::collections::HashMap<String, crate::macro_expand::pattern::CapturedTokens>,
+    )> {
         for rule in rules {
             let pattern = parse_pattern(&rule.pattern)?;
             let mut matcher = PatternMatcher::new(pattern, input.to_vec());
             if let Ok(result) = matcher.match_pattern() {
                 if result.matched {
-                    return Ok(rule.body.clone());
+                    return Ok((rule.body.clone(), result.captures));
                 }
             }
         }
@@ -392,8 +590,23 @@ impl MacroExpander {
     }
 }
 
-fn is_buildin_expr(expr: &Expr) -> bool {
-    matches!(expr, Expr::Identifier(_) | Expr::Call { .. })
+fn stmts_to_tokens_from_block(expr: &Expr) -> Vec<Token> {
+    if let Expr::Block(stmts) = expr {
+        stmts.iter().flat_map(stmts_to_tokens).collect()
+    } else {
+        expr_to_tokens(expr)
+    }
+}
+
+fn stmts_to_tokens(stmt: &Statement) -> Vec<Token> {
+    match stmt {
+        Statement::Expression(e) => {
+            let mut tokens = expr_to_tokens(e);
+            tokens.push(Token::SemiColon);
+            tokens
+        }
+        _ => vec![],
+    }
 }
 
 fn args_to_tokens(args: &[crate::parser::ast::Argument]) -> Vec<Token> {
@@ -432,6 +645,40 @@ fn expr_to_tokens(expr: &Expr) -> Vec<Token> {
         Expr::Unary { op, operand } => {
             let mut tokens = vec![unary_op_to_token(op)];
             tokens.extend(expr_to_tokens(operand));
+            tokens
+        }
+        Expr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            let mut tokens = vec![Token::If];
+            tokens.push(Token::LParen);
+            tokens.extend(expr_to_tokens(condition));
+            tokens.push(Token::RParen);
+            tokens.push(Token::LBrace);
+            tokens.extend(stmts_to_tokens_from_block(then_branch));
+            tokens.push(Token::RBrace);
+            if let Some(e) = else_branch {
+                tokens.push(Token::Else);
+                tokens.push(Token::LBrace);
+                tokens.extend(stmts_to_tokens_from_block(e));
+                tokens.push(Token::RBrace);
+            }
+            tokens
+        }
+        Expr::Block(stmts) => {
+            let mut tokens = vec![Token::LBrace];
+            for s in stmts {
+                tokens.extend(stmts_to_tokens(s));
+            }
+            tokens.push(Token::RBrace);
+            tokens
+        }
+        Expr::Grouping(inner) => {
+            let mut tokens = vec![Token::LParen];
+            tokens.extend(expr_to_tokens(inner));
+            tokens.push(Token::RParen);
             tokens
         }
         Expr::Call { callee, args } => {
@@ -615,47 +862,25 @@ fn tokens_to_source(tokens: &[Token]) -> String {
         .join(" ")
 }
 
+fn escape_string_literal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\0' => out.push_str("\\0"),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 fn token_to_source(token: &Token) -> String {
     match token {
-        Token::Int(i) => i.to_string(),
-        Token::Float(f) => f.to_string(),
-        Token::String(s) => format!("\"{}\"", s),
-        Token::Ident(s) => s.clone(),
-        Token::True => "true".to_string(),
-        Token::False => "false".to_string(),
-        Token::Null => "null".to_string(),
-        Token::LParen => "(".to_string(),
-        Token::RParen => ")".to_string(),
-        Token::LBracket => "[".to_string(),
-        Token::RBracket => "]".to_string(),
-        Token::LBrace => "{".to_string(),
-        Token::RBrace => "}".to_string(),
-        Token::Comma => ",".to_string(),
-        Token::SemiColon => ";".to_string(),
-        Token::Colon => ":".to_string(),
-        Token::Dot => ".".to_string(),
-        Token::Assign => "=".to_string(),
-        Token::Plus => "+".to_string(),
-        Token::Minus => "-".to_string(),
-        Token::Star => "*".to_string(),
-        Token::Slash => "/".to_string(),
-        Token::Percent => "%".to_string(),
-        Token::StrictEquals => "===".to_string(),
-        Token::StrictNotEquals => "!==".to_string(),
-        Token::Equals => "==".to_string(),
-        Token::NotEquals => "!=".to_string(),
-        Token::Less => "<".to_string(),
-        Token::Greater => ">".to_string(),
-        Token::LessEq => "<=".to_string(),
-        Token::GreaterEq => ">=".to_string(),
-        Token::And => "&&".to_string(),
-        Token::Or => "||".to_string(),
-        Token::Not => "!".to_string(),
-        Token::Question => "?".to_string(),
-        Token::Spread => "...".to_string(),
-        Token::FatArrow => "=>".to_string(),
-        Token::DoubleColon => "::".to_string(),
-        Token::Dollar => "$".to_string(),
-        _ => format!("{:?}", token),
+        Token::String(s) => format!("\"{}\"", escape_string_literal(s)),
+        _ => token.lexeme(),
     }
 }

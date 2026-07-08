@@ -20,6 +20,24 @@ FAILURES_LOG="$TARGET_DIR/failures.log"
 COMPILE_TIMEOUT=60
 RUN_TIMEOUT=10
 
+# ── Detect timeout command (macOS uses gtimeout from coreutils) ───────────────
+if command -v gtimeout &>/dev/null; then
+  TIMEOUT_CMD="gtimeout"
+elif command -v timeout &>/dev/null; then
+  TIMEOUT_CMD="timeout"
+else
+  TIMEOUT_CMD=""
+fi
+
+run_with_timeout() {
+  local secs="$1"; shift
+  if [[ -n "$TIMEOUT_CMD" ]]; then
+    "$TIMEOUT_CMD" "$secs" "$@"
+  else
+    "$@"
+  fi
+}
+
 # ── Counters ─────────────────────────────────────────────────────────────────
 TOTAL=0
 PASSED=0
@@ -100,8 +118,8 @@ done
 # Returns: 0 if test file, 1 otherwise
 is_test_file() {
   local name="$1"
-  # Only v05_tests.ry uses the --test flag (test framework demo)
-  [[ "$name" == "v05_tests" ]]
+  # Currently no files use the --test flag
+  [[ "$name" == "__none__" ]]
 }
 
 # Get baseline status from baselines.json.
@@ -155,7 +173,7 @@ compile_file() {
   echo "  Compiling: $input -> $output"
 
   local exit_code=0
-  timeout "$COMPILE_TIMEOUT" "$COMPILER" "${compile_args[@]}" "$input" -o "$output" \
+  run_with_timeout "$COMPILE_TIMEOUT" "$COMPILER" ${compile_args[@]+"${compile_args[@]}"} "$input" -o "$output" \
     1>"$stdout_file" 2>"$stderr_file" || exit_code=$?
 
   return "$exit_code"
@@ -170,7 +188,7 @@ run_binary() {
   local stderr_file="$3"
 
   local exit_code=0
-  timeout "$RUN_TIMEOUT" "$binary" 1>"$stdout_file" 2>"$stderr_file" || exit_code=$?
+  run_with_timeout "$RUN_TIMEOUT" "$binary" 1>"$stdout_file" 2>"$stderr_file" || exit_code=$?
 
   return "$exit_code"
 }

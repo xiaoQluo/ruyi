@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: examples_and_tests
+title: Ruyi 语言示例与集成测试套件
+scope:
+    - examples/
+    - test/
+source_files: []
+depends_on: []
+related_to: []

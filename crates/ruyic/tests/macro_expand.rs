@@ -77,8 +77,8 @@ fn test_macro_expand_basic() {
         hello();
     "#;
     let program = parse_ok(source);
-    let registry = MacroRegistry::with_builtins();
-    let result = expand_macros(&program, &registry);
+    let mut registry = MacroRegistry::with_builtins();
+    let result = expand_macros(&program, &mut registry);
     assert!(
         result.is_ok(),
         "macro expansion should succeed: {:?}",
@@ -95,8 +95,8 @@ fn test_macro_expand_with_arg() {
         debug(42);
     "#;
     let program = parse_ok(source);
-    let registry = MacroRegistry::with_builtins();
-    let result = expand_macros(&program, &registry);
+    let mut registry = MacroRegistry::with_builtins();
+    let result = expand_macros(&program, &mut registry);
     assert!(
         result.is_ok(),
         "macro expansion should succeed: {:?}",
@@ -115,8 +115,8 @@ fn test_macro_expand_multiple_rules() {
         let b = one_or_two(42);
     "#;
     let program = parse_ok(source);
-    let registry = MacroRegistry::with_builtins();
-    let result = expand_macros(&program, &registry);
+    let mut registry = MacroRegistry::with_builtins();
+    let result = expand_macros(&program, &mut registry);
     assert!(
         result.is_ok(),
         "macro expansion should succeed: {:?}",
@@ -130,8 +130,8 @@ fn test_macro_expand_multiple_rules() {
 fn test_builtin_todo() {
     let source = "todo!();";
     let program = parse_ok(source);
-    let registry = MacroRegistry::with_builtins();
-    let result = expand_macros(&program, &registry);
+    let mut registry = MacroRegistry::with_builtins();
+    let result = expand_macros(&program, &mut registry);
     assert!(result.is_ok(), "todo! should expand: {:?}", result);
 }
 
@@ -139,8 +139,8 @@ fn test_builtin_todo() {
 fn test_builtin_unreachable() {
     let source = "unreachable!();";
     let program = parse_ok(source);
-    let registry = MacroRegistry::with_builtins();
-    let result = expand_macros(&program, &registry);
+    let mut registry = MacroRegistry::with_builtins();
+    let result = expand_macros(&program, &mut registry);
     assert!(result.is_ok(), "unreachable! should expand: {:?}", result);
 }
 
@@ -150,8 +150,8 @@ fn test_builtin_unreachable() {
 fn test_macro_undefined() {
     let source = "foo();";
     let program = parse_ok(source);
-    let registry = MacroRegistry::with_builtins();
-    let result = expand_macros(&program, &registry);
+    let mut registry = MacroRegistry::with_builtins();
+    let result = expand_macros(&program, &mut registry);
     assert!(
         result.is_ok(),
         "undefined macro should not error if not called"
@@ -160,7 +160,7 @@ fn test_macro_undefined() {
 
 #[test]
 fn test_macro_registry_contains() {
-    let registry = MacroRegistry::with_builtins();
+    let mut registry = MacroRegistry::with_builtins();
     assert!(registry.contains("todo"));
     assert!(registry.contains("unreachable"));
     assert!(registry.contains("stringify"));
@@ -176,6 +176,7 @@ fn test_macro_registry_user_macros() {
         }
     "#;
     let program = parse_ok(source);
+    let _ = expand_macros(&program, &mut registry);
     for item in program.items {
         if let ModuleItem::Declaration(Declaration::Macro { name, .. }) = item {
             let macros = registry.get_macro(&name);

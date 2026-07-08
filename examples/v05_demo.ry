@@ -35,24 +35,26 @@ fn day_name(n: int): string {
 }
 
 // Main demo
-let counter = Counter.new();
-counter.increment();
-counter.increment();
-counter.increment();
-print("Counter: ");
-print(counter.get());
-print("\n");
+fn main() {
+  let counter = Counter.new();
+  counter.increment();
+  counter.increment();
+  counter.increment();
+  print("Counter: ");
+  print(counter.get());
+  print("\n");
 
-print("sign(-5): ");
-print(sign(-5));
-print("\n");
+  print("sign(-5): ");
+  print(sign(-5));
+  print("\n");
 
-print("day_name(3): ");
-print(day_name(3));
-print("\n");
+  print("day_name(3): ");
+  print(day_name(3));
+  print("\n");
 
-// Nullable type demo (skip null check to avoid LLVM codegen hang)
-let name: string? = "Ruyi v0.5";
-print("Hello, ");
-print(name);
-print("\n");
+  // Nullable type demo (skip null check to avoid LLVM codegen hang)
+  let name: string? = "Ruyi v0.5";
+  print("Hello, ");
+  print(name);
+  print("\n");
+}

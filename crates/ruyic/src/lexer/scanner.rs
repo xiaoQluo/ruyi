@@ -60,7 +60,11 @@ impl Scanner {
                 self.advance();
                 Token::TemplateExprStart
             }
-            'a'..='z' | 'A'..='Z' | '_' | '$' => self.scan_ident_or_keyword(),
+            '$' => {
+                self.advance();
+                Token::Dollar
+            }
+            'a'..='z' | 'A'..='Z' | '_' => self.scan_ident_or_keyword(),
             '0'..='9' => self.scan_number()?,
             '"' => self.scan_string('"')?,
             '\'' => self.scan_string('\'')?,
@@ -430,7 +434,7 @@ impl Scanner {
     }
 
     fn is_ident_part(&self, ch: char) -> bool {
-        matches!(ch, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '$')
+        matches!(ch, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_')
     }
 
     fn resolve_keyword(ident: &str) -> Token {

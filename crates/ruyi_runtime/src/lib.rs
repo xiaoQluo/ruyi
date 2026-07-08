@@ -23,8 +23,9 @@ pub use async_runtime::{
 };
 pub use builtins::{
     ruyi_array_alloc, ruyi_array_get, ruyi_array_length, ruyi_array_pop, ruyi_array_push,
-    ruyi_array_set, ruyi_bigint_from_str, ruyi_bool_to_string, ruyi_float_to_string,
-    ruyi_int_to_string, ruyi_member_access, ruyi_object_alloc, ruyi_string_concat,
+    ruyi_array_set, ruyi_bigint_eq, ruyi_bigint_from_str, ruyi_bool_to_string,
+    ruyi_float_to_string, ruyi_int_to_string, ruyi_member_access, ruyi_object_alloc,
+    ruyi_string_concat,
 };
 #[cfg(feature = "inkwell")]
 pub use exception::landing_pad::llvm::LandingPadGenerator;

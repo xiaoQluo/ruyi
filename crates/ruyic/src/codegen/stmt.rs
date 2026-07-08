@@ -16,7 +16,7 @@ use crate::parser::ast::{Expr, Statement};
 use crate::typechecker::types::Type;
 
 pub fn compile_stmt<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     stmt: &Statement,
 ) -> Result<(), String> {
     match stmt {
@@ -73,7 +73,7 @@ pub fn compile_stmt<'ctx>(
                 .loop_stack
                 .last()
                 .ok_or("BreakOutsideLoop: break statement must be inside a loop")?;
-            ctx.builder.build_unconditional_branch(*end_bb);
+            ctx.builder().build_unconditional_branch(*end_bb);
             Ok(())
         }
         Statement::Continue(_) => {
@@ -81,7 +81,7 @@ pub fn compile_stmt<'ctx>(
                 .loop_stack
                 .last()
                 .ok_or("ContinueOutsideLoop: continue statement must be inside a loop")?;
-            ctx.builder.build_unconditional_branch(*cond_bb);
+            ctx.builder().build_unconditional_branch(*cond_bb);
             Ok(())
         }
         Statement::Match { value, arms } => super::patterns::compile_match_stmt(ctx, value, arms),
@@ -101,12 +101,12 @@ pub fn compile_stmt<'ctx>(
 }
 
 pub fn compile_block<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     stmts: &[Statement],
 ) -> Result<(), String> {
     for stmt in stmts {
         compile_stmt(ctx, stmt)?;
-        if let Some(bb) = ctx.builder.get_insert_block() {
+        if let Some(bb) = ctx.builder().get_insert_block() {
             if bb.get_terminator().is_some() {
                 break;
             }
@@ -116,7 +116,7 @@ pub fn compile_block<'ctx>(
 }
 
 fn compile_if<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     condition: &crate::parser::ast::Expr,
     then_branch: &Statement,
     else_branch: Option<&Statement>,
@@ -127,97 +127,97 @@ fn compile_if<'ctx>(
         _ => return Err("Condition must be boolean".to_string()),
     };
 
-    let func = ctx.current_function.ok_or("No current function")?;
+    let func = ctx.current_function().ok_or("No current function")?;
 
     let then_bb = ctx.context.append_basic_block(func, "if_then");
     let else_bb = ctx.context.append_basic_block(func, "if_else");
     let merge_bb = ctx.context.append_basic_block(func, "if_merge");
 
-    ctx.builder
+    ctx.builder()
         .build_conditional_branch(cond_val, then_bb, else_bb);
 
-    ctx.builder.position_at_end(then_bb);
+    ctx.builder().position_at_end(then_bb);
     compile_stmt(ctx, then_branch)?;
     if ctx
-        .builder
+        .builder()
         .get_insert_block()
         .unwrap()
         .get_terminator()
         .is_none()
     {
-        ctx.builder.build_unconditional_branch(merge_bb);
+        ctx.builder().build_unconditional_branch(merge_bb);
     }
 
-    ctx.builder.position_at_end(else_bb);
+    ctx.builder().position_at_end(else_bb);
     if let Some(else_stmt) = else_branch {
         compile_stmt(ctx, else_stmt)?;
     }
     if ctx
-        .builder
+        .builder()
         .get_insert_block()
         .unwrap()
         .get_terminator()
         .is_none()
     {
-        ctx.builder.build_unconditional_branch(merge_bb);
+        ctx.builder().build_unconditional_branch(merge_bb);
     }
 
-    ctx.builder.position_at_end(merge_bb);
+    ctx.builder().position_at_end(merge_bb);
 
     Ok(())
 }
 
 fn compile_while<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     condition: &crate::parser::ast::Expr,
     body: &Statement,
 ) -> Result<(), String> {
-    let func = ctx.current_function.ok_or("No current function")?;
+    let func = ctx.current_function().ok_or("No current function")?;
 
     let cond_bb = ctx.context.append_basic_block(func, "while_cond");
     let body_bb = ctx.context.append_basic_block(func, "while_body");
     let end_bb = ctx.context.append_basic_block(func, "while_end");
 
-    ctx.loop_stack.push((end_bb, cond_bb));
+    ctx.push_loop(end_bb, cond_bb);
 
-    ctx.builder.build_unconditional_branch(cond_bb);
+    ctx.builder().build_unconditional_branch(cond_bb);
 
-    ctx.builder.position_at_end(cond_bb);
+    ctx.builder().position_at_end(cond_bb);
     let cond_result = compile_expr(ctx, condition)?;
     let cond_val = match cond_result.value {
         BasicValueEnum::IntValue(v) => v,
         _ => return Err("Condition must be boolean".to_string()),
     };
-    ctx.builder
+    ctx.builder()
         .build_conditional_branch(cond_val, body_bb, end_bb);
 
-    ctx.builder.position_at_end(body_bb);
+    ctx.builder().position_at_end(body_bb);
     compile_stmt(ctx, body)?;
     if ctx
-        .builder
+        .builder()
         .get_insert_block()
         .unwrap()
         .get_terminator()
         .is_none()
     {
-        ctx.builder.build_unconditional_branch(cond_bb);
+        ctx.builder().build_unconditional_branch(cond_bb);
     }
 
-    ctx.builder.position_at_end(end_bb);
+    ctx.builder().position_at_end(end_bb);
 
-    ctx.loop_stack.pop();
+    ctx.pop_loop();
 
     Ok(())
 }
 
 fn compile_for<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     init: Option<&crate::parser::ast::ForInit>,
     condition: Option<&crate::parser::ast::Expr>,
     update: Option<&crate::parser::ast::Expr>,
     body: &Statement,
 ) -> Result<(), String> {
-    let func = ctx.current_function.ok_or("No current function")?;
+    let func = ctx.current_function().ok_or("No current function")?;
 
     let mut prev_vars = std::collections::HashMap::new();
     let mut declared_names = Vec::new();
@@ -228,7 +228,7 @@ fn compile_for<'ctx>(
             for binding in bindings {
                 if let crate::parser::ast::Pattern::Identifier(name) = &binding.pattern {
                     declared_names.push(name.clone());
-                    if let Some(old) = ctx.variables.get(name).cloned() {
+                    if let Some(old) = ctx.lookup_variable(name) {
                         prev_vars.insert(name.clone(), old);
                     }
                 }
@@ -244,57 +244,57 @@ fn compile_for<'ctx>(
     let update_bb = ctx.context.append_basic_block(func, "for_update");
     let end_bb = ctx.context.append_basic_block(func, "for_end");
 
-    ctx.builder.build_unconditional_branch(cond_bb);
+    ctx.builder().build_unconditional_branch(cond_bb);
 
-    ctx.builder.position_at_end(cond_bb);
+    ctx.builder().position_at_end(cond_bb);
     if let Some(cond) = condition {
         let cond_result = compile_expr(ctx, cond)?;
         let cond_val = match cond_result.value {
             BasicValueEnum::IntValue(v) => v,
             _ => return Err("Condition must be boolean".to_string()),
         };
-        ctx.builder
+        ctx.builder()
             .build_conditional_branch(cond_val, body_bb, end_bb);
     } else {
-        ctx.builder.build_unconditional_branch(body_bb);
+        ctx.builder().build_unconditional_branch(body_bb);
     }
 
-    ctx.loop_stack.push((end_bb, update_bb));
+    ctx.push_loop(end_bb, update_bb);
 
-    ctx.builder.position_at_end(body_bb);
+    ctx.builder().position_at_end(body_bb);
     compile_stmt(ctx, body)?;
     if ctx
-        .builder
+        .builder()
         .get_insert_block()
         .unwrap()
         .get_terminator()
         .is_none()
     {
-        ctx.builder.build_unconditional_branch(update_bb);
+        ctx.builder().build_unconditional_branch(update_bb);
     }
 
-    ctx.builder.position_at_end(update_bb);
+    ctx.builder().position_at_end(update_bb);
     if let Some(upd) = update {
         compile_expr(ctx, upd)?;
     }
     if ctx
-        .builder
+        .builder()
         .get_insert_block()
         .unwrap()
         .get_terminator()
         .is_none()
     {
-        ctx.builder.build_unconditional_branch(cond_bb);
+        ctx.builder().build_unconditional_branch(cond_bb);
     }
 
-    ctx.builder.position_at_end(end_bb);
-    ctx.loop_stack.pop();
+    ctx.builder().position_at_end(end_bb);
+    ctx.pop_loop();
 
     for name in declared_names {
         if let Some(old) = prev_vars.remove(&name) {
-            ctx.variables.insert(name, old);
+            ctx.define_variable(name, old);
         } else {
-            ctx.variables.remove(&name);
+            ctx.remove_variable(&name);
         }
     }
 
@@ -302,12 +302,12 @@ fn compile_for<'ctx>(
 }
 
 fn compile_for_in<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     variable: &str,
     iterable: &crate::parser::ast::Expr,
     body: &Statement,
 ) -> Result<(), String> {
-    let func = ctx.current_function.ok_or("No current function")?;
+    let func = ctx.current_function().ok_or("No current function")?;
     let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
     let i64_ty = ctx.context.i64_type();
     let i64_ptr_ty = i64_ty.ptr_type(Default::default());
@@ -320,7 +320,7 @@ fn compile_for_in<'ctx>(
         .get_function("ruyi_obj_keys")
         .expect("ruyi_obj_keys not declared");
     let keys_arr = ctx
-        .builder
+        .builder()
         .build_call(keys_fn, &[obj_ptr.into()], "keys_arr")
         .try_as_basic_value()
         .left()
@@ -328,15 +328,16 @@ fn compile_for_in<'ctx>(
         .into_pointer_value();
 
     let len_ptr = ctx
-        .builder
+        .builder()
         .build_bitcast(keys_arr, i64_ptr_ty, "len_ptr")
         .into_pointer_value();
-    let len = ctx.builder.build_load(len_ptr, "len").into_int_value();
+    let len = ctx.builder().build_load(len_ptr, "len").into_int_value();
 
-    let idx_ptr = ctx.builder.build_alloca(i64_ty, "for_in_idx");
-    ctx.builder.build_store(idx_ptr, i64_ty.const_int(0, false));
+    let idx_ptr = ctx.builder().build_alloca(i64_ty, "for_in_idx");
+    ctx.builder()
+        .build_store(idx_ptr, i64_ty.const_int(0, false));
 
-    let var_ptr = ctx.builder.build_alloca(i8_ptr, variable);
+    let var_ptr = ctx.builder().build_alloca(i8_ptr, variable);
     let old_var = ctx
         .variables
         .insert(variable.to_string(), (var_ptr, Type::String));
@@ -345,76 +346,77 @@ fn compile_for_in<'ctx>(
     let body_bb = ctx.context.append_basic_block(func, "for_in_body");
     let end_bb = ctx.context.append_basic_block(func, "for_in_end");
 
-    ctx.builder.build_unconditional_branch(cond_bb);
+    ctx.builder().build_unconditional_branch(cond_bb);
 
-    ctx.builder.position_at_end(cond_bb);
-    let idx = ctx.builder.build_load(idx_ptr, "idx").into_int_value();
+    ctx.builder().position_at_end(cond_bb);
+    let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
     let cond = ctx
-        .builder
+        .builder()
         .build_int_compare(inkwell::IntPredicate::SLT, idx, len, "for_in_cond");
-    ctx.builder.build_conditional_branch(cond, body_bb, end_bb);
+    ctx.builder()
+        .build_conditional_branch(cond, body_bb, end_bb);
 
-    ctx.loop_stack.push((end_bb, cond_bb));
+    ctx.push_loop(end_bb, cond_bb);
 
-    ctx.builder.position_at_end(body_bb);
-    let idx = ctx.builder.build_load(idx_ptr, "idx").into_int_value();
+    ctx.builder().position_at_end(body_bb);
+    let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
     let one = i64_ty.const_int(1, false);
     let elem_offset = ctx
-        .builder
+        .builder()
         .build_int_mul(idx, i64_ty.const_int(8, false), "elem_offset");
     let data_start = i64_ty.const_int(16, false);
     let elem_offset_with_header =
-        ctx.builder
+        ctx.builder()
             .build_int_add(data_start, elem_offset, "elem_offset_hdr");
-    let elem_offset_i32 = ctx.builder.build_int_cast(
+    let elem_offset_i32 = ctx.builder().build_int_cast(
         elem_offset_with_header,
         ctx.context.i32_type(),
         "elem_offset_i32",
     );
     let elem_ptr = unsafe {
-        ctx.builder
+        ctx.builder()
             .build_gep(keys_arr, &[elem_offset_i32], "elem_ptr")
     };
     let elem_i64_ptr = ctx
-        .builder
+        .builder()
         .build_bitcast(elem_ptr, i64_ptr_ty, "elem_i64_ptr")
         .into_pointer_value();
-    let key_val = ctx.builder.build_load(elem_i64_ptr, "key_val");
-    ctx.builder.build_store(var_ptr, key_val);
+    let key_val = ctx.builder().build_load(elem_i64_ptr, "key_val");
+    ctx.builder().build_store(var_ptr, key_val);
 
     compile_stmt(ctx, body)?;
 
     if ctx
-        .builder
+        .builder()
         .get_insert_block()
         .unwrap()
         .get_terminator()
         .is_none()
     {
-        let next_idx = ctx.builder.build_int_add(idx, one, "next_idx");
-        ctx.builder.build_store(idx_ptr, next_idx);
-        ctx.builder.build_unconditional_branch(cond_bb);
+        let next_idx = ctx.builder().build_int_add(idx, one, "next_idx");
+        ctx.builder().build_store(idx_ptr, next_idx);
+        ctx.builder().build_unconditional_branch(cond_bb);
     }
 
-    ctx.builder.position_at_end(end_bb);
-    ctx.loop_stack.pop();
+    ctx.builder().position_at_end(end_bb);
+    ctx.pop_loop();
 
     if let Some(old) = old_var {
-        ctx.variables.insert(variable.to_string(), old);
+        ctx.define_variable(variable.to_string(), old);
     } else {
-        ctx.variables.remove(variable);
+        ctx.remove_variable(variable);
     }
 
     Ok(())
 }
 
 fn compile_for_of<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     variable: &str,
     iterable: &crate::parser::ast::Expr,
     body: &Statement,
 ) -> Result<(), String> {
-    let func = ctx.current_function.ok_or("No current function")?;
+    let func = ctx.current_function().ok_or("No current function")?;
     let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
     let i64_ty = ctx.context.i64_type();
     let i64_ptr_ty = i64_ty.ptr_type(Default::default());
@@ -426,14 +428,15 @@ fn compile_for_of<'ctx>(
             let array_ptr = iter_result.value.into_pointer_value();
 
             let len_ptr = ctx
-                .builder
+                .builder()
                 .build_bitcast(array_ptr, i64_ptr_ty, "len_ptr")
                 .into_pointer_value();
-            let len = ctx.builder.build_load(len_ptr, "len").into_int_value();
+            let len = ctx.builder().build_load(len_ptr, "len").into_int_value();
 
-            let idx_ptr = ctx.builder.build_alloca(i64_ty, "for_of_idx");
-            let var_ptr = ctx.builder.build_alloca(i64_ty, variable);
-            ctx.builder.build_store(idx_ptr, i64_ty.const_int(0, false));
+            let idx_ptr = ctx.builder().build_alloca(i64_ty, "for_of_idx");
+            let var_ptr = ctx.builder().build_alloca(i64_ty, variable);
+            ctx.builder()
+                .build_store(idx_ptr, i64_ty.const_int(0, false));
             let old_var = ctx
                 .variables
                 .insert(variable.to_string(), (var_ptr, Type::Int));
@@ -442,64 +445,68 @@ fn compile_for_of<'ctx>(
             let body_bb = ctx.context.append_basic_block(func, "for_of_body");
             let end_bb = ctx.context.append_basic_block(func, "for_of_end");
 
-            ctx.builder.build_unconditional_branch(cond_bb);
+            ctx.builder().build_unconditional_branch(cond_bb);
 
-            ctx.builder.position_at_end(cond_bb);
-            let idx = ctx.builder.build_load(idx_ptr, "idx").into_int_value();
-            let cond =
-                ctx.builder
-                    .build_int_compare(inkwell::IntPredicate::SLT, idx, len, "for_of_cond");
-            ctx.builder.build_conditional_branch(cond, body_bb, end_bb);
+            ctx.builder().position_at_end(cond_bb);
+            let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
+            let cond = ctx.builder().build_int_compare(
+                inkwell::IntPredicate::SLT,
+                idx,
+                len,
+                "for_of_cond",
+            );
+            ctx.builder()
+                .build_conditional_branch(cond, body_bb, end_bb);
 
-            ctx.loop_stack.push((end_bb, cond_bb));
+            ctx.push_loop(end_bb, cond_bb);
 
-            ctx.builder.position_at_end(body_bb);
-            let idx = ctx.builder.build_load(idx_ptr, "idx").into_int_value();
+            ctx.builder().position_at_end(body_bb);
+            let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
             let one = i64_ty.const_int(1, false);
             let elem_offset =
-                ctx.builder
+                ctx.builder()
                     .build_int_mul(idx, i64_ty.const_int(8, false), "elem_offset");
             let data_start = i64_ty.const_int(16, false);
             let elem_offset_with_header =
-                ctx.builder
+                ctx.builder()
                     .build_int_add(data_start, elem_offset, "elem_offset_hdr");
-            let elem_offset_i32 = ctx.builder.build_int_cast(
+            let elem_offset_i32 = ctx.builder().build_int_cast(
                 elem_offset_with_header,
                 ctx.context.i32_type(),
                 "elem_offset_i32",
             );
             let elem_ptr = unsafe {
-                ctx.builder
+                ctx.builder()
                     .build_gep(array_ptr, &[elem_offset_i32], "elem_ptr")
             };
             let elem_i64_ptr = ctx
-                .builder
+                .builder()
                 .build_bitcast(elem_ptr, i64_ptr_ty, "elem_i64_ptr")
                 .into_pointer_value();
-            let elem_val = ctx.builder.build_load(elem_i64_ptr, "elem_val");
-            ctx.builder.build_store(var_ptr, elem_val);
+            let elem_val = ctx.builder().build_load(elem_i64_ptr, "elem_val");
+            ctx.builder().build_store(var_ptr, elem_val);
 
             compile_stmt(ctx, body)?;
 
             if ctx
-                .builder
+                .builder()
                 .get_insert_block()
                 .unwrap()
                 .get_terminator()
                 .is_none()
             {
-                let next_idx = ctx.builder.build_int_add(idx, one, "next_idx");
-                ctx.builder.build_store(idx_ptr, next_idx);
-                ctx.builder.build_unconditional_branch(cond_bb);
+                let next_idx = ctx.builder().build_int_add(idx, one, "next_idx");
+                ctx.builder().build_store(idx_ptr, next_idx);
+                ctx.builder().build_unconditional_branch(cond_bb);
             }
 
-            ctx.builder.position_at_end(end_bb);
-            ctx.loop_stack.pop();
+            ctx.builder().position_at_end(end_bb);
+            ctx.pop_loop();
 
             if let Some(old) = old_var {
-                ctx.variables.insert(variable.to_string(), old);
+                ctx.define_variable(variable.to_string(), old);
             } else {
-                ctx.variables.remove(variable);
+                ctx.remove_variable(variable);
             }
 
             Ok(())
@@ -508,8 +515,8 @@ fn compile_for_of<'ctx>(
             let iterable_ptr = iter_result.value.into_pointer_value();
 
             let temp_name = "__for_of_iterable";
-            let temp_ptr = ctx.builder.build_alloca(i8_ptr, temp_name);
-            ctx.builder.build_store(temp_ptr, iterable_ptr);
+            let temp_ptr = ctx.builder().build_alloca(i8_ptr, temp_name);
+            ctx.builder().build_store(temp_ptr, iterable_ptr);
             let old_temp = ctx
                 .variables
                 .insert(temp_name.to_string(), (temp_ptr, iter_result.ty.clone()));
@@ -525,8 +532,8 @@ fn compile_for_of<'ctx>(
             let iter_obj_result = compile_expr(ctx, &iter_call)?;
 
             let iter_name = "__for_of_iterator";
-            let iter_ptr = ctx.builder.build_alloca(i8_ptr, iter_name);
-            ctx.builder.build_store(iter_ptr, iter_obj_result.value);
+            let iter_ptr = ctx.builder().build_alloca(i8_ptr, iter_name);
+            ctx.builder().build_store(iter_ptr, iter_obj_result.value);
             let old_iter = ctx
                 .variables
                 .insert(iter_name.to_string(), (iter_ptr, Type::Dynamic));
@@ -535,9 +542,9 @@ fn compile_for_of<'ctx>(
             let body_bb = ctx.context.append_basic_block(func, "for_of_body");
             let end_bb = ctx.context.append_basic_block(func, "for_of_end");
 
-            ctx.builder.build_unconditional_branch(cond_bb);
+            ctx.builder().build_unconditional_branch(cond_bb);
 
-            ctx.builder.position_at_end(cond_bb);
+            ctx.builder().position_at_end(cond_bb);
             let next_call = crate::parser::ast::Expr::Call {
                 callee: Box::new(crate::parser::ast::Expr::Member {
                     object: Box::new(crate::parser::ast::Expr::Identifier(iter_name.to_string())),
@@ -548,21 +555,21 @@ fn compile_for_of<'ctx>(
             };
             let next_result = compile_expr(ctx, &next_call)?;
             let next_ptr = next_result.value.into_pointer_value();
-            let next_int = ctx.builder.build_ptr_to_int(next_ptr, i64_ty, "next_int");
-            let is_null = ctx.builder.build_int_compare(
+            let next_int = ctx.builder().build_ptr_to_int(next_ptr, i64_ty, "next_int");
+            let is_null = ctx.builder().build_int_compare(
                 inkwell::IntPredicate::EQ,
                 next_int,
                 i64_ty.const_int(0, false),
                 "is_null",
             );
-            ctx.builder
+            ctx.builder()
                 .build_conditional_branch(is_null, end_bb, body_bb);
 
-            ctx.loop_stack.push((end_bb, cond_bb));
+            ctx.push_loop(end_bb, cond_bb);
 
-            ctx.builder.position_at_end(body_bb);
-            let var_ptr = ctx.builder.build_alloca(i8_ptr, variable);
-            ctx.builder.build_store(var_ptr, next_result.value);
+            ctx.builder().position_at_end(body_bb);
+            let var_ptr = ctx.builder().build_alloca(i8_ptr, variable);
+            ctx.builder().build_store(var_ptr, next_result.value);
             let old_var = ctx
                 .variables
                 .insert(variable.to_string(), (var_ptr, Type::Dynamic));
@@ -570,32 +577,32 @@ fn compile_for_of<'ctx>(
             compile_stmt(ctx, body)?;
 
             if ctx
-                .builder
+                .builder()
                 .get_insert_block()
                 .unwrap()
                 .get_terminator()
                 .is_none()
             {
-                ctx.builder.build_unconditional_branch(cond_bb);
+                ctx.builder().build_unconditional_branch(cond_bb);
             }
 
-            ctx.builder.position_at_end(end_bb);
-            ctx.loop_stack.pop();
+            ctx.builder().position_at_end(end_bb);
+            ctx.pop_loop();
 
             if let Some(old) = old_var {
-                ctx.variables.insert(variable.to_string(), old);
+                ctx.define_variable(variable.to_string(), old);
             } else {
-                ctx.variables.remove(variable);
+                ctx.remove_variable(variable);
             }
             if let Some(old) = old_iter {
-                ctx.variables.insert(iter_name.to_string(), old);
+                ctx.define_variable(iter_name.to_string(), old);
             } else {
-                ctx.variables.remove(iter_name);
+                ctx.remove_variable(iter_name);
             }
             if let Some(old) = old_temp {
-                ctx.variables.insert(temp_name.to_string(), old);
+                ctx.define_variable(temp_name.to_string(), old);
             } else {
-                ctx.variables.remove(temp_name);
+                ctx.remove_variable(temp_name);
             }
 
             Ok(())
@@ -604,15 +611,15 @@ fn compile_for_of<'ctx>(
 }
 
 fn compile_return<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     expr: Option<&crate::parser::ast::Expr>,
 ) -> Result<(), String> {
     if let (Some(result_ptr), Some(return_bb)) = (ctx.async_result_ptr, ctx.async_return_bb) {
         if let Some(e) = expr {
             let result = compile_expr(ctx, e)?;
-            ctx.builder.build_store(result_ptr, result.value);
+            ctx.builder().build_store(result_ptr, result.value);
         }
-        ctx.builder.build_unconditional_branch(return_bb);
+        ctx.builder().build_unconditional_branch(return_bb);
         return Ok(());
     }
 
@@ -620,17 +627,17 @@ fn compile_return<'ctx>(
     match expr {
         Some(e) => {
             let result = compile_expr(ctx, e)?;
-            ctx.builder.build_return(Some(&result.value));
+            ctx.builder().build_return(Some(&result.value));
             Ok(())
         }
         None => {
-            ctx.builder.build_return(None);
+            ctx.builder().build_return(None);
             Ok(())
         }
     }
 }
 
-fn compile_throw<'ctx>(ctx: &mut CodegenContext<'ctx, '_>, expr: &Expr) -> Result<(), String> {
+fn compile_throw<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>, expr: &Expr) -> Result<(), String> {
     // Handle `throw ClassName(...)` as `throw new ClassName(...)`
     let exc_result = match expr {
         Expr::Call { callee, args } => {
@@ -664,44 +671,46 @@ fn compile_throw<'ctx>(ctx: &mut CodegenContext<'ctx, '_>, expr: &Expr) -> Resul
         .get_function("ruyi_throw")
         .expect("ruyi_throw not declared");
 
-    if let Some(try_ctx) = ctx.try_stack.last() {
-        ctx.builder.build_call(throw_fn, &[exc_ptr.into()], "throw");
-        ctx.builder.build_store(try_ctx.exception_ptr, exc_ptr);
+    if let Some(try_ctx) = ctx.current_try() {
+        ctx.builder()
+            .build_call(throw_fn, &[exc_ptr.into()], "throw");
+        ctx.builder().build_store(try_ctx.exception_ptr, exc_ptr);
         if let Some(catch_bb) = try_ctx.catch_bb {
-            ctx.builder.build_unconditional_branch(catch_bb);
+            ctx.builder().build_unconditional_branch(catch_bb);
         } else if let Some(finally_bb) = try_ctx.finally_bb {
-            ctx.builder.build_unconditional_branch(finally_bb);
+            ctx.builder().build_unconditional_branch(finally_bb);
         } else {
-            ctx.builder.build_unconditional_branch(try_ctx.merge_bb);
+            ctx.builder().build_unconditional_branch(try_ctx.merge_bb);
         }
     } else {
-        ctx.builder.build_call(throw_fn, &[exc_ptr.into()], "throw");
+        ctx.builder()
+            .build_call(throw_fn, &[exc_ptr.into()], "throw");
         ctx.emit_gc_root_removals();
-        if let Some(func) = ctx.current_function {
+        if let Some(func) = ctx.current_function() {
             let fn_type = func.get_type();
             let ret_ty = fn_type.get_return_type();
             match ret_ty {
                 None => {
-                    ctx.builder.build_return(None);
+                    ctx.builder().build_return(None);
                 }
                 Some(ty) => match ty {
                     BasicTypeEnum::IntType(t) => {
                         let zero = t.const_int(0, false);
-                        ctx.builder
+                        ctx.builder()
                             .build_return(Some(&BasicValueEnum::IntValue(zero)));
                     }
                     BasicTypeEnum::FloatType(t) => {
                         let zero = t.const_float(0.0);
-                        ctx.builder
+                        ctx.builder()
                             .build_return(Some(&BasicValueEnum::FloatValue(zero)));
                     }
                     BasicTypeEnum::PointerType(t) => {
                         let null = t.const_null();
-                        ctx.builder
+                        ctx.builder()
                             .build_return(Some(&BasicValueEnum::PointerValue(null)));
                     }
                     _ => {
-                        ctx.builder.build_return(None);
+                        ctx.builder().build_return(None);
                     }
                 },
             }
@@ -714,12 +723,12 @@ fn compile_throw<'ctx>(ctx: &mut CodegenContext<'ctx, '_>, expr: &Expr) -> Resul
 }
 
 fn compile_try<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     body: &[Statement],
     catch: &[crate::parser::ast::CatchClause],
     finally: Option<&[Statement]>,
 ) -> Result<(), String> {
-    let func = ctx.current_function.ok_or("No current function")?;
+    let func = ctx.current_function().ok_or("No current function")?;
     let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
     let i64_ty = ctx.context.i64_type();
 
@@ -738,17 +747,18 @@ fn compile_try<'ctx>(
         None
     };
 
-    let exception_ptr = ctx.builder.build_alloca(i8_ptr, "exc_ptr");
-    ctx.builder.build_store(exception_ptr, i8_ptr.const_null());
+    let exception_ptr = ctx.builder().build_alloca(i8_ptr, "exc_ptr");
+    ctx.builder()
+        .build_store(exception_ptr, i8_ptr.const_null());
 
     let clear_fn = ctx
         .module
         .get_function("ruyi_clear_pending_exception")
         .expect("ruyi_clear_pending_exception not declared");
-    ctx.builder.build_call(clear_fn, &[], "clear_exc");
+    ctx.builder().build_call(clear_fn, &[], "clear_exc");
 
-    ctx.builder.build_unconditional_branch(try_body_bb);
-    ctx.builder.position_at_end(try_body_bb);
+    ctx.builder().build_unconditional_branch(try_body_bb);
+    ctx.builder().position_at_end(try_body_bb);
 
     let try_ctx = TryContext {
         exception_ptr,
@@ -757,42 +767,42 @@ fn compile_try<'ctx>(
         merge_bb,
         landing_pad_bb: None,
     };
-    ctx.try_stack.push(try_ctx);
+    ctx.push_try(try_ctx);
 
     compile_block(ctx, body)?;
 
-    let body_end = ctx.builder.get_insert_block().unwrap();
+    let body_end = ctx.builder().get_insert_block().unwrap();
     if body_end.get_terminator().is_none() {
         if let Some(fb) = finally_bb {
-            ctx.builder.build_unconditional_branch(fb);
+            ctx.builder().build_unconditional_branch(fb);
         } else {
-            ctx.builder.build_unconditional_branch(merge_bb);
+            ctx.builder().build_unconditional_branch(merge_bb);
         }
     }
 
-    ctx.try_stack.pop();
+    ctx.pop_try();
 
     for catch_clause in catch {
         let cb = catch_bb.unwrap();
-        ctx.builder.position_at_end(cb);
+        ctx.builder().position_at_end(cb);
 
-        build_ruyi_clear_pending_exception(&ctx.builder, &ctx.module);
+        build_ruyi_clear_pending_exception(ctx.builder(), &ctx.module);
 
         let exc_val = ctx
-            .builder
+            .builder()
             .build_load(exception_ptr, "exc_val")
             .into_pointer_value();
         if let Some(pattern) = &catch_clause.pattern {
             match pattern {
                 crate::parser::ast::Pattern::Identifier(name) => {
-                    let local_ptr = ctx.builder.build_alloca(i8_ptr, name);
-                    ctx.builder.build_store(local_ptr, exc_val);
+                    let local_ptr = ctx.builder().build_alloca(i8_ptr, name);
+                    ctx.builder().build_store(local_ptr, exc_val);
                     let var_ty = catch_clause
                         .ty
                         .as_ref()
                         .map(Type::from_annotation)
                         .unwrap_or(Type::Dynamic);
-                    ctx.variables.insert(name.clone(), (local_ptr, var_ty));
+                    ctx.define_variable(name.clone(), (local_ptr, var_ty));
                 }
                 _ => {}
             }
@@ -800,31 +810,31 @@ fn compile_try<'ctx>(
 
         compile_block(ctx, &catch_clause.body)?;
 
-        let catch_end = ctx.builder.get_insert_block().unwrap();
+        let catch_end = ctx.builder().get_insert_block().unwrap();
         if catch_end.get_terminator().is_none() {
             if let Some(fb) = finally_bb {
-                ctx.builder.build_unconditional_branch(fb);
+                ctx.builder().build_unconditional_branch(fb);
             } else {
-                ctx.builder.build_unconditional_branch(merge_bb);
+                ctx.builder().build_unconditional_branch(merge_bb);
             }
         }
     }
 
     if let Some(finally_stmts) = finally {
         let fb = finally_bb.unwrap();
-        ctx.builder.position_at_end(fb);
+        ctx.builder().position_at_end(fb);
 
         compile_block(ctx, finally_stmts)?;
 
-        let finally_end = ctx.builder.get_insert_block().unwrap();
+        let finally_end = ctx.builder().get_insert_block().unwrap();
         if finally_end.get_terminator().is_none() {
             if catch.is_empty() {
                 let exc_val = ctx
-                    .builder
+                    .builder()
                     .build_load(exception_ptr, "exc_val")
                     .into_pointer_value();
-                let exc_int = ctx.builder.build_ptr_to_int(exc_val, i64_ty, "exc_int");
-                let is_null = ctx.builder.build_int_compare(
+                let exc_int = ctx.builder().build_ptr_to_int(exc_val, i64_ty, "exc_int");
+                let is_null = ctx.builder().build_int_compare(
                     inkwell::IntPredicate::EQ,
                     exc_int,
                     i64_ty.const_int(0, false),
@@ -832,49 +842,52 @@ fn compile_try<'ctx>(
                 );
 
                 let pb = propagate_bb.unwrap();
-                ctx.builder.build_conditional_branch(is_null, merge_bb, pb);
+                ctx.builder()
+                    .build_conditional_branch(is_null, merge_bb, pb);
 
-                ctx.builder.position_at_end(pb);
+                ctx.builder().position_at_end(pb);
                 let exc_val2 = ctx
-                    .builder
+                    .builder()
                     .build_load(exception_ptr, "exc_val2")
                     .into_pointer_value();
                 let throw_fn = ctx
                     .module
                     .get_function("ruyi_throw")
                     .expect("ruyi_throw not declared");
-                ctx.builder
+                ctx.builder()
                     .build_call(throw_fn, &[exc_val2.into()], "rethrow");
                 ctx.emit_gc_root_removals();
-                ctx.builder.build_return(None);
+                ctx.builder().build_return(None);
             } else {
-                ctx.builder.build_unconditional_branch(merge_bb);
+                ctx.builder().build_unconditional_branch(merge_bb);
             }
         }
     }
 
-    ctx.builder.position_at_end(merge_bb);
+    ctx.builder().position_at_end(merge_bb);
     Ok(())
 }
 
-fn build_exception_check<'ctx>(ctx: &mut CodegenContext<'ctx, '_>) -> Result<(), String> {
-    if ctx.try_stack.is_empty() {
+fn build_exception_check<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>) -> Result<(), String> {
+    if ctx.try_stack_is_empty() {
         return Ok(());
     }
 
-    let func = ctx.current_function.unwrap();
-    let pending = build_ruyi_get_pending_exception(&ctx.builder, &ctx.module);
+    let func = ctx.current_function().unwrap();
+    let pending = build_ruyi_get_pending_exception(ctx.builder(), &ctx.module);
 
     let i64_ty = ctx.context.i64_type();
-    let pending_int = ctx.builder.build_ptr_to_int(pending, i64_ty, "pending_int");
-    let is_null = ctx.builder.build_int_compare(
+    let pending_int = ctx
+        .builder()
+        .build_ptr_to_int(pending, i64_ty, "pending_int");
+    let is_null = ctx.builder().build_int_compare(
         inkwell::IntPredicate::EQ,
         pending_int,
         i64_ty.const_int(0, false),
         "no_exc",
     );
 
-    let try_ctx = ctx.try_stack.last().unwrap();
+    let try_ctx = ctx.current_try().unwrap();
     let continue_bb = ctx.context.append_basic_block(func, "after_exc_check");
     let store_exc_bb = ctx.context.append_basic_block(func, "store_exc");
 
@@ -883,26 +896,26 @@ fn build_exception_check<'ctx>(ctx: &mut CodegenContext<'ctx, '_>) -> Result<(),
         .or(try_ctx.finally_bb)
         .unwrap_or(try_ctx.merge_bb);
 
-    ctx.builder
+    ctx.builder()
         .build_conditional_branch(is_null, continue_bb, store_exc_bb);
 
-    ctx.builder.position_at_end(store_exc_bb);
-    ctx.builder.build_store(try_ctx.exception_ptr, pending);
-    build_ruyi_clear_pending_exception(&ctx.builder, &ctx.module);
-    ctx.builder.build_unconditional_branch(dest_bb);
+    ctx.builder().position_at_end(store_exc_bb);
+    ctx.builder().build_store(try_ctx.exception_ptr, pending);
+    build_ruyi_clear_pending_exception(ctx.builder(), &ctx.module);
+    ctx.builder().build_unconditional_branch(dest_bb);
 
-    ctx.builder.position_at_end(continue_bb);
+    ctx.builder().position_at_end(continue_bb);
     Ok(())
 }
 
 fn compile_if_let<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     pattern: &crate::parser::ast::Pattern,
     value: &Expr,
     then_branch: &Statement,
     else_branch: Option<&Statement>,
 ) -> Result<(), String> {
-    let func = ctx.current_function.ok_or("No current function")?;
+    let func = ctx.current_function().ok_or("No current function")?;
     let val = compile_expr(ctx, value)?;
 
     let then_bb = ctx.context.append_basic_block(func, "if_let_then");
@@ -911,79 +924,79 @@ fn compile_if_let<'ctx>(
 
     let is_match = pattern_is_matching(ctx, pattern, &val)?;
 
-    ctx.builder
+    ctx.builder()
         .build_conditional_branch(is_match, then_bb, else_bb);
 
-    ctx.builder.position_at_end(then_bb);
+    ctx.builder().position_at_end(then_bb);
     bind_pattern_in_codegen(ctx, pattern, &val)?;
     compile_stmt(ctx, then_branch)?;
-    if let Some(bb) = ctx.builder.get_insert_block() {
+    if let Some(bb) = ctx.builder().get_insert_block() {
         if bb.get_terminator().is_none() {
-            ctx.builder.build_unconditional_branch(merge_bb);
+            ctx.builder().build_unconditional_branch(merge_bb);
         }
     }
 
-    ctx.builder.position_at_end(else_bb);
+    ctx.builder().position_at_end(else_bb);
     if let Some(else_stmt) = else_branch {
         compile_stmt(ctx, else_stmt)?;
     }
-    if let Some(bb) = ctx.builder.get_insert_block() {
+    if let Some(bb) = ctx.builder().get_insert_block() {
         if bb.get_terminator().is_none() {
-            ctx.builder.build_unconditional_branch(merge_bb);
+            ctx.builder().build_unconditional_branch(merge_bb);
         }
     }
 
-    ctx.builder.position_at_end(merge_bb);
+    ctx.builder().position_at_end(merge_bb);
     Ok(())
 }
 
 fn compile_while_let<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     pattern: &crate::parser::ast::Pattern,
     value: &Expr,
     body: &Statement,
 ) -> Result<(), String> {
-    let func = ctx.current_function.ok_or("No current function")?;
+    let func = ctx.current_function().ok_or("No current function")?;
     let header_bb = ctx.context.append_basic_block(func, "while_let_header");
     let body_bb = ctx.context.append_basic_block(func, "while_let_body");
     let exit_bb = ctx.context.append_basic_block(func, "while_let_exit");
 
-    ctx.builder.build_unconditional_branch(header_bb);
+    ctx.builder().build_unconditional_branch(header_bb);
 
-    ctx.builder.position_at_end(header_bb);
+    ctx.builder().position_at_end(header_bb);
     let val = compile_expr(ctx, value)?;
-    let val_ptr = ctx.builder.build_alloca(
+    let val_ptr = ctx.builder().build_alloca(
         super::types::ruyi_type_to_llvm(ctx.context, &val.ty),
         "while_let_val",
     );
-    ctx.builder.build_store(val_ptr, val.value);
+    ctx.builder().build_store(val_ptr, val.value);
 
     let is_match = pattern_is_matching(ctx, pattern, &val)?;
-    ctx.builder
+    ctx.builder()
         .build_conditional_branch(is_match, body_bb, exit_bb);
 
-    ctx.builder.position_at_end(body_bb);
-    let loaded_val = ctx.builder.build_load(val_ptr, "while_let_loaded");
+    ctx.builder().position_at_end(body_bb);
+    let loaded_val = ctx.builder().build_load(val_ptr, "while_let_loaded");
     let loaded_result = ExprResult {
         value: loaded_val,
         ty: val.ty.clone(),
     };
     bind_pattern_in_codegen(ctx, pattern, &loaded_result)?;
-    ctx.loop_stack.push((exit_bb, header_bb));
+    ctx.push_loop(exit_bb, header_bb);
     compile_stmt(ctx, body)?;
-    ctx.loop_stack.pop();
-    if let Some(bb) = ctx.builder.get_insert_block() {
+    ctx.pop_loop();
+    if let Some(bb) = ctx.builder().get_insert_block() {
         if bb.get_terminator().is_none() {
-            ctx.builder.build_unconditional_branch(header_bb);
+            ctx.builder().build_unconditional_branch(header_bb);
         }
     }
 
-    ctx.builder.position_at_end(exit_bb);
+    ctx.builder().position_at_end(exit_bb);
     Ok(())
 }
 
 fn pattern_is_matching<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     pattern: &crate::parser::ast::Pattern,
     val: &ExprResult<'ctx>,
 ) -> Result<inkwell::values::IntValue<'ctx>, String> {
@@ -995,15 +1008,15 @@ fn pattern_is_matching<'ctx>(
                 let is_non_null = match val.value {
                     BasicValueEnum::PointerValue(p) => {
                         let i64_ty = ctx.context.i64_type();
-                        let ptr_int = ctx.builder.build_ptr_to_int(p, i64_ty, "ptr_int");
-                        ctx.builder.build_int_compare(
+                        let ptr_int = ctx.builder().build_ptr_to_int(p, i64_ty, "ptr_int");
+                        ctx.builder().build_int_compare(
                             inkwell::IntPredicate::NE,
                             ptr_int,
                             i64_ty.const_int(0, false),
                             "is_non_null",
                         )
                     }
-                    BasicValueEnum::IntValue(v) => ctx.builder.build_int_compare(
+                    BasicValueEnum::IntValue(v) => ctx.builder().build_int_compare(
                         inkwell::IntPredicate::NE,
                         v,
                         ctx.context.i64_type().const_all_ones(),
@@ -1022,7 +1035,7 @@ fn pattern_is_matching<'ctx>(
         }
         P::Literal(expr) => {
             let lit_val = compile_expr(ctx, expr)?;
-            let cmp = ctx.builder.build_int_compare(
+            let cmp = ctx.builder().build_int_compare(
                 inkwell::IntPredicate::EQ,
                 val.value.into_int_value(),
                 lit_val.value.into_int_value(),
@@ -1036,7 +1049,7 @@ fn pattern_is_matching<'ctx>(
             let mut result = ctx.context.bool_type().const_int(0, false);
             for p in patterns {
                 let m = pattern_is_matching(ctx, p, val)?;
-                result = ctx.builder.build_or(result, m, "or_match");
+                result = ctx.builder().build_or(result, m, "or_match");
             }
             Ok(result)
         }
@@ -1045,7 +1058,7 @@ fn pattern_is_matching<'ctx>(
 }
 
 fn bind_pattern_in_codegen<'ctx>(
-    ctx: &mut CodegenContext<'ctx, '_>,
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
     pattern: &crate::parser::ast::Pattern,
     val: &ExprResult<'ctx>,
 ) -> Result<(), String> {
@@ -1053,9 +1066,9 @@ fn bind_pattern_in_codegen<'ctx>(
     match pattern {
         P::Identifier(name) => {
             let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &val.ty);
-            let ptr = ctx.builder.build_alloca(llvm_ty, name);
-            ctx.builder.build_store(ptr, val.value);
-            ctx.variables.insert(name.clone(), (ptr, val.ty.clone()));
+            let ptr = ctx.builder().build_alloca(llvm_ty, name);
+            ctx.builder().build_store(ptr, val.value);
+            ctx.define_variable(name.clone(), (ptr, val.ty.clone()));
         }
         P::Object(fields) => {
             let obj_ptr = match val.value {
@@ -1067,7 +1080,7 @@ fn bind_pattern_in_codegen<'ctx>(
             let _i64_ty = ctx.context.i64_type();
 
             match &val.ty {
-                Type::Named(class_name) => {
+                Type::Named(class_name, _) => {
                     let class_fields: Vec<_> = ctx
                         .class_fields
                         .get(class_name)
@@ -1078,7 +1091,7 @@ fn bind_pattern_in_codegen<'ctx>(
                         .get(class_name)
                         .ok_or_else(|| format!("No struct type for class: {}", class_name))?;
 
-                    let struct_ptr = ctx.builder.build_pointer_cast(
+                    let struct_ptr = ctx.builder().build_pointer_cast(
                         obj_ptr,
                         struct_type.ptr_type(Default::default()),
                         "obj_struct_cast",
@@ -1098,7 +1111,7 @@ fn bind_pattern_in_codegen<'ctx>(
                                 let (_, field_ty) = &class_fields[field_index];
 
                                 let field_ptr = unsafe {
-                                    ctx.builder.build_gep(
+                                    ctx.builder().build_gep(
                                         struct_ptr,
                                         &[
                                             i32_ty.const_int(0, false),
@@ -1107,7 +1120,7 @@ fn bind_pattern_in_codegen<'ctx>(
                                         &format!("{}_ptr", key),
                                     )
                                 };
-                                let field_val = ctx.builder.build_load(field_ptr, key);
+                                let field_val = ctx.builder().build_load(field_ptr, key);
                                 let field_result = super::expr::ExprResult {
                                     value: field_val,
                                     ty: field_ty.clone(),
@@ -1122,7 +1135,7 @@ fn bind_pattern_in_codegen<'ctx>(
                                 let (_, field_ty) = &class_fields[field_index];
 
                                 let field_ptr = unsafe {
-                                    ctx.builder.build_gep(
+                                    ctx.builder().build_gep(
                                         struct_ptr,
                                         &[
                                             i32_ty.const_int(0, false),
@@ -1131,12 +1144,12 @@ fn bind_pattern_in_codegen<'ctx>(
                                         &format!("{}_ptr", name),
                                     )
                                 };
-                                let field_val = ctx.builder.build_load(field_ptr, name);
+                                let field_val = ctx.builder().build_load(field_ptr, name);
                                 let llvm_ty =
                                     super::types::ruyi_type_to_llvm(ctx.context, field_ty);
-                                let ptr = ctx.builder.build_alloca(llvm_ty, name);
-                                ctx.builder.build_store(ptr, field_val);
-                                ctx.variables.insert(name.clone(), (ptr, field_ty.clone()));
+                                let ptr = ctx.builder().build_alloca(llvm_ty, name);
+                                ctx.builder().build_store(ptr, field_val);
+                                ctx.define_variable(name.clone(), (ptr, field_ty.clone()));
                             }
                             ObjectPatternField::Rest(_) => {}
                         }
@@ -1158,20 +1171,21 @@ fn bind_pattern_in_codegen<'ctx>(
 
                                 let offset = i32_ty.const_int((field_index * 8) as u64, false);
                                 let field_ptr = unsafe {
-                                    ctx.builder.build_gep(
+                                    ctx.builder().build_gep(
                                         obj_ptr,
                                         &[offset],
                                         &format!("{}_ptr", key),
                                     )
                                 };
-                                let typed_ptr = ctx.builder.build_bitcast(
+                                let typed_ptr = ctx.builder().build_bitcast(
                                     field_ptr,
                                     super::types::ruyi_type_to_llvm(ctx.context, field_ty)
                                         .ptr_type(Default::default()),
                                     &format!("{}_typed_ptr", key),
                                 );
-                                let field_val =
-                                    ctx.builder.build_load(typed_ptr.into_pointer_value(), key);
+                                let field_val = ctx
+                                    .builder()
+                                    .build_load(typed_ptr.into_pointer_value(), key);
                                 let field_result = super::expr::ExprResult {
                                     value: field_val,
                                     ty: field_ty.clone(),
@@ -1187,25 +1201,26 @@ fn bind_pattern_in_codegen<'ctx>(
 
                                 let offset = i32_ty.const_int((field_index * 8) as u64, false);
                                 let field_ptr = unsafe {
-                                    ctx.builder.build_gep(
+                                    ctx.builder().build_gep(
                                         obj_ptr,
                                         &[offset],
                                         &format!("{}_ptr", name),
                                     )
                                 };
-                                let typed_ptr = ctx.builder.build_bitcast(
+                                let typed_ptr = ctx.builder().build_bitcast(
                                     field_ptr,
                                     super::types::ruyi_type_to_llvm(ctx.context, field_ty)
                                         .ptr_type(Default::default()),
                                     &format!("{}_typed_ptr", name),
                                 );
-                                let field_val =
-                                    ctx.builder.build_load(typed_ptr.into_pointer_value(), name);
+                                let field_val = ctx
+                                    .builder()
+                                    .build_load(typed_ptr.into_pointer_value(), name);
                                 let llvm_ty =
                                     super::types::ruyi_type_to_llvm(ctx.context, field_ty);
-                                let ptr = ctx.builder.build_alloca(llvm_ty, name);
-                                ctx.builder.build_store(ptr, field_val);
-                                ctx.variables.insert(name.clone(), (ptr, field_ty.clone()));
+                                let ptr = ctx.builder().build_alloca(llvm_ty, name);
+                                ctx.builder().build_store(ptr, field_val);
+                                ctx.define_variable(name.clone(), (ptr, field_ty.clone()));
                             }
                             ObjectPatternField::Rest(_) => {}
                         }
@@ -1220,9 +1235,9 @@ fn bind_pattern_in_codegen<'ctx>(
         P::As(inner, alias) => {
             bind_pattern_in_codegen(ctx, inner, val)?;
             let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &val.ty);
-            let ptr = ctx.builder.build_alloca(llvm_ty, alias);
-            ctx.builder.build_store(ptr, val.value);
-            ctx.variables.insert(alias.clone(), (ptr, val.ty.clone()));
+            let ptr = ctx.builder().build_alloca(llvm_ty, alias);
+            ctx.builder().build_store(ptr, val.value);
+            ctx.define_variable(alias.clone(), (ptr, val.ty.clone()));
         }
         P::Or(patterns) => {
             if let Some(first) = patterns.first() {
@@ -1231,9 +1246,9 @@ fn bind_pattern_in_codegen<'ctx>(
         }
         P::Rest(name) => {
             let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &val.ty);
-            let ptr = ctx.builder.build_alloca(llvm_ty, name);
-            ctx.builder.build_store(ptr, val.value);
-            ctx.variables.insert(name.clone(), (ptr, val.ty.clone()));
+            let ptr = ctx.builder().build_alloca(llvm_ty, name);
+            ctx.builder().build_store(ptr, val.value);
+            ctx.define_variable(name.clone(), (ptr, val.ty.clone()));
         }
         P::Wildcard | P::Literal(_) => {}
     }

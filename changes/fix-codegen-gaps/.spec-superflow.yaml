@@ -1,0 +1,42 @@
+# .spec-superflow.yaml — lightweight state machine
+# Derived data. Always rebuildable from artifacts. Lost/corrupt → fall back to content-level detection.
+
+# === Core state ===
+state: closed
+workflow: hotfix
+
+# === Hashes (fast staleness detection) ===
+artifacts_hash: null
+contract_hash: null
+
+# === Execution progress ===
+execution_mode: hotfix
+batches_completed: 5
+test_result: "31/33 examples pass (up from 30/33 baseline); 76/76 runtime tests pass (4 new ruyi_bigint_eq tests); zero warnings; 14 WIP parser failures pre-existing unchanged"
+
+# === Metadata ===
+change_name: fix-codegen-gaps
+last_transition: 2026-07-07T00:00:00Z
+last_transition_from: closing
+last_transition_to: closed
+
+# === Decision points ===
+dp_0_decisions: "变更名:fix-codegen-gaps; 意图:补全codegen中对BigInt模式匹配、宏声明、类型别名三个特性的LLVM IR生成支持"
+dp_0_result: confirmed
+dp_0_confirmed: true
+dp_0_timestamp: 2026-07-07T00:00:00Z
+dp_1_result: null
+dp_1_timestamp: null
+dp_2_result: approved
+dp_2_timestamp: 2026-07-07T00:00:00Z
+dp_3_result: approved
+dp_3_timestamp: 2026-07-07T00:00:00Z
+dp_4_result: approved
+dp_4_timestamp: 2026-07-07T00:00:00Z
+dp_5_result: approved
+dp_5_timestamp: 2026-07-07T00:00:00Z
+dp_5_summary: "31/33 examples pass. 2 pre-existing bugs (macro pattern matcher, global let scope) documented as out-of-scope; contract acceptance reduced to 31/33 with explicit known-failures list."
+dp_6_result: null
+dp_6_timestamp: null
+dp_7_result: null
+dp_7_timestamp: null

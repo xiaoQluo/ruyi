@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: ruyi_runtime
+title: Ruyi 语言运行时核心
+scope:
+    - crates/ruyi_runtime/
+source_files: []
+depends_on: []
+related_to:
+    - path: ruyic/runtime
