@@ -1,0 +1,28 @@
+// class_basics.ry — Class with fields, self, and methods
+// Demonstrates v0.2 P0 (task 1.1): class layout & member access.
+
+class Counter {
+  count: int;
+
+  fn new() {
+    self.count = 0;
+  }
+
+  fn increment(self) {
+    self.count = self.count + 1;
+  }
+
+  fn get(self): int {
+    return self.count;
+  }
+}
+
+fn main() {
+  let c = Counter.new();
+  c.increment();
+  c.increment();
+  c.increment();
+  print("count=");
+  print(c.get());
+  print("\n");
+}

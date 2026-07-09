@@ -80,6 +80,7 @@ pub struct CodegenContext<'ctx, 'm, 'env> {
     pub(crate) loop_stack: Vec<(
         inkwell::basic_block::BasicBlock<'ctx>,
         inkwell::basic_block::BasicBlock<'ctx>,
+        Option<String>,
     )>,
     pub gc_roots: Vec<Vec<(inkwell::values::PointerValue<'ctx>, Type)>>,
     /// Async state machine support: pointer to the state struct's state field (i32*)
@@ -112,6 +113,9 @@ pub struct CodegenContext<'ctx, 'm, 'env> {
     /// Optional type environment from the type checker. When present, variable type lookups
     /// prioritize the type checker's inferred types over annotation-derived types.
     pub(crate) type_environment: Option<&'env crate::typechecker::environment::TypeEnvironment>,
+    /// Label pending to be attached to the next loop push (set by `Statement::Labeled`,
+    /// consumed by the loop compile functions like `compile_for`/`compile_while`).
+    pub(crate) pending_loop_label: Option<String>,
 }
 
 impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
@@ -147,6 +151,7 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
             expected_expr_type: None,
             allow_partial_codegen: false,
             type_environment,
+            pending_loop_label: None,
         }
     }
 
@@ -289,13 +294,14 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
         self.current_function = func;
     }
 
-    /// Push a new loop context (break target, continue target).
+    /// Push a new loop context (break target, continue target, optional label).
     pub fn push_loop(
         &mut self,
         break_bb: inkwell::basic_block::BasicBlock<'ctx>,
         continue_bb: inkwell::basic_block::BasicBlock<'ctx>,
+        label: Option<String>,
     ) {
-        self.loop_stack.push((break_bb, continue_bb));
+        self.loop_stack.push((break_bb, continue_bb, label));
     }
 
     /// Pop the innermost loop context.
@@ -309,8 +315,9 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
     ) -> Option<(
         inkwell::basic_block::BasicBlock<'ctx>,
         inkwell::basic_block::BasicBlock<'ctx>,
+        Option<String>,
     )> {
-        self.loop_stack.last().copied()
+        self.loop_stack.last().cloned()
     }
 
     /// Push a new try context.

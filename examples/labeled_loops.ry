@@ -1,0 +1,36 @@
+// labeled_loops.ry — break <label> and continue <label>
+// Demonstrates v0.2 P1 (task 1.6): labeled break/continue.
+
+fn main() {
+  // Labeled break exits the outer loop when a condition is met.
+  print("--- labeled break ---\n");
+  outer: for (let i = 1; i <= 3; i = i + 1) {
+    for (let j = 1; j <= 3; j = j + 1) {
+      if (i * j > 4) {
+        break outer;
+      }
+      print("i=");
+      print(i);
+      print(" j=");
+      print(j);
+      print("\n");
+    }
+  }
+  print("after break\n\n");
+
+  // Labeled continue resumes the named loop.
+  print("--- labeled continue ---\n");
+  outer2: for (let i = 0; i < 3; i = i + 1) {
+    for (let j = 0; j < 3; j = j + 1) {
+      if (j === 1) {
+        continue outer2;
+      }
+      print("i=");
+      print(i);
+      print(" j=");
+      print(j);
+      print("\n");
+    }
+  }
+  print("done\n");
+}

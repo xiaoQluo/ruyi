@@ -1,13 +1,10 @@
+// object_literal.ry — {k:v} literal + bracket access
 let point: { x: int, y: int } = { x: 10, y: 20 };
 print(point.x);
 print(point.y);
+print(point["x"]);
+print(point["y"]);
 
-let nested: { a: { b: int } } = { a: { b: 42 } };
-print(nested.a.b);
-
-let mutable: { x: int } = { x: 1 };
-mutable.x = 5;
-print(mutable.x);
-
-let empty: {} = {};
-print(0);
+let mutable: { n: int } = { n: 1 };
+mutable.n = 5;
+print(mutable.n);

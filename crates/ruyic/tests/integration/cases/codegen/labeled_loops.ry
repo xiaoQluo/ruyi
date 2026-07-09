@@ -1,0 +1,23 @@
+// labeled_loops.ry — labeled break + continue
+fn main() {
+  // Labeled break exits the outer loop, not the innermost.
+  outer: for (let i = 0; i < 3; i = i + 1) {
+    for (let j = 0; j < 3; j = j + 1) {
+      if (i === 1 && j === 1) {
+        break outer;
+      }
+      print(i * 10 + j);
+    }
+  }
+  print(99);
+
+  // Labeled continue resumes the named (outer) loop.
+  inner: for (let i = 0; i < 3; i = i + 1) {
+    outer2: for (let j = 0; j < 3; j = j + 1) {
+      if (j === 1) {
+        continue outer2;
+      }
+      print(i * 10 + j);
+    }
+  }
+}

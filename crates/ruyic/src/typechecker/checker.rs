@@ -57,7 +57,7 @@ impl TypeChecker {
     /// Type checks a parsed program and returns the result.
     pub fn check(&mut self, program: &Program) -> TypeCheckResult {
         let registry = build_trait_registry(program);
-        let inference = TypeInference::new(registry.clone());
+        let mut inference = TypeInference::new(registry.clone());
         let InferenceResult {
             typed_env,
             diagnostics: infer_diagnostics,

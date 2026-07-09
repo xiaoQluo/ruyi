@@ -20,6 +20,19 @@ FAILURES_LOG="$TARGET_DIR/failures.log"
 COMPILE_TIMEOUT=60
 RUN_TIMEOUT=10
 
+# ── Examples coverage ───────────────────────────────────────────────────────
+# Examples are auto-discovered from $EXAMPLES_DIR via the `*.ry` glob below;
+# no explicit allowlist is required. New .ry files added to this directory
+# will be picked up on the next run.
+#
+# v0.2-codegen-gaps (T8) added 5 focused examples demonstrating language
+# capabilities targeted by roadmap tasks 1.1–1.6, 1.12, 1.13:
+#   - class_basics.ry     — class fields, self, methods (task 1.1)
+#   - object_literal.ry   — {k:v} literal + bracket access (task 1.2)
+#   - array_operations.ry — array literal, push, pop, length (task 1.3)
+#   - member_access.ry    — obj.field, obj?.field, obj["key"] (task 1.12)
+#   - labeled_loops.ry    — break <label> and continue <label> (task 1.6)
+
 # ── Detect timeout command (macOS uses gtimeout from coreutils) ───────────────
 if command -v gtimeout &>/dev/null; then
   TIMEOUT_CMD="gtimeout"

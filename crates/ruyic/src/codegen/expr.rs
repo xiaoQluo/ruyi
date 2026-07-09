@@ -641,15 +641,53 @@ fn compile_member_access<'ctx>(
     match property {
         crate::parser::ast::MemberProperty::Expr(key_expr) => {
             let obj_result = compile_expr(ctx, object)?;
-            let key_result = compile_expr(ctx, key_expr)?;
-            let obj_ptr = value_to_i8_ptr(ctx, &obj_result.value)?;
-            let key_ptr = value_to_i8_ptr(ctx, &key_result.value)?;
-            let result =
-                super::builtins::build_ruyi_obj_get(ctx.builder(), &ctx.module, obj_ptr, key_ptr);
-            Ok(ExprResult::new(
-                BasicValueEnum::PointerValue(result),
-                Type::Dynamic,
-            ))
+            if let Type::Array(_) = &obj_result.ty {
+                // Array layout: [len: i64][cap: i64][data: i64[cap]].
+                // __builtin_array_get gives O(1) bounds-checked access versus the
+                // generic ruyi_obj_get path which treats arrays as opaque objects.
+                let arr_ptr = value_to_i8_ptr(ctx, &obj_result.value)?;
+                let index_val = match key_expr.as_ref() {
+                    crate::parser::ast::Expr::IntLiteral(idx) => {
+                        ctx.context.i64_type().const_int(*idx as u64, false)
+                    }
+                    _ => {
+                        let key_result = compile_expr(ctx, key_expr)?;
+                        match key_result.value {
+                            BasicValueEnum::IntValue(v) => v,
+                            _ => {
+                                return Err(
+                                    "Array index must be an integer".to_string()
+                                )
+                            }
+                        }
+                    }
+                };
+                let elem_val = super::builtins::build_builtin_array_get(
+                    ctx.builder(),
+                    &ctx.module,
+                    arr_ptr,
+                    index_val,
+                );
+                Ok(ExprResult::new(
+                    BasicValueEnum::IntValue(elem_val),
+                    Type::Int,
+                ))
+            } else {
+                // Non-array object: fall back to generic ruyi_obj_get (dict lookup).
+                let key_result = compile_expr(ctx, key_expr)?;
+                let obj_ptr = value_to_i8_ptr(ctx, &obj_result.value)?;
+                let key_ptr = value_to_i8_ptr(ctx, &key_result.value)?;
+                let result = super::builtins::build_ruyi_obj_get(
+                    ctx.builder(),
+                    &ctx.module,
+                    obj_ptr,
+                    key_ptr,
+                );
+                Ok(ExprResult::new(
+                    BasicValueEnum::PointerValue(result),
+                    Type::Dynamic,
+                ))
+            }
         }
         crate::parser::ast::MemberProperty::Ident(field_name) => {
             if optional {
@@ -2947,7 +2985,13 @@ pub(crate) fn compile_new<'ctx>(
         _ => return Err("Complex new expressions not yet supported".to_string()),
     };
 
-    let total_size = ctx.context.i64_type().const_int(64, false);
+    let struct_ty = ctx
+        .class_struct_types
+        .get(&class_name)
+        .ok_or_else(|| format!("compile_new: unknown class '{}'", class_name))?;
+    let total_size = struct_ty
+        .size_of()
+        .ok_or_else(|| format!("compile_new: class '{}' has no size", class_name))?;
     let ptr = super::builtins::build_gc_alloc(ctx.builder(), &ctx.module, total_size);
 
     let ctor_name = format!("{}_new", class_name);

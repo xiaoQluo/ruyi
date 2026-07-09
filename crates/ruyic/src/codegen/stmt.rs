@@ -70,24 +70,43 @@ pub fn compile_stmt<'ctx>(
             // Generators not yet fully implemented — yield is a no-op for now
             Ok(())
         }
-        Statement::Break(_) => {
-            let (end_bb, _) = ctx
-                .loop_stack
-                .last()
-                .ok_or("BreakOutsideLoop: break statement must be inside a loop")?;
-            ctx.builder().build_unconditional_branch(*end_bb);
+        Statement::Break(target) => {
+            let target_bb = match target {
+                None => ctx
+                    .loop_stack
+                    .last()
+                    .map(|(end_bb, _, _)| *end_bb)
+                    .ok_or("BreakOutsideLoop: break statement must be inside a loop")?,
+                Some(label) => find_loop_target(ctx, label.to_string(), |(end_bb, _, _)| *end_bb)?,
+            };
+            ctx.builder().build_unconditional_branch(target_bb);
             Ok(())
         }
-        Statement::Continue(_) => {
-            let (_, cond_bb) = ctx
-                .loop_stack
-                .last()
-                .ok_or("ContinueOutsideLoop: continue statement must be inside a loop")?;
-            ctx.builder().build_unconditional_branch(*cond_bb);
+        Statement::Continue(target) => {
+            let target_bb = match target {
+                None => ctx
+                    .loop_stack
+                    .last()
+                    .map(|(_, cond_bb, _)| *cond_bb)
+                    .ok_or("ContinueOutsideLoop: continue statement must be inside a loop")?,
+                Some(label) => find_loop_target(ctx, label.to_string(), |(_, cond_bb, _)| *cond_bb)?,
+            };
+            ctx.builder().build_unconditional_branch(target_bb);
             Ok(())
         }
         Statement::Match { value, arms } => super::patterns::compile_match_stmt(ctx, value, arms),
-        Statement::Labeled { body, .. } => compile_stmt(ctx, body),
+        Statement::Labeled { label, body } => match body.as_ref() {
+            Statement::For { .. }
+            | Statement::ForIn { .. }
+            | Statement::ForOf { .. }
+            | Statement::While { .. } => {
+                ctx.pending_loop_label = Some(label.clone());
+                let result = compile_stmt(ctx, body);
+                ctx.pending_loop_label = None;
+                result
+            }
+            _ => compile_stmt(ctx, body),
+        },
         Statement::IfLet {
             pattern,
             value,
@@ -180,7 +199,8 @@ fn compile_while<'ctx>(
     let body_bb = ctx.context.append_basic_block(func, "while_body");
     let end_bb = ctx.context.append_basic_block(func, "while_end");
 
-    ctx.push_loop(end_bb, cond_bb);
+    let label = ctx.pending_loop_label.take();
+    ctx.push_loop(end_bb, cond_bb, label);
 
     ctx.builder().build_unconditional_branch(cond_bb);
 
@@ -261,7 +281,8 @@ fn compile_for<'ctx>(
         ctx.builder().build_unconditional_branch(body_bb);
     }
 
-    ctx.push_loop(end_bb, update_bb);
+    let label = ctx.pending_loop_label.take();
+    ctx.push_loop(end_bb, update_bb, label);
 
     ctx.builder().position_at_end(body_bb);
     compile_stmt(ctx, body)?;
@@ -358,7 +379,8 @@ fn compile_for_in<'ctx>(
     ctx.builder()
         .build_conditional_branch(cond, body_bb, end_bb);
 
-    ctx.push_loop(end_bb, cond_bb);
+    let label = ctx.pending_loop_label.take();
+    ctx.push_loop(end_bb, cond_bb, label);
 
     ctx.builder().position_at_end(body_bb);
     let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
@@ -460,7 +482,8 @@ fn compile_for_of<'ctx>(
             ctx.builder()
                 .build_conditional_branch(cond, body_bb, end_bb);
 
-            ctx.push_loop(end_bb, cond_bb);
+            let label = ctx.pending_loop_label.take();
+            ctx.push_loop(end_bb, cond_bb, label);
 
             ctx.builder().position_at_end(body_bb);
             let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
@@ -567,7 +590,8 @@ fn compile_for_of<'ctx>(
             ctx.builder()
                 .build_conditional_branch(is_null, end_bb, body_bb);
 
-            ctx.push_loop(end_bb, cond_bb);
+            let label = ctx.pending_loop_label.take();
+            ctx.push_loop(end_bb, cond_bb, label);
 
             ctx.builder().position_at_end(body_bb);
             let var_ptr = ctx.builder().build_alloca(i8_ptr, variable);
@@ -920,6 +944,35 @@ fn compile_try<'ctx>(
     Ok(())
 }
 
+/// Look up the loop_stack entry whose label matches `target_label` and
+/// extract the requested basic block via `selector`. Walks top-down so
+/// the innermost matching label wins (matching JS-style label scoping).
+/// Returns E3003 error if no matching label is found.
+fn find_loop_target<'ctx, 'm, 'env, F>(
+    ctx: &CodegenContext<'ctx, 'm, 'env>,
+    target_label: String,
+    selector: F,
+) -> Result<inkwell::basic_block::BasicBlock<'ctx>, String>
+where
+    F: Fn(
+        &(
+            inkwell::basic_block::BasicBlock<'ctx>,
+            inkwell::basic_block::BasicBlock<'ctx>,
+            Option<String>,
+        ),
+    ) -> inkwell::basic_block::BasicBlock<'ctx>,
+{
+    for entry in ctx.loop_stack.iter().rev() {
+        if entry.2.as_deref() == Some(target_label.as_str()) {
+            return Ok(selector(entry));
+        }
+    }
+    Err(format!(
+        "E3003: Undefined label: `break`/`continue` references label `{}` which is not associated with any enclosing loop",
+        target_label
+    ))
+}
+
 fn build_exception_check<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>) -> Result<(), String> {
     if ctx.try_stack_is_empty() {
         return Ok(());
@@ -1034,7 +1087,8 @@ fn compile_while_let<'ctx>(
         ty: val.ty.clone(),
     };
     bind_pattern_in_codegen(ctx, pattern, &loaded_result)?;
-    ctx.push_loop(exit_bb, header_bb);
+    let label = ctx.pending_loop_label.take();
+    ctx.push_loop(exit_bb, header_bb, label);
     compile_stmt(ctx, body)?;
     ctx.pop_loop();
     if let Some(bb) = ctx.builder().get_insert_block() {

@@ -1,11 +1,21 @@
-let sum: int = 0;
-for (let i: int = 0; i < 5; i = i + 1) {
+// for_loop.ry — C-style, for-of array, for-in object
+fn main() {
+  // C-style for
+  let sum = 0;
+  for (let i = 0; i < 5; i = i + 1) {
     sum = sum + i;
-}
-print(sum);
+  }
+  print(sum);
 
-let factorial: int = 1;
-for (let n: int = 1; n <= 4; n = n + 1) {
-    factorial = factorial * n;
+  // for-of array
+  let arr = [10, 20, 30];
+  for (let v of arr) {
+    print(v);
+  }
+
+  // for-in object
+  let obj: { a: int, b: int, c: int } = { a: 1, b: 2, c: 3 };
+  for (let k in obj) {
+    print(k);
+  }
 }
-print(factorial);

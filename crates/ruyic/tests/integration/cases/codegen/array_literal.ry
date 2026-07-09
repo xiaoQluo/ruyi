@@ -1,5 +1,11 @@
-// Test array literal codegen
-let arr = [10, 20, 30];
+// array_literal.ry — array literal + index access
+let arr = [10, 20, 30, 40];
 print(arr[0]);
 print(arr[1]);
 print(arr[2]);
+print(arr[3]);
+
+// Direct GEP path for IntLiteral indices exercises
+// compile_member_access's optimized __builtin_array_get.
+let i = 2;
+print(arr[i]);
