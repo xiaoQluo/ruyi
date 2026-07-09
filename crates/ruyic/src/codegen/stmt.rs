@@ -338,6 +338,26 @@ fn compile_for_in<'ctx>(
     let i64_ptr_ty = i64_ty.ptr_type(Default::default());
 
     let iter_result = compile_expr(ctx, iterable)?;
+
+    if let crate::typechecker::types::Type::Object(fields) = &iter_result.ty {
+        let var_ptr = ctx.builder().build_alloca(i8_ptr, variable);
+        let old_var = ctx
+            .variables
+            .insert(variable.to_string(), (var_ptr, Type::String));
+        for f in fields {
+            let s = ctx.builder().build_global_string_ptr(&f.name, "obj_key");
+            ctx.builder().build_store(var_ptr, s.as_pointer_value());
+            compile_stmt(ctx, body)?;
+        }
+        ctx.builder().position_at_end(ctx.builder().get_insert_block().unwrap());
+        if let Some(old) = old_var {
+            ctx.define_variable(variable.to_string(), old);
+        } else {
+            ctx.remove_variable(variable);
+        }
+        return Ok(());
+    }
+
     let obj_ptr = iter_result.value.into_pointer_value();
 
     let keys_fn = ctx
