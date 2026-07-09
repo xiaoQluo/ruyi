@@ -2258,6 +2258,22 @@ fn compile_call<'ctx>(
                     ctx.builder().build_store(slot, str_ptr);
                     (Some(slot), "String".to_string())
                 }
+                Expr::Call {
+                    callee: inner_callee,
+                    args: inner_args,
+                } => {
+                    let result = compile_call(ctx, inner_callee, inner_args)?;
+                    let class_name = match &result.ty {
+                        Type::Named(n, _) => n.clone(),
+                        _ => {
+                            return Err(format!(
+                                "Cannot call method on call result type: {:?}",
+                                result.ty
+                            ))
+                        }
+                    };
+                    (Some(result.value.into_pointer_value()), class_name)
+                }
                 _ => return Err("Method calls only supported on identifiers".to_string()),
             };
             let func_name = format!("{}_{}", class_name, method_name);
@@ -2552,19 +2568,19 @@ fn compile_assignment<'ctx>(
                 _ => return Err("Only simple field assignments supported".to_string()),
             };
 
-            let (var_ptr, class_name) = match object.as_ref() {
+            let (var_ptr, class_name, is_object) = match object.as_ref() {
                 Expr::Identifier(name) => {
                     let (ptr, ty) = ctx
                         .variables
                         .get(name)
                         .ok_or_else(|| format!("Undefined variable: {}", name))?;
-                    let class_name = match ty {
-                        Type::Named(n, _) => n.clone(),
-                        Type::Array(_) => "Array".to_string(),
-                        Type::Generic { base, .. } => base.clone(),
+                    match ty {
+                        Type::Named(n, _) => (*ptr, n.clone(), false),
+                        Type::Array(_) => (*ptr, "Array".to_string(), false),
+                        Type::Generic { base, .. } => (*ptr, base.clone(), false),
+                        Type::Object(_) => (*ptr, String::new(), true),
                         _ => return Err(format!("Cannot access field on type: {:?}", ty)),
-                    };
-                    (*ptr, class_name)
+                    }
                 }
                 Expr::SelfExpr => {
                     let (ptr, ty) = ctx
@@ -2577,10 +2593,48 @@ fn compile_assignment<'ctx>(
                         Type::Generic { base, .. } => base.clone(),
                         _ => return Err(format!("Cannot access field on type: {:?}", ty)),
                     };
-                    (*ptr, class_name)
+                    (*ptr, class_name, false)
                 }
                 _ => return Err("Member assignment only supported on identifiers".to_string()),
             };
+
+            if is_object {
+                let (_, ty) = ctx
+                    .variables
+                    .get(match object.as_ref() {
+                        Expr::Identifier(n) => n.as_str(),
+                        _ => "",
+                    })
+                    .ok_or("Undefined variable")?;
+                if let Type::Object(fields) = ty {
+                    let field_index = fields
+                        .iter()
+                        .position(|f| f.name == field_name)
+                        .ok_or_else(|| format!("Unknown field: {} in object", field_name))?;
+                    let field_ty = &fields[field_index].ty;
+                    let obj_ptr = ctx
+                        .builder()
+                        .build_load(var_ptr, "obj")
+                        .into_pointer_value();
+                    let offset = ctx
+                        .context
+                        .i32_type()
+                        .const_int((field_index * 8) as u64, false);
+                    let field_ptr = unsafe {
+                        ctx.builder()
+                            .build_gep(obj_ptr, &[offset], &format!("{}_ptr", field_name))
+                    };
+                    let field_val = right_result.value;
+                    let typed_ptr = ctx.builder().build_pointer_cast(
+                        field_ptr,
+                        ruyi_type_to_llvm(ctx.context, field_ty).ptr_type(Default::default()),
+                        &format!("{}_typed", field_name),
+                    );
+                    ctx.builder().build_store(typed_ptr, field_val);
+                    return Ok(right_result);
+                }
+                return Err("Expected object type".to_string());
+            }
 
             let obj_ptr = ctx
                 .builder()

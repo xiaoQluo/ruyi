@@ -1073,7 +1073,7 @@ impl TypeInference {
                     MemberProperty::Ident(name) => name.clone(),
                     MemberProperty::Expr(e) => format!("[{}]", self.synthesize(e)),
                 };
-                self.synthesize_member_access(&obj_ty, &prop_name, *optional)
+                self.synthesize_member_access(object, &obj_ty, &prop_name, *optional)
             }
             Expr::OptionalCall { callee, args } => {
                 let callee_ty = self.synthesize(callee);
@@ -1521,12 +1521,22 @@ impl TypeInference {
         }
     }
 
-    fn synthesize_member_access(&mut self, obj_ty: &Type, prop_name: &str, optional: bool) -> Type {
+    fn synthesize_member_access(
+        &mut self,
+        object: &Expr,
+        obj_ty: &Type,
+        prop_name: &str,
+        optional: bool,
+    ) -> Type {
         // Check for unsafe nullable access (non-optional member access on nullable type)
         if !optional && obj_ty.is_nullable() && !obj_ty.is_dynamic() {
             self.diagnostics
                 .add_error(DiagnosticKind::UnsafeNullableAccess { ty: obj_ty.clone() });
         }
+
+        let is_static_call = prop_name == "new"
+            && matches!(object, Expr::Identifier(_))
+            && matches!(obj_ty, Type::Named(_, _));
 
         let result = match obj_ty {
             Type::Tuple(types) => {
@@ -1555,10 +1565,9 @@ impl TypeInference {
                     .and_then(|methods| methods.iter().find(|m| m.name == prop_name))
                     .map(|m| m.ty.clone())
                 {
-                    // Class's own method: bind `self` to the class type so
-                    // `instance.method` becomes a function value
-                    // `function (self: Class, ...) -> ret_type`.
-                    if let Type::Function {
+                    if is_static_call {
+                        method_ty
+                    } else if let Type::Function {
                         params,
                         return_type,
                     } = method_ty
