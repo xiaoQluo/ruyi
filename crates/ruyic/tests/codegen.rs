@@ -58,8 +58,14 @@ fn compile_and_run(source: &str) -> io::Result<String> {
 
     fs::write(&source_path, source)?;
 
-    // Compile
+    // Run ruyic from the workspace root so it can resolve
+    // `target/release/libruyi_runtime.a` via relative path.
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "workspace root not found"))?;
     let compile_result = Command::new(&ruyic_path)
+        .current_dir(workspace_root)
         .arg(&source_path)
         .arg("-o")
         .arg(&binary_path)
@@ -426,8 +432,10 @@ fn helper_compile_failure_report() {
 #[ignore]
 fn test_array_index_int_literal_uses_gep() {
     let source = r#"
-let arr = [10, 20, 30];
-print(arr[0]); print(arr[1]); print(arr[2]);
+fn main() {
+  let arr = [10, 20, 30];
+  print(arr[0]); print(arr[1]); print(arr[2]);
+}
 "#;
     assert_output(source, "10\n20\n30");
 }
@@ -439,8 +447,10 @@ print(arr[0]); print(arr[1]); print(arr[2]);
 #[ignore]
 fn test_array_index_variable_uses_runtime_call() {
     let source = r#"
-let arr = [10, 20, 30];
-for (let i = 0; i < 3; i = i + 1) { print(arr[i]); }
+fn main() {
+  let arr = [10, 20, 30];
+  for (let i = 0; i < 3; i = i + 1) { print(arr[i]); }
+}
 "#;
     assert_output(source, "10\n20\n30");
 }
@@ -451,9 +461,11 @@ for (let i = 0; i < 3; i = i + 1) { print(arr[i]); }
 #[ignore]
 fn test_array_index_out_of_bounds_no_crash() {
     let source = r#"
-let arr = [1, 2, 3];
-let x = arr[100];
-print(x);
+fn main() {
+  let arr = [1, 2, 3];
+  let x = arr[100];
+  print(x);
+}
 "#;
     let result = compile_and_run(source);
     assert!(
