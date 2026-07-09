@@ -504,3 +504,57 @@ fn main() {
 "#;
     assert_output(source, "1\n2\n3\n4\n5\n6\n7\n8");
 }
+
+// ── Labeled break/continue Tests ────────────────────────────────
+
+/// Regression test for REQ-CAP8-001: break <label> must exit the
+/// loop whose opening statement carries that label, not the innermost loop.
+#[test]
+#[ignore]
+fn test_labeled_break_exits_outer_loop() {
+    let source = r#"
+outer: for (let i = 0; i < 3; i = i + 1) {
+    for (let j = 0; j < 3; j = j + 1) {
+        break outer;
+    }
+    print(999); // should never run
+}
+print(100); // should print
+"#;
+    assert_output(source, "100");
+}
+
+/// Regression test for REQ-CAP8-002: continue <label> must resume
+/// the loop whose opening statement carries that label.
+#[test]
+#[ignore]
+fn test_labeled_continue_resumes_outer() {
+    let source = r#"
+for (let i = 0; i < 3; i = i + 1) {
+    inner: for (let j = 0; j < 3; j = j + 1) {
+        continue inner;
+    }
+    print(i); // should print 0, 1, 2
+}
+"#;
+    assert_output(source, "0\n1\n2");
+}
+
+/// Undefined label on break must produce error E3003.
+#[test]
+#[ignore]
+fn test_break_undefined_label_is_error() {
+    let source = r#"
+for (let i = 0; i < 3; i = i + 1) {
+    break nonexistent;
+}
+"#;
+    let result = compile_and_run(source);
+    assert!(result.is_err(), "Expected compilation to fail for undefined label");
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("E3003"),
+        "Expected E3003 error, got: {}",
+        err
+    );
+}
