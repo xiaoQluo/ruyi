@@ -1,0 +1,27 @@
+// class_layout.ry — class with multiple fields, read/write
+class Box {
+  width: int;
+  height: int;
+  depth: int;
+
+  fn new(width: int, height: int, depth: int) {
+    self.width = width;
+    self.height = height;
+    self.depth = depth;
+  }
+
+  fn volume(self): int {
+    return self.width * self.height * self.depth;
+  }
+}
+
+fn main() {
+  let b = Box.new(2, 3, 4);
+  print(b.width);
+  print(b.height);
+  print(b.depth);
+  print(b.volume());
+  b.width = 5;
+  b.height = 6;
+  print(b.volume());
+}

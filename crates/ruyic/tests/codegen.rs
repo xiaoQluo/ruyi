@@ -381,9 +381,10 @@ fn codegen_fixture_if_statement() {
 }
 
 #[test]
-// TODO: blocked by (a) incomplete T9 stdlib typecheck fix and (b) member-access
-// codegen gap — fixture exercises `Point.new(...).format()` chain which
-// requires Batch 2 method invocation to be complete.
+// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// Fixture exercises `.field`, `?.field`, and `["key"]`; the `?.` branch and
+// bracket access on class instances both depend on Batch 2 method/field
+// invocation being complete.
 #[ignore]
 fn codegen_fixture_member_access() {
     let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -394,6 +395,209 @@ fn codegen_fixture_member_access() {
 
     let source_path = cases_dir.join("member_access.ry");
     let expected_path = cases_dir.join("member_access.expected");
+
+    if !source_path.exists() {
+        eprintln!("Skipping: {} not found", source_path.display());
+        return;
+    }
+
+    let source = fs::read_to_string(&source_path).expect("failed to read source");
+    let expected = fs::read_to_string(&expected_path)
+        .map(|s| s.replace("\r\n", "\n").trim().to_string())
+        .unwrap_or_default();
+
+    assert_output(&source, &expected);
+}
+
+// ── T8 Integration Fixture Tests ─────────────────────────────────
+// The following 8 fixtures were added in T8 to expand codegen coverage
+// for v0.2 P0 language capabilities. All remain #[ignore] until the
+// T9 stdlib typecheck fix lands.
+
+#[test]
+// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// Fixture exercises class with 3+ fields, instance construction, method
+// dispatch, and field mutation. Class layout work is in place; the test
+// will pass once stdlib typechecks.
+#[ignore]
+fn codegen_fixture_class_layout() {
+    let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("integration")
+        .join("cases")
+        .join("codegen");
+
+    let source_path = cases_dir.join("class_layout.ry");
+    let expected_path = cases_dir.join("class_layout.expected");
+
+    if !source_path.exists() {
+        eprintln!("Skipping: {} not found", source_path.display());
+        return;
+    }
+
+    let source = fs::read_to_string(&source_path).expect("failed to read source");
+    let expected = fs::read_to_string(&expected_path)
+        .map(|s| s.replace("\r\n", "\n").trim().to_string())
+        .unwrap_or_default();
+
+    assert_output(&source, &expected);
+}
+
+#[test]
+// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// Fixture exercises `{k:v}` literal creation, `.field` access, and
+// bracket-string `obj["key"]` access. Object literal codegen is in place.
+#[ignore]
+fn codegen_fixture_object_literal() {
+    let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("integration")
+        .join("cases")
+        .join("codegen");
+
+    let source_path = cases_dir.join("object_literal.ry");
+    let expected_path = cases_dir.join("object_literal.expected");
+
+    if !source_path.exists() {
+        eprintln!("Skipping: {} not found", source_path.display());
+        return;
+    }
+
+    let source = fs::read_to_string(&source_path).expect("failed to read source");
+    let expected = fs::read_to_string(&expected_path)
+        .map(|s| s.replace("\r\n", "\n").trim().to_string())
+        .unwrap_or_default();
+
+    assert_output(&source, &expected);
+}
+
+#[test]
+// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// Fixture exercises `[1,2,3]` literal creation and direct GEP via
+// IntLiteral indices (T3 work). Variable-index path also covered.
+#[ignore]
+fn codegen_fixture_array_literal() {
+    let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("integration")
+        .join("cases")
+        .join("codegen");
+
+    let source_path = cases_dir.join("array_literal.ry");
+    let expected_path = cases_dir.join("array_literal.expected");
+
+    if !source_path.exists() {
+        eprintln!("Skipping: {} not found", source_path.display());
+        return;
+    }
+
+    let source = fs::read_to_string(&source_path).expect("failed to read source");
+    let expected = fs::read_to_string(&expected_path)
+        .map(|s| s.replace("\r\n", "\n").trim().to_string())
+        .unwrap_or_default();
+
+    assert_output(&source, &expected);
+}
+
+#[test]
+// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// Fixture exercises `+` with strings, ints, floats, and chained mixed-type
+// concatenation. String concat codegen is in place.
+#[ignore]
+fn codegen_fixture_string_concat() {
+    let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("integration")
+        .join("cases")
+        .join("codegen");
+
+    let source_path = cases_dir.join("string_concat.ry");
+    let expected_path = cases_dir.join("string_concat.expected");
+
+    if !source_path.exists() {
+        eprintln!("Skipping: {} not found", source_path.display());
+        return;
+    }
+
+    let source = fs::read_to_string(&source_path).expect("failed to read source");
+    let expected = fs::read_to_string(&expected_path)
+        .map(|s| s.replace("\r\n", "\n").trim().to_string())
+        .unwrap_or_default();
+
+    assert_output(&source, &expected);
+}
+
+#[test]
+// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// Fixture exercises C-style `for`, `for-of` array, and `for-in` object
+// iteration. For-loop codegen is in place; passes once stdlib typechecks.
+#[ignore]
+fn codegen_fixture_for_loop() {
+    let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("integration")
+        .join("cases")
+        .join("codegen");
+
+    let source_path = cases_dir.join("for_loop.ry");
+    let expected_path = cases_dir.join("for_loop.expected");
+
+    if !source_path.exists() {
+        eprintln!("Skipping: {} not found", source_path.display());
+        return;
+    }
+
+    let source = fs::read_to_string(&source_path).expect("failed to read source");
+    let expected = fs::read_to_string(&expected_path)
+        .map(|s| s.replace("\r\n", "\n").trim().to_string())
+        .unwrap_or_default();
+
+    assert_output(&source, &expected);
+}
+
+#[test]
+// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// Fixture exercises `obj.method(args)` with `self` binding, including
+// methods that mutate self and methods that take additional arguments.
+// Method call codegen is in place.
+#[ignore]
+fn codegen_fixture_method_call() {
+    let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("integration")
+        .join("cases")
+        .join("codegen");
+
+    let source_path = cases_dir.join("method_call.ry");
+    let expected_path = cases_dir.join("method_call.expected");
+
+    if !source_path.exists() {
+        eprintln!("Skipping: {} not found", source_path.display());
+        return;
+    }
+
+    let source = fs::read_to_string(&source_path).expect("failed to read source");
+    let expected = fs::read_to_string(&expected_path)
+        .map(|s| s.replace("\r\n", "\n").trim().to_string())
+        .unwrap_or_default();
+
+    assert_output(&source, &expected);
+}
+
+#[test]
+// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// Fixture exercises `break <label>` and `continue <label>`. Labeled
+// loop control flow (T4 work) is in place; passes once stdlib typechecks.
+#[ignore]
+fn codegen_fixture_labeled_loops() {
+    let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("integration")
+        .join("cases")
+        .join("codegen");
+
+    let source_path = cases_dir.join("labeled_loops.ry");
+    let expected_path = cases_dir.join("labeled_loops.expected");
 
     if !source_path.exists() {
         eprintln!("Skipping: {} not found", source_path.display());
