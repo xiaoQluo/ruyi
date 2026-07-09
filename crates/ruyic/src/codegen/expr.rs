@@ -2272,7 +2272,16 @@ fn compile_call<'ctx>(
                             ))
                         }
                     };
-                    (Some(result.value.into_pointer_value()), class_name)
+                    let ptr = match result.value {
+                        BasicValueEnum::PointerValue(p) => p,
+                        _ => {
+                            return Err(format!(
+                                "Call result is not a pointer value: {:?}",
+                                result.ty
+                            ))
+                        }
+                    };
+                    (Some(ptr), class_name)
                 }
                 _ => return Err("Method calls only supported on identifiers".to_string()),
             };
@@ -2426,17 +2435,14 @@ fn compile_call<'ctx>(
             let loaded = ctx.builder().build_load(self_ptr, "obj");
             arg_values.push(loaded.into());
         } else {
-            let loaded = ctx.builder().build_load(self_ptr, "obj");
-            let obj_ptr = match loaded {
-                BasicValueEnum::PointerValue(p) => p,
-                BasicValueEnum::IntValue(i) => ctx.builder().build_int_to_ptr(
-                    i,
-                    ctx.context.i8_type().ptr_type(Default::default()),
-                    "obj_ptr",
-                ),
-                _ => return Err(format!("Cannot convert {:?} to object pointer", loaded)),
-            };
-            arg_values.push(obj_ptr.into());
+            let self_ptr_ty = self_ptr.get_type();
+            let is_i8_ptr = self_ptr_ty == ctx.context.i8_type().ptr_type(Default::default());
+            if is_i8_ptr {
+                arg_values.push(self_ptr.into());
+            } else {
+                let loaded = ctx.builder().build_load(self_ptr, "obj");
+                arg_values.push(loaded.into());
+            }
         }
     }
     // Get the function's LLVM parameter types for type-aware conversion
