@@ -559,6 +559,8 @@ impl<'ctx> CodeGenerator<'ctx> {
         // Collect the main function body to compile into the entry point
         let mut main_body: Option<&[crate::parser::ast::Statement]> = None;
         let mut main_params: Option<&[crate::parser::ast::Param]> = None;
+        // Compiled after main_body so the entry block stays terminator-free.
+        let mut top_level_stmts: Vec<crate::parser::ast::Statement> = Vec::new();
 
         for item in &program.items {
             if let Some(decl) = extract_declaration(item) {
@@ -665,13 +667,11 @@ impl<'ctx> CodeGenerator<'ctx> {
         for item in &program.items {
             match item {
                 crate::parser::ast::ModuleItem::Declaration(decl) => {
-                    // Skip main function - it will be compiled into the entry point
                     if let crate::parser::ast::Declaration::Function { name, is_async, .. } = decl {
                         if name == "main" && !*is_async {
                             continue;
                         }
                     }
-                    // Skip top-level let/const - they become LLVM globals (handled at main entry)
                     if matches!(
                         decl,
                         crate::parser::ast::Declaration::Let(_)
@@ -700,6 +700,13 @@ impl<'ctx> CodeGenerator<'ctx> {
                             continue;
                         }
                     }
+                    if matches!(
+                        decl,
+                        crate::parser::ast::Declaration::Let(_)
+                            | crate::parser::ast::Declaration::Const(_)
+                    ) {
+                        continue;
+                    }
                     if let Err(_e) = compile_declaration(&mut ctx, decl) {
                         if !ctx.allow_partial_codegen() {
                             return Err(format!("codegen error: {}", _e));
@@ -707,7 +714,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                     }
                 }
                 crate::parser::ast::ModuleItem::Statement(stmt) => {
-                    compile_block(&mut ctx, std::slice::from_ref(stmt))?;
+                    top_level_stmts.push(stmt.clone());
                 }
                 _ => {}
             }
@@ -762,6 +769,10 @@ impl<'ctx> CodeGenerator<'ctx> {
         // Compile main function body
         if let Some(body) = main_body {
             compile_block(&mut ctx, body)?;
+        }
+
+        for stmt in &top_level_stmts {
+            compile_block(&mut ctx, std::slice::from_ref(stmt))?;
         }
 
         let current_bb = ctx.builder().get_insert_block().unwrap();
@@ -1000,14 +1011,17 @@ fn compile_top_level_let_inits<'ctx>(
     program: &crate::parser::ast::Program,
 ) {
     use super::expr::compile_expr;
-    use crate::parser::ast::{Declaration, ModuleItem, Pattern};
+    use crate::parser::ast::{Declaration, ExportDecl, ModuleItem, Pattern};
     use crate::typechecker::types::Type;
     use inkwell::values::BasicValueEnum;
 
     for item in &program.items {
-        if let ModuleItem::Declaration(Declaration::Let(bindings) | Declaration::Const(bindings)) =
-            item
-        {
+        let decl_opt = match item {
+            ModuleItem::Declaration(decl) => Some(decl),
+            ModuleItem::Export(ExportDecl::Declaration(decl)) => Some(decl),
+            _ => None,
+        };
+        if let Some(Declaration::Let(bindings) | Declaration::Const(bindings)) = decl_opt {
             for b in bindings {
                 let name = match &b.pattern {
                     Pattern::Identifier(n) => n.clone(),
@@ -1046,13 +1060,16 @@ fn compile_top_level_let_inits<'ctx>(
 fn collect_top_level_lets(
     program: &crate::parser::ast::Program,
 ) -> Vec<(String, crate::typechecker::types::Type)> {
-    use crate::parser::ast::{Declaration, ModuleItem, Pattern};
+    use crate::parser::ast::{Declaration, ExportDecl, ModuleItem, Pattern};
     use crate::typechecker::types::Type;
     let mut result = Vec::new();
     for item in &program.items {
-        if let ModuleItem::Declaration(Declaration::Let(bindings) | Declaration::Const(bindings)) =
-            item
-        {
+        let decl_opt = match item {
+            ModuleItem::Declaration(decl) => Some(decl),
+            ModuleItem::Export(ExportDecl::Declaration(decl)) => Some(decl),
+            _ => None,
+        };
+        if let Some(Declaration::Let(bindings) | Declaration::Const(bindings)) = decl_opt {
             for b in bindings {
                 let name = match &b.pattern {
                     Pattern::Identifier(n) => n.clone(),

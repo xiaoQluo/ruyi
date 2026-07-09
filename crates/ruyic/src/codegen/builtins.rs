@@ -228,10 +228,44 @@ pub fn build_print<'ctx>(
         Type::Array(_elem_ty) => {
             build_print_array(context, builder, module, value, function);
         }
+        Type::Bool => {
+            build_print_bool(context, builder, module, value.into_int_value(), function);
+        }
         _ => {
             build_print_primitive(builder, module, value);
         }
     }
+}
+
+fn build_print_bool<'ctx>(
+    context: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    value: inkwell::values::IntValue<'ctx>,
+    function: FunctionValue<'ctx>,
+) {
+    let printf = module.get_function("printf").expect("printf not declared");
+    let true_bb = context.append_basic_block(function, "print_bool_true");
+    let false_bb = context.append_basic_block(function, "print_bool_false");
+    let merge_bb = context.append_basic_block(function, "print_bool_merge");
+    builder.build_conditional_branch(value, true_bb, false_bb);
+    builder.position_at_end(true_bb);
+    let fmt_true = builder.build_global_string_ptr("true\n", "fmt_bool_true");
+    builder.build_call(
+        printf,
+        &[fmt_true.as_pointer_value().into()],
+        "print_bool_true",
+    );
+    builder.build_unconditional_branch(merge_bb);
+    builder.position_at_end(false_bb);
+    let fmt_false = builder.build_global_string_ptr("false\n", "fmt_bool_false");
+    builder.build_call(
+        printf,
+        &[fmt_false.as_pointer_value().into()],
+        "print_bool_false",
+    );
+    builder.build_unconditional_branch(merge_bb);
+    builder.position_at_end(merge_bb);
 }
 
 /// Print a primitive value (int, float, string, pointer).
