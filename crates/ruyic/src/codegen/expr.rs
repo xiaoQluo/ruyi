@@ -668,6 +668,29 @@ fn compile_member_access<'ctx>(
                     BasicValueEnum::IntValue(elem_val),
                     Type::Int,
                 ))
+            } else if let (Type::Object(fields), crate::parser::ast::Expr::StringLiteral(key)) =
+                (&obj_result.ty, key_expr.as_ref())
+            {
+                let field = fields
+                    .iter()
+                    .find(|f| f.name == key.as_str())
+                    .ok_or_else(|| format!("Unknown field: {} in object", key))?;
+                let obj_ptr = value_to_i8_ptr(ctx, &obj_result.value)?;
+                let offset = ctx.context.i32_type().const_int(
+                    (fields.iter().position(|f| f.name == field.name).unwrap() * 8) as u64,
+                    false,
+                );
+                let field_ptr = unsafe {
+                    ctx.builder()
+                        .build_gep(obj_ptr, &[offset], &format!("{}_ptr", field.name))
+                };
+                let typed_ptr = ctx.builder().build_pointer_cast(
+                    field_ptr,
+                    ruyi_type_to_llvm(ctx.context, &field.ty).ptr_type(Default::default()),
+                    &format!("{}_typed", field.name),
+                );
+                let field_val = ctx.builder().build_load(typed_ptr, &field.name);
+                Ok(ExprResult::new(field_val, field.ty.clone()))
             } else {
                 // Non-array object: fall back to generic ruyi_obj_get (dict lookup).
                 let key_result = compile_expr(ctx, key_expr)?;
