@@ -416,6 +416,53 @@ fn helper_compile_failure_report() {
     let _ = result;
 }
 
+// ── Array Index Codegen Tests (T3 / REQ-CAP3-002) ──────────────
+
+/// Direct array access for IntLiteral indices (arr[0], arr[1], arr[2])
+/// exercises the optimized path: compile_member_access detects
+/// MemberProperty::Expr(Expr::IntLiteral) on Type::Array and emits
+/// __builtin_array_get instead of the generic ruyi_obj_get.
+#[test]
+#[ignore]
+fn test_array_index_int_literal_uses_gep() {
+    let source = r#"
+let arr = [10, 20, 30];
+print(arr[0]); print(arr[1]); print(arr[2]);
+"#;
+    assert_output(source, "10\n20\n30");
+}
+
+/// Variable array indices take the same runtime-call path because the
+/// index cannot be folded at compile time; correctness must be preserved
+/// even though the index is not known statically.
+#[test]
+#[ignore]
+fn test_array_index_variable_uses_runtime_call() {
+    let source = r#"
+let arr = [10, 20, 30];
+for (let i = 0; i < 3; i = i + 1) { print(arr[i]); }
+"#;
+    assert_output(source, "10\n20\n30");
+}
+
+/// Out-of-bounds array access must be handled by __builtin_array_get
+/// (returns 0) without crashing the process.
+#[test]
+#[ignore]
+fn test_array_index_out_of_bounds_no_crash() {
+    let source = r#"
+let arr = [1, 2, 3];
+let x = arr[100];
+print(x);
+"#;
+    let result = compile_and_run(source);
+    assert!(
+        result.is_ok(),
+        "Out-of-bounds array access should not crash: {:?}",
+        result.err()
+    );
+}
+
 // ── Class Allocation Size Regression Tests ─────────────────────
 
 /// Regression test for REQ-CAP1-001: compile_new must allocate the

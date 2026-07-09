@@ -644,6 +644,27 @@ fn declare_builtin_array_get<'ctx>(context: &'ctx Context, module: &Module<'ctx>
     module.add_function("__builtin_array_get", fn_type, None);
 }
 
+/// Build a call to `__builtin_array_get(arr, index)`.
+///
+/// Returns the element as an `i64`. Bounds checking and negative-index
+/// handling are performed by the runtime function.
+pub fn build_builtin_array_get<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    arr: inkwell::values::PointerValue<'ctx>,
+    index: inkwell::values::IntValue<'ctx>,
+) -> inkwell::values::IntValue<'ctx> {
+    let fn_val = module
+        .get_function("__builtin_array_get")
+        .expect("__builtin_array_get not declared");
+    builder
+        .build_call(fn_val, &[arr.into(), index.into()], "array_get")
+        .try_as_basic_value()
+        .left()
+        .unwrap()
+        .into_int_value()
+}
+
 fn declare_builtin_array_set<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     let i8_ptr = context.i8_type().ptr_type(Default::default());
     let i64_ty = context.i64_type();
