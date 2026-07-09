@@ -10,14 +10,28 @@
  * Tests that require LLVM are marked with #[ignore] and can be run
  * with: cargo test -p ruyic --test codegen -- --ignored
  *
- * Status as of T7 (v0.2-codegen-gaps): all 27 #[ignore] tests remain
- * ignored. Root cause is the auto-loaded `stdlib/collections.ry` failing
- * to typecheck because T9 made `RangeError` / `ArrayIterator` recognized
- * as Named types but did not make them callable as constructors
- * (`throw RangeError("...")` is a call). Each test has a `// TODO:`
- * comment above its `#[ignore]` describing any additional test-specific
- * blocker. The compile_and_run / assert_output helpers have not been
- * touched.
+ * Status as of T9-partial-fix (post-merge to dev/v0.5.5):
+ * - T9 stdlib typecheck fix completed: `stdlib/collections.ry` switched from
+ *   `throw RangeError("...")` to `throw RangeError.new("...")` to match the
+ *   existing pattern in `stdlib/error.ry` (7 sites already use `.new`).
+ * - 13 of 34 #[ignore] tests now pass under `--ignored --test-threads=1`
+ *   (arithmetic, string concat, function call, labeled loops, array index
+ *   GEP, new_class_8_fields, break undefined label).
+ * - 21 #[ignore] tests still fail with PRE-EXISTING (non-T9) blockers:
+ *   - Tuple syntax parser bug: `codegen_tuple_*` (parse error on `,` in args)
+ *   - Comparison codegen: `codegen_comparison`, `codegen_while_loop`
+ *     (Invalid operands for `<`)
+ *   - Labeled break/continue codegen: `test_labeled_break_*`,
+ *     `test_labeled_continue_*` (empty compilation error)
+ *   - Class creation / fixture tests: parse or codegen errors in test source
+ *   - Template literal: `codegen_template_literal`
+ * - Test infrastructure has a known parallelism bug: `compile_and_run`
+ *   writes to a shared `/tmp/ruyi_codegen_test.ry`, so concurrent tests
+ *   overwrite each other. Run with `--test-threads=1` for deterministic
+ *   results.
+ * - Each test's `// TODO:` comment above `#[ignore]` still describes the
+ *   original T9 blocker; future work should refresh them per-test to point
+ *   at the actual remaining blocker.
  *
  * @author Ruyi Team
  * @date 2026-05-02
