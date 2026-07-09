@@ -187,6 +187,8 @@ impl Type {
             // int <: float (widening coercion)
             (Type::Int, Type::Float) => true,
 
+            (Type::Null, Type::Nullable(_)) => true,
+
             // T <: T? (nullable supertype)
             (t, Type::Nullable(inner)) => t.is_subtype_of(inner) || t.is_subtype_of(&Type::Null),
 
