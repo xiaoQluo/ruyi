@@ -89,7 +89,9 @@ pub fn compile_stmt<'ctx>(
                     .last()
                     .map(|(_, cond_bb, _)| *cond_bb)
                     .ok_or("ContinueOutsideLoop: continue statement must be inside a loop")?,
-                Some(label) => find_loop_target(ctx, label.to_string(), |(_, cond_bb, _)| *cond_bb)?,
+                Some(label) => {
+                    find_loop_target(ctx, label.to_string(), |(_, cond_bb, _)| *cond_bb)?
+                }
             };
             ctx.builder().build_unconditional_branch(target_bb);
             Ok(())
@@ -817,9 +819,9 @@ fn compile_try<'ctx>(
             inkwell::basic_block::BasicBlock<'ctx>,
         )> = Vec::new();
         for (i, _) in catch.iter().enumerate() {
-            let handler_bb =
-                ctx.context
-                    .append_basic_block(func, &format!("try.catch.{}", i));
+            let handler_bb = ctx
+                .context
+                .append_basic_block(func, &format!("try.catch.{}", i));
             catch_handlers.push((0u32, handler_bb));
         }
 
@@ -828,8 +830,7 @@ fn compile_try<'ctx>(
         let has_cleanup = finally.is_some();
 
         ctx.builder().position_at_end(landing_pad_bb);
-        landing_pad_val =
-            lp_gen.build_landing_pad(&catch_type_ids, has_cleanup, "landingpad");
+        landing_pad_val = lp_gen.build_landing_pad(&catch_type_ids, has_cleanup, "landingpad");
 
         // Extract exception pointer and store it for catch blocks to access
         let exc_ptr = lp_gen.extract_exception_ptr(landing_pad_val);

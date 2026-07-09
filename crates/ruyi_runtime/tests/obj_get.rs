@@ -17,9 +17,8 @@ unsafe fn alloc_object(field_count: usize) -> *mut i8 {
 }
 
 unsafe fn set_object_field(obj: *mut i8, index: usize, key: *mut i8, value: *mut i8) {
-    let base = obj.add(
-        std::mem::size_of::<i64>() + index * 2 * std::mem::size_of::<*mut i8>(),
-    ) as *mut *mut i8;
+    let base = obj.add(std::mem::size_of::<i64>() + index * 2 * std::mem::size_of::<*mut i8>())
+        as *mut *mut i8;
     *base.add(0) = key;
     *base.add(1) = value;
 }
@@ -33,16 +32,16 @@ unsafe fn dealloc_object(obj: *mut i8, field_count: usize) {
 }
 
 unsafe fn alloc_int(value: i64) -> *mut i8 {
-    let layout = Layout::from_size_align(std::mem::size_of::<i64>(), std::mem::align_of::<i64>())
-        .unwrap();
+    let layout =
+        Layout::from_size_align(std::mem::size_of::<i64>(), std::mem::align_of::<i64>()).unwrap();
     let ptr = alloc(layout) as *mut i64;
     *ptr = value;
     ptr as *mut i8
 }
 
 unsafe fn dealloc_int(ptr: *mut i8) {
-    let layout = Layout::from_size_align(std::mem::size_of::<i64>(), std::mem::align_of::<i64>())
-        .unwrap();
+    let layout =
+        Layout::from_size_align(std::mem::size_of::<i64>(), std::mem::align_of::<i64>()).unwrap();
     dealloc(ptr as *mut u8, layout);
 }
 

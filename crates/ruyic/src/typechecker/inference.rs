@@ -845,7 +845,10 @@ impl TypeInference {
             Expr::BigIntLiteral(_) => Type::BigInt,
             Expr::BooleanLiteral(_) => Type::Bool,
             Expr::NullLiteral => Type::Null,
-            Expr::Identifier(name) => self.env.lookup(name).cloned()
+            Expr::Identifier(name) => self
+                .env
+                .lookup(name)
+                .cloned()
                 .or_else(|| resolve_builtin_name(name))
                 .unwrap_or_else(|| {
                     self.diagnostics
@@ -1555,7 +1558,11 @@ impl TypeInference {
                     // Class's own method: bind `self` to the class type so
                     // `instance.method` becomes a function value
                     // `function (self: Class, ...) -> ret_type`.
-                    if let Type::Function { params, return_type } = method_ty {
+                    if let Type::Function {
+                        params,
+                        return_type,
+                    } = method_ty
+                    {
                         let new_params: Vec<Type> = params
                             .iter()
                             .enumerate()

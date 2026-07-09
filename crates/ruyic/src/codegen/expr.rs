@@ -654,11 +654,7 @@ fn compile_member_access<'ctx>(
                         let key_result = compile_expr(ctx, key_expr)?;
                         match key_result.value {
                             BasicValueEnum::IntValue(v) => v,
-                            _ => {
-                                return Err(
-                                    "Array index must be an integer".to_string()
-                                )
-                            }
+                            _ => return Err("Array index must be an integer".to_string()),
                         }
                     }
                 };
@@ -2038,10 +2034,9 @@ fn build_call_or_invoke<'ctx>(
     use inkwell::values::BasicMetadataValueEnum;
     match ctx.try_frame_stack.last().map(|f| f.landing_pad_bb) {
         Some(unwind_bb) => {
-            let then_bb = ctx.context.append_basic_block(
-                ctx.current_function().unwrap(),
-                &format!("{}.then", name),
-            );
+            let then_bb = ctx
+                .context
+                .append_basic_block(ctx.current_function().unwrap(), &format!("{}.then", name));
             let invoke_args: Vec<BasicValueEnum<'ctx>> = args
                 .iter()
                 .map(|v| match *v {
@@ -2369,8 +2364,7 @@ fn compile_call<'ctx>(
                 let func_ptr_val = ctx.builder().build_load(ptr, "func_ptr");
                 let func_ptr = func_ptr_val.into_pointer_value();
 
-                let mut arg_values: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> =
-                    Vec::new();
+                let mut arg_values: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> = Vec::new();
                 for arg in args {
                     match arg {
                         crate::parser::ast::Argument::Expr(e) => {

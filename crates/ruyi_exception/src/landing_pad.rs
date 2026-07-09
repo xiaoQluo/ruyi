@@ -345,10 +345,7 @@ mod llvm_tests {
             ir
         );
 
-        assert!(
-            module.verify().is_ok(),
-            "LLVM IR verification failed"
-        );
+        assert!(module.verify().is_ok(), "LLVM IR verification failed");
     }
 
     /**
@@ -415,9 +412,6 @@ mod llvm_tests {
             ir
         );
 
-        assert!(
-            module.verify().is_ok(),
-            "LLVM IR verification failed"
-        );
+        assert!(module.verify().is_ok(), "LLVM IR verification failed");
     }
 }

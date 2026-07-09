@@ -836,11 +836,10 @@ for (let i = 0; i < 3; i = i + 1) {
 }
 "#;
     let result = compile_and_run(source);
-    assert!(result.is_err(), "Expected compilation to fail for undefined label");
-    let err = result.unwrap_err().to_string();
     assert!(
-        err.contains("E3003"),
-        "Expected E3003 error, got: {}",
-        err
+        result.is_err(),
+        "Expected compilation to fail for undefined label"
     );
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("E3003"), "Expected E3003 error, got: {}", err);
 }

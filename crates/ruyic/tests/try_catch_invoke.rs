@@ -228,11 +228,13 @@ fn main(): int {
     let output = output.trim();
     assert!(
         output.contains("caught"),
-        "Expected output to contain 'caught', got: {}", output
+        "Expected output to contain 'caught', got: {}",
+        output
     );
     assert!(
         !output.contains("not caught"),
-        "Expected output NOT to contain 'not caught', got: {}", output
+        "Expected output NOT to contain 'not caught', got: {}",
+        output
     );
 }
 

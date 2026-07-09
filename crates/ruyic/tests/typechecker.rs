@@ -629,12 +629,7 @@ fn synthesize_expr(
     let mut expr_parser = Parser::new(expr_source).ok()?;
     let expr = expr_parser.parse_expression().ok()?;
     let mut inference = TypeInference::new(TraitRegistry::new());
-    Some(inference.synthesize_after_check(
-        &program,
-        &expr,
-        class_name,
-        in_function,
-    ))
+    Some(inference.synthesize_after_check(&program, &expr, class_name, in_function))
 }
 
 // ── Literal Inference ─────────────────────────────────────────
@@ -1775,7 +1770,8 @@ fn test_self_outside_class_is_error() {
 
 #[test]
 fn test_self_in_nested_closure_is_dynamic() {
-    let source = "class Point { x: int; fn m(self): int { let f = fn() { return self; }; return 0; } }";
+    let source =
+        "class Point { x: int; fn m(self): int { let f = fn() { return self; }; return 0; } }";
     assert_eq!(
         synthesize_expr(source, "self", None, true),
         Some(Type::Dynamic)
@@ -1853,16 +1849,20 @@ fn test_stdlib_builtin_array_length_synthesized_type() {
     let source = "let f = __builtin_array_length;";
     let result = check_program(source);
     assert!(
-        result.diagnostics.iter().all(|d| !d.message().contains("Unknown variable")),
+        result
+            .diagnostics
+            .iter()
+            .all(|d| !d.message().contains("Unknown variable")),
         "no Unknown variable expected for __builtin_array_length, got: {:?}",
-        result.diagnostics.iter().map(|d| d.message().to_string()).collect::<Vec<_>>()
+        result
+            .diagnostics
+            .iter()
+            .map(|d| d.message().to_string())
+            .collect::<Vec<_>>()
     );
     let ty = result.env.lookup("f").cloned();
     assert!(
-        matches!(
-            ty,
-            Some(Type::Function { .. })
-        ),
+        matches!(ty, Some(Type::Function { .. })),
         "expected __builtin_array_length to synthesize to Type::Function, got {:?}",
         ty
     );
