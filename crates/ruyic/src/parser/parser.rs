@@ -812,7 +812,7 @@ impl Parser {
                 self.advance();
                 Ok(Statement::Empty)
             }
-            Some(Token::Let) | Some(Token::Const) => {
+            Some(Token::Let) | Some(Token::Const) | Some(Token::Class) => {
                 let decl = self.parse_declaration()?;
                 Ok(Statement::Declaration(decl))
             }
