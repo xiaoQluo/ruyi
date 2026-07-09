@@ -50,7 +50,15 @@ pub struct TypeInference {
     tracker: MonomorphizationTracker,
     trait_registry: TraitRegistry,
     class_stack: Vec<String>,
+    /// Fields declared directly on each class body. Populated in
+    /// `infer_class_element` for `ClassElement::Field` and consulted in
+    /// `synthesize_member_access` to resolve `instance.field` accesses.
     class_fields: HashMap<String, Vec<ObjectField>>,
+    /// Methods declared directly on each class body (not via `impl Trait`).
+    /// Populated in `infer_class_element` for `ClassElement::Method` and
+    /// consulted in `synthesize_member_access` to resolve `instance.method`
+    /// accesses as first-class function values.
+    class_methods: HashMap<String, Vec<ObjectField>>,
 }
 
 impl TypeInference {
@@ -102,6 +110,7 @@ impl TypeInference {
             trait_registry,
             class_stack: Vec::new(),
             class_fields: HashMap::new(),
+            class_methods: HashMap::new(),
         }
     }
 
@@ -410,7 +419,17 @@ impl TypeInference {
                     params: param_types.clone(),
                     return_type: Box::new(fn_ret_type),
                 };
-                self.env.declare_let(&method_name, method_type);
+                self.env.declare_let(&method_name, method_type.clone());
+                if let Some(class_name) = self.class_stack.last() {
+                    self.class_methods
+                        .entry(class_name.clone())
+                        .or_default()
+                        .push(ObjectField {
+                            name: method_name.clone(),
+                            ty: method_type,
+                            optional: false,
+                        });
+                }
 
                 self.env.push_scope();
                 for (param, ty) in params.iter().zip(param_types.iter()) {
@@ -1479,6 +1498,35 @@ impl TypeInference {
                     .map(|f| f.ty.clone())
                 {
                     field_ty
+                } else if let Some(method_ty) = self
+                    .class_methods
+                    .get(type_name)
+                    .and_then(|methods| methods.iter().find(|m| m.name == prop_name))
+                    .map(|m| m.ty.clone())
+                {
+                    // Class's own method: bind `self` to the class type so
+                    // `instance.method` becomes a function value
+                    // `function (self: Class, ...) -> ret_type`.
+                    if let Type::Function { params, return_type } = method_ty {
+                        let new_params: Vec<Type> = params
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, p)| {
+                                if idx == 0 {
+                                    obj_ty.clone()
+                                } else {
+                                    self.substitute_self_type(p, obj_ty)
+                                }
+                            })
+                            .collect();
+                        let new_ret = self.substitute_self_type(&return_type, obj_ty);
+                        Type::Function {
+                            params: new_params,
+                            return_type: Box::new(new_ret),
+                        }
+                    } else {
+                        method_ty
+                    }
                 } else if let Some((_trait_name, method)) = self
                     .trait_registry
                     .resolve_impl_method(type_name, prop_name)

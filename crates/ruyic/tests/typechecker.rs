@@ -1781,3 +1781,24 @@ fn test_self_in_nested_closure_is_dynamic() {
         Some(Type::Dynamic)
     );
 }
+
+// ── Class Member Access (T6) ──────────────────────────────────
+
+#[test]
+fn test_class_field_via_member_access() {
+    let source = "class Point { x: int; y: int; } let p = new Point; let x_type = p.x;";
+    assert_eq!(get_var_type(source, "x_type"), Some(Type::Int));
+}
+
+#[test]
+fn test_class_own_method_via_member_access() {
+    let source =
+        "class Point { x: int; fn getX(self): int { return self.x; } } let p = new Point; let getX_type = p.getX;";
+    assert_eq!(
+        get_var_type(source, "getX_type"),
+        Some(Type::Function {
+            params: vec![Type::Named("Point".into(), vec![])],
+            return_type: Box::new(Type::Int),
+        })
+    );
+}
