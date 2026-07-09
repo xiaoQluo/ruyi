@@ -1272,6 +1272,11 @@ impl Parser {
                         self.advance();
                         MemberProperty::Ident(n)
                     }
+                    Some(Token::Int(i)) => {
+                        let n = i.to_string();
+                        self.advance();
+                        MemberProperty::Ident(n)
+                    }
                     Some(Token::New) => {
                         self.advance();
                         MemberProperty::Ident("new".to_string())
@@ -1644,9 +1649,20 @@ impl Parser {
             self.pos = saved_pos;
         }
 
-        let expr = self.parse_expression()?;
+        let first = self.parse_expression()?;
+        if self.match_token(&Token::Comma) {
+            let mut exprs = vec![first];
+            while !self.check(&Token::RParen) && !self.is_at_end() {
+                exprs.push(self.parse_expression()?);
+                if !self.match_token(&Token::Comma) {
+                    break;
+                }
+            }
+            self.expect(Token::RParen)?;
+            return Ok(Expr::Sequence(exprs));
+        }
         self.expect(Token::RParen)?;
-        Ok(Expr::Grouping(Box::new(expr)))
+        Ok(Expr::Grouping(Box::new(first)))
     }
 
     fn parse_function_expression(&mut self) -> Result<Expr, ParseError> {
