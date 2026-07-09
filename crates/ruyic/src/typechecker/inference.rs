@@ -24,6 +24,52 @@ use crate::typechecker::traits::TraitRegistry;
 use crate::typechecker::types::{ObjectField, Type};
 use std::collections::HashMap;
 
+/// Recognizes stdlib-internal names (FFI builtins + stdlib type names) so the
+/// typechecker does not flag them as "Unknown variable" when stdlib code
+/// references them.
+///
+/// - `__builtin_array_*` are FFI symbols declared in the codegen layer
+///   (`codegen/builtins.rs`) and implemented in the runtime
+///   (`ruyi_runtime/src/builtins.rs`).
+/// - `RangeError`, `ArrayIterator` are types defined inside `stdlib/`
+///   itself (not user variables).
+///
+/// Returns `None` for unrecognized names so the caller falls through to the
+/// normal "Unknown variable" diagnostic. Parameter and return types use
+/// `Type::Dynamic` because the FFI signatures operate on `*mut i8` / `i64`
+/// — typechecker's job is to enable compilation, not enforce FFI type safety.
+fn resolve_builtin_name(name: &str) -> Option<Type> {
+    match name {
+        "__builtin_array_create" => Some(Type::Function {
+            params: vec![],
+            return_type: Box::new(Type::Dynamic),
+        }),
+        "__builtin_array_length" => Some(Type::Function {
+            params: vec![Type::Dynamic],
+            return_type: Box::new(Type::Int),
+        }),
+        "__builtin_array_get" => Some(Type::Function {
+            params: vec![Type::Dynamic, Type::Dynamic],
+            return_type: Box::new(Type::Dynamic),
+        }),
+        "__builtin_array_set" => Some(Type::Function {
+            params: vec![Type::Dynamic, Type::Dynamic, Type::Dynamic],
+            return_type: Box::new(Type::Void),
+        }),
+        "__builtin_array_push" => Some(Type::Function {
+            params: vec![Type::Dynamic, Type::Dynamic],
+            return_type: Box::new(Type::Dynamic),
+        }),
+        "__builtin_array_pop" => Some(Type::Function {
+            params: vec![Type::Dynamic],
+            return_type: Box::new(Type::Dynamic),
+        }),
+        "RangeError" => Some(Type::Named("RangeError".to_string(), vec![])),
+        "ArrayIterator" => Some(Type::Named("ArrayIterator".to_string(), vec![])),
+        _ => None,
+    }
+}
+
 /// Result of type inference on a program.
 #[derive(Debug)]
 pub struct InferenceResult {
@@ -799,11 +845,13 @@ impl TypeInference {
             Expr::BigIntLiteral(_) => Type::BigInt,
             Expr::BooleanLiteral(_) => Type::Bool,
             Expr::NullLiteral => Type::Null,
-            Expr::Identifier(name) => self.env.lookup(name).cloned().unwrap_or_else(|| {
-                self.diagnostics
-                    .add_error(DiagnosticKind::UnknownVariable { name: name.clone() });
-                Type::Error
-            }),
+            Expr::Identifier(name) => self.env.lookup(name).cloned()
+                .or_else(|| resolve_builtin_name(name))
+                .unwrap_or_else(|| {
+                    self.diagnostics
+                        .add_error(DiagnosticKind::UnknownVariable { name: name.clone() });
+                    Type::Error
+                }),
             Expr::This | Expr::Super => Type::Dynamic,
             Expr::SelfExpr => {
                 if let Some(class_name) = self.class_stack.last() {

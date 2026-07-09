@@ -1802,3 +1802,89 @@ fn test_class_own_method_via_member_access() {
         })
     );
 }
+
+// ── Stdlib Builtin Recognition (T9) ──────────────────────────
+
+/**
+ * Verifies that the typechecker recognizes stdlib-internal names
+ * (FFI builtins + stdlib type names) without flagging them as
+ * "Unknown variable".
+ *
+ * Background: stdlib/collections.ry uses identifiers like
+ * `__builtin_array_length`, `__builtin_array_get`, `RangeError`, and
+ * `ArrayIterator`. These are either declared in the codegen layer
+ * (FFI builtins) or defined in stdlib itself (type names) — not user
+ * variables. The typechecker must synthesize a type for them instead
+ * of emitting "Unknown variable" errors.
+ */
+#[test]
+fn test_stdlib_builtins_known_to_typechecker() {
+    let source = r#"
+        fn main() {
+            let arr = __builtin_array_create();
+            let n = __builtin_array_length(arr);
+            __builtin_array_push(arr, 42);
+            let v = __builtin_array_get(arr, 0);
+            let _ = RangeError;
+            let _ = ArrayIterator;
+        }
+    "#;
+    let result = check_program(source);
+    let unknown_messages: Vec<String> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.message().contains("Unknown variable"))
+        .map(|d| d.message().to_string())
+        .collect();
+    assert!(
+        unknown_messages.is_empty(),
+        "stdlib builtins should be recognized by typechecker, but got: {:?}",
+        unknown_messages
+    );
+}
+
+/**
+ * Verifies the synthesized type for an FFI builtin is the expected
+ * Function type (used by codegen and by caller code that pattern-matches
+ * the synthesized type).
+ */
+#[test]
+fn test_stdlib_builtin_array_length_synthesized_type() {
+    let source = "let f = __builtin_array_length;";
+    let result = check_program(source);
+    assert!(
+        result.diagnostics.iter().all(|d| !d.message().contains("Unknown variable")),
+        "no Unknown variable expected for __builtin_array_length, got: {:?}",
+        result.diagnostics.iter().map(|d| d.message().to_string()).collect::<Vec<_>>()
+    );
+    let ty = result.env.lookup("f").cloned();
+    assert!(
+        matches!(
+            ty,
+            Some(Type::Function { .. })
+        ),
+        "expected __builtin_array_length to synthesize to Type::Function, got {:?}",
+        ty
+    );
+}
+
+/**
+ * Verifies that stdlib-defined class names (RangeError, ArrayIterator)
+ * are recognized as Named types rather than triggering "Unknown variable".
+ */
+#[test]
+fn test_stdlib_type_names_recognized() {
+    let source = "let r = RangeError; let it = ArrayIterator;";
+    let result = check_program(source);
+    let unknown: Vec<String> = result
+        .diagnostics
+        .iter()
+        .filter(|d| d.message().contains("Unknown variable"))
+        .map(|d| d.message().to_string())
+        .collect();
+    assert!(
+        unknown.is_empty(),
+        "stdlib type names should be recognized, got: {:?}",
+        unknown
+    );
+}
