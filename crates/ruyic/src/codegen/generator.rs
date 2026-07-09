@@ -543,7 +543,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         ctx.builder().position_at_end(entry_bb);
         ctx.set_current_function(Some(main_fn));
 
-        let top_level_lets = collect_top_level_lets(program);
+        let top_level_lets = collect_top_level_lets(program, ctx.type_environment);
         for (name, ty) in &top_level_lets {
             let llvm_ty = ruyi_type_to_llvm(ctx.context, ty);
             let global = ctx.module.add_global(llvm_ty, None, name);
@@ -1030,6 +1030,8 @@ fn compile_top_level_let_inits<'ctx>(
                 let Some(init) = &b.init else { continue };
                 let ty = if let Some(annotation) = &b.ty {
                     Type::from_annotation(annotation)
+                } else if let Some(env) = ctx.type_environment {
+                    env.lookup(&name).cloned().unwrap_or(Type::Dynamic)
                 } else {
                     Type::Dynamic
                 };
@@ -1059,6 +1061,7 @@ fn compile_top_level_let_inits<'ctx>(
 
 fn collect_top_level_lets(
     program: &crate::parser::ast::Program,
+    type_env: Option<&crate::typechecker::environment::TypeEnvironment>,
 ) -> Vec<(String, crate::typechecker::types::Type)> {
     use crate::parser::ast::{Declaration, ExportDecl, ModuleItem, Pattern};
     use crate::typechecker::types::Type;
@@ -1077,6 +1080,8 @@ fn collect_top_level_lets(
                 };
                 let ty = if let Some(annotation) = &b.ty {
                     Type::from_annotation(annotation)
+                } else if let Some(env) = type_env {
+                    env.lookup(&name).cloned().unwrap_or(Type::Dynamic)
                 } else {
                     Type::Dynamic
                 };
