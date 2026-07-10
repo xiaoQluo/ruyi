@@ -3,6 +3,7 @@ pub mod async_codegen;
 pub mod builtins;
 pub mod decl;
 pub mod expr;
+pub mod gc_alloc;
 pub mod generator;
 pub mod monomorph;
 pub mod patterns;
