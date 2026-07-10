@@ -1,0 +1,38 @@
+// spawn_demo.ry — demonstrates `spawn(...)` for fire-and-forget tasks.
+//
+// The Ruyi async runtime exposes the `spawn` builtin that submits a
+// function pointer to the global work-stealing scheduler and returns an
+// opaque task handle. The submitted function runs concurrently with the
+// caller; the caller does NOT block on it.
+//
+// NOTE: This example is a compile-only demo. The current `expr.rs`
+// does not yet recognize `ruyi_run_scheduler()` as a builtin call (it
+// is `declare`d but never `build`-ed from a call expression), so we
+// cannot join tasks from source. The three spawned tasks may print
+// "A"/"B"/"C" interleaved with the main thread, in any order, or may
+// not be observed at all if main returns before the scheduler picks
+// them up. The compile step and IR inspection (see comments below)
+// are the verifiable behavior.
+//
+// @author Ruyi Team
+// @date 2026-07-10
+
+fn task_a(): void {
+  print("A");
+}
+
+fn task_b(): void {
+  print("B");
+}
+
+fn task_c(): void {
+  print("C");
+}
+
+fn main(): int {
+  spawn(task_a);
+  spawn(task_b);
+  spawn(task_c);
+  print("main done");
+  return 0;
+}
