@@ -349,7 +349,8 @@ fn compile_for_in<'ctx>(
             ctx.builder().build_store(var_ptr, s.as_pointer_value());
             compile_stmt(ctx, body)?;
         }
-        ctx.builder().position_at_end(ctx.builder().get_insert_block().unwrap());
+        ctx.builder()
+            .position_at_end(ctx.builder().get_insert_block().unwrap());
         if let Some(old) = old_var {
             ctx.define_variable(variable.to_string(), old);
         } else {
