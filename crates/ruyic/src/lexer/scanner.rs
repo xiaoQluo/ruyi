@@ -8,6 +8,8 @@ pub struct Scanner {
     col: usize,
     template_context: bool,
     pending_template_part: bool,
+    pending_dq_string: bool,
+    dq_in_interp: bool,
 }
 
 impl Scanner {
@@ -19,6 +21,8 @@ impl Scanner {
             col: 1,
             template_context: false,
             pending_template_part: false,
+            pending_dq_string: false,
+            dq_in_interp: false,
         }
     }
 
@@ -26,6 +30,10 @@ impl Scanner {
         if self.pending_template_part {
             self.pending_template_part = false;
             return self.scan_template_part();
+        }
+
+        if self.pending_dq_string {
+            return self.scan_dq_string_part();
         }
 
         self.skip_whitespace_and_comments()?;
@@ -40,10 +48,11 @@ impl Scanner {
             return Ok(self.make_token(Token::Eof));
         }
 
-        if self.template_context && self.current_char() == '}' {
+        if (self.template_context || self.dq_in_interp) && self.current_char() == '}' {
             let start = self.current_location();
             self.advance();
-            self.pending_template_part = true;
+            self.dq_in_interp = false;
+            self.pending_dq_string = true;
             return Ok(TokenWithLocation {
                 token: Token::TemplateExprEnd,
                 start,
@@ -66,8 +75,8 @@ impl Scanner {
             }
             'a'..='z' | 'A'..='Z' | '_' => self.scan_ident_or_keyword(),
             '0'..='9' => self.scan_number()?,
-            '"' => self.scan_string('"')?,
-            '\'' => self.scan_string('\'')?,
+            '"' => return self.scan_string('"'),
+            '\'' => return self.scan_string('\''),
             '`' => {
                 self.template_context = true;
                 self.advance();
@@ -668,13 +677,22 @@ impl Scanner {
         }
     }
 
-    fn scan_string(&mut self, quote: char) -> Result<Token, LexerError> {
+    fn scan_string(&mut self, quote: char) -> Result<TokenWithLocation, LexerError> {
         let start_line = self.line;
         let start_col = self.col;
         self.advance();
         let mut result = String::new();
 
         while !self.is_at_end() && self.current_char() != quote {
+            if self.current_char() == '$' && self.peek_char(1) == '{' {
+                self.pending_dq_string = true;
+                let loc = self.current_location();
+                return Ok(TokenWithLocation {
+                    token: Token::TemplateString(result),
+                    start: loc,
+                    end: loc,
+                });
+            }
             if self.current_char() == '\\' {
                 let escaped = self.scan_escape_sequence(start_line, start_col)?;
                 result.push_str(&escaped);
@@ -696,7 +714,7 @@ impl Scanner {
         }
 
         self.advance();
-        Ok(Token::String(result))
+        Ok(self.make_token(Token::String(result)))
     }
 
     fn scan_escape_sequence(
@@ -856,5 +874,50 @@ impl Scanner {
             line: start_line,
             col: start_col,
         })
+    }
+
+    /// Scan content following a `${...}` interpolation in a double-quoted
+    /// string. Returns a `TemplateExprStart` (another interpolation), or a
+    /// `TemplateString` (more content / end of string).
+    fn scan_dq_string_part(&mut self) -> Result<TokenWithLocation, LexerError> {
+        if self.current_char() == '"' {
+            self.advance();
+            self.pending_dq_string = false;
+            return Ok(self.make_token(Token::TemplateString(String::new())));
+        }
+
+        if self.current_char() == '$' && self.peek_char(1) == '{' {
+            self.advance();
+            self.advance();
+            self.dq_in_interp = true;
+            self.pending_dq_string = false;
+            return Ok(self.make_token(Token::TemplateExprStart));
+        }
+
+        let start_line = self.line;
+        let start_col = self.col;
+        let mut result = String::new();
+        while !self.is_at_end() && self.current_char() != '"' {
+            if self.current_char() == '$' && self.peek_char(1) == '{' {
+                return Ok(self.make_token(Token::TemplateString(result)));
+            }
+            if self.current_char() == '\\' {
+                let escaped = self.scan_escape_sequence(start_line, start_col)?;
+                result.push_str(&escaped);
+            } else {
+                result.push(self.advance());
+            }
+        }
+
+        if self.is_at_end() {
+            return Err(LexerError::UnterminatedString {
+                line: start_line,
+                col: start_col,
+            });
+        }
+
+        self.advance();
+        self.pending_dq_string = false;
+        Ok(self.make_token(Token::TemplateString(result)))
     }
 }
