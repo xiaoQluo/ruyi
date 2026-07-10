@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::process;
 
 use clap::Parser;
+use ruyic::cli::gc_mode::GcMode;
 use ruyic::driver::{CompileOptions, Driver, EmitType, OptLevel};
 
 #[derive(Parser, Debug)]
@@ -41,6 +42,10 @@ struct Args {
 
     #[arg(long, help = "Parse and type check only (no codegen)")]
     check: bool,
+
+    #[arg(long, default_value = "stub", value_name = "MODE",
+          help = "GC mode: 'stub' (default) or 'real'")]
+    gc: String,
 }
 
 fn main() {
@@ -75,6 +80,15 @@ fn main() {
         2 => OptLevel::O2,
         _ => OptLevel::O0,
     };
+
+    let gc_mode = match GcMode::parse(&args.gc) {
+        Ok(mode) => mode,
+        Err(err) => {
+            eprintln!("error: {}", err);
+            process::exit(2);
+        }
+    };
+    let _ = gc_mode;
 
     let options = CompileOptions {
         emit,
