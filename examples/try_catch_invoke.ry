@@ -1,14 +1,24 @@
-// Try/catch exception propagation — end-to-end demo for the
-// `invoke` + `landingpad` mechanism. A throw inside a called function
-// must propagate to the enclosing try/catch (REQ-TCI-001).
+// try_catch_invoke.ry — end-to-end demo of the `invoke` + `landingpad`
+// exception-handling mechanism (REQ-LPAD-003/004).
+//
+// `innerThrow` throws a string exception. Because the call to `innerThrow`
+// sits inside a `try` block, codegen emits an LLVM `invoke` whose unwind
+// edge targets the enclosing `try` landing pad, so the exception propagates
+// out of the callee and is caught by the surrounding `catch`.
+//
+// A direct string `throw` is used (not `throw new Error(...)`) to avoid the
+// pre-existing "Complex new expressions" codegen limitation.
+//
+// @author Ruyi Team
+// @date 2026-07-10
+
 fn innerThrow(): void {
-  throw Error("boom");
+  throw "boom";
 }
 
 fn main(): int {
   try {
     innerThrow();
-    print("not caught");
   } catch (e) {
     print("caught");
     return 0;
