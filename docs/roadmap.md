@@ -25,6 +25,7 @@ Ruyi is a compiled programming language targeting native code via LLVM. This roa
 | v0.5.2 | dev/v0.5.2 | ✅ Released | 2026-05 | v0.5.2 |
 | v0.5.3 | dev/v0.5.3 | ✅ Released | 2026-05 | v0.5.3 |
 | v0.5.4 | dev/v0.5.4 | ✅ Released | 2026-07 | v0.5.4 |
+| v0.5.5 | dev/v0.5.5 | ✅ Released | 2026-07 | v0.5.5 |
 
 ---
 
@@ -36,12 +37,12 @@ Ruyi is a compiled programming language targeting native code via LLVM. This roa
 |--------|-------------|----------|
 | **Lexer** | ~95% | Doc comments not specially handled |
 | **Parser** | ~65% | Match guards, computed property names, generic syntax need verification |
-| **Typechecker** | ~90% | Trait bounds not enforced; supertraits unchecked; `impl Trait for Type` incomplete |
-| **Codegen** | ~60% | **No member access (`obj.prop`), no arrays/objects, no BigInt/template literals, no for/for-in/for-of, no try/catch, no break/continue, no class layout** |
+| **Typechecker** | ~95% | Trait bounds enforced (v0.5.5); supertraits unchecked; `impl Trait for Type` basic support (v0.5.5) |
+| **Codegen** | ~75% | Member access, array/object literals, template strings, for-loops, try/catch, break, class layout supported (pre-v0.5.5); BigInt not yet supported |
 | **Macro Expand** | ~60% | Complex repetition patterns, hygiene edge cases |
-| **Driver** | ~80% | Runtime linked; module system inlines rather than proper imports |
-| **GC** | ~70% (compiler) / 85% (runtime) | Compiler-side GC is stub; runtime GC not wired to codegen |
-| **Runtime** | ~60% (compiler) / 70% (library) | **`ruyi_await` is no-op; async runs synchronously; no stdlib types in runtime** |
+| **Driver** | ~85% | Runtime statically linked (v0.5.5); module system inlines rather than proper imports |
+| **GC** | ~85% (compiler) / 100% (runtime) | Dual mode: --gc=stub (default) + --gc=real (v0.5.5) |
+| **Runtime** | ~75% (compiler) / 95% (library) | `ruyi_await` is real async + spawn builtin (v0.5.5); runtime has stdlib types |
 
 ### Standard Library
 
