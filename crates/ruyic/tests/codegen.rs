@@ -175,40 +175,46 @@ fn smoke_print_bool() {
 // ── Expression Codegen Tests ──────────────────────────────────
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — T9 recognized
-// `RangeError` / `ArrayIterator` as Named types but did NOT make them
-// callable as constructors, so auto-loaded `stdlib/collections.ry`
-// fails to typecheck and compilation aborts before any codegen runs.
-// Affects all 27 #[ignore] tests in this file.
-#[ignore]
+// TODO: originally blocked by T9 stdlib typecheck fix (now resolved by
+// T-1.3.1 — RangeError and ArrayIterator have constructors). Test
+// un-ignored under v0.5.5 T9 收尾; requires LLVM 14 to actually run
+// (set LLVM_SYS_140_PREFIX and pass --ignored).
 fn codegen_arithmetic_add() {
     assert_output("print(1 + 2);", "3");
 }
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
-#[ignore]
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 fn codegen_arithmetic_subtract() {
     assert_output("print(5 - 3);", "2");
 }
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
-#[ignore]
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 fn codegen_arithmetic_multiply() {
     assert_output("print(4 * 3);", "12");
 }
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
-#[ignore]
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 fn codegen_arithmetic_divide() {
     assert_output("print(10 / 3);", "3"); // integer division
 }
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
-#[ignore]
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 fn codegen_string_concat() {
     assert_output(r#"print("hello" + " " + "world");"#, "hello world");
     assert_output(r#"print("count: " + 42);"#, "count: 42");
@@ -231,8 +237,10 @@ fn codegen_template_literal() {
 }
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
-#[ignore]
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 fn codegen_comparison() {
     assert_output("print(1 === 1);", "true");
     assert_output("print(1 === 2);", "false");
@@ -244,29 +252,37 @@ fn codegen_comparison() {
 // ── Control Flow Codegen Tests ────────────────────────────────
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
-#[ignore]
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 fn codegen_if_true() {
     assert_output("if (true) { print(1); }", "1");
 }
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
-#[ignore]
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 fn codegen_if_false() {
     assert_output("if (false) { print(1); } print(2);", "2");
 }
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
-#[ignore]
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 fn codegen_if_else() {
     assert_output("if (true) { print(1); } else { print(2); }", "1");
 }
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
-#[ignore]
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 fn codegen_while_loop() {
     assert_output(
         "let i = 0; while (i < 3) { print(i); i = i + 1; }",
@@ -275,8 +291,10 @@ fn codegen_while_loop() {
 }
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
-#[ignore]
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 fn codegen_for_loop() {
     assert_output("for (let i = 0; i < 3; i = i + 1) { print(i); }", "0\n1\n2");
 }
@@ -312,9 +330,10 @@ print(Point.new(3, 4).format());
 // These tests run against the actual .ry files in cases/codegen/
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
-// (Auto-loaded stdlib prevents the fixture from compiling.)
-#[ignore]
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 fn codegen_fixture_arithmetic() {
     let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -339,8 +358,10 @@ fn codegen_fixture_arithmetic() {
 }
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
-#[ignore]
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 fn codegen_fixture_function_call() {
     let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -365,8 +386,10 @@ fn codegen_fixture_function_call() {
 }
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
-#[ignore]
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 fn codegen_fixture_if_statement() {
     let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -391,7 +414,10 @@ fn codegen_fixture_if_statement() {
 }
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 // Fixture exercises `.field`, `?.field`, and `["key"]`; the `?.` branch and
 // bracket access on class instances both depend on Batch 2 method/field
 // invocation being complete.
@@ -425,11 +451,13 @@ fn codegen_fixture_member_access() {
 // T9 stdlib typecheck fix lands.
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 // Fixture exercises class with 3+ fields, instance construction, method
 // dispatch, and field mutation. Class layout work is in place; the test
 // will pass once stdlib typechecks.
-#[ignore]
 fn codegen_fixture_class_layout() {
     let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -454,10 +482,12 @@ fn codegen_fixture_class_layout() {
 }
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 // Fixture exercises `{k:v}` literal creation, `.field` access, and
 // bracket-string `obj["key"]` access. Object literal codegen is in place.
-#[ignore]
 fn codegen_fixture_object_literal() {
     let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -482,10 +512,12 @@ fn codegen_fixture_object_literal() {
 }
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 // Fixture exercises `[1,2,3]` literal creation and direct GEP via
 // IntLiteral indices (T3 work). Variable-index path also covered.
-#[ignore]
 fn codegen_fixture_array_literal() {
     let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -510,10 +542,12 @@ fn codegen_fixture_array_literal() {
 }
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 // Fixture exercises `+` with strings, ints, floats, and chained mixed-type
 // concatenation. String concat codegen is in place.
-#[ignore]
 fn codegen_fixture_string_concat() {
     let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -538,10 +572,12 @@ fn codegen_fixture_string_concat() {
 }
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 // Fixture exercises C-style `for`, `for-of` array, and `for-in` object
 // iteration. For-loop codegen is in place; passes once stdlib typechecks.
-#[ignore]
 fn codegen_fixture_for_loop() {
     let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -566,11 +602,13 @@ fn codegen_fixture_for_loop() {
 }
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 // Fixture exercises `obj.method(args)` with `self` binding, including
 // methods that mutate self and methods that take additional arguments.
 // Method call codegen is in place.
-#[ignore]
 fn codegen_fixture_method_call() {
     let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -595,10 +633,12 @@ fn codegen_fixture_method_call() {
 }
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 // Fixture exercises `break <label>` and `continue <label>`. Labeled
 // loop control flow (T4 work) is in place; passes once stdlib typechecks.
-#[ignore]
 fn codegen_fixture_labeled_loops() {
     let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -690,7 +730,10 @@ fn helper_compile_failure_report() {
 /// MemberProperty::Expr(Expr::IntLiteral) on Type::Array and emits
 /// __builtin_array_get instead of the generic ruyi_obj_get.
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 // T3 work in place; the test will pass once stdlib typechecks.
 #[ignore]
 fn test_array_index_int_literal_uses_gep() {
@@ -707,7 +750,10 @@ fn main() {
 /// index cannot be folded at compile time; correctness must be preserved
 /// even though the index is not known statically.
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 // T3 work in place; the test will pass once stdlib typechecks.
 #[ignore]
 fn test_array_index_variable_uses_runtime_call() {
@@ -723,7 +769,10 @@ fn main() {
 /// Out-of-bounds array access must be handled by __builtin_array_get
 /// (returns 0) without crashing the process.
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 // T3 work in place; the test will pass once stdlib typechecks.
 #[ignore]
 fn test_array_index_out_of_bounds_no_crash() {
@@ -796,7 +845,10 @@ fn main() {
 /// Regression test for REQ-CAP8-001: break <label> must exit the
 /// loop whose opening statement carries that label, not the innermost loop.
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 // T4 work in place; the test will pass once stdlib typechecks.
 #[ignore]
 fn test_labeled_break_exits_outer_loop() {
@@ -815,7 +867,10 @@ print(100); // should print
 /// Regression test for REQ-CAP8-002: continue <label> must resume
 /// the loop whose opening statement carries that label.
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 // T4 work in place; the test will pass once stdlib typechecks.
 #[ignore]
 fn test_labeled_continue_resumes_outer() {
@@ -832,7 +887,10 @@ for (let i = 0; i < 3; i = i + 1) {
 
 /// Undefined label on break must produce error E3003.
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix — see codegen_arithmetic_add.
+// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
+// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
+// constructible). Requires LLVM 14 to actually run (set
+// LLVM_SYS_140_PREFIX and pass --ignored).
 // This test EXPECTS compilation to fail with E3003, but the current failure
 // is the stdlib typecheck error (which dominates before E3003 is reached).
 // Once stdlib typechecks, T4's E3003 surface will be reachable and the
