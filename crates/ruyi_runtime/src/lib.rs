@@ -12,6 +12,7 @@ pub use alloc::{
     allocate, deallocate, reallocate, ruyi_alloc, ruyi_dealloc, ruyi_realloc, GcObjectHeader, Heap,
     MemoryStrategy, TypeInfo,
 };
+pub use c_exports::cc_alloc;
 pub use arc::{
     ruyi_arc_alloc, ruyi_arc_ref_count, ruyi_arc_release, ruyi_arc_retain, ruyi_arc_weak,
     ruyi_arc_weak_drop, ruyi_arc_weak_load, ruyi_is_arc, ruyi_is_gc, ruyi_release_any,

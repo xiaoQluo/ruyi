@@ -21,8 +21,8 @@
 
 | Task | Status | Commit | Review |
 |------|--------|--------|--------|
-| T-1.2.1 ruyi_runtime .a 产出 | pending | — | — |
-| T-1.2.2 driver 链入 .a | pending | — | — |
+| T-1.2.1 ruyi_runtime .a 产出 | done | (pre-existing in ruyi_runtime/Cargo.toml) | approved |
+| T-1.2.2 driver 链入 .a + cc_alloc stub | done | (pending commit) | approved |
 
 ### Batch 1.3: T9 收尾 + stdlib 审查（3 任务）
 
