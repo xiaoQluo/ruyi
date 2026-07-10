@@ -218,10 +218,6 @@ fn codegen_string_concat() {
 }
 
 #[test]
-// TODO: blocked by incomplete T9 stdlib typecheck fix (see codegen_arithmetic_add)
-// plus template-literal codegen still not implemented (no string interpolation
-// lowering in codegen/expr.rs).
-#[ignore]
 fn codegen_template_literal() {
     assert_output(
         r#"let name = "world"; print("Hello ${name}");"#,

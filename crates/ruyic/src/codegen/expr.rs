@@ -735,7 +735,30 @@ fn value_to_i8_ptr<'ctx>(
                 .build_pointer_cast(*p, i8_ptr_ty, "cast_i8_ptr"))
         }
         BasicValueEnum::IntValue(v) => {
-            Ok(ctx.builder().build_int_to_ptr(*v, i8_ptr_ty, "int_to_ptr"))
+            let func = ctx
+                .module
+                .get_function("ruyi_int_to_string")
+                .ok_or_else(|| "ruyi_int_to_string not declared".to_string())?;
+            let call = ctx
+                .builder()
+                .build_call(func, &[(*v).into()], "int_to_str")
+                .try_as_basic_value()
+                .left()
+                .ok_or_else(|| "ruyi_int_to_string did not return a value".to_string())?;
+            Ok(call.into_pointer_value())
+        }
+        BasicValueEnum::FloatValue(v) => {
+            let func = ctx
+                .module
+                .get_function("ruyi_float_to_string")
+                .ok_or_else(|| "ruyi_float_to_string not declared".to_string())?;
+            let call = ctx
+                .builder()
+                .build_call(func, &[(*v).into()], "float_to_str")
+                .try_as_basic_value()
+                .left()
+                .ok_or_else(|| "ruyi_float_to_string did not return a value".to_string())?;
+            Ok(call.into_pointer_value())
         }
         _ => Err("Cannot convert value to i8* for runtime call".to_string()),
     }
