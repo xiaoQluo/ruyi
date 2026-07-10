@@ -7,10 +7,13 @@ use inkwell::types::BasicType;
  * @author Ruyi Team
  * @date 2026-05-01
  */
-use inkwell::values::{BasicValue, BasicValueEnum};
+use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue};
 use inkwell::FloatPredicate;
 use inkwell::IntPredicate;
 
+use ruyi_exception::landing_pad::LandingPadGenerator;
+
+use super::gc_alloc::GcAllocFn;
 use super::generator::CodegenContext;
 use super::types::{function_type_from_ruyi, ruyi_type_to_llvm};
 use crate::parser::ast::{
@@ -639,15 +642,72 @@ fn compile_member_access<'ctx>(
     match property {
         crate::parser::ast::MemberProperty::Expr(key_expr) => {
             let obj_result = compile_expr(ctx, object)?;
-            let key_result = compile_expr(ctx, key_expr)?;
-            let obj_ptr = value_to_i8_ptr(ctx, &obj_result.value)?;
-            let key_ptr = value_to_i8_ptr(ctx, &key_result.value)?;
-            let result =
-                super::builtins::build_ruyi_obj_get(ctx.builder(), &ctx.module, obj_ptr, key_ptr);
-            Ok(ExprResult::new(
-                BasicValueEnum::PointerValue(result),
-                Type::Dynamic,
-            ))
+            if let Type::Array(_) = &obj_result.ty {
+                // Array layout: [len: i64][cap: i64][data: i64[cap]].
+                // __builtin_array_get gives O(1) bounds-checked access versus the
+                // generic ruyi_obj_get path which treats arrays as opaque objects.
+                let arr_ptr = value_to_i8_ptr(ctx, &obj_result.value)?;
+                let index_val = match key_expr.as_ref() {
+                    crate::parser::ast::Expr::IntLiteral(idx) => {
+                        ctx.context.i64_type().const_int(*idx as u64, false)
+                    }
+                    _ => {
+                        let key_result = compile_expr(ctx, key_expr)?;
+                        match key_result.value {
+                            BasicValueEnum::IntValue(v) => v,
+                            _ => return Err("Array index must be an integer".to_string()),
+                        }
+                    }
+                };
+                let elem_val = super::builtins::build_builtin_array_get(
+                    ctx.builder(),
+                    &ctx.module,
+                    arr_ptr,
+                    index_val,
+                );
+                Ok(ExprResult::new(
+                    BasicValueEnum::IntValue(elem_val),
+                    Type::Int,
+                ))
+            } else if let (Type::Object(fields), crate::parser::ast::Expr::StringLiteral(key)) =
+                (&obj_result.ty, key_expr.as_ref())
+            {
+                let field = fields
+                    .iter()
+                    .find(|f| f.name == key.as_str())
+                    .ok_or_else(|| format!("Unknown field: {} in object", key))?;
+                let obj_ptr = value_to_i8_ptr(ctx, &obj_result.value)?;
+                let offset = ctx.context.i32_type().const_int(
+                    (fields.iter().position(|f| f.name == field.name).unwrap() * 8) as u64,
+                    false,
+                );
+                let field_ptr = unsafe {
+                    ctx.builder()
+                        .build_gep(obj_ptr, &[offset], &format!("{}_ptr", field.name))
+                };
+                let typed_ptr = ctx.builder().build_pointer_cast(
+                    field_ptr,
+                    ruyi_type_to_llvm(ctx.context, &field.ty).ptr_type(Default::default()),
+                    &format!("{}_typed", field.name),
+                );
+                let field_val = ctx.builder().build_load(typed_ptr, &field.name);
+                Ok(ExprResult::new(field_val, field.ty.clone()))
+            } else {
+                // Non-array object: fall back to generic ruyi_obj_get (dict lookup).
+                let key_result = compile_expr(ctx, key_expr)?;
+                let obj_ptr = value_to_i8_ptr(ctx, &obj_result.value)?;
+                let key_ptr = value_to_i8_ptr(ctx, &key_result.value)?;
+                let result = super::builtins::build_ruyi_obj_get(
+                    ctx.builder(),
+                    &ctx.module,
+                    obj_ptr,
+                    key_ptr,
+                );
+                Ok(ExprResult::new(
+                    BasicValueEnum::PointerValue(result),
+                    Type::Dynamic,
+                ))
+            }
         }
         crate::parser::ast::MemberProperty::Ident(field_name) => {
             if optional {
@@ -676,7 +736,30 @@ fn value_to_i8_ptr<'ctx>(
                 .build_pointer_cast(*p, i8_ptr_ty, "cast_i8_ptr"))
         }
         BasicValueEnum::IntValue(v) => {
-            Ok(ctx.builder().build_int_to_ptr(*v, i8_ptr_ty, "int_to_ptr"))
+            let func = ctx
+                .module
+                .get_function("ruyi_int_to_string")
+                .ok_or_else(|| "ruyi_int_to_string not declared".to_string())?;
+            let call = ctx
+                .builder()
+                .build_call(func, &[(*v).into()], "int_to_str")
+                .try_as_basic_value()
+                .left()
+                .ok_or_else(|| "ruyi_int_to_string did not return a value".to_string())?;
+            Ok(call.into_pointer_value())
+        }
+        BasicValueEnum::FloatValue(v) => {
+            let func = ctx
+                .module
+                .get_function("ruyi_float_to_string")
+                .ok_or_else(|| "ruyi_float_to_string not declared".to_string())?;
+            let call = ctx
+                .builder()
+                .build_call(func, &[(*v).into()], "float_to_str")
+                .try_as_basic_value()
+                .left()
+                .ok_or_else(|| "ruyi_float_to_string did not return a value".to_string())?;
+            Ok(call.into_pointer_value())
         }
         _ => Err("Cannot convert value to i8* for runtime call".to_string()),
     }
@@ -1987,6 +2070,43 @@ fn compile_unary<'ctx>(
     }
 }
 
+/// Build a function call: uses `invoke` when inside a try context (for EH propagation
+/// through landing pads), otherwise uses a plain `call` instruction.
+fn build_call_or_invoke<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
+    func: FunctionValue<'ctx>,
+    args: &[inkwell::values::BasicMetadataValueEnum<'ctx>],
+    name: &str,
+) -> inkwell::values::CallSiteValue<'ctx> {
+    use inkwell::values::BasicMetadataValueEnum;
+    match ctx.try_frame_stack.last().map(|f| f.landing_pad_bb) {
+        Some(unwind_bb) => {
+            let then_bb = ctx
+                .context
+                .append_basic_block(ctx.current_function().unwrap(), &format!("{}.then", name));
+            let invoke_args: Vec<BasicValueEnum<'ctx>> = args
+                .iter()
+                .map(|v| match *v {
+                    BasicMetadataValueEnum::IntValue(iv) => iv.as_basic_value_enum(),
+                    BasicMetadataValueEnum::FloatValue(fv) => fv.as_basic_value_enum(),
+                    BasicMetadataValueEnum::PointerValue(pv) => pv.as_basic_value_enum(),
+                    BasicMetadataValueEnum::StructValue(sv) => sv.as_basic_value_enum(),
+                    BasicMetadataValueEnum::ArrayValue(av) => av.as_basic_value_enum(),
+                    BasicMetadataValueEnum::VectorValue(vv) => vv.as_basic_value_enum(),
+                    BasicMetadataValueEnum::MetadataValue(_) => {
+                        unreachable!("MetadataValue not used as function argument")
+                    }
+                })
+                .collect();
+            let lp_gen = LandingPadGenerator::new(&ctx.context, &ctx.module, ctx.builder());
+            let invoke = lp_gen.build_invoke(func, &invoke_args, then_bb, unwind_bb, name);
+            ctx.builder().position_at_end(then_bb);
+            invoke
+        }
+        None => ctx.builder().build_call(func, args, name),
+    }
+}
+
 fn compile_call<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_, '_>,
     callee: &Expr,
@@ -2185,6 +2305,31 @@ fn compile_call<'ctx>(
                     ctx.builder().build_store(slot, str_ptr);
                     (Some(slot), "String".to_string())
                 }
+                Expr::Call {
+                    callee: inner_callee,
+                    args: inner_args,
+                } => {
+                    let result = compile_call(ctx, inner_callee, inner_args)?;
+                    let class_name = match &result.ty {
+                        Type::Named(n, _) => n.clone(),
+                        _ => {
+                            return Err(format!(
+                                "Cannot call method on call result type: {:?}",
+                                result.ty
+                            ))
+                        }
+                    };
+                    let ptr = match result.value {
+                        BasicValueEnum::PointerValue(p) => p,
+                        _ => {
+                            return Err(format!(
+                                "Call result is not a pointer value: {:?}",
+                                result.ty
+                            ))
+                        }
+                    };
+                    (Some(ptr), class_name)
+                }
                 _ => return Err("Method calls only supported on identifiers".to_string()),
             };
             let func_name = format!("{}_{}", class_name, method_name);
@@ -2291,7 +2436,7 @@ fn compile_call<'ctx>(
                 let func_ptr_val = ctx.builder().build_load(ptr, "func_ptr");
                 let func_ptr = func_ptr_val.into_pointer_value();
 
-                let mut arg_values = Vec::new();
+                let mut arg_values: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> = Vec::new();
                 for arg in args {
                     match arg {
                         crate::parser::ast::Argument::Expr(e) => {
@@ -2337,17 +2482,14 @@ fn compile_call<'ctx>(
             let loaded = ctx.builder().build_load(self_ptr, "obj");
             arg_values.push(loaded.into());
         } else {
-            let loaded = ctx.builder().build_load(self_ptr, "obj");
-            let obj_ptr = match loaded {
-                BasicValueEnum::PointerValue(p) => p,
-                BasicValueEnum::IntValue(i) => ctx.builder().build_int_to_ptr(
-                    i,
-                    ctx.context.i8_type().ptr_type(Default::default()),
-                    "obj_ptr",
-                ),
-                _ => return Err(format!("Cannot convert {:?} to object pointer", loaded)),
-            };
-            arg_values.push(obj_ptr.into());
+            let self_ptr_ty = self_ptr.get_type();
+            let is_i8_ptr = self_ptr_ty == ctx.context.i8_type().ptr_type(Default::default());
+            if is_i8_ptr {
+                arg_values.push(self_ptr.into());
+            } else {
+                let loaded = ctx.builder().build_load(self_ptr, "obj");
+                arg_values.push(loaded.into());
+            }
         }
     }
     // Get the function's LLVM parameter types for type-aware conversion
@@ -2406,7 +2548,7 @@ fn compile_call<'ctx>(
         }
     }
 
-    let call_site = ctx.builder().build_call(func, &arg_values, "call");
+    let call_site = build_call_or_invoke(ctx, func, &arg_values, "call");
     let value = call_site.try_as_basic_value().left();
 
     let is_async = ctx.module.get_function(&format!("{}$poll", name)).is_some();
@@ -2479,19 +2621,19 @@ fn compile_assignment<'ctx>(
                 _ => return Err("Only simple field assignments supported".to_string()),
             };
 
-            let (var_ptr, class_name) = match object.as_ref() {
+            let (var_ptr, class_name, is_object) = match object.as_ref() {
                 Expr::Identifier(name) => {
                     let (ptr, ty) = ctx
                         .variables
                         .get(name)
                         .ok_or_else(|| format!("Undefined variable: {}", name))?;
-                    let class_name = match ty {
-                        Type::Named(n, _) => n.clone(),
-                        Type::Array(_) => "Array".to_string(),
-                        Type::Generic { base, .. } => base.clone(),
+                    match ty {
+                        Type::Named(n, _) => (*ptr, n.clone(), false),
+                        Type::Array(_) => (*ptr, "Array".to_string(), false),
+                        Type::Generic { base, .. } => (*ptr, base.clone(), false),
+                        Type::Object(_) => (*ptr, String::new(), true),
                         _ => return Err(format!("Cannot access field on type: {:?}", ty)),
-                    };
-                    (*ptr, class_name)
+                    }
                 }
                 Expr::SelfExpr => {
                     let (ptr, ty) = ctx
@@ -2504,10 +2646,48 @@ fn compile_assignment<'ctx>(
                         Type::Generic { base, .. } => base.clone(),
                         _ => return Err(format!("Cannot access field on type: {:?}", ty)),
                     };
-                    (*ptr, class_name)
+                    (*ptr, class_name, false)
                 }
                 _ => return Err("Member assignment only supported on identifiers".to_string()),
             };
+
+            if is_object {
+                let (_, ty) = ctx
+                    .variables
+                    .get(match object.as_ref() {
+                        Expr::Identifier(n) => n.as_str(),
+                        _ => "",
+                    })
+                    .ok_or("Undefined variable")?;
+                if let Type::Object(fields) = ty {
+                    let field_index = fields
+                        .iter()
+                        .position(|f| f.name == field_name)
+                        .ok_or_else(|| format!("Unknown field: {} in object", field_name))?;
+                    let field_ty = &fields[field_index].ty;
+                    let obj_ptr = ctx
+                        .builder()
+                        .build_load(var_ptr, "obj")
+                        .into_pointer_value();
+                    let offset = ctx
+                        .context
+                        .i32_type()
+                        .const_int((field_index * 8) as u64, false);
+                    let field_ptr = unsafe {
+                        ctx.builder()
+                            .build_gep(obj_ptr, &[offset], &format!("{}_ptr", field_name))
+                    };
+                    let field_val = right_result.value;
+                    let typed_ptr = ctx.builder().build_pointer_cast(
+                        field_ptr,
+                        ruyi_type_to_llvm(ctx.context, field_ty).ptr_type(Default::default()),
+                        &format!("{}_typed", field_name),
+                    );
+                    ctx.builder().build_store(typed_ptr, field_val);
+                    return Ok(right_result);
+                }
+                return Err("Expected object type".to_string());
+            }
 
             let obj_ptr = ctx
                 .builder()
@@ -2656,7 +2836,7 @@ fn compile_array_literal<'ctx>(
     let len = elements.len() as u64;
     let cap = if len == 0 { 4 } else { len };
     let total_size = ctx.context.i64_type().const_int(16 + cap * 8, false);
-    let ptr = super::builtins::build_gc_alloc(ctx.builder(), &ctx.module, total_size);
+    let ptr = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), &ctx.module, total_size);
 
     let len_ptr = ctx
         .builder()
@@ -2745,7 +2925,7 @@ fn compile_rest_args_to_array<'ctx>(
     let len = rest_args.len() as u64;
     let cap = if len == 0 { 4 } else { len };
     let total_size = ctx.context.i64_type().const_int(16 + cap * 8, false);
-    let ptr = super::builtins::build_gc_alloc(ctx.builder(), &ctx.module, total_size);
+    let ptr = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), &ctx.module, total_size);
 
     let len_ptr = ctx
         .builder()
@@ -2812,7 +2992,7 @@ fn compile_object_literal<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     let len = properties.len() as u64;
     let total_size = ctx.context.i64_type().const_int(len * 8, false);
-    let ptr = super::builtins::build_gc_alloc(ctx.builder(), &ctx.module, total_size);
+    let ptr = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), &ctx.module, total_size);
 
     let mut fields = Vec::new();
     for (i, prop) in properties.iter().enumerate() {
@@ -2906,8 +3086,14 @@ pub(crate) fn compile_new<'ctx>(
         _ => return Err("Complex new expressions not yet supported".to_string()),
     };
 
-    let total_size = ctx.context.i64_type().const_int(64, false);
-    let ptr = super::builtins::build_gc_alloc(ctx.builder(), &ctx.module, total_size);
+    let struct_ty = ctx
+        .class_struct_types
+        .get(&class_name)
+        .ok_or_else(|| format!("compile_new: unknown class '{}'", class_name))?;
+    let total_size = struct_ty
+        .size_of()
+        .ok_or_else(|| format!("compile_new: class '{}' has no size", class_name))?;
+    let ptr = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), &ctx.module, total_size);
 
     let ctor_name = format!("{}_new", class_name);
     if let Some(ctor) = ctx.module.get_function(&ctor_name) {

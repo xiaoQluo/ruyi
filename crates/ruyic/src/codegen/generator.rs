@@ -9,6 +9,7 @@
  */
 use std::collections::HashMap;
 
+use crate::cli::gc_mode::GcMode;
 use crate::driver::OptLevel;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
@@ -58,6 +59,17 @@ pub struct TryContext<'ctx> {
     pub landing_pad_bb: Option<inkwell::basic_block::BasicBlock<'ctx>>,
 }
 
+/// Represents a single try-block's exception-handling frame on the invoke stack.
+///
+/// Used by `compile_try` (T4) to register an unwind target, and by `compile_call`
+/// (T5) to decide whether to emit `invoke` instead of `call`.
+pub struct TryFrame<'ctx> {
+    pub landing_pad_bb: inkwell::basic_block::BasicBlock<'ctx>,
+    pub catch_bb: Option<inkwell::basic_block::BasicBlock<'ctx>>,
+    pub finally_bb: Option<inkwell::basic_block::BasicBlock<'ctx>>,
+    pub exception_ptr: inkwell::values::PointerValue<'ctx>,
+}
+
 /// Context for code generation, holding LLVM constructs and variable mappings.
 pub struct CodegenContext<'ctx, 'm, 'env> {
     pub context: &'ctx Context,
@@ -69,6 +81,7 @@ pub struct CodegenContext<'ctx, 'm, 'env> {
     pub(crate) loop_stack: Vec<(
         inkwell::basic_block::BasicBlock<'ctx>,
         inkwell::basic_block::BasicBlock<'ctx>,
+        Option<String>,
     )>,
     pub gc_roots: Vec<Vec<(inkwell::values::PointerValue<'ctx>, Type)>>,
     /// Async state machine support: pointer to the state struct's state field (i32*)
@@ -80,6 +93,7 @@ pub struct CodegenContext<'ctx, 'm, 'env> {
     /// Async state machine support: waker pointer for await expressions
     pub waker_ptr: Option<inkwell::values::PointerValue<'ctx>>,
     pub(crate) try_stack: Vec<TryContext<'ctx>>,
+    pub try_frame_stack: Vec<TryFrame<'ctx>>,
     pub class_fields: HashMap<String, Vec<(String, Type)>>,
     pub class_struct_types: HashMap<String, inkwell::types::StructType<'ctx>>,
     pub enum_struct_types: HashMap<String, inkwell::types::StructType<'ctx>>,
@@ -100,6 +114,12 @@ pub struct CodegenContext<'ctx, 'm, 'env> {
     /// Optional type environment from the type checker. When present, variable type lookups
     /// prioritize the type checker's inferred types over annotation-derived types.
     pub(crate) type_environment: Option<&'env crate::typechecker::environment::TypeEnvironment>,
+    /// Label pending to be attached to the next loop push (set by `Statement::Labeled`,
+    /// consumed by the loop compile functions like `compile_for`/`compile_while`).
+    pub(crate) pending_loop_label: Option<String>,
+    /// Active GC mode (`stub` or `real`) used by `GcAllocFn::for_mode`
+    /// to choose between `call @cc_alloc` and `call @ruyi_gc_alloc`.
+    pub(crate) gc_mode: GcMode,
 }
 
 impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
@@ -108,6 +128,22 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
         module: &'m Module<'ctx>,
         builder: Builder<'ctx>,
         type_environment: Option<&'env crate::typechecker::environment::TypeEnvironment>,
+    ) -> Self {
+        Self::with_gc_mode(
+            context,
+            module,
+            builder,
+            type_environment,
+            GcMode::default(),
+        )
+    }
+
+    pub fn with_gc_mode(
+        context: &'ctx Context,
+        module: &'m Module<'ctx>,
+        builder: Builder<'ctx>,
+        type_environment: Option<&'env crate::typechecker::environment::TypeEnvironment>,
+        gc_mode: GcMode,
     ) -> Self {
         Self {
             context,
@@ -123,6 +159,7 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
             async_return_bb: None,
             waker_ptr: None,
             try_stack: Vec::new(),
+            try_frame_stack: Vec::new(),
             class_fields: HashMap::new(),
             class_struct_types: HashMap::new(),
             enum_struct_types: HashMap::new(),
@@ -134,6 +171,8 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
             expected_expr_type: None,
             allow_partial_codegen: false,
             type_environment,
+            pending_loop_label: None,
+            gc_mode,
         }
     }
 
@@ -276,13 +315,14 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
         self.current_function = func;
     }
 
-    /// Push a new loop context (break target, continue target).
+    /// Push a new loop context (break target, continue target, optional label).
     pub fn push_loop(
         &mut self,
         break_bb: inkwell::basic_block::BasicBlock<'ctx>,
         continue_bb: inkwell::basic_block::BasicBlock<'ctx>,
+        label: Option<String>,
     ) {
-        self.loop_stack.push((break_bb, continue_bb));
+        self.loop_stack.push((break_bb, continue_bb, label));
     }
 
     /// Pop the innermost loop context.
@@ -296,8 +336,9 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
     ) -> Option<(
         inkwell::basic_block::BasicBlock<'ctx>,
         inkwell::basic_block::BasicBlock<'ctx>,
+        Option<String>,
     )> {
-        self.loop_stack.last().copied()
+        self.loop_stack.last().cloned()
     }
 
     /// Push a new try context.
@@ -402,6 +443,40 @@ impl<'ctx, 'm, 'env> Drop for GcRootScopeGuard<'ctx, 'm, 'env> {
     }
 }
 
+#[must_use = "TryStackGuard pops its frame on drop; binding it to `_` discards the frame immediately"]
+pub struct TryStackGuard<'ctx, 'm, 'env> {
+    ctx: *mut CodegenContext<'ctx, 'm, 'env>,
+}
+
+impl<'ctx, 'm, 'env> TryStackGuard<'ctx, 'm, 'env> {
+    /// Push a `TryFrame` onto `ctx.try_frame_stack` and return a guard
+    /// that pops it on drop.
+    ///
+    /// # Safety
+    ///
+    /// `ctx` must outlive the returned guard and must not be moved for
+    /// the guard's lifetime. The guard stores a raw pointer, so the
+    /// borrow checker will not enforce this — the caller is responsible.
+    pub unsafe fn push(ctx: &mut CodegenContext<'ctx, 'm, 'env>, frame: TryFrame<'ctx>) -> Self {
+        ctx.try_frame_stack.push(frame);
+        Self { ctx: ctx as *mut _ }
+    }
+}
+
+impl<'ctx, 'm, 'env> Drop for TryStackGuard<'ctx, 'm, 'env> {
+    fn drop(&mut self) {
+        // SAFETY: The guard's lifetime is bound to the mutable borrow
+        // of the context at the push site. The context is guaranteed
+        // to be alive when the guard is dropped.
+        unsafe {
+            (*self.ctx)
+                .try_frame_stack
+                .pop()
+                .expect("TryStackGuard: try_frame_stack underflow on drop");
+        }
+    }
+}
+
 /// Main code generator for Ruyi programs.
 #[allow(dead_code)]
 pub struct CodeGenerator<'ctx> {
@@ -409,10 +484,15 @@ pub struct CodeGenerator<'ctx> {
     module: Module<'ctx>,
     builder: Builder<'ctx>,
     pub allow_partial_codegen: bool,
+    pub gc_mode: GcMode,
 }
 
 impl<'ctx> CodeGenerator<'ctx> {
     pub fn new(context: &'ctx Context, name: &str) -> Self {
+        Self::with_gc_mode(context, name, GcMode::default())
+    }
+
+    pub fn with_gc_mode(context: &'ctx Context, name: &str, gc_mode: GcMode) -> Self {
         let module = context.create_module(name);
         let builder = context.create_builder();
         Self {
@@ -420,7 +500,12 @@ impl<'ctx> CodeGenerator<'ctx> {
             module,
             builder,
             allow_partial_codegen: false,
+            gc_mode,
         }
+    }
+
+    pub fn gc_mode(&self) -> GcMode {
+        self.gc_mode
     }
 
     /// Generate LLVM IR from a typed AST program.
@@ -445,15 +530,16 @@ impl<'ctx> CodeGenerator<'ctx> {
         tracker: &MonomorphizationTracker,
         type_env: Option<&'env crate::typechecker::environment::TypeEnvironment>,
     ) -> Result<(), String> {
-        let mut ctx = CodegenContext::new(
+        let mut ctx = CodegenContext::with_gc_mode(
             self.context,
             &self.module,
             self.context.create_builder(),
             type_env,
+            self.gc_mode,
         );
         ctx.set_allow_partial_codegen(self.allow_partial_codegen);
 
-        declare_builtins(self.context, &self.module);
+        declare_builtins(self.context, &self.module, self.gc_mode);
 
         // Generate monomorphized generic functions
         let mut mono_ctx = MonomorphizationContext::new();
@@ -489,7 +575,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         ctx.builder().position_at_end(entry_bb);
         ctx.set_current_function(Some(main_fn));
 
-        let top_level_lets = collect_top_level_lets(program);
+        let top_level_lets = collect_top_level_lets(program, ctx.type_environment);
         for (name, ty) in &top_level_lets {
             let llvm_ty = ruyi_type_to_llvm(ctx.context, ty);
             let global = ctx.module.add_global(llvm_ty, None, name);
@@ -505,6 +591,8 @@ impl<'ctx> CodeGenerator<'ctx> {
         // Collect the main function body to compile into the entry point
         let mut main_body: Option<&[crate::parser::ast::Statement]> = None;
         let mut main_params: Option<&[crate::parser::ast::Param]> = None;
+        // Compiled after main_body so the entry block stays terminator-free.
+        let mut top_level_stmts: Vec<crate::parser::ast::Statement> = Vec::new();
 
         for item in &program.items {
             if let Some(decl) = extract_declaration(item) {
@@ -611,13 +699,11 @@ impl<'ctx> CodeGenerator<'ctx> {
         for item in &program.items {
             match item {
                 crate::parser::ast::ModuleItem::Declaration(decl) => {
-                    // Skip main function - it will be compiled into the entry point
                     if let crate::parser::ast::Declaration::Function { name, is_async, .. } = decl {
                         if name == "main" && !*is_async {
                             continue;
                         }
                     }
-                    // Skip top-level let/const - they become LLVM globals (handled at main entry)
                     if matches!(
                         decl,
                         crate::parser::ast::Declaration::Let(_)
@@ -646,6 +732,13 @@ impl<'ctx> CodeGenerator<'ctx> {
                             continue;
                         }
                     }
+                    if matches!(
+                        decl,
+                        crate::parser::ast::Declaration::Let(_)
+                            | crate::parser::ast::Declaration::Const(_)
+                    ) {
+                        continue;
+                    }
                     if let Err(_e) = compile_declaration(&mut ctx, decl) {
                         if !ctx.allow_partial_codegen() {
                             return Err(format!("codegen error: {}", _e));
@@ -653,7 +746,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                     }
                 }
                 crate::parser::ast::ModuleItem::Statement(stmt) => {
-                    compile_block(&mut ctx, std::slice::from_ref(stmt))?;
+                    top_level_stmts.push(stmt.clone());
                 }
                 _ => {}
             }
@@ -708,6 +801,10 @@ impl<'ctx> CodeGenerator<'ctx> {
         // Compile main function body
         if let Some(body) = main_body {
             compile_block(&mut ctx, body)?;
+        }
+
+        for stmt in &top_level_stmts {
+            compile_block(&mut ctx, std::slice::from_ref(stmt))?;
         }
 
         let current_bb = ctx.builder().get_insert_block().unwrap();
@@ -946,14 +1043,17 @@ fn compile_top_level_let_inits<'ctx>(
     program: &crate::parser::ast::Program,
 ) {
     use super::expr::compile_expr;
-    use crate::parser::ast::{Declaration, ModuleItem, Pattern};
+    use crate::parser::ast::{Declaration, ExportDecl, ModuleItem, Pattern};
     use crate::typechecker::types::Type;
     use inkwell::values::BasicValueEnum;
 
     for item in &program.items {
-        if let ModuleItem::Declaration(Declaration::Let(bindings) | Declaration::Const(bindings)) =
-            item
-        {
+        let decl_opt = match item {
+            ModuleItem::Declaration(decl) => Some(decl),
+            ModuleItem::Export(ExportDecl::Declaration(decl)) => Some(decl),
+            _ => None,
+        };
+        if let Some(Declaration::Let(bindings) | Declaration::Const(bindings)) = decl_opt {
             for b in bindings {
                 let name = match &b.pattern {
                     Pattern::Identifier(n) => n.clone(),
@@ -962,6 +1062,8 @@ fn compile_top_level_let_inits<'ctx>(
                 let Some(init) = &b.init else { continue };
                 let ty = if let Some(annotation) = &b.ty {
                     Type::from_annotation(annotation)
+                } else if let Some(env) = ctx.type_environment {
+                    env.lookup(&name).cloned().unwrap_or(Type::Dynamic)
                 } else {
                     Type::Dynamic
                 };
@@ -991,14 +1093,18 @@ fn compile_top_level_let_inits<'ctx>(
 
 fn collect_top_level_lets(
     program: &crate::parser::ast::Program,
+    type_env: Option<&crate::typechecker::environment::TypeEnvironment>,
 ) -> Vec<(String, crate::typechecker::types::Type)> {
-    use crate::parser::ast::{Declaration, ModuleItem, Pattern};
+    use crate::parser::ast::{Declaration, ExportDecl, ModuleItem, Pattern};
     use crate::typechecker::types::Type;
     let mut result = Vec::new();
     for item in &program.items {
-        if let ModuleItem::Declaration(Declaration::Let(bindings) | Declaration::Const(bindings)) =
-            item
-        {
+        let decl_opt = match item {
+            ModuleItem::Declaration(decl) => Some(decl),
+            ModuleItem::Export(ExportDecl::Declaration(decl)) => Some(decl),
+            _ => None,
+        };
+        if let Some(Declaration::Let(bindings) | Declaration::Const(bindings)) = decl_opt {
             for b in bindings {
                 let name = match &b.pattern {
                     Pattern::Identifier(n) => n.clone(),
@@ -1006,6 +1112,8 @@ fn collect_top_level_lets(
                 };
                 let ty = if let Some(annotation) = &b.ty {
                     Type::from_annotation(annotation)
+                } else if let Some(env) = type_env {
+                    env.lookup(&name).cloned().unwrap_or(Type::Dynamic)
                 } else {
                     Type::Dynamic
                 };
@@ -1028,5 +1136,42 @@ fn ruyi_type_to_zero<'ctx>(
         Type::Bool => BasicValueEnum::IntValue(context.bool_type().const_int(0, false)),
         Type::Null => BasicValueEnum::IntValue(context.i64_type().const_int(0, false)),
         _ => BasicValueEnum::IntValue(context.i64_type().const_int(0, false)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_try_stack_push_pop() {
+        let context = Context::create();
+        let module = context.create_module("test");
+        let builder = context.create_builder();
+        let mut ctx = CodegenContext::new(&context, &module, builder, None);
+
+        let func_type = context.void_type().fn_type(&[], false);
+        let func = module.add_function("test_fn", func_type, None);
+        let bb = context.append_basic_block(func, "entry");
+        ctx.builder().position_at_end(bb);
+
+        let i8_ptr_type = context.i8_type().ptr_type(Default::default());
+        let exception_ptr = ctx.builder().build_alloca(i8_ptr_type, "exc_ptr");
+
+        let frame = TryFrame {
+            landing_pad_bb: bb,
+            catch_bb: Some(bb),
+            finally_bb: None,
+            exception_ptr,
+        };
+
+        assert_eq!(ctx.try_frame_stack.len(), 0);
+
+        {
+            let _guard = unsafe { TryStackGuard::push(&mut ctx, frame) };
+            assert_eq!(ctx.try_frame_stack.len(), 1);
+        }
+
+        assert_eq!(ctx.try_frame_stack.len(), 0);
     }
 }

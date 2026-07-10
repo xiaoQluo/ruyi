@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::cli::gc_mode::GcMode;
 use crate::codegen::CodeGenerator;
 use crate::lexer::LexerError;
 use crate::macro_expand::{expand_macros, MacroError, MacroRegistry};
@@ -122,6 +123,9 @@ pub struct CompileOptions {
     pub input: PathBuf,
     /// Search paths for modules
     pub search_paths: Vec<PathBuf>,
+    /// GC allocator mode. `Stub` (default) emits `call @cc_alloc`;
+    /// `Real` emits `call @ruyi_gc_alloc` from `ruyi_runtime`.
+    pub gc_mode: GcMode,
 }
 
 impl Default for CompileOptions {
@@ -133,6 +137,7 @@ impl Default for CompileOptions {
             output: None,
             input: PathBuf::from(""),
             search_paths: Vec::new(),
+            gc_mode: GcMode::default(),
         }
     }
 }
@@ -562,7 +567,7 @@ impl Driver {
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("main");
-        let mut generator = CodeGenerator::new(&context, module_name);
+        let mut generator = CodeGenerator::with_gc_mode(&context, module_name, options.gc_mode);
 
         // Allow partial codegen for compilations that include stdlib modules.
         // Since stdlib is always auto-loaded and merged into the program,

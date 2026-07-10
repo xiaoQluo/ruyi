@@ -10,12 +10,21 @@ use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::values::{BasicValueEnum, FunctionValue};
 
+use crate::cli::gc_mode::GcMode;
 use crate::typechecker::types::Type;
 
 /// Declare built-in runtime functions in the LLVM module.
-pub fn declare_builtins<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+///
+/// `gc_mode` selects which heap allocator symbol to declare:
+/// `Stub` → `@cc_alloc`, `Real` → `@ruyi_gc_alloc`. All other runtime
+/// functions are mode-independent.
+pub fn declare_builtins<'ctx>(
+    context: &'ctx Context,
+    module: &Module<'ctx>,
+    gc_mode: GcMode,
+) {
     declare_printf(context, module);
-    declare_gc_alloc(context, module);
+    declare_alloc(context, module, gc_mode);
     declare_gc_collect(context, module);
     declare_gc_add_root(context, module);
     declare_gc_remove_root(context, module);
@@ -92,11 +101,16 @@ fn declare_printf<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     module.add_function("printf", fn_type, None);
 }
 
-fn declare_gc_alloc<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+fn declare_alloc<'ctx>(context: &'ctx Context, module: &Module<'ctx>, gc_mode: GcMode) {
+    use super::gc_alloc::GcAllocFn;
+    let alloc = GcAllocFn::for_mode(gc_mode);
+    if module.get_function(alloc.fn_name()).is_some() {
+        return;
+    }
     let i64_ty = context.i64_type();
     let i8_ptr = context.i8_type().ptr_type(Default::default());
     let fn_type = i8_ptr.fn_type(&[i64_ty.into()], false);
-    module.add_function("ruyi_gc_alloc", fn_type, None);
+    module.add_function(alloc.fn_name(), fn_type, None);
 }
 
 fn declare_gc_collect<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
@@ -228,10 +242,44 @@ pub fn build_print<'ctx>(
         Type::Array(_elem_ty) => {
             build_print_array(context, builder, module, value, function);
         }
+        Type::Bool => {
+            build_print_bool(context, builder, module, value.into_int_value(), function);
+        }
         _ => {
             build_print_primitive(builder, module, value);
         }
     }
+}
+
+fn build_print_bool<'ctx>(
+    context: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    value: inkwell::values::IntValue<'ctx>,
+    function: FunctionValue<'ctx>,
+) {
+    let printf = module.get_function("printf").expect("printf not declared");
+    let true_bb = context.append_basic_block(function, "print_bool_true");
+    let false_bb = context.append_basic_block(function, "print_bool_false");
+    let merge_bb = context.append_basic_block(function, "print_bool_merge");
+    builder.build_conditional_branch(value, true_bb, false_bb);
+    builder.position_at_end(true_bb);
+    let fmt_true = builder.build_global_string_ptr("true\n", "fmt_bool_true");
+    builder.build_call(
+        printf,
+        &[fmt_true.as_pointer_value().into()],
+        "print_bool_true",
+    );
+    builder.build_unconditional_branch(merge_bb);
+    builder.position_at_end(false_bb);
+    let fmt_false = builder.build_global_string_ptr("false\n", "fmt_bool_false");
+    builder.build_call(
+        printf,
+        &[fmt_false.as_pointer_value().into()],
+        "print_bool_false",
+    );
+    builder.build_unconditional_branch(merge_bb);
+    builder.position_at_end(merge_bb);
 }
 
 /// Print a primitive value (int, float, string, pointer).
@@ -374,21 +422,18 @@ fn build_print_array<'ctx>(
     );
 }
 
-/// Build a call to `ruyi_gc_alloc`.
+/// Build a call to the active allocator via [`crate::codegen::gc_alloc::GcAllocFn`].
+///
+/// Kept as a thin compat shim for callers that don't yet carry a
+/// `GcMode` directly. Returns `cc_alloc` (stub) by default.
 pub fn build_gc_alloc<'ctx>(
     builder: &inkwell::builder::Builder<'ctx>,
     module: &Module<'ctx>,
     size: inkwell::values::IntValue<'ctx>,
 ) -> inkwell::values::PointerValue<'ctx> {
-    let alloc_fn = module
-        .get_function("ruyi_gc_alloc")
-        .expect("ruyi_gc_alloc not declared");
-    builder
-        .build_call(alloc_fn, &[size.into()], "gc_alloc")
-        .try_as_basic_value()
-        .left()
-        .unwrap()
-        .into_pointer_value()
+    use super::gc_alloc::GcAllocFn;
+    use crate::cli::gc_mode::GcMode;
+    GcAllocFn::for_mode(GcMode::default()).emit(builder, module, size)
 }
 
 /// Build a call to `ruyi_gc_add_root`.
@@ -642,6 +687,27 @@ fn declare_builtin_array_get<'ctx>(context: &'ctx Context, module: &Module<'ctx>
     let i64_ty = context.i64_type();
     let fn_type = i64_ty.fn_type(&[i8_ptr.into(), i64_ty.into()], false);
     module.add_function("__builtin_array_get", fn_type, None);
+}
+
+/// Build a call to `__builtin_array_get(arr, index)`.
+///
+/// Returns the element as an `i64`. Bounds checking and negative-index
+/// handling are performed by the runtime function.
+pub fn build_builtin_array_get<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    arr: inkwell::values::PointerValue<'ctx>,
+    index: inkwell::values::IntValue<'ctx>,
+) -> inkwell::values::IntValue<'ctx> {
+    let fn_val = module
+        .get_function("__builtin_array_get")
+        .expect("__builtin_array_get not declared");
+    builder
+        .build_call(fn_val, &[arr.into(), index.into()], "array_get")
+        .try_as_basic_value()
+        .left()
+        .unwrap()
+        .into_int_value()
 }
 
 fn declare_builtin_array_set<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {

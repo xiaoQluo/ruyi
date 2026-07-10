@@ -10,8 +10,10 @@ crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 inkwell = { workspace = true, optional = true }
+ruyi_exception = { workspace = true, default-features = false }
 thiserror.workspace = true
 once_cell = "1.19"
 
 [features]
 default = ["inkwell"]
+inkwell = ["dep:inkwell", "ruyi_exception/llvm14"]

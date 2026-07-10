@@ -87,19 +87,30 @@ Make Ruyi capable of writing real programs end-to-end: classes work, exceptions 
 
 | # | Task | Description | Priority |
 |---|------|-------------|----------|
-| 1.1 | **Class layout & member access** | Implement `compile_class` (currently no-op): field layout, `self.field` access, `new` constructor, method dispatch | P0 |
-| 1.2 | **Object literal codegen** | Compile `{ key: value }` expressions to runtime structures | P0 |
-| 1.3 | **Array literal codegen** | Compile `[1, 2, 3]` to runtime array with `push`/`pop`/index access | P0 |
-| 1.4 | **String concatenation** | `+` operator for strings (currently only numeric `+` works) | P0 |
-| 1.5 | **For loop codegen** | C-style `for`, `for-in`, `for-of` (all currently unsupported) | P0 |
-| 1.6 | **Break/continue** | Already have `loop_stack`, just need codegen | P1 |
+| 1.1 | **Class layout & member access** | Implement `compile_class` (currently no-op): field layout, `self.field` access, `new` constructor, method dispatch | P0 ✅ |
+| 1.2 | **Object literal codegen** | Compile `{ key: value }` expressions to runtime structures | P0 ✅ |
+| 1.3 | **Array literal codegen** | Compile `[1, 2, 3]` to runtime array with `push`/`pop`/index access | P0 ✅ |
+| 1.4 | **String concatenation** | `+` operator for strings (currently only numeric `+` works) | P0 ✅ |
+| 1.5 | **For loop codegen** | C-style `for`, `for-in`, `for-of` (all currently unsupported) | P0 ✅ |
+| 1.6 | **Break/continue** | Already have `loop_stack`, just need codegen | P1 ✅ |
 | 1.7 | **Try/catch/finally** | Landing pad support exists in `ruyi_runtime`; wire it into codegen | P0 |
 | 1.8 | **Throw expression** | Map to runtime `throw_exception` call | P1 |
 | 1.9 | **Match statement** | Compile match to chained if-else or switch | P1 |
 | 1.10 | **Template literals** | Compile `` `Hello ${name}` `` to string concatenation | P1 |
 | 1.11 | **BigInt literal** | Compile `100n` to runtime bigint type | P2 |
-| 1.12 | **Member expression** | `obj.prop` and `obj?.prop` codegen (currently unsupported) | P0 |
-| 1.13 | **Method call** | `obj.method(args)` codegen with `self` binding | P0 |
+| 1.12 | **Member expression** | `obj.prop` and `obj?.prop` codegen (currently unsupported) | P0 ✅ |
+| 1.13 | **Method call** | `obj.method(args)` codegen with `self` binding | P0 ✅ |
+
+**Status (2026-07-09, v0.2-codegen-gaps change, T7/T8/T9)**:
+
+Batch 1+2 codegen work has landed on branch `dev/v0.2-codegen-gaps`:
+- **T2** (`65f514c`) sized class allocation correctly (1.1 partial).
+- **T3** (`bed00d7`) resolved class fields and own methods in member access (1.12, 1.13).
+- **T4** (`6618b11`) wired labeled `break`/`continue` via `loop_stack` (1.6).
+- **T6** (`fc01bcb`) added `ruyi_obj_get` / `ruyi_obj_keys` FFI (1.2).
+- **T8** (this change) added 5 examples + 8 integration test fixtures exercising each capability.
+
+The remaining gap is auto-loaded `stdlib/collections.ry` failing to typecheck: T9 (`809e6c9`) recognized `RangeError` / `ArrayIterator` as Named types but did not make them callable as constructors, so `throw RangeError("...")` still aborts compilation before any user code runs. The 27 `#[ignore]` codegen tests in `tests/codegen.rs` (including 8 new fixtures added in T8) all carry `// TODO:` blockers referencing this stdlib gap and will pass once a follow-up change makes `RangeError` / `ArrayIterator` constructable.
 
 ### v0.3 — Runtime Integration (Priority: CRITICAL)
 

@@ -6,12 +6,14 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-use inkwell::types::{BasicType, BasicTypeEnum};
+use inkwell::types::BasicType;
 use inkwell::values::BasicValueEnum;
+
+use ruyi_exception::landing_pad::LandingPadGenerator;
 
 use super::builtins::{build_ruyi_clear_pending_exception, build_ruyi_get_pending_exception};
 use super::expr::{compile_expr, ExprResult};
-use super::generator::{CodegenContext, TryContext};
+use super::generator::{CodegenContext, TryContext, TryFrame, TryStackGuard};
 use crate::parser::ast::{Expr, Statement};
 use crate::typechecker::types::Type;
 
@@ -68,24 +70,45 @@ pub fn compile_stmt<'ctx>(
             // Generators not yet fully implemented — yield is a no-op for now
             Ok(())
         }
-        Statement::Break(_) => {
-            let (end_bb, _) = ctx
-                .loop_stack
-                .last()
-                .ok_or("BreakOutsideLoop: break statement must be inside a loop")?;
-            ctx.builder().build_unconditional_branch(*end_bb);
+        Statement::Break(target) => {
+            let target_bb = match target {
+                None => ctx
+                    .loop_stack
+                    .last()
+                    .map(|(end_bb, _, _)| *end_bb)
+                    .ok_or("BreakOutsideLoop: break statement must be inside a loop")?,
+                Some(label) => find_loop_target(ctx, label.to_string(), |(end_bb, _, _)| *end_bb)?,
+            };
+            ctx.builder().build_unconditional_branch(target_bb);
             Ok(())
         }
-        Statement::Continue(_) => {
-            let (_, cond_bb) = ctx
-                .loop_stack
-                .last()
-                .ok_or("ContinueOutsideLoop: continue statement must be inside a loop")?;
-            ctx.builder().build_unconditional_branch(*cond_bb);
+        Statement::Continue(target) => {
+            let target_bb = match target {
+                None => ctx
+                    .loop_stack
+                    .last()
+                    .map(|(_, cond_bb, _)| *cond_bb)
+                    .ok_or("ContinueOutsideLoop: continue statement must be inside a loop")?,
+                Some(label) => {
+                    find_loop_target(ctx, label.to_string(), |(_, cond_bb, _)| *cond_bb)?
+                }
+            };
+            ctx.builder().build_unconditional_branch(target_bb);
             Ok(())
         }
         Statement::Match { value, arms } => super::patterns::compile_match_stmt(ctx, value, arms),
-        Statement::Labeled { body, .. } => compile_stmt(ctx, body),
+        Statement::Labeled { label, body } => match body.as_ref() {
+            Statement::For { .. }
+            | Statement::ForIn { .. }
+            | Statement::ForOf { .. }
+            | Statement::While { .. } => {
+                ctx.pending_loop_label = Some(label.clone());
+                let result = compile_stmt(ctx, body);
+                ctx.pending_loop_label = None;
+                result
+            }
+            _ => compile_stmt(ctx, body),
+        },
         Statement::IfLet {
             pattern,
             value,
@@ -178,7 +201,8 @@ fn compile_while<'ctx>(
     let body_bb = ctx.context.append_basic_block(func, "while_body");
     let end_bb = ctx.context.append_basic_block(func, "while_end");
 
-    ctx.push_loop(end_bb, cond_bb);
+    let label = ctx.pending_loop_label.take();
+    ctx.push_loop(end_bb, cond_bb, label);
 
     ctx.builder().build_unconditional_branch(cond_bb);
 
@@ -259,7 +283,8 @@ fn compile_for<'ctx>(
         ctx.builder().build_unconditional_branch(body_bb);
     }
 
-    ctx.push_loop(end_bb, update_bb);
+    let label = ctx.pending_loop_label.take();
+    ctx.push_loop(end_bb, update_bb, label);
 
     ctx.builder().position_at_end(body_bb);
     compile_stmt(ctx, body)?;
@@ -313,6 +338,27 @@ fn compile_for_in<'ctx>(
     let i64_ptr_ty = i64_ty.ptr_type(Default::default());
 
     let iter_result = compile_expr(ctx, iterable)?;
+
+    if let crate::typechecker::types::Type::Object(fields) = &iter_result.ty {
+        let var_ptr = ctx.builder().build_alloca(i8_ptr, variable);
+        let old_var = ctx
+            .variables
+            .insert(variable.to_string(), (var_ptr, Type::String));
+        for f in fields {
+            let s = ctx.builder().build_global_string_ptr(&f.name, "obj_key");
+            ctx.builder().build_store(var_ptr, s.as_pointer_value());
+            compile_stmt(ctx, body)?;
+        }
+        ctx.builder()
+            .position_at_end(ctx.builder().get_insert_block().unwrap());
+        if let Some(old) = old_var {
+            ctx.define_variable(variable.to_string(), old);
+        } else {
+            ctx.remove_variable(variable);
+        }
+        return Ok(());
+    }
+
     let obj_ptr = iter_result.value.into_pointer_value();
 
     let keys_fn = ctx
@@ -356,7 +402,8 @@ fn compile_for_in<'ctx>(
     ctx.builder()
         .build_conditional_branch(cond, body_bb, end_bb);
 
-    ctx.push_loop(end_bb, cond_bb);
+    let label = ctx.pending_loop_label.take();
+    ctx.push_loop(end_bb, cond_bb, label);
 
     ctx.builder().position_at_end(body_bb);
     let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
@@ -458,7 +505,8 @@ fn compile_for_of<'ctx>(
             ctx.builder()
                 .build_conditional_branch(cond, body_bb, end_bb);
 
-            ctx.push_loop(end_bb, cond_bb);
+            let label = ctx.pending_loop_label.take();
+            ctx.push_loop(end_bb, cond_bb, label);
 
             ctx.builder().position_at_end(body_bb);
             let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
@@ -565,7 +613,8 @@ fn compile_for_of<'ctx>(
             ctx.builder()
                 .build_conditional_branch(is_null, end_bb, body_bb);
 
-            ctx.push_loop(end_bb, cond_bb);
+            let label = ctx.pending_loop_label.take();
+            ctx.push_loop(end_bb, cond_bb, label);
 
             ctx.builder().position_at_end(body_bb);
             let var_ptr = ctx.builder().build_alloca(i8_ptr, variable);
@@ -682,40 +731,26 @@ fn compile_throw<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>, expr: &Expr) -> R
         } else {
             ctx.builder().build_unconditional_branch(try_ctx.merge_bb);
         }
+        // After branch, create unreachable block for subsequent code
+        if let Some(func) = ctx.current_function() {
+            let unreachable_bb = ctx.context.append_basic_block(func, "throw.unreachable");
+            ctx.builder().position_at_end(unreachable_bb);
+            ctx.builder().build_unreachable();
+        }
     } else {
         ctx.builder()
             .build_call(throw_fn, &[exc_ptr.into()], "throw");
-        ctx.emit_gc_root_removals();
+        // ruyi_throw sets thread-local pending exception and returns.
+        // Emit a return so the caller's exception check (or invoke landing
+        // pad) can detect the pending exception and unwind properly.
         if let Some(func) = ctx.current_function() {
-            let fn_type = func.get_type();
-            let ret_ty = fn_type.get_return_type();
-            match ret_ty {
-                None => {
-                    ctx.builder().build_return(None);
-                }
-                Some(ty) => match ty {
-                    BasicTypeEnum::IntType(t) => {
-                        let zero = t.const_int(0, false);
-                        ctx.builder()
-                            .build_return(Some(&BasicValueEnum::IntValue(zero)));
-                    }
-                    BasicTypeEnum::FloatType(t) => {
-                        let zero = t.const_float(0.0);
-                        ctx.builder()
-                            .build_return(Some(&BasicValueEnum::FloatValue(zero)));
-                    }
-                    BasicTypeEnum::PointerType(t) => {
-                        let null = t.const_null();
-                        ctx.builder()
-                            .build_return(Some(&BasicValueEnum::PointerValue(null)));
-                    }
-                    _ => {
-                        ctx.builder().build_return(None);
-                    }
-                },
+            // ruyi_throw set the pending exception; return immediately so the
+            // caller's exception check (or invoke landing pad) catches it.
+            if let Some(ret_type) = func.get_type().get_return_type() {
+                ctx.builder().build_return(Some(&ret_type.const_zero()));
+            } else {
+                ctx.builder().build_return(None);
             }
-        } else {
-            return Err("throw outside function".to_string());
         }
     }
 
@@ -734,6 +769,9 @@ fn compile_try<'ctx>(
 
     let try_body_bb = ctx.context.append_basic_block(func, "try_body");
     let merge_bb = ctx.context.append_basic_block(func, "try_merge");
+    // T4: new landing-pad and resume blocks for LLVM exception handling
+    let landing_pad_bb = ctx.context.append_basic_block(func, "try.landingpad");
+    let resume_bb = ctx.context.append_basic_block(func, "try.resume");
 
     let catch_bb = if !catch.is_empty() {
         Some(ctx.context.append_basic_block(func, "try_catch"))
@@ -765,9 +803,18 @@ fn compile_try<'ctx>(
         catch_bb,
         finally_bb,
         merge_bb,
-        landing_pad_bb: None,
+        landing_pad_bb: Some(landing_pad_bb),
     };
     ctx.push_try(try_ctx);
+
+    let try_frame = TryFrame {
+        landing_pad_bb,
+        catch_bb,
+        finally_bb,
+        exception_ptr,
+    };
+    // SAFETY: ctx outlives the guard; guard is local-scoped and pops on drop
+    let _try_guard = unsafe { TryStackGuard::push(ctx, try_frame) };
 
     compile_block(ctx, body)?;
 
@@ -782,42 +829,93 @@ fn compile_try<'ctx>(
 
     ctx.pop_try();
 
-    for catch_clause in catch {
-        let cb = catch_bb.unwrap();
-        ctx.builder().position_at_end(cb);
+    // ── T4: LLVM landing-pad generation (for invoke-based exception handling) ──
+    let landing_pad_val;
+    {
+        let lp_gen = LandingPadGenerator::new(&ctx.context, &ctx.module, ctx.builder());
 
-        build_ruyi_clear_pending_exception(ctx.builder(), &ctx.module);
+        // Create per-catch handler blocks; type_id = 0 is catch-all for ruyi exception type
+        let mut catch_handlers: Vec<(
+            ruyi_exception::TryTypeId,
+            inkwell::basic_block::BasicBlock<'ctx>,
+        )> = Vec::new();
+        for (i, _) in catch.iter().enumerate() {
+            let handler_bb = ctx
+                .context
+                .append_basic_block(func, &format!("try.catch.{}", i));
+            catch_handlers.push((0u32, handler_bb));
+        }
 
-        let exc_val = ctx
-            .builder()
-            .build_load(exception_ptr, "exc_val")
-            .into_pointer_value();
-        if let Some(pattern) = &catch_clause.pattern {
-            match pattern {
-                crate::parser::ast::Pattern::Identifier(name) => {
-                    let local_ptr = ctx.builder().build_alloca(i8_ptr, name);
-                    ctx.builder().build_store(local_ptr, exc_val);
-                    let var_ty = catch_clause
-                        .ty
-                        .as_ref()
-                        .map(Type::from_annotation)
-                        .unwrap_or(Type::Dynamic);
-                    ctx.define_variable(name.clone(), (local_ptr, var_ty));
+        let catch_type_ids: Vec<ruyi_exception::TryTypeId> =
+            catch_handlers.iter().map(|(id, _)| *id).collect();
+        let has_cleanup = finally.is_some();
+
+        ctx.builder().position_at_end(landing_pad_bb);
+        landing_pad_val = lp_gen.build_landing_pad(&catch_type_ids, has_cleanup, "landingpad");
+
+        // Extract exception pointer and store it for catch blocks to access
+        let exc_ptr = lp_gen.extract_exception_ptr(landing_pad_val);
+        ctx.builder().build_store(exception_ptr, exc_ptr);
+
+        // Dispatch from landing-pad to first catch handler (catch-all mode).
+        // Must be called while builder is still positioned inside landing_pad_bb
+        // so the branch is emitted from the correct block.
+        lp_gen.build_catch_dispatch(landing_pad_val, &catch_handlers, finally_bb, resume_bb);
+
+        // Forward old catch_bb (used by compile_throw/build_exception_check)
+        // to the first handler block so both old and new paths reach the same code
+        if let Some(cb) = catch_bb {
+            ctx.builder().position_at_end(cb);
+            ctx.builder()
+                .build_unconditional_branch(catch_handlers[0].1);
+        }
+
+        // Compile per-clause catch handlers
+        for (i, catch_clause) in catch.iter().enumerate() {
+            let handler_bb = catch_handlers[i].1;
+            ctx.builder().position_at_end(handler_bb);
+
+            build_ruyi_clear_pending_exception(ctx.builder(), &ctx.module);
+
+            let exc_val = ctx
+                .builder()
+                .build_load(exception_ptr, "exc_val")
+                .into_pointer_value();
+            if let Some(pattern) = &catch_clause.pattern {
+                match pattern {
+                    crate::parser::ast::Pattern::Identifier(name) => {
+                        let local_ptr = ctx.builder().build_alloca(i8_ptr, name);
+                        ctx.builder().build_store(local_ptr, exc_val);
+                        let var_ty = catch_clause
+                            .ty
+                            .as_ref()
+                            .map(Type::from_annotation)
+                            .unwrap_or(Type::Dynamic);
+                        ctx.define_variable(name.clone(), (local_ptr, var_ty));
+                    }
+                    _ => {}
                 }
-                _ => {}
+            }
+
+            compile_block(ctx, &catch_clause.body)?;
+
+            let catch_end = ctx.builder().get_insert_block().unwrap();
+            if catch_end.get_terminator().is_none() {
+                if let Some(fb) = finally_bb {
+                    ctx.builder().build_unconditional_branch(fb);
+                } else {
+                    ctx.builder().build_unconditional_branch(merge_bb);
+                }
             }
         }
+    }
+    // _try_guard drops here, popping try_frame_stack
 
-        compile_block(ctx, &catch_clause.body)?;
-
-        let catch_end = ctx.builder().get_insert_block().unwrap();
-        if catch_end.get_terminator().is_none() {
-            if let Some(fb) = finally_bb {
-                ctx.builder().build_unconditional_branch(fb);
-            } else {
-                ctx.builder().build_unconditional_branch(merge_bb);
-            }
-        }
+    // Uncaught exception: build resume block
+    {
+        let lp_gen = LandingPadGenerator::new(&ctx.context, &ctx.module, ctx.builder());
+        ctx.builder().position_at_end(resume_bb);
+        lp_gen.build_resume(landing_pad_val);
     }
 
     if let Some(finally_stmts) = finally {
@@ -866,6 +964,35 @@ fn compile_try<'ctx>(
 
     ctx.builder().position_at_end(merge_bb);
     Ok(())
+}
+
+/// Look up the loop_stack entry whose label matches `target_label` and
+/// extract the requested basic block via `selector`. Walks top-down so
+/// the innermost matching label wins (matching JS-style label scoping).
+/// Returns E3003 error if no matching label is found.
+fn find_loop_target<'ctx, 'm, 'env, F>(
+    ctx: &CodegenContext<'ctx, 'm, 'env>,
+    target_label: String,
+    selector: F,
+) -> Result<inkwell::basic_block::BasicBlock<'ctx>, String>
+where
+    F: Fn(
+        &(
+            inkwell::basic_block::BasicBlock<'ctx>,
+            inkwell::basic_block::BasicBlock<'ctx>,
+            Option<String>,
+        ),
+    ) -> inkwell::basic_block::BasicBlock<'ctx>,
+{
+    for entry in ctx.loop_stack.iter().rev() {
+        if entry.2.as_deref() == Some(target_label.as_str()) {
+            return Ok(selector(entry));
+        }
+    }
+    Err(format!(
+        "E3003: Undefined label: `break`/`continue` references label `{}` which is not associated with any enclosing loop",
+        target_label
+    ))
 }
 
 fn build_exception_check<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>) -> Result<(), String> {
@@ -982,7 +1109,8 @@ fn compile_while_let<'ctx>(
         ty: val.ty.clone(),
     };
     bind_pattern_in_codegen(ctx, pattern, &loaded_result)?;
-    ctx.push_loop(exit_bb, header_bb);
+    let label = ctx.pending_loop_label.take();
+    ctx.push_loop(exit_bb, header_bb, label);
     compile_stmt(ctx, body)?;
     ctx.pop_loop();
     if let Some(bb) = ctx.builder().get_insert_block() {

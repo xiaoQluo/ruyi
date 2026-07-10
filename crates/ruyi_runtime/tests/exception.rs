@@ -125,6 +125,7 @@ fn test_finally_guarantee_on_uncaught() {
 mod inkwell_tests {
     use super::*;
     use inkwell::context::Context;
+    use ruyi_exception::TryTypeId;
     use ruyi_runtime::ExceptionRuntime;
     use ruyi_runtime::LandingPadGenerator;
 
@@ -142,7 +143,10 @@ mod inkwell_tests {
         let lpad_gen = LandingPadGenerator::new(&context, &module, &builder);
 
         let lpad = lpad_gen.build_landing_pad(
-            &[builtin_type_ids::ERROR, builtin_type_ids::TYPE_ERROR],
+            &[
+                builtin_type_ids::ERROR as TryTypeId,
+                builtin_type_ids::TYPE_ERROR as TryTypeId,
+            ],
             true,
             "lpad",
         );
@@ -181,7 +185,7 @@ mod inkwell_tests {
         builder.position_at_end(bb);
 
         let lpad_gen = LandingPadGenerator::new(&context, &module, &builder);
-        let _typeid = lpad_gen.build_eh_typeid_for(builtin_type_ids::ERROR);
+        let _typeid = lpad_gen.build_eh_typeid_for(builtin_type_ids::ERROR as TryTypeId);
 
         assert!(module.get_global("__ruyi_type_info_1").is_some());
     }
@@ -198,7 +202,8 @@ mod inkwell_tests {
         builder.position_at_end(bb);
 
         let lpad_gen = LandingPadGenerator::new(&context, &module, &builder);
-        let lpad = lpad_gen.build_landing_pad(&[builtin_type_ids::ERROR], false, "lpad");
+        let lpad =
+            lpad_gen.build_landing_pad(&[builtin_type_ids::ERROR as TryTypeId], false, "lpad");
 
         let _exc_ptr = lpad_gen.extract_exception_ptr(lpad);
         let _selector = lpad_gen.extract_selector(lpad);

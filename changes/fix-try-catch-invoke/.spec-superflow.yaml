@@ -1,0 +1,41 @@
+# .spec-superflow.yaml — lightweight state machine
+# Derived data. Always rebuildable from artifacts. Lost/corrupt → fall back to content-level detection.
+
+# === Core state ===
+state: closing
+workflow: full
+
+# === Hashes (fast staleness detection) ===
+artifacts_hash: sha256:dca3350a6dd8d57762e342243a0fb2207afb0f9b07e26584539501d392f7b8db
+contract_hash: sha256:a51489c8442eaa2bbbf8cfc9386e9a2cd50d35debdf525c4fbf5578a21d555a9
+
+# === Execution progress ===
+execution_mode: Batch Inline (SDD pattern: dispatched subagents per task)
+batches_completed: 11
+test_result: pass
+
+# === Metadata ===
+change_name: fix-try-catch-invoke
+last_transition: 2026-07-08T08:37:48.355Z
+last_transition_from: executing
+last_transition_to: closing
+
+# === Decision points ===
+dp_0_decisions: 变更名: fix-try-catch-invoke; 范围: 仅修 try/catch invoke 问题; 架构: 顺手集成 LandingPadGenerator; 交付物: 标准交付(proposal+specs+design+tasks+contract)
+dp_0_result: confirmed
+dp_0_confirmed: true
+dp_0_timestamp: 2026-07-08T06:21:26Z
+dp_1_result: null
+dp_1_timestamp: null
+dp_2_result: approved: proposal(scoping 4 modifications + scope fence) + specs(10 Requirements, 7+5 split across 2 files) + design(7 Decisions D1-D7 + 5 Risks R1-R5) + tasks(4 waves, 9 tasks, ~50 atomic steps)
+dp_2_timestamp: 2026-07-08T06:27:23Z
+dp_3_result: approved: 4 batches / 9 tasks / 12 mapped requirements / Scope fence 11 items
+dp_3_timestamp: 2026-07-08T06:31:26Z
+dp_4_result: SDD: 9 tasks across 4 batches, multi-module (ruyic+ruyi_runtime+new ruyi_exception+workspace) + LLVM inkwell API + new shared crate → SDD default
+dp_4_timestamp: 2026-07-08T06:33:00Z
+dp_5_result: completed: 9/9 tasks done, lib+examples zero regression, end-to-end invoke+landingpad verified
+dp_5_timestamp: 2026-07-08T07:48:09Z
+dp_6_result: pass: 5 dim verification ✅; 134→133 lib pass + 34/34 examples + 3/3 ruyi_exception; 0 cargo warnings; 0 clippy warnings; codegen integration tests #[ignore] ready; LandingPadGenerator catches-all simplified; no scope expansion
+dp_6_timestamp: 2026-07-08T08:37:47Z
+dp_7_result: confirmed: fix-try-catch-invoke archived; 2 emergency fixes (link-error + catch-dispatch); all DP-0..DP-7 recorded; ready for merge dev/v0.5.5 → main
+dp_7_timestamp: 2026-07-08T08:37:48Z

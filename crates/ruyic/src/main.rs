@@ -11,11 +11,12 @@ use std::path::PathBuf;
 use std::process;
 
 use clap::Parser;
+use ruyic::cli::gc_mode::GcMode;
 use ruyic::driver::{CompileOptions, Driver, EmitType, OptLevel};
 
 #[derive(Parser, Debug)]
 #[command(name = "ruyic")]
-#[command(version = "0.5.4")]
+#[command(version = "0.5.5")]
 #[command(about = "Ruyi compiler - compiles .ry source files to native binaries")]
 struct Args {
     #[arg(help = "Input file to compile")]
@@ -41,6 +42,10 @@ struct Args {
 
     #[arg(long, help = "Parse and type check only (no codegen)")]
     check: bool,
+
+    #[arg(long, default_value = "stub", value_name = "MODE",
+          help = "GC mode: 'stub' (default) or 'real'")]
+    gc: String,
 }
 
 fn main() {
@@ -76,6 +81,14 @@ fn main() {
         _ => OptLevel::O0,
     };
 
+    let gc_mode = match GcMode::parse(&args.gc) {
+        Ok(mode) => mode,
+        Err(err) => {
+            eprintln!("error: {}", err);
+            process::exit(2);
+        }
+    };
+
     let options = CompileOptions {
         emit,
         opt_level,
@@ -83,6 +96,7 @@ fn main() {
         output: args.output,
         input: input.clone(),
         search_paths: vec![],
+        gc_mode,
     };
 
     let mut driver = Driver::new(vec![]);

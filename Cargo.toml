@@ -2,11 +2,13 @@
 resolver = "2"
 members = [
     "crates/ruyic",
+    "crates/ruyi_exception",
     "crates/ruyi_runtime",
+    "tools/audit-stdlib",
 ]
 
 [workspace.package]
-version = "0.5.4"
+version = "0.5.5"
 edition = "2021"
 authors = ["Ruyi Team"]
 license = "MIT OR Apache-2.0"
@@ -14,6 +16,9 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 # LLVM binding via inkwell (supports LLVM 14-18)
 inkwell = { version = "0.2", features = ["llvm14-0"] }
+
+# Shared exception-handling helpers for compiler and runtime
+ruyi_exception = { path = "crates/ruyi_exception", default-features = false }
 
 # CLI argument parsing
 clap = { version = "4.4", features = ["derive", "cargo"] }

@@ -119,14 +119,14 @@ impl<T> ArrayOps<T> for Array<T> {
 
     fn get(self, index: int): T {
         if (index < 0 || index >= __builtin_array_length(self)) {
-            throw RangeError("Array index out of bounds: " + index.toString());
+            throw RangeError.new("Array index out of bounds: " + index.toString());
         }
         return __builtin_array_get(self, index);
     }
 
     fn set(self, index: int, value: T): void {
         if (index < 0 || index >= __builtin_array_length(self)) {
-            throw RangeError("Array index out of bounds: " + index.toString());
+            throw RangeError.new("Array index out of bounds: " + index.toString());
         }
         __builtin_array_set(self, index, value);
     }
@@ -137,7 +137,7 @@ impl<T> ArrayOps<T> for Array<T> {
 
     fn pop(self): T {
         if (__builtin_array_length(self) === 0) {
-            throw RangeError("Cannot pop from empty array");
+            throw RangeError.new("Cannot pop from empty array");
         }
         return __builtin_array_pop(self);
     }

@@ -1,0 +1,13 @@
+[package]
+name = "audit-stdlib"
+version = "0.5.5"
+edition = "2021"
+authors = ["Ruyi Team"]
+license = "MIT OR Apache-2.0"
+description = "Audit tool for the Ruyi standard library: lists function signatures, flags stubs, and emits docs/stdlib-audit-v0.5.5.md"
+
+[dependencies]
+
+[[bin]]
+name = "audit-stdlib"
+path = "src/main.rs"

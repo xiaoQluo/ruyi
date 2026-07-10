@@ -1,0 +1,36 @@
+// method_call.ry — obj.method(args) with self
+class Greeter {
+  name: string;
+
+  fn new(name: string) {
+    self.name = name;
+  }
+
+  fn greet(self): string {
+    return "Hello, " + self.name + "!";
+  }
+
+  fn shout(self, word: string): string {
+    return self.name + " says: " + word + "!";
+  }
+}
+
+fn main() {
+  let g = Greeter.new("Ruyi");
+  print(g.greet());
+  print(g.shout("hi"));
+
+  // Method that mutates self
+  class Counter {
+    count: int;
+    fn new() { self.count = 0; }
+    fn inc(self) { self.count = self.count + 1; }
+    fn get(self): int { return self.count; }
+  }
+
+  let c = Counter.new();
+  c.inc();
+  c.inc();
+  c.inc();
+  print(c.get());
+}

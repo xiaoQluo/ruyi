@@ -1,5 +1,7 @@
+// string_concat.ry — + with strings, ints, mixed
 print("hello" + " world");
 print("count: " + 42);
 print(7 + " days");
 print("pi: " + 3.14);
 print(2.71 + " approx");
+print("a" + "b" + "c" + 1 + 2 + 3);
