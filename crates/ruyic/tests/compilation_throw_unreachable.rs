@@ -4,8 +4,8 @@
  * Tests verify that after `call ruyi_throw`, the LLVM IR contains
  * an `unreachable` instruction, ensuring proper basic block termination.
  *
- * All tests are #[ignore] because they require LLVM 14.
- * Run with: cargo test -p ruyic --test compilation_throw_unreachable -- --ignored
+ * These tests are enabled (previously `#[ignore]`) and require LLVM 14.
+ * Run with: cargo test -p ruyic --test compilation_throw_unreachable
  *
  * @author Ruyi Team
  * @date 2026-07-08
@@ -80,7 +80,7 @@ fn compile_to_llvm(source: &str) -> io::Result<String> {
 
 /// Test that throw without try context emits unreachable after ruyi_throw call
 #[test]
-#[ignore]
+// Verifies: REQ-LPAD-003/004
 fn test_throw_without_try_emits_unreachable() {
     let source = r#"
 fn throwError(): void {
@@ -136,7 +136,7 @@ fn main(): int {
 
 /// Test that throw with try context emits unreachable in a separate block
 #[test]
-#[ignore]
+// Verifies: REQ-LPAD-003/004
 fn test_throw_with_try_emits_unreachable_block() {
     let source = r#"
 fn throwError(): void {
