@@ -1,44 +1,87 @@
-# SDD Progress Ledger: fix-try-catch-invoke
+# SDD Progress Ledger
 
-**Change**: fix-try-catch-invoke
-**State**: closing
-**Workflow**: full → SDD (DP-4 approved)
-**Branch**: dev/v0.5.5
+**Change**: v0.5.5-residual-fixes
+**Mode**: SDD (Spec-Driven Development)
+**Started**: 2026-07-10
+**Branch**: feature/v0.5.5-residual-fixes
+**Worktree**: ../ruyi-v0.5.5-residual-fixes
 
-## Batches
+## Execution Batches
 
-- [x] Batch 1: 基础设施(2 项并行)
-  - [x] T1: ruyi_exception shared crate + LandingPadGenerator 迁移
-  - [x] T2: CodegenContext.try_stack + TryStackGuard
-- [x] Batch 2: 核心改造(2 项并行,依赖 Batch 1)
-  - [x] T3: compile_throw unreachable
-  - [x] T4: compile_try build_invoke + landingpad
-- [x] Batch 3: 调用方改造(1 项,依赖 Batch 2)
-  - [x] T5: compile_call 感知 try 上下文
-- [x] Batch 4: 验证、新 example 与文档(3 项并行)
-  - [x] T6: examples/try_catch_invoke.ry + run_examples.sh
-  - [x] T7: codegen 集成测试(#[ignore])
-  - [x] T8: TRY_CATCH_AUDIT.md §3 + §5
-- [x] FIX1: `LandingPadGenerator::get_type_info_global` Internal linkage + null initializer (修复 undefined symbol 链接错误)
-- [x] FIX2: `build_catch_dispatch` 简化为 catch-all + `compile_throw` 非 try 分支 emit `return <zero>` (修复 SIGILL)
+### Batch 1.1: GC 双模式（4 任务）
 
-## Per-Task Progress
+| Task | Status | Commit | Review |
+|------|--------|--------|--------|
+| T-1.1.1 GcMode parse | done | e4830f0 | pending |
+| T-1.1.2 GcAllocFn dispatch | done | 2221a23 | pending |
+| T-1.1.3 CLI --gc flag | done | 43f5595 | pending |
+| T-1.1.4 codegen 全部堆分配切换 | done | ac92134 | pending |
 
-(commits will be appended here as each task completes)
+### Batch 1.2: 静态链接（2 任务）
 
-## Status
+| Task | Status | Commit | Review |
+|------|--------|--------|--------|
+| T-1.2.1 ruyi_runtime .a 产出 | pending | — | — |
+| T-1.2.2 driver 链入 .a | pending | — | — |
 
-**Final state**: closing (DP-7 archived)
+### Batch 1.3: T9 收尾 + stdlib 审查（3 任务）
 
-**Verification**:
-- 134 → 133 lib tests pass
-- 34/34 examples pass (including new try_catch_invoke.ry)
-- 3/3 ruyi_exception tests pass
-- 0 cargo warnings
-- 0 clippy warnings
-- codegen integration tests `#[ignore]` ready
+| Task | Status | Commit | Review |
+|------|--------|--------|--------|
+| T-1.3.1 RangeError/ArrayIterator 构造器 | pending | — | — |
+| T-1.3.2 启用 21 个 codegen #[ignore] | pending | — | — |
+| T-1.3.3 stdlib audit 工具 + 报告 | pending | — | — |
 
-**Known issues (out of scope)**:
-- 5 diagnostic tests fail (separate change)
-- CI disabled (separate change)
-- v0.5.5 release tag/merge (separate change)
+### Batch 1.4: trait 约束检查（3 任务）
+
+| Task | Status | Commit | Review |
+|------|--------|--------|--------|
+| T-1.4.1 ImplTable 数据结构 | pending | — | — |
+| T-1.4.2 check_bounds 实际验证 | pending | — | — |
+| T-1.4.3 启用 5+ typechecker #[ignore] | pending | — | — |
+
+### Batch 2.1: ruyi_await 真实化（3 任务）
+
+| Task | Status | Commit | Review |
+|------|--------|--------|--------|
+| T-2.1.1 Scheduler + Worker | pending | — | — |
+| T-2.1.2 ruyi_await 真实实现 | pending | — | — |
+| T-2.1.3 codegen 调用 ruyi_await | pending | — | — |
+
+### Batch 2.2: try/catch landing pad（3 任务）
+
+| Task | Status | Commit | Review |
+|------|--------|--------|--------|
+| T-2.2.1 CodegenContext.try_stack | pending | — | — |
+| T-2.2.2 compile_try 完整 invoke | pending | — | — |
+| T-2.2.3 启用 16 个 try/catch #[ignore] | pending | — | — |
+
+### Batch 3: spawn 内建（3 任务）
+
+| Task | Status | Commit | Review |
+|------|--------|--------|--------|
+| T-3.1 spawn builtin IR | pending | — | — |
+| T-3.2 spawn_demo example | pending | — | — |
+| T-3.3 spawn 集成测试 | pending | — | — |
+
+### Batch 4: 验证与归档（2 任务）
+
+| Task | Status | Commit | Review |
+|------|--------|--------|--------|
+| T-4.1 整体回归 + roadmap 更新 | pending | — | — |
+| T-4.2 release-archivist 流程 | pending | — | — |
+
+## Pre-conditions
+
+- [x] DP-0 confirmed (v0.5.5-residual-fixes scope)
+- [x] DP-1 confirmed (4 phases, 7 P0)
+- [x] DP-2 confirmed (4 artifacts approved)
+- [x] DP-3 confirmed (execution contract approved)
+- [x] DP-4 confirmed (SDD mode)
+- [x] v0.2-codegen-gaps archived to docs/archive/
+- [x] worktree created at ../ruyi-v0.5.5-residual-fixes
+- [ ] fix-try-catch-invoke archived (release-archivist pending)
+
+## Per-Task Progress Notes
+
+(每个 task 完成时追加 review summary、commit hash、任何 concerns)
