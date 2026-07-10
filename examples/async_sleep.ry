@@ -1,0 +1,26 @@
+// async_sleep.ry — demonstrates `await` on an async function.
+//
+// The Ruyi async runtime resolves `await` through the work-stealing
+// scheduler (ruyi_await). This example awaits an async helper that
+// simulates a delay via a busy loop (the stdlib does not yet expose a
+// real `sleep`), and prints markers before and after the await point to
+// show that execution resumes after the awaited future completes.
+//
+// @author Ruyi Team
+// @date 2026-07-10
+
+async fn sleep(ms: int): void {
+  // Simulate blocking work proportional to `ms`.
+  let i = 0;
+  let limit = ms * 1000;
+  while (i < limit) {
+    i = i + 1;
+  }
+}
+
+async fn main(): int {
+  print("before");
+  await sleep(100);
+  print("after");
+  return 0;
+}
