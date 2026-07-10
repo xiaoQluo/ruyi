@@ -853,3 +853,54 @@ for (let i = 0; i < 3; i = i + 1) {
     let err = result.unwrap_err().to_string();
     assert!(err.contains("E3003"), "Expected E3003 error, got: {}", err);
 }
+
+// ── T9 Constructor Tests (T-1.3.1) ────────────────────────────
+//
+// Regression coverage for the v0.5.5 T9 fix that makes `RangeError` and
+// `ArrayIterator` callable as constructors. These tests are marked
+// `#[ignore]` because they require LLVM 14 to compile; they pass under
+// `cargo test -p ruyic --test codegen -- --ignored --test-threads=1`
+// once `LLVM_SYS_140_PREFIX` is set.
+
+/// Verify that `RangeError.new("msg")` constructs a throwable instance
+/// that can be caught via `try`/`catch` and exposes `.getMessage()`.
+///
+/// Pre-T9, `RangeError` was recognized as `Type::Named` but not callable,
+/// so `stdlib/collections.ry` (which calls `RangeError.new("...")` in
+/// `ArrayOps::get`/`set`/`pop`) failed to typecheck, aborting every
+/// compilation. T9 fixes that gap.
+#[test]
+#[ignore = "requires LLVM 14 (run with --ignored)"]
+fn range_error_throws_compiles() {
+    let source = r#"
+fn main() {
+  try {
+    throw RangeError.new("out of bounds");
+  } catch (e: Error) {
+    print(e.getMessage());
+  }
+}
+"#;
+    assert_output(source, "out of bounds");
+}
+
+/// Verify that `ArrayIterator.new(arr)` constructs an iterable instance
+/// whose `.next()` returns each element and then `null` when exhausted.
+///
+/// Pre-T9, `ArrayIterator` was a Named type without a constructor, so
+/// `ArrayOps::iter()` could not typecheck. T9 adds the constructor.
+#[test]
+#[ignore = "requires LLVM 14 (run with --ignored)"]
+fn array_iterator_new_compiles() {
+    let source = r#"
+fn main() {
+  let arr: Array<int> = [10, 20, 30];
+  let it = ArrayIterator.new(arr);
+  print(it.next());
+  print(it.next());
+  print(it.next());
+  print(it.next());
+}
+"#;
+    assert_output(source, "10\n20\n30\n0");
+}
