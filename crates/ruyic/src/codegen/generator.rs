@@ -9,6 +9,7 @@
  */
 use std::collections::HashMap;
 
+use crate::cli::gc_mode::GcMode;
 use crate::driver::OptLevel;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
@@ -116,6 +117,9 @@ pub struct CodegenContext<'ctx, 'm, 'env> {
     /// Label pending to be attached to the next loop push (set by `Statement::Labeled`,
     /// consumed by the loop compile functions like `compile_for`/`compile_while`).
     pub(crate) pending_loop_label: Option<String>,
+    /// Active GC mode (`stub` or `real`) used by `GcAllocFn::for_mode`
+    /// to choose between `call @cc_alloc` and `call @ruyi_gc_alloc`.
+    pub(crate) gc_mode: GcMode,
 }
 
 impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
@@ -124,6 +128,22 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
         module: &'m Module<'ctx>,
         builder: Builder<'ctx>,
         type_environment: Option<&'env crate::typechecker::environment::TypeEnvironment>,
+    ) -> Self {
+        Self::with_gc_mode(
+            context,
+            module,
+            builder,
+            type_environment,
+            GcMode::default(),
+        )
+    }
+
+    pub fn with_gc_mode(
+        context: &'ctx Context,
+        module: &'m Module<'ctx>,
+        builder: Builder<'ctx>,
+        type_environment: Option<&'env crate::typechecker::environment::TypeEnvironment>,
+        gc_mode: GcMode,
     ) -> Self {
         Self {
             context,
@@ -152,6 +172,7 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
             allow_partial_codegen: false,
             type_environment,
             pending_loop_label: None,
+            gc_mode,
         }
     }
 
@@ -463,10 +484,15 @@ pub struct CodeGenerator<'ctx> {
     module: Module<'ctx>,
     builder: Builder<'ctx>,
     pub allow_partial_codegen: bool,
+    pub gc_mode: GcMode,
 }
 
 impl<'ctx> CodeGenerator<'ctx> {
     pub fn new(context: &'ctx Context, name: &str) -> Self {
+        Self::with_gc_mode(context, name, GcMode::default())
+    }
+
+    pub fn with_gc_mode(context: &'ctx Context, name: &str, gc_mode: GcMode) -> Self {
         let module = context.create_module(name);
         let builder = context.create_builder();
         Self {
@@ -474,7 +500,12 @@ impl<'ctx> CodeGenerator<'ctx> {
             module,
             builder,
             allow_partial_codegen: false,
+            gc_mode,
         }
+    }
+
+    pub fn gc_mode(&self) -> GcMode {
+        self.gc_mode
     }
 
     /// Generate LLVM IR from a typed AST program.
@@ -499,15 +530,16 @@ impl<'ctx> CodeGenerator<'ctx> {
         tracker: &MonomorphizationTracker,
         type_env: Option<&'env crate::typechecker::environment::TypeEnvironment>,
     ) -> Result<(), String> {
-        let mut ctx = CodegenContext::new(
+        let mut ctx = CodegenContext::with_gc_mode(
             self.context,
             &self.module,
             self.context.create_builder(),
             type_env,
+            self.gc_mode,
         );
         ctx.set_allow_partial_codegen(self.allow_partial_codegen);
 
-        declare_builtins(self.context, &self.module);
+        declare_builtins(self.context, &self.module, self.gc_mode);
 
         // Generate monomorphized generic functions
         let mut mono_ctx = MonomorphizationContext::new();

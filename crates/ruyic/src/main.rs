@@ -88,7 +88,6 @@ fn main() {
             process::exit(2);
         }
     };
-    let _ = gc_mode;
 
     let options = CompileOptions {
         emit,
@@ -97,6 +96,7 @@ fn main() {
         output: args.output,
         input: input.clone(),
         search_paths: vec![],
+        gc_mode,
     };
 
     let mut driver = Driver::new(vec![]);

@@ -13,6 +13,7 @@ use inkwell::IntPredicate;
 
 use ruyi_exception::landing_pad::LandingPadGenerator;
 
+use super::gc_alloc::GcAllocFn;
 use super::generator::CodegenContext;
 use super::types::{function_type_from_ruyi, ruyi_type_to_llvm};
 use crate::parser::ast::{
@@ -2835,7 +2836,7 @@ fn compile_array_literal<'ctx>(
     let len = elements.len() as u64;
     let cap = if len == 0 { 4 } else { len };
     let total_size = ctx.context.i64_type().const_int(16 + cap * 8, false);
-    let ptr = super::builtins::build_gc_alloc(ctx.builder(), &ctx.module, total_size);
+    let ptr = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), &ctx.module, total_size);
 
     let len_ptr = ctx
         .builder()
@@ -2924,7 +2925,7 @@ fn compile_rest_args_to_array<'ctx>(
     let len = rest_args.len() as u64;
     let cap = if len == 0 { 4 } else { len };
     let total_size = ctx.context.i64_type().const_int(16 + cap * 8, false);
-    let ptr = super::builtins::build_gc_alloc(ctx.builder(), &ctx.module, total_size);
+    let ptr = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), &ctx.module, total_size);
 
     let len_ptr = ctx
         .builder()
@@ -2991,7 +2992,7 @@ fn compile_object_literal<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     let len = properties.len() as u64;
     let total_size = ctx.context.i64_type().const_int(len * 8, false);
-    let ptr = super::builtins::build_gc_alloc(ctx.builder(), &ctx.module, total_size);
+    let ptr = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), &ctx.module, total_size);
 
     let mut fields = Vec::new();
     for (i, prop) in properties.iter().enumerate() {
@@ -3092,7 +3093,7 @@ pub(crate) fn compile_new<'ctx>(
     let total_size = struct_ty
         .size_of()
         .ok_or_else(|| format!("compile_new: class '{}' has no size", class_name))?;
-    let ptr = super::builtins::build_gc_alloc(ctx.builder(), &ctx.module, total_size);
+    let ptr = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), &ctx.module, total_size);
 
     let ctor_name = format!("{}_new", class_name);
     if let Some(ctor) = ctx.module.get_function(&ctor_name) {
