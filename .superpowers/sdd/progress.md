@@ -61,9 +61,9 @@
 
 | Task | Status | Commit | Review |
 |------|--------|--------|--------|
-| T-3.1 spawn builtin IR | pending | — | — |
-| T-3.2 spawn_demo example | pending | — | — |
-| T-3.3 spawn 集成测试 | pending | — | — |
+| T-3.1 spawn builtin IR | done | (pre-existing in codegen/builtins.rs + expr.rs + ruyi_runtime/async_exports.rs) | approved |
+| T-3.2 spawn_demo example | done | d422c3d | approved |
+| T-3.3 spawn 集成测试 | done | 6db394a | approved |
 
 ### Batch 4: 验证与归档（2 任务）
 
