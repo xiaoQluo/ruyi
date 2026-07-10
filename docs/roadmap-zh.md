@@ -93,7 +93,7 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 | 1.4 | **字符串拼接** | `+` 运算符用于字符串（当前仅数字 `+` 可用） | P0 ✅ |
 | 1.5 | **for 循环代码生成** | C 风格 `for`、`for-in`、`for-of`（当前均不支持） | P0 ✅ |
 | 1.6 | **break/continue** | 已有 `loop_stack`，只需代码生成 | P1 ✅ |
-| 1.7 | **try/catch/finally** | `ruyi_runtime` 中已有 landing pad 支持；对接到代码生成 | P0 |
+| 1.7 | **try/catch/finally** | `ruyi_runtime` 中已有 landing pad 支持；对接到代码生成 | P0 ✅ |
 | 1.8 | **throw 表达式** | 映射为运行时 `throw_exception` 调用 | P1 |
 | 1.9 | **match 语句** | 将 match 编译为链式 if-else 或 switch | P1 |
 | 1.10 | **模板字面量** | 将 `` `Hello ${name}` `` 编译为字符串拼接 | P1 |
@@ -118,11 +118,11 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 
 | # | 任务 | 描述 | 优先级 |
 |---|------|------|--------|
-| 2.1 | **链接运行时库** | 驱动器必须将 `ruyi_runtime` 链接到生成的二进制（当前使用裸 `cc`） | P0 |
-| 2.2 | **GC 分配对接** | 用 `ruyi_gc_alloc`/`ruyi_gc_collect` 替换占位分配器 | P0 |
-| 2.3 | **async 真正异步** | 用真正的 future 轮询替换空操作 `ruyi_await`，通过工作窃取调度器 | P0 |
-| 2.4 | **`spawn` 内建函数** | 实现 `spawn(fn)` 在调度器上启动绿色线程 | P0 |
-| 2.5 | **异常 landing pad** | 从 try/catch 代码生成调用 `ruyi_exception_try`/`ruyi_exception_catch` | P0 |
+| 2.1 | **链接运行时库** | 驱动器必须将 `ruyi_runtime` 链接到生成的二进制（当前使用裸 `cc`） | P0 ✅ |
+| 2.2 | **GC 分配对接** | 用 `ruyi_gc_alloc`/`ruyi_gc_collect` 替换占位分配器 | P0 ✅ |
+| 2.3 | **async 真正异步** | 用真正的 future 轮询替换空操作 `ruyi_await`，通过工作窃取调度器 | P0 ✅ |
+| 2.4 | **`spawn` 内建函数** | 实现 `spawn(fn)` 在调度器上启动绿色线程 | P0 ✅ |
+| 2.5 | **异常 landing pad** | 从 try/catch 代码生成调用 `ruyi_exception_try`/`ruyi_exception_catch` | P0 ✅ |
 | 2.6 | **async GC 根** | `register_async_roots` 当前为空操作；注册挂起任务 | P1 |
 | 2.7 | **线程本地 GC 堆** | 将多线程 GC 对接到 async 运行时 | P2 |
 
@@ -130,7 +130,7 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 
 | # | 任务 | 描述 | 优先级 |
 |---|------|------|--------|
-| 3.1 | **执行 trait 约束** | `check_bounds()` 在 generics.rs 中当前始终返回 true；实际验证 impl 存在 | P0 |
+| 3.1 | **执行 trait 约束** | `check_bounds()` 在 generics.rs 中当前始终返回 true；实际验证 impl 存在 | P0 ✅ |
 | 3.2 | **超特质检查** | 填充并验证 `supertraits` 字段 | P1 |
 | 3.3 | **完整 `impl Trait for Type`** | 支持独立 `impl Printable for string { ... }`（当前不完整） | P0 |
 | 3.4 | **null 以外的类型缩窄** | `instanceof`、`typeof`、match 模式后的类型缩窄 | P1 |
