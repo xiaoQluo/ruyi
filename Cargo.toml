@@ -4,6 +4,7 @@ members = [
     "crates/ruyic",
     "crates/ruyi_exception",
     "crates/ruyi_runtime",
+    "tools/audit-stdlib",
 ]
 
 [workspace.package]
