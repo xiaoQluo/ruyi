@@ -45,17 +45,17 @@
 
 | Task | Status | Commit | Review |
 |------|--------|--------|--------|
-| T-2.1.1 Scheduler + Worker | pending | — | — |
-| T-2.1.2 ruyi_await 真实实现 | pending | — | — |
-| T-2.1.3 codegen 调用 ruyi_await | pending | — | — |
+| T-2.1.1 Scheduler + Worker | done | (pre-existing in async_runtime.rs) | verified |
+| T-2.1.2 ruyi_await 真实实现 | done | (pre-existing in async_runtime.rs) | verified |
+| T-2.1.3 codegen 调用 ruyi_await | done | fcfb21b (example) | verified |
 
 ### Batch 2.2: try/catch landing pad（3 任务）
 
 | Task | Status | Commit | Review |
 |------|--------|--------|--------|
-| T-2.2.1 CodegenContext.try_stack | pending | — | — |
-| T-2.2.2 compile_try 完整 invoke | pending | — | — |
-| T-2.2.3 启用 16 个 try/catch #[ignore] | pending | — | — |
+| T-2.2.1 CodegenContext.try_stack | done | (pre-existing in generator.rs) | verified |
+| T-2.2.2 compile_try 完整 invoke | done | 534bf9a (example) | verified |
+| T-2.2.3 启用 16 个 try/catch #[ignore] | done | 0a35a71 + c625b9f | verified |
 
 ### Batch 3: spawn 内建（3 任务）
 
@@ -137,3 +137,57 @@
   bug triggers, so the test for `print_it(42)` works (it now produces a
   proper diagnostic instead of silently passing). The bug is out of scope
   for T-1.4 but should be tracked for a follow-up.
+
+### Batch 2.1 (2026-07-10)
+
+- **T-2.1.1 / T-2.1.2** — Scheduler/WorkStealingDeque/Waker/Task/Poll and the
+  real `ruyi_await` (`async_runtime.rs:252,387`) confirmed pre-existing; no code
+  change needed. Verified end-to-end via `examples/async.ry` (--gc=real) → prints
+  25/100/225 correctly.
+- **T-2.1.3 (fcfb21b)** — `feat(example): add async_sleep.ry demonstrating await`.
+  New `examples/async_sleep.ry` awaits an async helper (stdlib has no real `sleep`,
+  so a busy-loop async fn is used). Compiles with `--gc=real` and runs → prints
+  `before` then `after`, exit 0.
+
+### Batch 2.2 (2026-07-10)
+
+- **T-2.2.1 / T-2.2.2** — `CodegenContext.try_stack` (generator.rs:95) and full
+  `compile_try` invoke/landingpad (stmt.rs:760 + expr.rs build_call_or_invoke)
+  confirmed pre-existing. Verified: `examples/try_catch_invoke.ry` emits
+  `invoke ... unwind label %try.landingpad` + `landingpad` + `resume` and runs → `caught`.
+- **T-2.2.2 (534bf9a)** — `feat(example): add try_catch_invoke.ry demonstrating
+  invoke + landing pad`. Uses `throw "boom"` (direct string) to avoid the
+  pre-existing "Complex new expressions" limitation. Auto-discovered by
+  run_examples.sh (glob-based; no list edit needed).
+- **T-2.2.3 (0a35a71 + c625b9f)** — enabled all 14 `#[ignore]` attributes
+  (12 in try_catch_invoke.rs, 2 in compilation_throw_unreachable.rs; the "16"
+  in the plan double-counted 2 doc-comment mentions, which were also updated).
+  Each test tagged `// Verifies: REQ-LPAD-003/004`. Test bodies unchanged.
+
+### Verification snapshot (2026-07-10, Batch 2.1+2.2)
+
+- `cargo test --workspace --lib` → 229 passed, 0 failed (3 + 74 + 152; no lib code
+  touched, so count is baseline).
+- Enabled tests now run: try_catch_invoke 1 passed / 11 failed;
+  compilation_throw_unreachable 0 passed / 2 failed. **All 13 failures are
+  pre-existing and out of scope**: 12 fail on "Complex new expressions not yet
+  supported" (`throw new Error(...)`); 1 (`test_try_finally_normal_path`) fails on
+  a test-cwd artifact — the driver resolves `target/release/libruyi_runtime.a`
+  relative to the `crates/ruyic` test cwd. The one pass is `test_non_try_call_uses_call`.
+  No NEW failure introduced (test source byte-identical to base, only `#[ignore]`/
+  doc/comment removed).
+- `cargo clippy --workspace --no-deps` → pre-existing warnings/errors in
+  `ruyi_runtime` (async_runtime.rs, gc/, arc.rs) and ruyic lib (token.rs, gc_mode.rs,
+  async_codegen.rs) — all outside this batch's scope (MUST-NOT-DO files). My diff
+  (examples/*.ry + `#[ignore]` removal) adds 0 new warnings.
+
+### Concerns (Batch 2.1+2.2)
+
+- Enabling the try/catch tests surfaces two pre-existing gaps that CI will now
+  report as FAIL until addressed by their owning batches: (1) "Complex new
+  expressions" codegen limitation (Batch 2+); (2) the integration-test cwd/relative
+  `libruyi_runtime.a` path resolution in the driver (Batch 1.2). Both were
+  invisible while the tests were `#[ignore]`; enabling them is the intended effect
+  (real PASS/FAIL reporting) per the contract.
+- `cargo test --workspace` (without `--lib`) will now show these integration
+  failures; the batch verification gate is scoped to `--lib` per the task.
