@@ -4,10 +4,12 @@
  * These tests verify that the compiler emits correct LLVM exception-handling
  * instructions (`invoke`, `landingpad`, `resume`) when compiling try/catch
  * blocks. They require the compiled `ruyic` binary and a working LLVM 14
- * toolchain — therefore all tests are `#[ignore]` by default.
+ * toolchain. The tests are now enabled (previously `#[ignore]`); some may
+ * still fail against the pre-existing "Complex new expressions" limitation
+ * (`throw new Error(...)`), which is out of scope for this batch.
  *
  * Run with:
- *   cargo test -p ruyic --test try_catch_invoke -- --ignored
+ *   cargo test -p ruyic --test try_catch_invoke
  *
  * TDD status:
  *   - RED:   T4 creates landingpad infrastructure (invoke not yet emitted → invoke test fails)
@@ -138,7 +140,7 @@ fn compile_and_run(source: &str) -> io::Result<String> {
  * @date 2026-07-08
  */
 #[test]
-#[ignore]
+// Verifies: REQ-LPAD-003/004
 fn test_try_catch_emits_landingpad() {
     let source = r#"
 fn main(): int {
@@ -170,7 +172,7 @@ fn main(): int {
  * @date 2026-07-08
  */
 #[test]
-#[ignore]
+// Verifies: REQ-LPAD-003/004
 fn test_try_catch_emits_invoke() {
     let source = r#"
 fn doWork(): void {
@@ -206,7 +208,7 @@ fn main(): int {
  * @date 2026-07-08
  */
 #[test]
-#[ignore]
+// Verifies: REQ-LPAD-003/004
 fn test_try_catch_catches_inner_throw() {
     let source = r#"
 fn innerThrow(): void {
@@ -248,7 +250,7 @@ fn main(): int {
  * @date 2026-07-08
  */
 #[test]
-#[ignore]
+// Verifies: REQ-LPAD-003/004
 fn test_try_finally_emits_resume() {
     let source = r#"
 fn doWork(): void {
@@ -287,7 +289,7 @@ fn main(): int {
  * @date 2026-07-08
  */
 #[test]
-#[ignore]
+// Verifies: REQ-LPAD-003/004
 fn test_try_catch_through_two_level_call_caught() {
     let source = r#"
 fn innerThrow(): void {
@@ -347,7 +349,7 @@ fn main(): int {
  * @date 2026-07-08
  */
 #[test]
-#[ignore]
+// Verifies: REQ-LPAD-003/004
 fn test_non_try_call_uses_call() {
     let source = r#"
 fn callee(): int {
@@ -386,7 +388,7 @@ fn main(): int {
  * @date 2026-07-08
  */
 #[test]
-#[ignore]
+// Verifies: REQ-LPAD-003/004
 fn test_try_catch_emits_invoke_for_inner_calls() {
     let source = r#"
 fn boom(): void {
@@ -439,7 +441,7 @@ fn main(): int {
  * @date 2026-07-08
  */
 #[test]
-#[ignore]
+// Verifies: REQ-LPAD-003/004
 fn test_try_catch_multiple_catch_arms() {
     let source = r#"
 class ErrorA {
@@ -506,7 +508,7 @@ fn main(): int {
  * @date 2026-07-08
  */
 #[test]
-#[ignore]
+// Verifies: REQ-LPAD-003/004
 fn test_try_finally_normal_path() {
     let source = r#"
 fn main(): int {
@@ -547,7 +549,7 @@ fn main(): int {
  * @date 2026-07-08
  */
 #[test]
-#[ignore]
+// Verifies: REQ-LPAD-003/004
 fn test_try_finally_exception_path() {
     let source = r#"
 fn boom(): void {
@@ -595,7 +597,7 @@ fn main(): int {
  * @date 2026-07-08
  */
 #[test]
-#[ignore]
+// Verifies: REQ-LPAD-003/004
 fn test_try_no_catch_exception_propagates() {
     let source = r#"
 fn boom(): void {
@@ -646,7 +648,7 @@ fn main(): int {
  * @date 2026-07-08
  */
 #[test]
-#[ignore]
+// Verifies: REQ-LPAD-003/004
 fn test_unwind_in_nested_try() {
     let source = r#"
 fn boom(): void {
