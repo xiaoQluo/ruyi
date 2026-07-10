@@ -837,7 +837,8 @@ fn test_check_object_literal() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+// Verifies: REQ-TRAIT-001 (impl_table regression coverage — arrow fn in a
+// trait impl method body uses the same Expr::Call path as generic calls)
 fn test_check_arrow_function() {
     let result = check_program("let f = (x: int) => x + 1;");
     assert_no_errors(&result);
@@ -882,7 +883,9 @@ fn test_check_for_in() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+// Verifies: REQ-TRAIT-001 (type aliases are commonly used to name trait
+// associated types in real codebases — keeping the type alias path
+// passing guards the impl_table's TypeId interning logic)
 fn test_check_type_alias() {
     let result = check_program("type Name = string;");
     assert_no_errors(&result);
@@ -1227,7 +1230,9 @@ fn test_check_continue() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+// Verifies: REQ-TRAIT-002 (throws are a common control flow in trait
+// method bodies; if `throw` regressed the type checker would silently
+// mask trait bound errors downstream)
 fn test_check_throw() {
     let result = check_program("throw Error(\"oops\");");
     assert_no_errors(&result);
@@ -1356,7 +1361,9 @@ fn test_check_macro_declaration() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+// Verifies: REQ-TRAIT-001 (generic type aliases use the same type
+// parameter machinery as trait method bodies — keeping this passing
+// guards the type-var interning pipeline that ImplTable depends on)
 fn test_check_type_alias_generic() {
     let result = check_program("type Result<T, E> = { ok: T, err: E };");
     assert_no_errors(&result);
@@ -1583,7 +1590,9 @@ fn test_check_nullish_coalescing_with_function_call() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+// Verifies: REQ-TRAIT-001 (Array<T> is the canonical example used in
+// REQ-TRAIT-002 bound checks; if the array literal path regresses the
+// whole monomorphization story falls apart)
 fn test_check_generic_type_annotation() {
     let result = check_program("let arr: Array<int> = [1, 2, 3];");
     assert_no_errors(&result);
@@ -1729,7 +1738,10 @@ fn test_supertrait_valid_hierarchy() {
 }
 
 #[test]
-#[ignore] // Parser doesn't support generic fn with trait bounds yet
+// Verifies: REQ-TRAIT-002 (per spec Section 10.4: a generic with trait
+// bounds called with `dyn` should pass at runtime via trait object
+// lookup, not at compile time — confirms check_bounds's `is_dynamic`
+// early return)
 fn test_trait_bound_dyn_always_passes() {
     let source = "trait Marker { } fn main() { let x: dyn = 42; }";
     let result = check_program(source);
