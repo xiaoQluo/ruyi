@@ -147,12 +147,18 @@ impl TypeInference {
                 return_type: Box::new(Type::Named("Error".into(), vec![])),
             },
         );
+        // Pre-wire the trait registry into the monomorphization tracker so
+        // that `check_bounds` can validate impl existence during call-site
+        // type checking (REGR-FIX: was previously set in `checker.rs` AFTER
+        // `infer_program` returned, so generic call sites never saw it).
+        let mut tracker = MonomorphizationTracker::new();
+        tracker.set_trait_registry(trait_registry.clone());
         Self {
             env,
             diagnostics: DiagnosticBag::new(),
             solver: ConstraintSolver::new(),
             return_type_stack: Vec::new(),
-            tracker: MonomorphizationTracker::new(),
+            tracker,
             trait_registry,
             class_stack: Vec::new(),
             class_fields: HashMap::new(),

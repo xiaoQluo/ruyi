@@ -57,6 +57,16 @@ impl TypeChecker {
     /// Type checks a parsed program and returns the result.
     pub fn check(&mut self, program: &Program) -> TypeCheckResult {
         let registry = build_trait_registry(program);
+        // Mirror every `impl Trait for Type` block (including standalone
+        // ones outside class bodies) into the interned `ImplTable` so the
+        // monomorphization tracker can resolve bounds in O(1) and codegen
+        // has a single source of truth (REGR-FIX for the previously-empty
+        // table that forced `check_bounds` to fall through to `true`).
+        let mut tracker_seed = crate::typechecker::generics::MonomorphizationTracker::new();
+        tracker_seed.set_trait_registry(registry.clone());
+        tracker_seed.populate_impl_table(program);
+        let impl_table = tracker_seed.impl_table().clone();
+
         let mut inference = TypeInference::new(registry.clone());
         let InferenceResult {
             typed_env,
@@ -64,7 +74,9 @@ impl TypeChecker {
             mut tracker,
         } = inference.infer_program(program);
 
+        // Carry the pre-built ImplTable into the result tracker.
         tracker.set_trait_registry(registry.clone());
+        tracker.replace_impl_table(impl_table);
 
         let mut trait_diagnostics = DiagnosticBag::new();
         registry.validate_impls(&mut trait_diagnostics);

@@ -1,5 +1,6 @@
 use crate::typechecker::constraints::ConstraintSolver;
 use crate::typechecker::diagnostics::{DiagnosticBag, DiagnosticKind};
+use crate::typechecker::impl_table::ImplTable;
 use crate::typechecker::traits::TraitRegistry;
 use crate::typechecker::types::{Type, TypeVar};
 /**
@@ -183,6 +184,8 @@ pub struct MonomorphizationTracker {
     next_var_id: u32,
     /// Registry for checking trait bounds against implementations.
     trait_registry: Option<TraitRegistry>,
+    /// Interned `Trait × Type` impl table for O(1) lookup.
+    impl_table: ImplTable,
 }
 
 impl MonomorphizationTracker {
@@ -193,12 +196,106 @@ impl MonomorphizationTracker {
             specializations: HashMap::new(),
             next_var_id: 0,
             trait_registry: None,
+            impl_table: ImplTable::new(),
         }
     }
 
     /** Sets the trait registry for bound checking during specialization. */
     pub fn set_trait_registry(&mut self, registry: TraitRegistry) {
         self.trait_registry = Some(registry);
+    }
+
+    /// Populates the interned impl table from the program's
+    /// `impl Trait for Type` declarations.
+    ///
+    /// Each entry maps a `(TraitId, TypeId)` to the set of methods the
+    /// impl provides. Standalone impl blocks (i.e. those outside a class
+    /// body) are the only source — class-internal impls are not
+    /// supported by the Ruyi grammar today, so this covers every case.
+    pub fn populate_impl_table(&mut self, program: &crate::parser::ast::Program) {
+        use crate::parser::ast::{ClassElement, Declaration, ModuleItem};
+        use crate::typechecker::impl_table::{ImplDef, TraitId, TypeId};
+
+        let mut trait_counter: u32 = 0;
+        let mut type_counter: u32 = 0;
+        let mut trait_intern: HashMap<String, TraitId> = HashMap::new();
+        let mut type_intern: HashMap<String, TypeId> = HashMap::new();
+
+        let intern_trait = |name: &str,
+                            trait_counter: &mut u32,
+                            trait_intern: &mut HashMap<String, TraitId>|
+         -> TraitId {
+            if let Some(id) = trait_intern.get(name) {
+                *id
+            } else {
+                let id = TraitId(*trait_counter);
+                *trait_counter += 1;
+                trait_intern.insert(name.to_string(), id);
+                id
+            }
+        };
+        let intern_type = |name: &str,
+                           type_counter: &mut u32,
+                           type_intern: &mut HashMap<String, TypeId>|
+         -> TypeId {
+            if let Some(id) = type_intern.get(name) {
+                *id
+            } else {
+                let id = TypeId(*type_counter);
+                *type_counter += 1;
+                type_intern.insert(name.to_string(), id);
+                id
+            }
+        };
+
+        for item in &program.items {
+            let decl = match item {
+                ModuleItem::Declaration(d) => Some(d),
+                ModuleItem::Export(crate::parser::ast::ExportDecl::Declaration(d)) => Some(d),
+                _ => None,
+            };
+            if let Some(Declaration::Impl {
+                trait_name,
+                for_type,
+                body,
+                ..
+            }) = decl
+            {
+                let tid = intern_trait(trait_name, &mut trait_counter, &mut trait_intern);
+                let for_type_str = match for_type {
+                    crate::parser::ast::TypeAnnotation::Identifier(n)
+                    | crate::parser::ast::TypeAnnotation::Builtin(n) => n.clone(),
+                    _ => String::new(),
+                };
+                if for_type_str.is_empty() {
+                    continue;
+                }
+                let tyid = intern_type(&for_type_str, &mut type_counter, &mut type_intern);
+                let methods: Vec<String> = body
+                    .iter()
+                    .filter_map(|el| match el {
+                        ClassElement::Method {
+                            name: crate::parser::ast::PropertyName::Ident(n),
+                            ..
+                        } => Some(n.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                self.impl_table.register(tid, tyid, ImplDef { methods });
+            }
+        }
+    }
+
+    /// Read-only view of the interned impl table (used by tests).
+    pub fn impl_table(&self) -> &ImplTable {
+        &self.impl_table
+    }
+
+    /// Replaces the impl table wholesale (used by `Checker::check` to
+    /// carry the pre-built table from a seed tracker into the inference
+    /// result tracker).
+    pub fn replace_impl_table(&mut self, table: ImplTable) {
+        self.impl_table = table;
     }
 
     /// Creates a fresh type variable ID for a new type parameter.
@@ -384,6 +481,13 @@ impl MonomorphizationTracker {
     }
 
     /// Checks if a type argument satisfies the trait bounds of a type parameter.
+    ///
+    /// Per spec Section 10.2, every declared bound must be verified.
+    /// Implementation consults the `TraitRegistry` (string-keyed) for the
+    /// `(Trait, Type)` lookup; the `ImplTable` is kept in sync via
+    /// `populate_impl_table` so future codegen paths can use it without
+    /// re-walking the AST. All bounds are checked even if an earlier one
+    /// fails, so users see every missing impl in one pass.
     fn check_bounds(
         &self,
         param: &TypeParamInfo,
@@ -396,19 +500,24 @@ impl MonomorphizationTracker {
         if param.bounds.is_empty() {
             return true;
         }
-        if let Some(ref registry) = self.trait_registry {
-            for bound_name in &param.bounds {
-                if !registry.check_bound(arg, bound_name) {
-                    diagnostics.add_error(DiagnosticKind::TraitNotImplemented {
-                        ty: arg.clone(),
-                        trait_name: bound_name.clone(),
-                    });
-                    return false;
-                }
+
+        let registry = match &self.trait_registry {
+            Some(r) => r,
+            None => return true,
+        };
+
+        let mut all_ok = true;
+        for bound_name in &param.bounds {
+            if !registry.check_bound(arg, bound_name) {
+                diagnostics.add_error(DiagnosticKind::TraitNotImplemented {
+                    ty: arg.clone(),
+                    trait_name: bound_name.clone(),
+                });
+                all_ok = false;
+                // continue: report every failing bound (REQ-TRAIT-003)
             }
-            return true;
         }
-        true
+        all_ok
     }
 
     /// Builds a substitution map from type parameters to concrete types.

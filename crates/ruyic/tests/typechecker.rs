@@ -1744,6 +1744,114 @@ fn test_trait_bound_dyn_always_passes() {
     );
 }
 
+// ── Trait bound validation (T-1.4.2) ────────────────────────────
+//
+// Verifies that `check_bounds` actually consults the impl registry:
+// REQ-TRAIT-002 (concrete type without impl fails the bound).
+// REQ-TRAIT-003 (multiple bounds are all checked).
+
+/// Verifies: REQ-TRAIT-002
+#[test]
+fn generic_with_no_impl_fails() {
+    // `int` does not implement `Printable` and no `impl Printable for int`
+    // is in scope — the call site must fail with a trait-not-implemented
+    // diagnostic.
+    let source = "
+    trait Printable { fn format(self): string; }
+    fn print_it<T: Printable>(x: T): string { return \"\"; }
+    fn main() { let s = print_it(42); }
+    ";
+    let result = check_program(source);
+    let messages: Vec<String> = result
+        .diagnostics
+        .iter()
+        .map(|d| d.message().to_string())
+        .collect();
+    let has_trait_error = messages
+        .iter()
+        .any(|m| m.contains("Printable") || m.contains("not implemented") || m.contains("trait"));
+    assert!(
+        result.has_errors && has_trait_error,
+        "expected TraitNotImplemented diagnostic, got: {:?}",
+        messages
+    );
+}
+
+/// Verifies: REQ-TRAIT-002 (direct call without let binding)
+#[test]
+fn generic_with_no_impl_fails_direct_call() {
+    let source = "
+    trait Printable { fn format(self): string; }
+    fn print_it<T: Printable>(x: T): string { return \"\"; }
+    fn main() { print_it(42); }
+    ";
+    let result = check_program(source);
+    let messages: Vec<String> = result
+        .diagnostics
+        .iter()
+        .map(|d| d.message().to_string())
+        .collect();
+    let has_trait_error = messages
+        .iter()
+        .any(|m| m.contains("Printable") || m.contains("not implemented") || m.contains("trait"));
+    assert!(
+        result.has_errors && has_trait_error,
+        "expected TraitNotImplemented diagnostic for direct call, got: {:?}",
+        messages
+    );
+}
+
+/// Verifies: REQ-TRAIT-003
+#[test]
+fn multiple_bounds_all_checked() {
+    // Both `Comparable` and `Clone` bounds must be verified. Without any
+    // impls, both should fail, and the diagnostics should mention both
+    // traits.
+    let source = "
+    trait Comparable { fn cmp(self, other: Self): int; }
+    trait Clone { fn clone(self): Self; }
+    fn sort<T: Comparable + Clone>(a: T, b: T): T { return a; }
+    fn main() { let x = sort(1, 2); }
+    ";
+    let result = check_program(source);
+    let messages: Vec<String> = result
+        .diagnostics
+        .iter()
+        .map(|d| d.message().to_string())
+        .collect();
+    let mentions_comparable = messages.iter().any(|m| m.contains("Comparable"));
+    let mentions_clone = messages.iter().any(|m| m.contains("Clone"));
+    assert!(
+        result.has_errors && mentions_comparable && mentions_clone,
+        "expected diagnostics for both bounds, got: {:?}",
+        messages
+    );
+}
+
+/// Verifies: REQ-TRAIT-002 (positive case — bound satisfied via impl)
+#[test]
+fn generic_with_impl_passes() {
+    // A standalone `impl Printable for int` must register into the impl
+    // table so that `print_it(42)` succeeds.
+    let source = "
+    trait Printable { fn format(self): string; }
+    impl Printable for int { fn format(self): string { return \"\"; } }
+    fn print_it<T: Printable>(x: T): string { return \"\"; }
+    fn main() { let s = print_it(42); }
+    ";
+    let result = check_program(source);
+    let messages: Vec<String> = result
+        .diagnostics
+        .iter()
+        .map(|d| d.message().to_string())
+        .collect();
+    assert!(
+        !result.has_errors,
+        "impl Printable for int should satisfy the bound, errors: {:?}",
+        messages
+    );
+}
+
 #[test]
 fn test_self_in_method_has_class_type() {
     let source = "class Point { x: int; y: int; fn sum(self): int { return self.x + self.y; } }";
