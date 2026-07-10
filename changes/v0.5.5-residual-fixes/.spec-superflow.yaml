@@ -2,7 +2,7 @@
 # Derived data. Always rebuildable from artifacts. Lost/corrupt → fall back to content-level detection.
 
 # === Core state ===
-state: executing
+state: closing
 workflow: full
 
 # === Hashes (fast staleness detection) ===
@@ -170,8 +170,8 @@ dp_5_result: null
 dp_5_timestamp: null
 dp_6_result: "pass: 5 dim verification ✅; 229 lib tests pass; 0 new clippy warnings; 16 try/catch tests enabled (1/14 pass + 13/14 pre-existing 'Complex new expressions' fail, accepted); 36/41 examples typecheck (5/41 pre-existing fail, accepted); all 7 P0 closed"
 dp_6_timestamp: 2026-07-10T15:23:18Z
-dp_7_result: null
-dp_7_timestamp: null
+dp_7_result: "confirmed: v0.5.5-residual-fixes archived; 21 substantive commits across Batch 1-3; 7/7 P0 closed; DEV-001 (driver.rs micro-extension) approved; 1 known deviation (16 try_catch tests partially pass due to pre-existing 'Complex new expressions', accepted by contract); ready for merge dev/v0.5.5"
+dp_7_timestamp: 2026-07-10T15:25:23Z
 
 # === Routing ===
 next_skill: ssf-build-executor (executing)
