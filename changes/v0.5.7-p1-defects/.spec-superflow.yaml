@@ -1,0 +1,41 @@
+# .spec-superflow.yaml — lightweight state machine
+# Derived data. Always rebuildable from artifacts. Lost/corrupt → fall back to content-level detection.
+
+# === Core state ===
+state: executing
+workflow: full
+
+# === Hashes (fast staleness detection) ===
+artifacts_hash: sha256:5c089d13ea49c2c27d5d89a7135d9aafe8c28eb403627d2ba77843520335fbe0
+contract_hash: sha256:77a81d383762c93aa651c7f328addc9136f62bbe5b76c2e8cd3040e942839202
+
+# === Execution progress ===
+execution_mode: SDD
+batches_completed: 0
+test_result: null
+
+# === Metadata ===
+change_name: v0.5.7-p1-defects
+last_transition: 2026-07-11T16:26:45.057Z
+last_transition_from: approved-for-build
+last_transition_to: executing
+
+# === Decision points ===
+dp_0_decisions: 变更名: v0.5.7-p1-defects; 意图: 实现 v0.5.6-p1-defects 调研中识别的 12 项 P1 缺陷修复; 拆分来源: 由原 v0.5.6-p1-defects split 决议分出（option 戊+壬），3 项 doc-drift 已由 v0.5.6-codegen-doc-drift 关闭; 范围: 12 项跨 4 类别（typechecker 3.2/3.4/3.5/3.6 + runtime 2.6 + stdlib 4.5/4.6/4.8/4.9），不含 P2/P3; 已知约束: LLVM 14、Rust 2021、clippy zero-warning、Javadoc 保留、不引入新警告; 沟通偏好: 草稿先行、整体送审（与历史一致）
+dp_0_result: confirmed
+dp_0_confirmed: true
+dp_0_timestamp: 2026-07-11T15:23:00Z
+dp_1_result: confirmed: v0.5.7-p1-defects single change with 4 parallel sub-batches (Typechecker / Runtime / Stdlib-fast / Stdlib-heavy) plus sequential 3.2 → 4.9 ordering constraint. Problem: 12 P1 defects across 4 categories remain unaddressed; roadmap.md continues to list them as P1. Scope in: Typechecker 3.2 supertraits + 3.4 narrowing + 3.5 exhaustiveness + 3.6 self-referential + Runtime 2.6 async GC roots + Stdlib 4.5 random + 4.6 fmt + 4.8 test + 4.9 collections extension (~15 methods). Scope out: P2/P3 defects, any new features, stdlib FFI cleanup of pre-existing undeclared __io_*/__process_*/__path_* symbols, Match codegen.rs integration tests (deferred but in-scope optional). Non-goals: No language-level breaking changes, no new GC algorithm designs, no async runtime architecture rewrites, no new stdlib modules beyond the P1 list, no CI/CD infrastructure, no performance/benchmark work. Success criteria: (1) all 12 items closed with dedicated tests passing; (2) cargo test --workspace green with no new regressions; (3) cargo clippy --workspace zero new warnings; (4) >=15 new methods on Array/Iterator in collections.ry; (5) >=5 new runtime FFI for random; (6) parser supports @test attribute on fn declarations + new TestFunctionRegistry; (7) ruyi_gc_collect preserves GC objects reachable from suspended async tasks; (8) Type::Union + Expr::Match exhaustive match support; (9) docs/spec.md and docs/roadmap.md updated; (10) cargo fmt-check passes; (11) v0.5.7 release commit on dev/v0.5.7-p1-defects branch; (12) merge commit to main per AGENTS.md branch policy. Communication: 草稿先行 + 整体送审 (consistent with v0.5.5-residual-fixes). Constraints: LLVM 14, Rust 2021, clippy zero-warning, Javadoc preservation, no new clippy warnings. Estimated effort: 4-5 weeks SDD-mode execution (sub-batch parallelism). Decomposition: single change, 4 internal sub-batches.
+dp_1_timestamp: 2026-07-11T15:32:00Z
+dp_2_result: approved: 4 planning artifacts validated. proposal.md (172 lines, 0 placeholders, 9 P1 in scope + 3 doc-drift closed). design.md (96 lines, 5 substantive decisions each with 选择/理由/考虑的替代方案 markers, 7 risks with mitigation, migration plan with 4 rollback scenarios). tasks.md (1868 lines, 50 atomic TDD tasks across 4 sub-batches with explicit Depends-on Sub-batch 1.1 for collections-ext 4.2, TDD 5-step pattern complete per task, 18 concrete file paths). specs/ (9 delta specs covering supertraits/narrowing/exhaustiveness/self-referential/async-gc-roots/random-stdlib/fmt-stdlib/test-stdlib/collections-ext, each 30-63 lines with ≥2 SHALL/MUST requirements and ≥2 WHEN/THEN scenarios, exhaustiveness kept at warning-level for backward compat per proposal, collections-ext explicit dependency on 3.2 supertraits). Cross-artifact consistency verified. State transitioned to specifying at 2026-07-11T16:15:01Z. Ready for DP-3 contract builder.
+dp_2_timestamp: 2026-07-11T16:18:00Z
+dp_3_result: approved: execution-contract.md (172 lines, 9 sections) validated. Intent Lock captures 9 P1 items + scope fence. Approved Behavior maps all 30 spec Requirements (4 typechecker specs: supertraits 4 / narrowing 4 / exhaustiveness 4 / self-referential 3; 1 runtime: async-gc-roots 3; 2 stdlib-fast: random 3 / fmt 3; 2 stdlib-heavy: test 4 / collections 3) plus 12 acceptance criteria from proposal.md. Design Constraints declare 4 sub-batch parallel + strict 3.2->4.9 ordering + 7 cross-batch Consumes/Produces interfaces. Task Batches: Batch 1 (Typechecker, 20 TDD steps), Batch 2 (Runtime, 5), Batch 3 (Stdlib-fast, 10), Batch 4 (Stdlib-heavy, 15, BLOCKED on Batch 1.1). Test Obligations enforce TDD 5-step with 6 core boundaries + 5 regression-sensitive areas. Execution Mode=SDD mandated by workflow=full. Review Gates define 5 mandatory review points (per-batch/inter-batch interface/Javadoc/release-gate). Escalation Rules define 3 tiers (specifying/bridging/stop). All guards artifacts-exist/schema-valid/contract-fresh PASSED. dp_3_timestamp 2026-07-11T16:30:00Z.
+dp_3_timestamp: 2026-07-11T16:30:00Z
+dp_4_result: approved: SDD (Spec-Driven Development) execution mode selected per execution-contract.md Execution Mode section. SDD chosen for 4 reasons: (1) spec-superflow workflow=full mandates SDD path; (2) single change with 4 parallel sub-batches + 1 strict sequential constraint (3.2->4.9) which Inline/BatchInline cannot express; (3) 9 P1 items spanning 3 crates over 4-5 week cycle requires structured batch boundaries; (4) 7 cross-batch Consumes/Produces interfaces require per-batch pre-dependency gate. execution_mode='SDD' set in state. Sub-batch sequencing: Batches 1/2/3 parallel launch; Batch 4 BLOCKED on Batch 1.1 supertraits cycle detection completion (git log --grep '3.2 supertraits' must precede Batch 4.2 commit).
+dp_4_timestamp: 2026-07-11T16:32:00Z
+dp_5_result: null
+dp_5_timestamp: null
+dp_6_result: null
+dp_6_timestamp: null
+dp_7_result: null
+dp_7_timestamp: null
