@@ -16,7 +16,7 @@ test_result: pass
 
 # === Metadata ===
 change_name: fix-try-catch-invoke
-last_transition: 2026-07-08T08:37:48.355Z
+last_transition: 2026-07-11T13:47:09.973Z
 last_transition_from: executing
 last_transition_to: closing
 
