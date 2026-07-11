@@ -19,6 +19,7 @@ pub mod generics;
 pub mod impl_table;
 pub mod inference;
 pub mod patterns;
+pub mod supertraits;
 pub mod traits;
 pub mod types;
 

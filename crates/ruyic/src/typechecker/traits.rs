@@ -11,6 +11,7 @@ use std::collections::HashMap;
 
 use crate::parser::ast::{ClassElement, Declaration, TraitElement, TypeAnnotation, TypeParam};
 use crate::typechecker::diagnostics::{DiagnosticBag, DiagnosticKind};
+use crate::typechecker::supertraits;
 use crate::typechecker::types::Type;
 
 /// Method signature within a trait declaration.
@@ -261,18 +262,16 @@ impl TraitRegistry {
                         message: format!("Trait '{}' extends unknown trait '{}'", name, super_name),
                     });
                 }
-                // Check for circular: A extends B, B extends A
-                if let Some(super_info) = self.traits.get(super_name) {
-                    if super_info.supertraits.contains(name) {
-                        diagnostics.add_error(DiagnosticKind::Other {
-                            message: format!(
-                                "Circular supertrait: '{}' extends '{}' which extends '{}'",
-                                name, super_name, name
-                            ),
-                        });
-                    }
-                }
             }
+        }
+        // Build adjacency map for DFS cycle detection.
+        let supertrait_map: HashMap<String, Vec<String>> = self
+            .traits
+            .iter()
+            .map(|(name, info)| (name.clone(), info.supertraits.clone()))
+            .collect();
+        for name in self.traits.keys() {
+            supertraits::validate_supertrait_chain(diagnostics, name, &supertrait_map);
         }
     }
 
