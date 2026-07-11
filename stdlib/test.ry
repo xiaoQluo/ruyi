@@ -1,0 +1,66 @@
+/**
+ * Ruyi Standard Library - Test Module
+ *
+ * Provides the assertion helpers consumed by `@test fn` declarations.
+ * Each assertion throws an `AssertionError` on failure and returns
+ * `void` on success. The four exported functions cover the common
+ * cases identified by Spec 4.8:
+ *
+ *   - assert_eq(actual, expected)
+ *   - assert_true(value)
+ *   - assert_false(value)
+ *   - assert_not_null(value)
+ *
+ * Throws `AssertionError` with a descriptive message on failure.
+ *
+ * @author Ruyi Team
+ * @date 2026-07-12
+ */
+
+/**
+ * Assert that two values are strictly equal.
+ *
+ * @param actual Value produced by the test
+ * @param expected Value the test requires
+ */
+export fn assert_eq<T>(actual: T, expected: T): void {
+    if (actual !== expected) {
+        throw AssertionError.new(
+            "assert_eq failed: expected " + expected.toString() +
+                ", got " + actual.toString()
+        );
+    }
+}
+
+/**
+ * Assert that a boolean value is `true`.
+ *
+ * @param value Condition under test
+ */
+export fn assert_true(value: bool): void {
+    if (value !== true) {
+        throw AssertionError.new("assert_true failed: value is false");
+    }
+}
+
+/**
+ * Assert that a boolean value is `false`.
+ *
+ * @param value Condition under test
+ */
+export fn assert_false(value: bool): void {
+    if (value !== false) {
+        throw AssertionError.new("assert_false failed: value is true");
+    }
+}
+
+/**
+ * Assert that a nullable value is not `null`.
+ *
+ * @param value Nullable value under test
+ */
+export fn assert_not_null<T>(value: T?): void {
+    if (value === null) {
+        throw AssertionError.new("assert_not_null failed: value is null");
+    }
+}

@@ -104,6 +104,28 @@ impl TypeChecker {
     pub fn get_type(&self, env: &TypeEnvironment, name: &str) -> Option<Type> {
         env.lookup(name).cloned()
     }
+
+    /// Collect every `@test fn` declaration in `program` into a fresh
+    /// `TestFunctionRegistry`. Convenience wrapper around
+    /// `TestFunctionRegistry::collect_from_program` so callers do not need
+    /// to walk the AST themselves.
+    pub fn collect_test_functions(
+        program: &Program,
+        file: &str,
+        module: &str,
+    ) -> crate::runtime::test_registry::TestFunctionRegistry {
+        let mut registry = crate::runtime::test_registry::TestFunctionRegistry::new();
+        let decls: Vec<crate::parser::ast::Declaration> = program
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                crate::parser::ast::ModuleItem::Declaration(d) => Some(d.clone()),
+                _ => None,
+            })
+            .collect();
+        registry.collect_from_program(&decls, file, module);
+        registry
+    }
 }
 
 impl Default for TypeChecker {

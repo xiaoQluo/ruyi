@@ -5,6 +5,7 @@ pub mod driver;
 pub mod lexer;
 pub mod macro_expand;
 pub mod parser;
+pub mod runtime;
 pub mod typechecker;
 
 use crate::macro_expand::{expand_macros, MacroRegistry};

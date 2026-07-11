@@ -301,6 +301,7 @@ impl TypeInference {
                 return_type,
                 body,
                 is_async,
+                ..
             } => {
                 let param_types: Vec<Type> = params
                     .iter()

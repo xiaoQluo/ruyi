@@ -309,6 +309,7 @@ impl Parser {
                     return_type,
                     body,
                     is_async,
+                    ..
                 } = decl
                 {
                     return Ok(ExportDecl::DefaultFunction {
@@ -390,12 +391,34 @@ impl Parser {
             Some(Token::Let) => self.parse_let_declaration(),
             Some(Token::Const) => self.parse_const_declaration(),
             Some(Token::Fn) | Some(Token::Async) => self.parse_fn_declaration(),
-            Some(Token::Class) | Some(Token::At) => self.parse_class_declaration(),
+            Some(Token::At) => self.parse_annotated_declaration(),
+            Some(Token::Class) => self.parse_class_declaration(),
             Some(Token::Trait) => self.parse_trait_declaration(),
             Some(Token::Impl) => self.parse_impl_declaration(),
             Some(Token::Type) => self.parse_type_alias(),
             Some(Token::Macro) => self.parse_macro_declaration(),
             _ => Err(self.error("expected declaration")),
+        }
+    }
+
+    /// Dispatch an annotation-prefixed declaration by lookahead-scanning
+    /// through `@name` pairs to decide whether to parse a function or a class.
+    fn parse_annotated_declaration(&mut self) -> Result<Declaration, ParseError> {
+        let mut scan = self.pos;
+        while matches!(self.tokens.get(scan).map(|t| &t.token), Some(Token::At)) {
+            scan += 1;
+            if matches!(
+                self.tokens.get(scan).map(|t| &t.token),
+                Some(Token::Ident(_))
+            ) {
+                scan += 1;
+            } else {
+                break;
+            }
+        }
+        match self.tokens.get(scan).map(|t| &t.token) {
+            Some(Token::Class) => self.parse_class_declaration(),
+            _ => self.parse_fn_declaration(),
         }
     }
 
@@ -436,6 +459,7 @@ impl Parser {
     }
 
     fn parse_fn_declaration(&mut self) -> Result<Declaration, ParseError> {
+        let annotations = self.parse_annotations();
         let is_async = self.match_token(&Token::Async);
         self.expect(Token::Fn)?;
         // Skip generator marker `*` if present: `fn* name()`
@@ -460,6 +484,7 @@ impl Parser {
             return_type,
             body,
             is_async,
+            annotations,
         })
     }
 

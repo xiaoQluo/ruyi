@@ -29,13 +29,14 @@ pub enum ModuleItem {
 pub enum Declaration {
     Let(Vec<Binding>),
     Const(Vec<Binding>),
-    Function {
+Function {
         name: String,
         type_params: Vec<TypeParam>,
         params: Vec<Param>,
         return_type: Option<TypeAnnotation>,
         body: Vec<Statement>,
         is_async: bool,
+        annotations: Vec<String>,
     },
     Class {
         name: String,

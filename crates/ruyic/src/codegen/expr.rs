@@ -356,6 +356,7 @@ pub fn compile_expr<'ctx>(
                     return_type: return_type.clone(),
                     body: body.clone(),
                     is_async: *is_async,
+                    annotations: Vec::new(),
                 };
                 super::decl::compile_declaration(ctx, &decl)?;
                 if let Some(func) = ctx.module.get_function(func_name) {
