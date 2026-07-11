@@ -1,0 +1,41 @@
+# .spec-superflow.yaml — lightweight state machine
+# Derived data. Always rebuildable from artifacts. Lost/corrupt → fall back to content-level detection.
+
+# === Core state ===
+state: closing
+workflow: tweak
+
+# === Hashes (fast staleness detection) ===
+artifacts_hash: null
+contract_hash: null
+
+# === Execution progress ===
+execution_mode: null
+batches_completed: 0
+test_result: pass
+
+# === Metadata ===
+change_name: v0.5.6-codegen-doc-drift
+last_transition: 2026-07-11T14:47:22.034Z
+last_transition_from: executing
+last_transition_to: closing
+
+# === Decision points ===
+dp_0_decisions: 变更名: v0.5.6-codegen-doc-drift; 意图: 关闭 codegen 类别 1.8/1.9/1.10 P1 项（仅文档漂移更新）; 拆分决议: 原 v0.5.6-p1-defects 拆分为 (1) 本变更（doc-only tweak）+ (2) v0.5.7-p1-defects（full 12 真工作项，后续开 change）; 范围边界: 仅 2 文件（docs/roadmap.md + crates/ruyic/tests/codegen.rs 头部注释），match 集成测试推迟至 v0.5.7; 已知约束: LLVM 14、Rust 2021、clippy zero-warning、Javadoc 保留; 沟通偏好: 草稿先行、整体送审
+dp_0_result: confirmed
+dp_0_confirmed: true
+dp_0_timestamp: 2026-07-11T14:08:00Z
+dp_1_result: confirmed: Split v0.5.6-p1-defects into v0.5.6-codegen-doc-drift (tweak, 3 doc tasks: roadmap.md:98-100 mark as done + roadmap.md:113-114 refresh + codegen.rs:1-37 header refresh) and v0.5.7-p1-defects (full, 12 real-work items: typechecker 3.2/3.4/3.5/3.6 + runtime 2.6 + stdlib 4.5/4.6/4.8/4.9, deferred). Problem: 3 codegen P1 items are FULL but roadmap/test-header still mark P1 (doc drift). Scope in: docs/roadmap.md + crates/ruyic/tests/codegen.rs header. Scope out: All non-doc items, match codegen.rs integration tests (deferred), all other P1 categories. Non-goals: No new functionality, no codegen logic changes. Success: (1) roadmap.md lines 98-100 show P1 done for 1.8/1.9/1.10; (2) roadmap.md lines 113-114 reflect T9 closed status; (3) tests/codegen.rs header lists only actually-ignored tests; (4) no other files touched; (5) cargo check passes.
+dp_1_timestamp: 2026-07-11T14:18:00Z
+dp_2_result: null
+dp_2_timestamp: null
+dp_3_result: null
+dp_3_timestamp: null
+dp_4_result: Tweak fast-path direct edit. 3 doc-only tasks in 2 files (roadmap.md + codegen.rs header). No code changes. Lightweight release-archivist verification only.
+dp_4_timestamp: 2026-07-11T14:22:00Z
+dp_5_result: null
+dp_5_timestamp: null
+dp_6_result: pass: 5-dim verification OK; 2 files modified (docs/roadmap.md +33/-12, crates/ruyic/tests/codegen.rs +19/-13); cargo check --workspace passes; no new warnings; 3 codegen P1 items (1.8/1.9/1.10) closed via doc updates; remaining 14 #[ignore] tests pre-existing non-T9 blockers (acknowledged, deferred to v0.5.7)
+dp_6_timestamp: 2026-07-11T14:30:00Z
+dp_7_result: confirmed: v0.5.6-codegen-doc-drift archived; 1 commit (bf59219) closes 3 codegen P1 items via doc drift fix; cargo check passes; ready for merge to main (or dev branch per branch policy); 12 remaining P1 items deferred to v0.5.7-p1-defects
+dp_7_timestamp: 2026-07-11T14:31:00Z
