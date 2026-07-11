@@ -777,10 +777,40 @@ impl TypeInference {
             Statement::Match { value, arms } => {
                 let match_ty = self.synthesize(value);
 
+                // Dispatch exhaustiveness analysis:
+                //   - Type::Union → use `exhaustiveness::check_union` so the
+                //     missing-variant warning lists the actual variant names.
+                //   - All other subject types fall through to the legacy
+                //     pattern analyser (bool/null/int/string/object/etc.).
+                let is_union = matches!(&match_ty, Type::Union(_));
+                let union_report = if is_union {
+                    let arm_keys: Vec<String> = arms
+                        .iter()
+                        .map(|arm| self.pattern_to_arm_key(&arm.pattern))
+                        .collect();
+                    let report = crate::typechecker::exhaustiveness::check_union(
+                        &mut self.diagnostics,
+                        &match_ty,
+                        &arm_keys,
+                    );
+                    Some(report)
+                } else {
+                    None
+                };
+
                 // Analyze patterns for exhaustiveness and redundancy
                 let arm_refs: Vec<(&Pattern, &Type)> =
                     arms.iter().map(|arm| (&arm.pattern, &match_ty)).collect();
-                let analysis = crate::typechecker::patterns::analyze_patterns(&arm_refs);
+                let analysis = if let Some(ref report) = union_report {
+                    crate::typechecker::patterns::PatternAnalysis {
+                        is_exhaustive: report.is_exhaustive,
+                        missing_cases: report.missing_cases.clone(),
+                        has_redundancy: false,
+                        redundant_arm: None,
+                    }
+                } else {
+                    crate::typechecker::patterns::analyze_patterns(&arm_refs)
+                };
 
                 // Report non-exhaustive match
                 if !analysis.is_exhaustive {
@@ -1814,6 +1844,18 @@ impl TypeInference {
                     self.bind_pattern_type(first, ty);
                 }
             }
+        }
+    }
+
+    /// Reduce a `match` pattern to the arm key expected by
+    /// `exhaustiveness::check_union`. Non-identifier patterns collapse to
+    /// `_` because the analyser cannot prove narrower coverage without
+    /// recursing through the inner structure.
+    fn pattern_to_arm_key(&self, pattern: &Pattern) -> String {
+        match pattern {
+            Pattern::Identifier(name) => name.clone(),
+            Pattern::Wildcard => "_".to_string(),
+            _ => "_".to_string(),
         }
     }
 

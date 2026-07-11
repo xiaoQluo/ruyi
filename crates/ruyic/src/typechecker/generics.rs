@@ -156,6 +156,7 @@ fn mangle_type(ty: &Type) -> String {
         Type::TypeVar(var) => var.name.clone(),
         Type::Trait(name) => format!("dyn_{}", name),
         Type::Future(inner) => format!("Future__{}", mangle_type(inner)),
+        Type::Self_ => "Self".to_string(),
         Type::Error => "error".to_string(),
         Type::Union(parts) => {
             let elem_strs: Vec<String> = parts.iter().map(|t| mangle_type(t)).collect();
