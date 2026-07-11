@@ -2,7 +2,7 @@
 # Derived data. Always rebuildable from artifacts. Lost/corrupt → fall back to content-level detection.
 
 # === Core state ===
-state: exploring
+state: abandoned
 workflow: auto
 
 # === Hashes (fast staleness detection) ===
@@ -16,9 +16,9 @@ test_result: null
 
 # === Metadata ===
 change_name: stdlib合理性检查
-last_transition: 2026-07-06T08:55:45.905Z
-last_transition_from: null
-last_transition_to: null
+last_transition: 2026-07-11T13:51:40.404Z
+last_transition_from: exploring
+last_transition_to: abandoned
 
 # === Decision points ===
 dp_0_decisions: 变更名:stdlib合理性检查; 意图:审查Ruyi标准库8个模块的正确性、完备性、合理性; 约束:只读审查不修改代码、全部模块平权; 沟通:一次性呈览报告
