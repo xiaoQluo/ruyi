@@ -94,7 +94,7 @@ impl GenerationalCollector {
     }
 
     /// Check whether `ptr` is a valid GC payload in either generation.
-    fn is_valid_payload(&self, ptr: *mut u8) -> bool {
+    pub(crate) fn is_valid_payload(&self, ptr: *mut u8) -> bool {
         if ptr.is_null() {
             return false;
         }

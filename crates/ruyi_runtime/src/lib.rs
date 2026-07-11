@@ -1,12 +1,15 @@
 pub mod alloc;
 pub mod arc;
 pub mod async_exports;
+pub mod async_gc_roots;
 pub mod async_runtime;
 pub mod builtins;
 mod c_exports;
 pub mod exception;
+pub mod fmt_ffi;
 pub mod gc;
 pub mod gc_exports;
+pub mod random_ffi;
 
 pub use alloc::{
     allocate, deallocate, reallocate, ruyi_alloc, ruyi_dealloc, ruyi_realloc, GcObjectHeader, Heap,
@@ -26,6 +29,7 @@ pub use builtins::{
     ruyi_array_alloc, ruyi_array_get, ruyi_array_length, ruyi_array_pop, ruyi_array_push,
     ruyi_array_set, ruyi_bigint_eq, ruyi_bigint_from_str, ruyi_bool_to_string,
     ruyi_float_to_string, ruyi_int_to_string, ruyi_member_access, ruyi_object_alloc,
+    ruyi_random_bool, ruyi_random_bytes, ruyi_random_float, ruyi_random_int, ruyi_random_new,
     ruyi_string_concat,
 };
 #[cfg(feature = "inkwell")]
@@ -44,6 +48,7 @@ pub use exception::{
     ExceptionTableRegistry, FunctionExceptionTable, LandingPadAction, LandingPadDescriptor,
     RuyiException, StackFrame, TypeId,
 };
+pub use fmt_ffi::ruyi_string_replace_all;
 pub use gc::{
     barrier::WriteBarrier, generational::GenerationalCollector, old::OldGeneration, roots::RootSet,
     young::YoungGeneration, Collector, GcAllocator, MarkSweepCollector,

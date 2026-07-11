@@ -11,9 +11,15 @@
 
 use once_cell::sync::Lazy;
 use std::cell::Cell;
+use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
+
+extern "C" {
+    fn ruyi_async_register_root(task_id: usize);
+    fn ruyi_async_unregister_root(task_id: usize);
+}
 
 thread_local! {
     static IS_WORKER_THREAD: Cell<bool> = const { Cell::new(false) };
@@ -144,7 +150,7 @@ pub struct SchedulerInner {
     /// Global run queue for tasks that don't have an affinity.
     global_queue: Mutex<VecDeque<TaskId>>,
     /// Mapping from task id to the actual task.
-    tasks: Mutex<std::collections::HashMap<TaskId, Box<Task>>>,
+    pub(crate) tasks: Mutex<std::collections::HashMap<TaskId, Box<Task>>>,
     /// Next task id.
     next_task_id: AtomicUsize,
     /// Condition variable used to park idle workers.
@@ -333,10 +339,13 @@ fn worker_loop(scheduler: Arc<SchedulerInner>, worker_id: usize) {
                     };
                     match task.future.poll(&waker) {
                         Poll::Ready(_) => {
+                            // Drop GC-root registration: future is going away.
+                            unsafe { ruyi_async_unregister_root(task_id.0) };
                             scheduler.complete_task(task_id);
                         }
                         Poll::Pending => {
-                            // Re-insert so it can be woken later.
+                            // Register GC root so parked future's heap refs survive.
+                            unsafe { ruyi_async_register_root(task_id.0) };
                             scheduler.tasks.lock().unwrap().insert(task_id, task);
                         }
                     }
@@ -427,10 +436,31 @@ pub static GLOBAL_SCHEDULER: Lazy<Mutex<Scheduler>> = Lazy::new(|| Mutex::new(Sc
 ///
 /// This should be called before each GC collection cycle so that objects
 /// reachable from suspended async functions are not collected.
+///
+/// When the FFI registry (`async_gc_roots`) holds at least one task id
+/// the scan is filtered to only those ids — this matches the suspended-
+/// task semantics enforced by the FFI entry points and prevents the
+/// collector from pinning references held by long-running ready tasks.
+/// With an empty registry the scan falls back to the previous
+/// "every task is a root" behaviour so callers that pre-date the FFI
+/// keep working.
 pub fn register_async_roots(collector: &mut crate::gc::MarkSweepCollector) {
+    let filter: Option<HashSet<usize>> = {
+        let snap = crate::async_gc_roots::snapshot();
+        if snap.is_empty() {
+            None
+        } else {
+            Some(snap.into_iter().collect())
+        }
+    };
     if let Ok(scheduler) = GLOBAL_SCHEDULER.try_lock() {
         let tasks = scheduler.inner.tasks.lock().unwrap();
-        for (_, task) in tasks.iter() {
+        for (task_id, task) in tasks.iter() {
+            if let Some(ref allowed) = filter {
+                if !allowed.contains(&task_id.0) {
+                    continue;
+                }
+            }
             let future_ref: &(dyn RuyiFuture<Output = ()> + Send) = &*task.future;
             let data_ptr = future_ref as *const (dyn RuyiFuture<Output = ()> + Send) as *const u8;
             let size = std::mem::size_of_val(future_ref);
