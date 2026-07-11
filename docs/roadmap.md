@@ -95,23 +95,32 @@ Make Ruyi capable of writing real programs end-to-end: classes work, exceptions 
 | 1.5 | **For loop codegen** | C-style `for`, `for-in`, `for-of` (all currently unsupported) | P0 ✅ |
 | 1.6 | **Break/continue** | Already have `loop_stack`, just need codegen | P1 ✅ |
 | 1.7 | **Try/catch/finally** | Landing pad support exists in `ruyi_runtime`; wire it into codegen | P0 |
-| 1.8 | **Throw expression** | Map to runtime `throw_exception` call | P1 |
-| 1.9 | **Match statement** | Compile match to chained if-else or switch | P1 |
-| 1.10 | **Template literals** | Compile `` `Hello ${name}` `` to string concatenation | P1 |
+| 1.8 | **Throw expression** | Map to runtime `throw_exception` call | P1 ✅ |
+| 1.9 | **Match statement** | Compile match to chained if-else or switch | P1 ✅ |
+| 1.10 | **Template literals** | Compile `` `Hello ${name}` `` to string concatenation | P1 ✅ |
 | 1.11 | **BigInt literal** | Compile `100n` to runtime bigint type | P2 |
 | 1.12 | **Member expression** | `obj.prop` and `obj?.prop` codegen (currently unsupported) | P0 ✅ |
 | 1.13 | **Method call** | `obj.method(args)` codegen with `self` binding | P0 ✅ |
 
-**Status (2026-07-09, v0.2-codegen-gaps change, T7/T8/T9)**:
+**Status (2026-07-11, post-v0.5.5-residual-fixes)**:
 
-Batch 1+2 codegen work has landed on branch `dev/v0.2-codegen-gaps`:
+Batch 1+2 codegen work landed on `dev/v0.2-codegen-gaps` (merged to `dev/v0.5.5` via `b2853fc`):
 - **T2** (`65f514c`) sized class allocation correctly (1.1 partial).
 - **T3** (`bed00d7`) resolved class fields and own methods in member access (1.12, 1.13).
 - **T4** (`6618b11`) wired labeled `break`/`continue` via `loop_stack` (1.6).
 - **T6** (`fc01bcb`) added `ruyi_obj_get` / `ruyi_obj_keys` FFI (1.2).
-- **T8** (this change) added 5 examples + 8 integration test fixtures exercising each capability.
+- **T8** added 5 examples + 8 integration test fixtures exercising each capability.
+- **T9** (`809e6c9`) recognized `RangeError` / `ArrayIterator` as Named types but did not make them callable as constructors.
 
-The remaining gap is auto-loaded `stdlib/collections.ry` failing to typecheck: T9 (`809e6c9`) recognized `RangeError` / `ArrayIterator` as Named types but did not make them callable as constructors, so `throw RangeError("...")` still aborts compilation before any user code runs. The 27 `#[ignore]` codegen tests in `tests/codegen.rs` (including 8 new fixtures added in T8) all carry `// TODO:` blockers referencing this stdlib gap and will pass once a follow-up change makes `RangeError` / `ArrayIterator` constructable.
+T9 closure (v0.5.5-residual-fixes, shipped with v0.5.5):
+- **T-1.3.1** (`21028de`) made `RangeError` and `ArrayIterator` constructible via `.new(...)` pattern.
+- **T-1.3.2** (`3245ae2`) enabled 21 codegen integration tests previously blocked by T9.
+- **T-1.3.3** (`9e1d30a`) fixed template literal `value_to_i8_ptr` for non-string interpolation (`int`/`float` → runtime converters); un-ignored `codegen_template_literal` (closes 1.10).
+- **T-1.1** (`c625b9f`) enabled 2 throw-unreachable tests (closes 1.8 codegen path).
+- **T-1.2** (`0a35a71`) enabled 12 try_catch_invoke tests (closes 1.8 downstream).
+- **T-1.4** (`10ca3c7`) enforced trait bounds (unblocks 3.2 supertrait follow-on).
+
+Net result: 1.8 Throw / 1.9 Match / 1.10 Template are FULL in `crates/ruyic/src/codegen/`. Remaining P1 items live in Typechecker (3.2/3.4/3.5/3.6), Runtime (2.6), and Stdlib (4.5/4.6/4.8/4.9) — tracked separately under `v0.5.7-p1-defects` (deferred).
 
 ### v0.3 — Runtime Integration (Priority: CRITICAL)
 

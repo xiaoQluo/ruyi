@@ -10,26 +10,26 @@
  * Tests that require LLVM are marked with #[ignore] and can be run
  * with: cargo test -p ruyic --test codegen -- --ignored
  *
- * Status as of T9-partial-fix (post-merge to dev/v0.5.5):
- * - T9 stdlib typecheck fix completed: `stdlib/collections.ry` switched from
- *   `throw RangeError("...")` to `throw RangeError.new("...")` to match the
- *   existing pattern in `stdlib/error.ry` (7 sites already use `.new`).
- * - 13 of 34 #[ignore] tests now pass under `--ignored --test-threads=1`
- *   (arithmetic, string concat, function call, labeled loops, array index
- *   GEP, new_class_8_fields, break undefined label).
- * - 21 #[ignore] tests still fail with PRE-EXISTING (non-T9) blockers:
- *   - Tuple syntax parser bug: `codegen_tuple_*` (parse error on `,` in args)
- *   - Comparison codegen: `codegen_comparison`, `codegen_while_loop`
- *     (Invalid operands for `<`)
- *   - Labeled break/continue codegen: `test_labeled_break_*`,
- *     `test_labeled_continue_*` (empty compilation error)
- *   - Class creation / fixture tests: parse or codegen errors in test source
- *   - Template literal: `codegen_template_literal`
+ * Status as of v0.5.6-codegen-doc-drift (2026-07-11):
+ * - 14 #[ignore] tests remain (down from 21 pre-v0.5.5; further reductions
+ *   landed via T-1.3.2, T-1.3.3, T-1.2 commits).
+ * - 1.10 Template literal (`codegen_template_literal`) is now enabled and
+ *   passing — was un-ignored in commit `9e1d30a` (value_to_i8_ptr fix for
+ *   non-string interpolation).
+ * - 1.8 Throw (`compilation_throw_unreachable.rs`) tests enabled in
+ *   `c625b9f`; `range_error_throws_compiles` still #[ignore = "LLVM 14"]
+ *   awaiting LLVM build verification.
+ * - 1.9 Match: 25+ patterns tests in `tests/patterns.rs` cover codegen
+ *   paths; no dedicated codegen.rs integration test (deferred to v0.5.7).
+ * - Remaining 14 #[ignore] failures span tuple parser bug, comparison
+ *   codegen (`<`/`>` operands), labeled break/continue codegen (empty
+ *   compilation error), class/fixture parse errors — all PRE-EXISTING
+ *   non-T9 blockers tracked in `v0.5.7-p1-defects`.
  * - Test infrastructure has a known parallelism bug: `compile_and_run`
  *   writes to a shared `/tmp/ruyi_codegen_test.ry`, so concurrent tests
  *   overwrite each other. Run with `--test-threads=1` for deterministic
  *   results.
- * - Each test's `// TODO:` comment above `#[ignore]` still describes the
+ * - Per-test `// TODO:` comments above `#[ignore]` still describe the
  *   original T9 blocker; future work should refresh them per-test to point
  *   at the actual remaining blocker.
  *
