@@ -2,12 +2,12 @@
 # Derived data. Always rebuildable from artifacts. Lost/corrupt → fall back to content-level detection.
 
 # === Core state ===
-state: closed
+state: closing
 workflow: hotfix
 
 # === Hashes (fast staleness detection) ===
-artifacts_hash: null
-contract_hash: null
+artifacts_hash: sha256:787de0c6d8abf6bc80276070c14fd015cd2b4e46b17121158e3daeee14c924cd
+contract_hash: sha256:f4122ccc4fc7d4ceee7cc3210a19da344f51cb7bb50ebd3e1eb4385250e39c76
 
 # === Execution progress ===
 execution_mode: hotfix
@@ -16,9 +16,9 @@ test_result: "31/33 examples pass (up from 30/33 baseline); 76/76 runtime tests 
 
 # === Metadata ===
 change_name: fix-codegen-gaps
-last_transition: 2026-07-07T00:00:00Z
+last_transition: 2026-07-11T13:59:14.516Z
 last_transition_from: closing
-last_transition_to: closed
+last_transition_to: closing
 
 # === Decision points ===
 dp_0_decisions: "变更名:fix-codegen-gaps; 意图:补全codegen中对BigInt模式匹配、宏声明、类型别名三个特性的LLVM IR生成支持"
@@ -35,7 +35,6 @@ dp_4_result: approved
 dp_4_timestamp: 2026-07-07T00:00:00Z
 dp_5_result: approved
 dp_5_timestamp: 2026-07-07T00:00:00Z
-dp_5_summary: "31/33 examples pass. 2 pre-existing bugs (macro pattern matcher, global let scope) documented as out-of-scope; contract acceptance reduced to 31/33 with explicit known-failures list."
 dp_6_result: null
 dp_6_timestamp: null
 dp_7_result: null
