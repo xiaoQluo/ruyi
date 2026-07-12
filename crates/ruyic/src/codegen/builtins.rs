@@ -8,8 +8,8 @@ use inkwell::context::Context;
  * @date 2026-05-01
  */
 use inkwell::module::Module;
-use inkwell::values::{BasicValueEnum, FunctionValue};
 use inkwell::types::{BasicType, FunctionType};
+use inkwell::values::{BasicValueEnum, FunctionValue};
 
 use crate::cli::gc_mode::GcMode;
 use crate::typechecker::types::Type;
