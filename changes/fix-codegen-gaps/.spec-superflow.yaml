@@ -35,7 +35,7 @@ dp_4_result: approved
 dp_4_timestamp: 2026-07-07T00:00:00Z
 dp_5_result: approved
 dp_5_timestamp: 2026-07-07T00:00:00Z
-dp_6_result: null
-dp_6_timestamp: null
-dp_7_result: null
-dp_7_timestamp: null
+dp_6_result: "pass: hotfix lightweight closure. Implementation verified present in main — ruyi_bigint_eq at crates/ruyi_runtime/src/builtins.rs:231 with 4 unit tests (same-value/different-value/both-null/one-null); codegen Macro/TypeAlias skip arms + BigInt match routing (Type::BigInt removed from compile_int_match). Recorded execution: 31/33 examples pass (up from 30/33 baseline), 76/76 runtime tests pass, zero warnings, 14 pre-existing WIP parser failures unchanged. Fresh evidence 2026-07-12: cargo check -p ruyi_runtime --no-default-features exit 0. Change merged to main (migrate commit 59dffc6) and superseded by v0.5.7-p1-defects which passed full 5-dim verification. Full example-suite re-run intentionally skipped: working tree carries unrelated v0.5.7 residual (json/math/time_ffi untracked, builtins.rs/lib.rs modified) that would contaminate a fresh run; relied on recorded execution evidence + code-presence + supersession per hotfix Lightweight Closure."
+dp_6_timestamp: 2026-07-12T09:35:21Z
+dp_7_result: "confirmed: fix-codegen-gaps archived. 3 codegen features (BigInt match routing, Macro decl skip, TypeAlias decl skip) + runtime ruyi_bigint_eq closed. Artifacts complete: proposal/design/tasks/execution-contract + 2 delta specs (01-codegen-declaration-skip, 02-bigint-match-routing) + decision-point-audit.md. DP-0/2/3/4/5/6 recorded (DP-1 skipped per hotfix fast-path which bypasses need-explorer). Implementation in main via 59dffc6; superseded by v0.5.7. No unsynced delta-spec merge required (project uses per-change delta specs; no central spec base to sync — consistent with v0.5.5/v0.5.6/v0.5.7 closures)."
+dp_7_timestamp: 2026-07-12T09:35:21Z

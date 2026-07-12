@@ -35,7 +35,7 @@ dp_4_result: approved
 dp_4_timestamp: 2026-07-07T00:00:00Z
 dp_5_result: approved
 dp_5_timestamp: 2026-07-07T00:00:00Z
-dp_6_result: null
-dp_6_timestamp: null
-dp_7_result: null
-dp_7_timestamp: null
+dp_6_result: "pass: hotfix lightweight closure. Implementation verified present in main — Token::Dollar emitted for standalone $ at crates/ruyic/src/lexer/scanner.rs:74 (macro metavariable support); top-level let allocated as LLVM global to fix cross-function segfault. Recorded execution: 33/33 examples pass, lexer 57/57, macro_expand 15/15, ruyic lib 132/132, ruyi_runtime 72/72, 5 pre-existing diagnostics failures unchanged, no new warnings. Fresh evidence 2026-07-12: cargo check -p ruyi_runtime --no-default-features exit 0. Change merged to main (migrate commit caf57b2) and superseded by v0.5.7-p1-defects which passed full 5-dim verification. Full example-suite re-run intentionally skipped: dirty working tree carries unrelated v0.5.7 residual that would contaminate a fresh run; relied on recorded execution evidence + code-presence + supersession per hotfix Lightweight Closure."
+dp_6_timestamp: 2026-07-12T09:35:21Z
+dp_7_result: "confirmed: fix-remaining-examples archived. 2 fixes closed — lexer $ → Token::Dollar for macro metavariables (macros.ry), codegen top-level let as LLVM global fixing type_aliases.ry cross-function segfault; achieved 33/33 examples. Artifacts complete: proposal/design/tasks/execution-contract + 2 delta specs (01-lexer-dollar-token, 02-codegen-global-let) + decision-point-audit.md. DP-0/2/3/4/5/6 recorded (DP-1 skipped per hotfix fast-path which bypasses need-explorer). Implementation in main via caf57b2; superseded by v0.5.7. No unsynced delta-spec merge required (per-change delta specs, no central spec base — consistent with prior closures)."
+dp_7_timestamp: 2026-07-12T09:35:21Z
