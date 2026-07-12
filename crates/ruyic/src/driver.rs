@@ -661,6 +661,7 @@ impl Driver {
                                 return_type: return_type.clone(),
                                 body: body.clone(),
                                 is_async: *is_async,
+                                annotations: Vec::new(),
                             },
                         ));
                 }

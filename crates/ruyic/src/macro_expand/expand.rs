@@ -81,6 +81,7 @@ impl<'a> MacroExpander<'a> {
                 return_type,
                 body,
                 is_async,
+                annotations,
             } => {
                 let body_expanded: Vec<Statement> = body
                     .iter()
@@ -93,6 +94,7 @@ impl<'a> MacroExpander<'a> {
                     return_type: return_type.clone(),
                     body: body_expanded,
                     is_async: *is_async,
+                    annotations: annotations.clone(),
                 })
             }
             Declaration::Class {

@@ -26,6 +26,8 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 | v0.5.3 | dev/v0.5.3 | ✅ 已发布 | 2026-05 | v0.5.3 |
 | v0.5.4 | dev/v0.5.4 | ✅ 已发布 | 2026-07 | v0.5.4 |
 | v0.5.5 | dev/v0.5.5 | ✅ 已发布 | 2026-07 | v0.5.5 |
+| v0.5.6 | dev/v0.5.6-housekeeping | ✅ 已发布 | 2026-07 | (无 tag，housekeeping) |
+| v0.5.7 | dev/v0.5.7-p1-defects | 📦 待发布 | 2026-07 | v0.5.7 (待打) |
 
 ---
 
@@ -124,7 +126,7 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 | 2.3 | **async 真正异步** | 用真正的 future 轮询替换空操作 `ruyi_await`，通过工作窃取调度器 | P0 ✅ |
 | 2.4 | **`spawn` 内建函数** | 实现 `spawn(fn)` 在调度器上启动绿色线程 | P0 ✅ |
 | 2.5 | **异常 landing pad** | 从 try/catch 代码生成调用 `ruyi_exception_try`/`ruyi_exception_catch` | P0 ✅ |
-| 2.6 | **async GC 根** | `register_async_roots` 当前为空操作；注册挂起任务 | P1 |
+| 2.6 | **async GC 根** | `register_async_roots` 当前为空操作；注册挂起任务 | P1 ✅ (v0.5.7) |
 | 2.7 | **线程本地 GC 堆** | 将多线程 GC 对接到 async 运行时 | P2 |
 
 ### v0.4 — 类型检查加固（优先级：高）
@@ -132,11 +134,11 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 | # | 任务 | 描述 | 优先级 |
 |---|------|------|--------|
 | 3.1 | **执行 trait 约束** | `check_bounds()` 在 generics.rs 中当前始终返回 true；实际验证 impl 存在 | P0 ✅ |
-| 3.2 | **超特质检查** | 填充并验证 `supertraits` 字段 | P1 |
+| 3.2 | **超特质检查** | 填充并验证 `supertraits` 字段 | P1 ✅ (v0.5.7) |
 | 3.3 | **完整 `impl Trait for Type`** | 支持独立 `impl Printable for string { ... }`（当前不完整） | P0 |
-| 3.4 | **null 以外的类型缩窄** | `instanceof`、`typeof`、match 模式后的类型缩窄 | P1 |
-| 3.5 | **穷尽性检查** | 验证 match 分支覆盖所有情况；不完整模式发出警告 | P1 |
-| 3.6 | **自引用类型检查** | 类在字段类型中引用 `self` | P1 |
+| 3.4 | **null 以外的类型缩窄** | `instanceof`、`typeof`、match 模式后的类型缩窄 | P1 ✅ (v0.5.7) |
+| 3.5 | **穷尽性检查** | 验证 match 分支覆盖所有情况；不完整模式发出警告 | P1 ✅ (v0.5.7) |
+| 3.6 | **自引用类型检查** | 类在字段类型中引用 `self` | P1 ✅ (v0.5.7) |
 
 ### v0.5 — 标准库扩展（优先级：高）
 
@@ -146,11 +148,11 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 | 4.2 | **`math.ry`** | Pi、E、sqrt、pow、sin、cos、tan、asin、acos、atan、log、log10、exp、abs、min、max | P0 |
 | 4.3 | **`time.ry`** | Duration、Timestamp、sleep（同步+异步）、日期格式化 | P0 |
 | 4.4 | **`json.ry`** | JSON.parse、JSON.stringify 含类型安全反序列化 | P0 |
-| 4.5 | **`random.ry`** | Random.nextInt、nextFloat、nextBool、nextBytes、seed | P1 |
-| 4.6 | **`fmt.ry`** | 格式化字符串：`fmt.format("{} 今年 {} 岁", name, age)` | P1 |
+| 4.5 | **`random.ry`** | Random.nextInt、nextFloat、nextBool、nextBytes、seed | P1 ✅ (v0.5.7) |
+| 4.6 | **`fmt.ry`** | 格式化字符串：`fmt.format("{} 今年 {} 岁", name, age)` | P1 ✅ (v0.5.7) |
 | 4.7 | **`regex.ry`** | Regex 类：match、replace、split | P2 |
-| 4.8 | **`test.ry`** | 内建测试框架：`@test` 属性、assert、assertEq、assertThrows | P1 |
-| 4.9 | **扩展 `collections.ry`** | Array.sort、.contains、.indexOf、.first、.last、.slice、.concat；Iterator.takeWhile、.skipWhile、.chain、.enumerate、.zip、.sum、.product、.any、.all | P1 |
+| 4.8 | **`test.ry`** | 内建测试框架：`@test` 属性、assert、assertEq、assertThrows | P1 ✅ (v0.5.7) |
+| 4.9 | **扩展 `collections.ry`** | Array.sort、.contains、.indexOf、.first、.last、.slice、.concat；Iterator.takeWhile、.skipWhile、.chain、.enumerate、.zip、.sum、.product、.any、.all | P1 ✅ (v0.5.7) |
 | 4.10 | **合并 `core.ry` + `string.ry`** | 重复的 String 方法；合并为一个模块 | P2 |
 | 4.11 | **`buffer.ry`** | Buffer/ByteArray 类型用于二进制数据 | P2 |
 | 4.12 | **`net.ry`** | TCPClient、TCPServer（基本套接字 I/O） | P2 |

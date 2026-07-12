@@ -88,6 +88,12 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: &Type) -> BasicTypeEn
         Type::Future(_) => {
             BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
         }
+        Type::Self_ => {
+            // `Self` should be resolved by the typechecker before codegen
+            // reaches here. Treat any leftover as an opaque pointer so the
+            // pipeline still produces a well-formed LLVM module.
+            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+        }
         Type::Dynamic => {
             let dyn_type = context.struct_type(
                 &[

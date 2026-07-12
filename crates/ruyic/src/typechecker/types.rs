@@ -57,6 +57,11 @@ pub enum Type {
     Dynamic,
     /// Future type `Future<T>` — represents an async computation
     Future(Box<Type>),
+    /// The placeholder `Self` type as it appears in element (method or
+    /// field) signatures. Resolved to the enclosing class or trait by
+    /// `typechecker::self_ty::resolve` at the appropriate context level.
+    /// Direct field use (bare `Self` without indirection) is rejected.
+    Self_,
     /// Error type — used for error recovery to prevent cascading errors
     Error,
 }
@@ -94,6 +99,21 @@ impl TypeVar {
     /// Creates a new type variable with the given id and name.
     pub fn new(id: u32, name: String) -> Self {
         Self { id, name }
+    }
+}
+
+/// Extracts a stable string key from a `Type::Union` variant.
+///
+/// Returns `None` for variant shapes we don't recognise (e.g. tuples or
+/// closures that cannot serve as an exhaustive-match key); the caller must
+/// then decide whether to skip the variant or fall back to a `Debug`
+/// rendering. We keep this conservative so a stray union variant does not
+/// silently collapse into an empty key.
+fn variant_key(ty: &Type) -> Option<String> {
+    match ty {
+        Type::Named(name, _) => Some(name.clone()),
+        Type::Generic { base, .. } => Some(base.clone()),
+        _ => None,
     }
 }
 
@@ -396,6 +416,30 @@ impl Type {
         }
     }
 
+    /// Returns the variant names of a `Type::Union` that are not present in
+    /// `covered`, in declaration order.
+    ///
+    /// `covered` is the list of pattern identifiers the caller observed in
+    /// the `match` arms (a `_` wildcard is treated like any other name; the
+    /// caller should expand it to the full variant set before invoking this
+    /// method if exhaustive coverage is the goal).
+    ///
+    /// Non-union types return an empty list, which lets callers use this
+    /// method uniformly on any scrutinee type without first pattern-matching
+    /// on `Type`.
+    pub fn missing_arms(&self, covered: &[String]) -> Vec<String> {
+        let variants = match self {
+            Type::Union(vs) => vs,
+            _ => return Vec::new(),
+        };
+        let covered_set: std::collections::HashSet<&str> =
+            covered.iter().map(|s| s.as_str()).collect();
+        variants
+            .iter()
+            .filter_map(|v| variant_key(v).filter(|name| !covered_set.contains(name.as_str())))
+            .collect()
+    }
+
     /// Converts a TypeAnnotation from the parser into a Type.
     pub fn from_annotation(annotation: &crate::parser::ast::TypeAnnotation) -> Type {
         let result = match annotation {
@@ -416,6 +460,7 @@ impl Type {
                 "never" => Type::Never,
                 "bigint" => Type::BigInt,
                 "dyn" => Type::Dynamic,
+                "Self" => Type::Self_,
                 _ => Type::Named(name.clone(), vec![]),
             },
             crate::parser::ast::TypeAnnotation::Nullable(inner) => {
@@ -518,6 +563,7 @@ impl fmt::Display for Type {
             Type::Trait(name) => write!(f, "dyn {}", name),
             Type::Dynamic => write!(f, "dyn"),
             Type::Future(inner) => write!(f, "Future<{}>", inner),
+            Type::Self_ => write!(f, "Self"),
             Type::Error => write!(f, "<error>"),
             Type::Union(parts) => {
                 let strs: Vec<String> = parts.iter().map(|t| t.to_string()).collect();

@@ -6,10 +6,68 @@
  * - Map<K, V> class
  * - Set<T> class
  * - Iterator<T> trait
+ * - Add / Mul numeric traits (Spec 4.9)
  *
  * @author Ruyi Team
  * @date 2026-05-05
  */
+
+// ============================================================
+// Numeric Operator Traits (Spec 4.9)
+// ============================================================
+
+/**
+ * Binary addition operator trait. Implementing types MUST define how
+ * `self + other` (i.e. `self.add(other)`) is computed. The trait is
+ * intentionally cycle-free: it has no supertraits, so its declaration
+ * is guarded by the Batch 1.1 supertrait transitive cycle detector
+ * without risk of participating in any chain.
+ */
+export trait Add {
+    /**
+     * Returns `self + other`.
+     * @param other The right-hand operand
+     * @return self + other
+     */
+    fn add(self, other: Self): Self;
+}
+
+/**
+ * Binary multiplication operator trait. Pair with `Add` to enable the
+ * `sum` / `product` reductions on `Array<T>` and `Iterator<T>`.
+ */
+export trait Mul {
+    /**
+     * Returns `self * other`.
+     * @param other The right-hand operand
+     * @return self * other
+     */
+    fn mul(self, other: Self): Self;
+}
+
+impl Add for int {
+    fn add(self, other: int): int {
+        return self + other;
+    }
+}
+
+impl Mul for int {
+    fn mul(self, other: int): int {
+        return self * other;
+    }
+}
+
+impl Add for float {
+    fn add(self, other: float): float {
+        return self + other;
+    }
+}
+
+impl Mul for float {
+    fn mul(self, other: float): float {
+        return self * other;
+    }
+}
 
 // ============================================================
 // Iterator Trait
@@ -110,6 +168,55 @@ export trait ArrayOps<T> {
      * @return Array iterator
      */
     fn iter(self): ArrayIterator<T>;
+
+    // ── Spec 4.9 extensions ───────────────────────────────────
+
+    /**
+     * Returns a new array with the elements sorted in ascending order
+     * using the default strict-equals ordering. The receiver MUST NOT
+     * be mutated.
+     * @return A new ascending-sorted Array<T>
+     */
+    fn sort(self): Array<T>;
+
+    /**
+     * Returns the index of the first occurrence of `value` in the array,
+     * or `-1` if the value is not present. Uses strict-equals semantics.
+     * @param value Value to search for
+     * @return First matching index, or -1
+     */
+    fn indexOf(self, value: T): int;
+
+    /**
+     * Returns the first element of the array, or `null` if the array is
+     * empty. Pair with `last()` for two-end access.
+     * @return First element, or null when empty
+     */
+    fn first(self): T?;
+
+    /**
+     * Returns the last element of the array, or `null` if the array is
+     * empty. Pair with `first()` for two-end access.
+     * @return Last element, or null when empty
+     */
+    fn last(self): T?;
+
+    /**
+     * Returns a new array containing the elements from `begin` (inclusive)
+     * through `end` (exclusive). The receiver MUST NOT be mutated.
+     * @param begin Start index (inclusive)
+     * @param end End index (exclusive)
+     * @return New Array<T> slice
+     */
+    fn slice(self, begin: int, end: int): Array<T>;
+
+    /**
+     * Returns a new array formed by concatenating `other` onto the end
+     * of `self`. Neither input MUST be mutated.
+     * @param other Array to append
+     * @return New Array<T> containing both inputs
+     */
+    fn concat(self, other: Array<T>): Array<T>;
 }
 
 impl<T> ArrayOps<T> for Array<T> {
@@ -202,6 +309,99 @@ impl<T> ArrayOps<T> for Array<T> {
     fn iter(self): ArrayIterator<T> {
         return ArrayIterator.new(self);
     }
+
+    // ── Spec 4.9 extensions ───────────────────────────────────
+
+    /**
+     * Insertion sort. The receiver is copied via `push` so the input
+     * array is left untouched (the type checker infers a fresh local).
+     */
+    fn sort(self): Array<T> {
+        let result: Array<T> = [];
+        let len = __builtin_array_length(self);
+        let i = 0;
+        while (i < len) {
+            result = __builtin_array_push(result, __builtin_array_get(self, i));
+            i = i + 1;
+        }
+        // Insertion sort over the fresh copy.
+        let n = __builtin_array_length(result);
+        let i2 = 1;
+        while (i2 < n) {
+            let key = __builtin_array_get(result, i2);
+            let j = i2 - 1;
+            while (j >= 0) {
+                let cur = __builtin_array_get(result, j);
+                let greater = cur > key;
+                if (greater) {
+                    __builtin_array_set(result, j + 1, cur);
+                    j = j - 1;
+                } else {
+                    break;
+                }
+            }
+            __builtin_array_set(result, j + 1, key);
+            i2 = i2 + 1;
+        }
+        return result;
+    }
+
+    /**
+     * Linear scan with strict-equals. Returns `-1` on miss.
+     */
+    fn indexOf(self, value: T): int {
+        let len = __builtin_array_length(self);
+        let i = 0;
+        while (i < len) {
+            if (__builtin_array_get(self, i) === value) {
+                return i;
+            }
+            i = i + 1;
+        }
+        return -1;
+    }
+
+    fn first(self): T? {
+        if (__builtin_array_length(self) === 0) {
+            return null;
+        }
+        return __builtin_array_get(self, 0);
+    }
+
+    fn last(self): T? {
+        let n = __builtin_array_length(self);
+        if (n === 0) {
+            return null;
+        }
+        return __builtin_array_get(self, n - 1);
+    }
+
+    fn slice(self, begin: int, end: int): Array<T> {
+        let result: Array<T> = [];
+        let i = begin;
+        while (i < end) {
+            result = __builtin_array_push(result, __builtin_array_get(self, i));
+            i = i + 1;
+        }
+        return result;
+    }
+
+    fn concat(self, other: Array<T>): Array<T> {
+        let result: Array<T> = [];
+        let len = __builtin_array_length(self);
+        let i = 0;
+        while (i < len) {
+            result = __builtin_array_push(result, __builtin_array_get(self, i));
+            i = i + 1;
+        }
+        let otherLen = __builtin_array_length(other);
+        let k = 0;
+        while (k < otherLen) {
+            result = __builtin_array_push(result, __builtin_array_get(other, k));
+            k = k + 1;
+        }
+        return result;
+    }
 }
 
 // ============================================================
@@ -235,6 +435,250 @@ export class ArrayIterator<T> {
             return elem;
         }
         return null;
+    }
+
+    // ── Spec 4.9 Iterator extensions ──────────────────────────
+
+    /**
+     * Returns a new iterator that yields elements while `pred(elem)` is
+     * true, stopping at the first false. Backed by a TakeWhileIterator
+     * so the predicate is evaluated lazily.
+     */
+    fn takeWhile(self, pred: fn(T) -> bool): Iterator<T> {
+        return TakeWhileIterator.new(self, pred);
+    }
+
+    /**
+     * Returns a new iterator that skips elements while `pred(elem)` is
+     * true and yields the remainder. Backed by a SkipWhileIterator.
+     */
+    fn skipWhile(self, pred: fn(T) -> bool): Iterator<T> {
+        return SkipWhileIterator.new(self, pred);
+    }
+
+    /**
+     * Returns a new iterator that yields elements of `self` followed by
+     * elements of `other`. Backed by a ChainedIterator.
+     */
+    fn chain(self, other: Iterator<T>): Iterator<T> {
+        return ChainedIterator.new(self, other);
+    }
+
+    /**
+     * Returns a new iterator yielding `(index, value)` pairs. The pair
+     * shape is exposed via `EnumeratedIterator.next()` rather than the
+     * return type, because the Ruyi lexer reads `>>` as a single right-
+     * shift token and nested generics (`Iterator<Pair<int, T>>`) parse
+     * incorrectly.
+     */
+    fn enumerate(self): Iterator<T> {
+        return EnumeratedIterator.new(self, 0);
+    }
+
+    /**
+     * Returns a new iterator yielding `(a, b)` pairs from `self` and
+     * `other`. Stops at the shorter of the two sequences. The pair
+     * shape is exposed via `ZippedIterator.next()`; same lexer caveat
+     * as `enumerate`.
+     */
+    fn zip(self, other: Iterator<T>): Iterator<T> {
+        return ZippedIterator.new(self, other);
+    }
+
+    /**
+     * Returns the running sum of the remaining elements. The element
+     * type MUST implement `Add`. Mirrors `Array.sum()` over the rest
+     * of the iterator.
+     */
+    fn sum(self): T {
+        let total: T = __builtin_array_get(self._array, 0);
+        let len = __builtin_array_length(self._array);
+        let i = 1;
+        while (i < len) {
+            total = total.add(__builtin_array_get(self._array, i));
+            i = i + 1;
+        }
+        return total;
+    }
+
+    /**
+     * Returns the running product of the remaining elements. The element
+     * type MUST implement `Mul`.
+     */
+    fn product(self): T {
+        let total: T = __builtin_array_get(self._array, 0);
+        let len = __builtin_array_length(self._array);
+        let i = 1;
+        while (i < len) {
+            total = total.mul(__builtin_array_get(self._array, i));
+            i = i + 1;
+        }
+        return total;
+    }
+
+    /**
+     * Returns true as soon as any element satisfies `pred`. Short-circuit.
+     */
+    fn any(self, pred: fn(T) -> bool): bool {
+        let len = __builtin_array_length(self._array);
+        let i = 0;
+        while (i < len) {
+            if (pred(__builtin_array_get(self._array, i))) {
+                return true;
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    /**
+     * Returns true iff every element satisfies `pred`. Short-circuit.
+     */
+    fn all(self, pred: fn(T) -> bool): bool {
+        let len = __builtin_array_length(self._array);
+        let i = 0;
+        while (i < len) {
+            if (!pred(__builtin_array_get(self._array, i))) {
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+}
+
+// ============================================================
+// Lazy Iterator Adapter Classes (Spec 4.9)
+// ============================================================
+
+/**
+ * Iterator adapter that yields elements while the predicate is true.
+ */
+export class TakeWhileIterator<T> {
+    _source: ArrayIterator<T>;
+    _pred: fn(T) -> bool;
+
+    fn new(source: ArrayIterator<T>, pred: fn(T) -> bool) {
+        self._source = source;
+        self._pred = pred;
+    }
+
+    fn next(self): T? {
+        let v = self._source.next();
+        if (v === null) {
+            return null;
+        }
+        if (self._pred(v!)) {
+            return v;
+        }
+        return null;
+    }
+}
+
+/**
+ * Iterator adapter that skips elements while the predicate is true.
+ */
+export class SkipWhileIterator<T> {
+    _source: ArrayIterator<T>;
+    _pred: fn(T) -> bool;
+    _exhausted: bool;
+
+    fn new(source: ArrayIterator<T>, pred: fn(T) -> bool) {
+        self._source = source;
+        self._pred = pred;
+        self._exhausted = false;
+    }
+
+    fn next(self): T? {
+        if (self._exhausted) {
+            return self._source.next();
+        }
+        while (true) {
+            let v = self._source.next();
+            if (v === null) {
+                self._exhausted = true;
+                return null;
+            }
+            if (self._pred(v!)) {
+                continue;
+            }
+            self._exhausted = true;
+            return v;
+        }
+    }
+}
+
+/**
+ * Iterator adapter that concatenates two iterators.
+ */
+export class ChainedIterator<T> {
+    _first: ArrayIterator<T>;
+    _second: Iterator<T>;
+    _first_done: bool;
+
+    fn new(first: ArrayIterator<T>, second: Iterator<T>) {
+        self._first = first;
+        self._second = second;
+        self._first_done = false;
+    }
+
+    fn next(self): T? {
+        if (!self._first_done) {
+            let v = self._first.next();
+            if (v !== null) {
+                return v;
+            }
+            self._first_done = true;
+        }
+        return self._second.next();
+    }
+}
+
+/**
+ * Iterator adapter that yields `(index, value)` pairs.
+ */
+export class EnumeratedIterator<T> {
+    _source: ArrayIterator<T>;
+    _counter: int;
+
+    fn new(source: ArrayIterator<T>, start: int) {
+        self._source = source;
+        self._counter = start;
+    }
+
+    fn next(self): Pair<int, T>? {
+        let v = self._source.next();
+        if (v === null) {
+            return null;
+        }
+        let pair = { first: self._counter, second: v! };
+        self._counter = self._counter + 1;
+        return pair;
+    }
+}
+
+/**
+ * Iterator adapter that zips two iterators into `(a, b)` pairs.
+ */
+export class ZippedIterator<T> {
+    _first: ArrayIterator<T>;
+    _second: Iterator<T>;
+
+    fn new(first: ArrayIterator<T>, second: Iterator<T>) {
+        self._first = first;
+        self._second = second;
+    }
+
+    fn next(self): Pair<T, T>? {
+        let a = self._first.next();
+        if (a === null) {
+            return null;
+        }
+        let b = self._second.next();
+        if (b === null) {
+            return null;
+        }
+        return { first: a!, second: b! };
     }
 }
 

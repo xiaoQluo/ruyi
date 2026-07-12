@@ -1,0 +1,52 @@
+/**
+ * Ruyi Standard Library - Format Module
+ *
+ * Provides a small printf-style `format()` and a convenience `println()`
+ * that expand `{}` placeholders in a template string against the supplied
+ * positional arguments. Each `{}` consumes the next argument's
+ * `.toString()` form (matching the `Int.toString` / `Float.toString` /
+ * `Bool.toString` contracts defined in `core.ry`).
+ *
+ * The stdlib layer is intentionally thin: every actual substitution is
+ * delegated to the runtime FFI `__string_replace_all`. No regex, no
+ * allocation of intermediate buffers by the stdlib.
+ *
+ * @author Ruyi Team
+ * @date 2026-07-11
+ */
+
+// ============================================================
+// Public surface
+// ============================================================
+
+/**
+ * Substitute `{}` placeholders in `template` with the string form of
+ * each successive `arg`. The first `{}` consumes the first argument,
+ * the second `{}` consumes the second, and so on. Placeholders that
+ * have no matching argument are left untouched in the output.
+ *
+ * @param template Template string containing `{}` placeholders
+ * @param args Positional values to substitute into the placeholders
+ * @return Resulting string after substitution
+ */
+export fn format(template: string, args: ...dyn): string {
+    let result = template;
+    for arg of args {
+        result = __string_replace_all(result, "{}", arg.toString());
+    }
+    return result;
+}
+
+/**
+ * Format the template and print the result followed by a newline.
+ *
+ * @param template Template string containing `{}` placeholders
+ * @param args Positional values to substitute into the placeholders
+ */
+export fn println(template: string, args: ...dyn): void {
+    let line = template;
+    for arg of args {
+        line = __string_replace_all(line, "{}", arg.toString());
+    }
+    print(line + "\n");
+}

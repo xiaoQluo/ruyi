@@ -8,9 +8,17 @@ use crate::gc_exports::ruyi_gc_alloc;
  * All allocations use the system allocator (malloc/free equivalent)
  * with GC integration deferred to a later milestone.
  *
+ * The `random_ffi` module is re-exported here so the five
+ * `ruyi_random_*` symbols are part of the same public surface as the
+ * other builtins. Implementations live in `random_ffi.rs`; this file
+ * just re-registers them under the `builtins` namespace.
+ *
  * @author Ruyi Team
  * @date 2026-05-02
  */
+pub use crate::random_ffi::{
+    ruyi_random_bool, ruyi_random_bytes, ruyi_random_float, ruyi_random_int, ruyi_random_new,
+};
 use std::alloc::{alloc, Layout};
 use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, CString};

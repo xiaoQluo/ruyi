@@ -20,6 +20,7 @@ use crate::typechecker::generics::{
     make_generic_class_def, make_generic_function_def, make_generic_trait_def,
     MonomorphizationTracker,
 };
+use crate::typechecker::narrowing::{apply_reverse_narrow, NarrowEnv};
 use crate::typechecker::traits::TraitRegistry;
 use crate::typechecker::types::{ObjectField, Type};
 use std::collections::HashMap;
@@ -300,6 +301,7 @@ impl TypeInference {
                 return_type,
                 body,
                 is_async,
+                ..
             } => {
                 let param_types: Vec<Type> = params
                     .iter()
@@ -509,7 +511,8 @@ impl TypeInference {
                 }
 
                 let field_type = if let Some(annotation) = ty {
-                    Type::from_annotation(annotation)
+                    let resolved = Type::from_annotation(annotation);
+                    self.resolve_self_field_type(resolved)
                 } else if let Some(init_expr) = init {
                     self.synthesize(init_expr)
                 } else {
@@ -578,6 +581,39 @@ impl TypeInference {
         }
     }
 
+    /**
+     * Resolve `Type::Self_` references inside a field type against the
+     * enclosing class. Delegates to `self_ty::resolve` for the actual
+     * substitution. Bare `Self` is rejected with an explicit
+     * diagnostic; indirect `Self` inside `Box` / `Option` / `List` /
+     * other generics is silently resolved to the enclosing class so
+     * the field type is well-formed for codegen.
+     *
+     * @param field_type  The field type produced by `Type::from_annotation`
+     * @return            The resolved field type (unchanged when no `Self`
+     *                    reference is present, or an error placeholder when
+     *                    a bare `Self` is encountered).
+     */
+    fn resolve_self_field_type(&mut self, field_type: Type) -> Type {
+        let enclosing_name = match self.class_stack.last() {
+            Some(name) => name.clone(),
+            None => return field_type,
+        };
+        let enclosing = Type::Named(enclosing_name, vec![]);
+        match crate::typechecker::self_ty::resolve(
+            &field_type,
+            &enclosing,
+            crate::typechecker::self_ty::ElementContext::direct(),
+        ) {
+            Ok(resolved) => resolved,
+            Err(message) => {
+                self.diagnostics
+                    .add_error(DiagnosticKind::Other { message });
+                Type::Error
+            }
+        }
+    }
+
     fn infer_statement(&mut self, stmt: &Statement) -> Type {
         match stmt {
             Statement::Expression(expr) => self.synthesize(expr),
@@ -617,6 +653,7 @@ impl TypeInference {
                 let else_ty = if let Some(else_stmt) = else_branch {
                     self.env.push_scope();
                     self.narrow_for_condition(condition, false);
+                    self.apply_reverse_narrow_to_env(condition);
                     let ty = self.infer_statement(else_stmt);
                     self.env.pop_scope();
                     ty
@@ -777,10 +814,40 @@ impl TypeInference {
             Statement::Match { value, arms } => {
                 let match_ty = self.synthesize(value);
 
+                // Dispatch exhaustiveness analysis:
+                //   - Type::Union → use `exhaustiveness::check_union` so the
+                //     missing-variant warning lists the actual variant names.
+                //   - All other subject types fall through to the legacy
+                //     pattern analyser (bool/null/int/string/object/etc.).
+                let is_union = matches!(&match_ty, Type::Union(_));
+                let union_report = if is_union {
+                    let arm_keys: Vec<String> = arms
+                        .iter()
+                        .map(|arm| self.pattern_to_arm_key(&arm.pattern))
+                        .collect();
+                    let report = crate::typechecker::exhaustiveness::check_union(
+                        &mut self.diagnostics,
+                        &match_ty,
+                        &arm_keys,
+                    );
+                    Some(report)
+                } else {
+                    None
+                };
+
                 // Analyze patterns for exhaustiveness and redundancy
                 let arm_refs: Vec<(&Pattern, &Type)> =
                     arms.iter().map(|arm| (&arm.pattern, &match_ty)).collect();
-                let analysis = crate::typechecker::patterns::analyze_patterns(&arm_refs);
+                let analysis = if let Some(ref report) = union_report {
+                    crate::typechecker::patterns::PatternAnalysis {
+                        is_exhaustive: report.is_exhaustive,
+                        missing_cases: report.missing_cases.clone(),
+                        has_redundancy: false,
+                        redundant_arm: None,
+                    }
+                } else {
+                    crate::typechecker::patterns::analyze_patterns(&arm_refs)
+                };
 
                 // Report non-exhaustive match
                 if !analysis.is_exhaustive {
@@ -1742,6 +1809,56 @@ impl TypeInference {
         }
     }
 
+    /// Re-applies `narrowing::apply_reverse_narrow` for every variable that
+    /// the `if` branch positively narrowed. After `narrow_for_condition(..., false)`
+    /// has run (which only fires for the negated `!cond` case), this walks the
+    /// original condition once more and, for any positive check (`x !== null`,
+    /// `x instanceof T`, `typeof x === "T"`), records that the else-branch
+    /// should see the pre-narrowing (widened) type.
+    fn apply_reverse_narrow_to_env(&mut self, condition: &Expr) {
+        if let Expr::Binary { op, left, right } = condition {
+            match op {
+                BinaryOp::StrictNotEquals | BinaryOp::NotEquals => {
+                    if let (Expr::Identifier(name), Expr::NullLiteral) =
+                        (left.as_ref(), right.as_ref())
+                    {
+                        if let Some(ty) = self.env.lookup(name).cloned() {
+                            self.record_reverse(name, &ty, &ty.non_null());
+                            return;
+                        }
+                    }
+                    if let (Expr::NullLiteral, Expr::Identifier(name)) =
+                        (left.as_ref(), right.as_ref())
+                    {
+                        if let Some(ty) = self.env.lookup(name).cloned() {
+                            self.record_reverse(name, &ty, &ty.non_null());
+                            return;
+                        }
+                    }
+                }
+                BinaryOp::Instanceof => {
+                    if let (Expr::Identifier(name), Expr::Identifier(class_name)) =
+                        (left.as_ref(), right.as_ref())
+                    {
+                        if let Some(ty) = self.env.lookup(name).cloned() {
+                            let narrowed = Type::Named(class_name.clone(), vec![]);
+                            self.record_reverse(name, &ty, &narrowed);
+                            return;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn record_reverse(&mut self, name: &str, original_ty: &Type, narrowed_ty: &Type) {
+        let mut env = NarrowEnv::Unknown;
+        apply_reverse_narrow(&mut env, original_ty, narrowed_ty);
+        let widened = env.apply_to(original_ty);
+        self.env.narrow(name, widened);
+    }
+
     fn bind_pattern_type(&mut self, pattern: &Pattern, ty: &Type) {
         match pattern {
             Pattern::Identifier(name) => {
@@ -1814,6 +1931,18 @@ impl TypeInference {
                     self.bind_pattern_type(first, ty);
                 }
             }
+        }
+    }
+
+    /// Reduce a `match` pattern to the arm key expected by
+    /// `exhaustiveness::check_union`. Non-identifier patterns collapse to
+    /// `_` because the analyser cannot prove narrower coverage without
+    /// recursing through the inner structure.
+    fn pattern_to_arm_key(&self, pattern: &Pattern) -> String {
+        match pattern {
+            Pattern::Identifier(name) => name.clone(),
+            Pattern::Wildcard => "_".to_string(),
+            _ => "_".to_string(),
         }
     }
 

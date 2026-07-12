@@ -1,12 +1,14 @@
-use std::alloc::{GlobalAlloc, Layout};
+use std::alloc::{alloc, dealloc, Layout};
 use std::ptr;
 
+#[allow(dead_code)]
 pub fn allocate(layout: Layout) -> *mut u8 {
-    unsafe { ptr::alloc(layout) }
+    unsafe { alloc(layout) }
 }
 
+#[allow(dead_code)]
 pub fn deallocate(ptr: *mut u8, layout: Layout) {
-    unsafe { ptr::dealloc(ptr, layout) }
+    unsafe { dealloc(ptr, layout) }
 }
 
 pub fn reallocate(ptr: *mut u8, old_layout: Layout, new_layout: Layout) -> *mut u8 {

@@ -18,11 +18,7 @@ use crate::typechecker::types::Type;
 /// `gc_mode` selects which heap allocator symbol to declare:
 /// `Stub` → `@cc_alloc`, `Real` → `@ruyi_gc_alloc`. All other runtime
 /// functions are mode-independent.
-pub fn declare_builtins<'ctx>(
-    context: &'ctx Context,
-    module: &Module<'ctx>,
-    gc_mode: GcMode,
-) {
+pub fn declare_builtins<'ctx>(context: &'ctx Context, module: &Module<'ctx>, gc_mode: GcMode) {
     declare_printf(context, module);
     declare_alloc(context, module, gc_mode);
     declare_gc_collect(context, module);

@@ -43,8 +43,12 @@ struct Args {
     #[arg(long, help = "Parse and type check only (no codegen)")]
     check: bool,
 
-    #[arg(long, default_value = "stub", value_name = "MODE",
-          help = "GC mode: 'stub' (default) or 'real'")]
+    #[arg(
+        long,
+        default_value = "stub",
+        value_name = "MODE",
+        help = "GC mode: 'stub' (default) or 'real'"
+    )]
     gc: String,
 }
 

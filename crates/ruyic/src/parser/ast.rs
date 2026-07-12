@@ -36,6 +36,7 @@ pub enum Declaration {
         return_type: Option<TypeAnnotation>,
         body: Vec<Statement>,
         is_async: bool,
+        annotations: Vec<String>,
     },
     Class {
         name: String,

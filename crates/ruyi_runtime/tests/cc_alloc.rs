@@ -15,7 +15,6 @@
  * @author luozegang
  * @date 2026-07-10
  */
-
 use ruyi_runtime::cc_alloc;
 
 #[test]

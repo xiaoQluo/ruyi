@@ -1,0 +1,98 @@
+/**
+ * Ruyi Standard Library - Random Module
+ *
+ * Provides a `Random` class backed by the C FFI symbols defined in
+ * `crates/ruyi_runtime/src/random_ffi.rs`. The module exposes
+ * `nextInt`, `nextFloat`, `nextBool`, and `nextBytes` plus a
+ * `random_new(seed?)` convenience constructor.
+ *
+ * The stdlib layer does NOT maintain native state; it forwards every
+ * argument to the corresponding `__random_*` C function and returns its
+ * result. All randomness is produced by the runtime.
+ *
+ * @author Ruyi Team
+ * @date 2026-07-11
+ */
+
+// ============================================================
+// Random class
+// ============================================================
+
+/**
+ * Pseudo-random number generator backed by the runtime.
+ *
+ * A `Random` instance carries an opaque `rng` token (an `int`) that
+ * identifies the generator state in the runtime. Re-seeding via
+ * `Random#seed(n)` re-initializes the underlying generator.
+ */
+export class Random {
+    rng: int;
+
+    /**
+     * Construct a new `Random`. When `seed` is omitted the runtime
+     * derives a non-deterministic seed from its entropy source.
+     *
+     * @param seed Optional deterministic seed
+     */
+    fn new(seed?: int): Random {
+        self.rng = __random_new(seed or 0);
+        return self;
+    }
+
+    /**
+     * Return a uniform integer in the closed interval `[min, max]`.
+     *
+     * @param min Inclusive lower bound
+     * @param max Inclusive upper bound
+     */
+    fn nextInt(min: int, max: int): int {
+        return __random_int(self.rng, min, max);
+    }
+
+    /**
+     * Return a uniform float in the half-open interval `[0.0, 1.0)`.
+     */
+    fn nextFloat(): float {
+        return __random_float(self.rng);
+    }
+
+    /**
+     * Return a uniform boolean value (`true` or `false`).
+     */
+    fn nextBool(): bool {
+        return __random_bool(self.rng);
+    }
+
+    /**
+     * Return `n` pseudo-random bytes packed into a `string`.
+     *
+     * @param n Number of bytes to produce
+     */
+    fn nextBytes(n: int): string {
+        return __random_bytes(self.rng, n);
+    }
+
+    /**
+     * Re-seed the underlying generator. Subsequent calls to
+     * `nextInt`, `nextFloat`, etc. draw from the new stream.
+     *
+     * @param n New seed value
+     */
+    fn seed(n: int): void {
+        self.rng = __random_new(n);
+    }
+}
+
+// ============================================================
+// Free-function convenience constructor
+// ============================================================
+
+/**
+ * Build a new `Random` instance, optionally seeded.
+ *
+ * @param seed Optional deterministic seed
+ * @return Fresh `Random` instance
+ */
+export fn random_new(seed?: int): Random {
+    return Random.new(seed);
+}
