@@ -1,0 +1,41 @@
+# .spec-superflow.yaml — v0.5.9-stdlib-cleanup
+# Derived data. Rebuildable from artifacts. Lost/corrupt → fall back to content-level detection.
+
+# === Core state ===
+state: specifying
+workflow: full
+
+# === Hashes (fast staleness detection) ===
+artifacts_hash: sha256:placeholder-replaced-on-DP-2-approval
+contract_hash: sha256:placeholder-replaced-on-DP-2-approval
+
+# === Execution progress ===
+execution_mode: SDD
+batches_completed: 0
+test_result: "pending — pre-execution"
+
+# === Metadata ===
+change_name: v0.5.9-stdlib-cleanup
+last_transition: 2026-07-12T19:35:00Z
+last_transition_from: null
+last_transition_to: specifying
+
+# === Decision points ===
+dp_0_decisions: "变更名: v0.5.9-stdlib-cleanup; 意图: 闭合 v0.5.8 收尾已知风险 R1/R2/R3/R4 + 架构级重构 R5（codegen 声明表驱动）。5 sub-batch 单 change，Full e2e 验收门槛（33/33 examples + 9/9 stdlib --check + binary e2e + 零新增 clippy）。分支: dev/v0.5.9-stdlib-cleanup。沟通: 玉帝飞书直接圣裁。"
+dp_0_result: confirmed
+dp_0_confirmed: true
+dp_0_timestamp: 2026-07-12T19:00:00Z
+dp_1_result: "approved: 单一 change 含 5 internal sub-batch（T1 archive / T2 codegen-table / T3 parser / T4 fmt-ffi-8arg / T5 clippy-verify）。Problem: v0.5.8 4 known risks (R1 archive / R2 parser dyn? / R3 fmt-ffi 8-arg collision / R4 zero-new clippy) + 1 architectural follow-up (R5 codegen table-driven refactor of 60+ hand-written fn declare_*)。Scope in: 8 files (Cargo.toml + 5 compiler/runtime + 1 new example + 1 new codegen/builtins_table.rs) + 9 件 spec-superflow 法度文件。Scope out: pre-existing GC clippy warnings、ruyi_runtime multi-crate split、full JSON parser、__io_*/__process_*/__path_* hygiene、__string_replace_all_legacy deletion、generic trait integration。Non-goals: 不修 parser 其他 bug、不改 fmt_ffi.rs 算法、不动 runtime 多 crate 拆分。Success criteria: (1) 33/33 examples pass; (2) 9/9 stdlib .ry --check pass (含 json.ry + random.ry); (3) make run-example EXAMPLE=math_demo 跑通打印正确; (4) make run-example EXAMPLE=fmt_demo 跑通; (5) cargo test ≥ 110 tests pass; (6) cargo clippy 零新增 lint。Communication: 玉帝飞书直接圣裁 5 决策。Constraints: LLVM 14, Rust 2021, clippy zero-new, Javadoc 保留。Estimated effort: 10-12 hours SDD execution (sub-batch T1-T5 顺序)。Decomposition: 5 sub-batch 独立可单独 git revert (R1+R2+R3+R4+R5 atomic each)。"
+dp_1_timestamp: 2026-07-12T19:05:00Z
+dp_2_result: "approved: 4 件规划工件齐全: proposal.md (Why/What/Scope/Impact/Capabilities/Acceptance 6 sections), design.md (8 Decisions: D1 single change / D2 sub-batch ordering R1→R5→R2→R3→R4 / D3 R1 lto strategy + 探源 fallback / D4 R5 35 全表一次性 / D5 R5 静态表结构 / D6 R2 三处 grammar / D7 R3 legacy 后缀 / D8 R4 snapshot diff + 6 Risks + Migration/Rollback), tasks.md (5 sub-batch 详图 + 35+ 任务项 + verification), execution-contract.md (Intent Lock + Affected Scope + 5 Batches + 7 验收 criteria + 7 Out of Scope + 5 Handoff Rules + 6 Risks + 5 Escalation Rules + DP-3→DP-7 序列)。5 件 delta spec: specs/01-archive-anomaly (R1, 3 REQ + 3 SCEN + fallback), specs/02-codegen-table-driven (R5, 4 REQ + 3 SCEN), specs/03-parser-dyn-optional (R2, 3 REQ + 6 SCEN), specs/04-fmt-ffi-8arg (R3, 5 REQ + 4 SCEN), specs/05-clippy-verify (R4, 4 REQ + 3 SCEN)。Cross-artifact 一致性: 5 REQ-2 verification commands + 7 acceptance criteria + 5 handoff rules + D1-D8 decisions 全部对齐。State 推进到 bridging"
+dp_2_timestamp: 2026-07-12T19:15:00Z
+dp_3_result: "approved: contract locked per execution-contract.md; 单一 change v0.5.9-stdlib-cleanup 5 sub-batch (T1→T5) 顺序锁死; SDD execution mode 选定; 5 acceptance criteria 全部 hard constraint; 7 out-of-scope 项明确; 5 handoff rules 含 R1 strategy 3 fallback (无 Sub-Set e2e 退路 per D3); 5 escalation rules 含 partial release 拆分路径"
+dp_3_timestamp: 2026-07-12T19:18:00Z
+dp_4_result: "approved: full 模式 + SDD (Spec-Driven Development) 执行路径. SDD 选择原因: (1) 5 sub-batch 含 1 严格 fallback path (R1 strategy 3) 不可行时即拆 v0.5.9, 需 SDD 结构化决策; (2) 35 全表 R5 重构是 60+ FFI 接入路径, 影响每个未来 FFI 添加, 需 TDD 验证每条; (3) R2 parser 三处 fix 易触发级联回归, 需 33-example test suite 作 oracle; (4) Full e2e 验收门槛要求每 sub-batch 都可独立验证, 需 SDD 的 check/build/test/--check/run-example 多步验证"
+dp_4_timestamp: 2026-07-12T19:20:00Z
+dp_5_result: null
+dp_5_timestamp: null
+dp_6_result: null
+dp_6_timestamp: null
+dp_7_result: null
+dp_7_timestamp: null
