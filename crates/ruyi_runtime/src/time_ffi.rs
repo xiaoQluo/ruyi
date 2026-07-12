@@ -1,3 +1,5 @@
+use std::thread;
+use std::time::Duration;
 /**
  * C FFI implementations backing `stdlib/time.ry`.
  *
@@ -7,10 +9,7 @@
  * @author Ruyi Team
  * @date 2026-07-12
  */
-
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::thread;
-use std::time::Duration;
 
 /// Returns the current Unix timestamp in seconds.
 ///
@@ -55,7 +54,7 @@ pub extern "C" fn __time_sleep(seconds: f64) {
 #[no_mangle]
 pub extern "C" fn __time_format(timestamp: i64) -> *mut i8 {
     use std::alloc::{alloc, Layout};
-    
+
     // Simple timestamp to date conversion
     // This is a basic implementation - a full implementation would handle timezones
     let seconds = timestamp as u64;
@@ -64,11 +63,11 @@ pub extern "C" fn __time_format(timestamp: i64) -> *mut i8 {
     let hours = remaining / 3600;
     let minutes = (remaining % 3600) / 60;
     let secs = remaining % 60;
-    
+
     // Calculate year, month, day (simplified calendar calculation)
     let mut year = 1970;
     let mut day_count = days;
-    
+
     loop {
         let days_in_year = if is_leap_year(year) { 366 } else { 365 };
         if day_count < days_in_year {
@@ -77,11 +76,11 @@ pub extern "C" fn __time_format(timestamp: i64) -> *mut i8 {
         day_count -= days_in_year;
         year += 1;
     }
-    
+
     let month_days = get_month_days(year, is_leap_year(year));
     let mut month = 0;
     let mut day = day_count;
-    
+
     for (i, &days_in_month) in month_days.iter().enumerate() {
         let days_in_month_u64 = days_in_month as u64;
         if day < days_in_month_u64 {
@@ -90,13 +89,18 @@ pub extern "C" fn __time_format(timestamp: i64) -> *mut i8 {
         }
         day -= days_in_month_u64;
     }
-    
+
     // Format as "YYYY-MM-DD HH:MM:SS"
     let formatted = format!(
         "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
-        year, month, day + 1, hours, minutes, secs
+        year,
+        month,
+        day + 1,
+        hours,
+        minutes,
+        secs
     );
-    
+
     let bytes = formatted.into_bytes();
     unsafe {
         let layout = Layout::from_size_align(bytes.len() + 1, 1).unwrap();
@@ -150,7 +154,9 @@ mod tests {
         let timestamp = 1704067200;
         let formatted = __time_format(timestamp);
         assert!(!formatted.is_null());
-        let s = unsafe { std::ffi::CStr::from_ptr(formatted) }.to_str().unwrap();
+        let s = unsafe { std::ffi::CStr::from_ptr(formatted) }
+            .to_str()
+            .unwrap();
         assert_eq!(s, "2024-01-01 00:00:00");
     }
 
