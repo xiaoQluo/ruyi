@@ -20,6 +20,16 @@
 /// Replace all occurrences of `from` with `to` in `s`, writing the result
 /// into the caller-supplied output buffer.
 ///
+/// # Safety
+///
+/// All four length-prefixed pointers (`s`, `from`, `to`, `out`) MUST be
+/// non-null when their corresponding length is non-zero, and the pointed-to
+/// memory MUST remain live and exclusively accessible for `s_len`,
+/// `from_len`, `to_len`, and `out_cap` bytes respectively for the entire
+/// duration of the call. The caller is responsible for sizing `out_cap`
+/// to hold the worst-case expansion; the function truncates writes
+/// silently rather than aborting on overflow.
+///
 /// # Arguments
 ///
 /// * `s` — pointer to the source byte slice (need not be UTF-8).
@@ -40,7 +50,7 @@
 /// MUST pre-size the buffer to `s_len + ceil((s_len / from_len) * to_len)`
 /// — comfortably larger than the worst case.
 #[no_mangle]
-pub extern "C" fn ruyi_string_replace_all(
+pub unsafe extern "C" fn ruyi_string_replace_all(
     s: *const u8,
     s_len: usize,
     from: *const u8,
