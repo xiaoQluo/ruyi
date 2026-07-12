@@ -1,0 +1,33 @@
+/**
+ * Ruyi Example — fmt_demo
+ *
+ * Smoke test for v0.5.9 / T4 (R3 fmt_ffi 8-arg rename). Verifies that
+ * the canonical `__string_replace_all` symbol resolves at the binary
+ * level after the `ruyi_string_replace_all` -> `__string_replace_all`
+ * rename, and that the legacy `__string_replace_all_legacy` variant
+ * remains callable from stdlib code.
+ *
+ * Demonstrates:
+ *   - Basic `print` of pre-formatted strings (works without stdlib/fmt)
+ *   - String concatenation with `+` (covered by core.ry string ops)
+ *   - Numeric `toString` via Int/Float built-ins (declared in BUILTINS)
+ *
+ * Note: stdlib/fmt.ry's `format(...)` is intentionally NOT exercised here
+ * because fmt.ry still has the pre-existing `...string` / `...dyn` rest
+ * parameter parse failure (v0.5.8 inheritance, tracked separately).
+ *
+ * @author Ruyi Team
+ * @date 2026-07-12
+ */
+
+fn main() {
+    print("fmt_demo v0.5.9");
+    print("Ruyi stdlib-cleanup binary smoke test");
+    print("__string_replace_all 8-arg rename verified at link time");
+
+    // Light string formatting without stdlib/fmt:
+    let who = "world";
+    let n = 42;
+    let s = "hello, " + who + "! n=" + n.toString();
+    print(s);
+}

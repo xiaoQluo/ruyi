@@ -32,7 +32,7 @@
 export fn format(template: string, args: ...dyn): string {
     let result = template;
     for arg of args {
-        result = __string_replace_all(result, "{}", arg.toString());
+        result = __string_replace_all_legacy(result, "{}", arg.toString());
     }
     return result;
 }
@@ -46,7 +46,7 @@ export fn format(template: string, args: ...dyn): string {
 export fn println(template: string, args: ...dyn): void {
     let line = template;
     for arg of args {
-        line = __string_replace_all(line, "{}", arg.toString());
+        line = __string_replace_all_legacy(line, "{}", arg.toString());
     }
     print(line + "\n");
 }

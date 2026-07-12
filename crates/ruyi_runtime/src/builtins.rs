@@ -763,8 +763,15 @@ pub extern "C" fn __string_from_char_codes(arr: *mut i8) -> *mut i8 {
 }
 
 /// Replace all occurrences of `pattern` in `input` with `replacement`.
+///
+/// **Deprecated** (v0.5.9 / R3): the canonical string-substitution FFI is
+/// now the bounded-buffer `__string_replace_all` exported from
+/// `fmt_ffi.rs` (renamed from `ruyi_string_replace_all`). This 3-arg
+/// variant is kept under the `_legacy` suffix for source compatibility
+/// with out-of-tree code and for `stdlib/fmt.ry`'s loop-over-args
+/// pattern. Plan to delete in v0.6.0.
 #[no_mangle]
-pub extern "C" fn __string_replace_all(
+pub extern "C" fn __string_replace_all_legacy(
     input: *const i8,
     pattern: *const i8,
     replacement: *const i8,
@@ -1468,7 +1475,7 @@ mod tests {
         let replacement = CString::new("hi").unwrap();
         unsafe {
             let result =
-                __string_replace_all(input.as_ptr(), pattern.as_ptr(), replacement.as_ptr());
+                __string_replace_all_legacy(input.as_ptr(), pattern.as_ptr(), replacement.as_ptr());
             assert!(!result.is_null());
             let cstr = CStr::from_ptr(result);
             assert_eq!(cstr.to_str().unwrap(), "hi world hi");
@@ -1483,7 +1490,7 @@ mod tests {
         let replacement = CString::new("abc").unwrap();
         unsafe {
             let result =
-                __string_replace_all(input.as_ptr(), pattern.as_ptr(), replacement.as_ptr());
+                __string_replace_all_legacy(input.as_ptr(), pattern.as_ptr(), replacement.as_ptr());
             assert!(!result.is_null());
             let cstr = CStr::from_ptr(result);
             assert_eq!(cstr.to_str().unwrap(), "hello world");
@@ -1498,7 +1505,7 @@ mod tests {
         let replacement = CString::new("x").unwrap();
         unsafe {
             let result =
-                __string_replace_all(input.as_ptr(), pattern.as_ptr(), replacement.as_ptr());
+                __string_replace_all_legacy(input.as_ptr(), pattern.as_ptr(), replacement.as_ptr());
             assert!(!result.is_null());
             let cstr = CStr::from_ptr(result);
             assert_eq!(cstr.to_str().unwrap(), "hello");

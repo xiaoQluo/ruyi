@@ -2,8 +2,14 @@
  * C FFI for `stdlib/fmt.ry` format helpers.
  *
  * Currently exposes a single `#[no_mangle] extern "C"` symbol —
- * `ruyi_string_replace_all` — which performs a bounded, in-place buffer
+ * `__string_replace_all` — which performs a bounded, in-place buffer
  * substitution used by `fmt.format` to expand `{}` placeholders.
+ *
+ * v0.5.9 / R3: this function was previously named `__string_replace_all`.
+ * The rename unifies the canonical `__string_replace_all` symbol with the
+ * bounded-buffer design; the older 3-arg variant (now in `builtins.rs`
+ * under `__string_replace_all_legacy`) is preserved for source
+ * compatibility.
  *
  * The caller supplies a pre-allocated output buffer via `out` / `out_cap`.
  * The function writes as many bytes as fit and returns the number of
@@ -50,7 +56,7 @@
 /// MUST pre-size the buffer to `s_len + ceil((s_len / from_len) * to_len)`
 /// — comfortably larger than the worst case.
 #[no_mangle]
-pub unsafe extern "C" fn ruyi_string_replace_all(
+pub unsafe extern "C" fn __string_replace_all(
     s: *const u8,
     s_len: usize,
     from: *const u8,
@@ -99,7 +105,7 @@ mod tests {
     fn replace(input: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {
         let mut out = vec![0u8; input.len() * (to.len().max(1) + 1) + 8];
         let written = unsafe {
-            ruyi_string_replace_all(
+            __string_replace_all(
                 input.as_ptr(),
                 input.len(),
                 from.as_ptr(),
@@ -128,7 +134,7 @@ mod tests {
     fn unit_empty_pattern_returns_zero() {
         let mut out = [0u8; 16];
         let written = unsafe {
-            ruyi_string_replace_all(
+            __string_replace_all(
                 b"hello".as_ptr(),
                 5,
                 b"".as_ptr(),

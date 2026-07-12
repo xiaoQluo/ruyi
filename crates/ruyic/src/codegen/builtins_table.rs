@@ -88,7 +88,11 @@ pub static BUILTINS: &[BuiltinDecl] = &[
     BuiltinDecl { name: "__string_join",             ret: BuiltinSig::Ptr,    params: &[BuiltinSig::Ptr, BuiltinSig::Ptr] },
     BuiltinDecl { name: "__string_from_char_code",   ret: BuiltinSig::Ptr,    params: &[BuiltinSig::Int] },
     BuiltinDecl { name: "__string_from_char_codes",  ret: BuiltinSig::Ptr,    params: &[BuiltinSig::Ptr] },
-    BuiltinDecl { name: "__string_replace_all",      ret: BuiltinSig::Ptr,    params: &[BuiltinSig::Ptr, BuiltinSig::Ptr, BuiltinSig::Ptr] },
+    BuiltinDecl { name: "__string_replace_all_legacy", ret: BuiltinSig::Ptr,    params: &[BuiltinSig::Ptr, BuiltinSig::Ptr, BuiltinSig::Ptr] },
+    // v0.5.9 / R3: canonical 8-arg bounded-buffer variant. Renamed from
+    // `ruyi_string_replace_all` (was in fmt_ffi.rs). Caller supplies
+    // output buffer via out/out_cap; function returns bytes written.
+    BuiltinDecl { name: "__string_replace_all",      ret: BuiltinSig::Int,    params: &[BuiltinSig::Ptr, BuiltinSig::Int, BuiltinSig::Ptr, BuiltinSig::Int, BuiltinSig::Ptr, BuiltinSig::Int, BuiltinSig::Ptr, BuiltinSig::Int] },
     BuiltinDecl { name: "__string_length",           ret: BuiltinSig::Int,    params: &[BuiltinSig::Ptr] },
     BuiltinDecl { name: "__string_contains",         ret: BuiltinSig::Bool,   params: &[BuiltinSig::Ptr, BuiltinSig::Ptr] },
     BuiltinDecl { name: "__string_starts_with",      ret: BuiltinSig::Bool,   params: &[BuiltinSig::Ptr, BuiltinSig::Ptr] },
@@ -176,7 +180,7 @@ mod tests {
 
     #[test]
     fn builtins_count_is_55() {
-        assert_eq!(BUILTINS.len(), 55, "expected exactly 55 FFI entries");
+        assert_eq!(BUILTINS.len(), 56, "expected exactly 56 FFI entries (v0.5.9 T4 added 8-arg __string_replace_all)");
     }
 
     #[test]
