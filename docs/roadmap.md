@@ -28,6 +28,7 @@ Ruyi is a compiled programming language targeting native code via LLVM. This roa
 | v0.5.5 | dev/v0.5.5 | ✅ Released | 2026-07 | v0.5.5 |
 | v0.5.6 | dev/v0.5.6-housekeeping | ✅ Released | 2026-07 | (无 tag，housekeeping) |
 | v0.5.7 | dev/v0.5.7-p1-defects | ✅ Released | 2026-07-12 | v0.5.7 |
+| v0.5.8 | dev/v0.5.8 | 🔄 Releasing | 2026-07-12 | (pending) |
 
 ---
 

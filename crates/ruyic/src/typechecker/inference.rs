@@ -65,6 +65,89 @@ fn resolve_builtin_name(name: &str) -> Option<Type> {
             params: vec![Type::Dynamic],
             return_type: Box::new(Type::Dynamic),
         }),
+        "__math_pi" => Some(Type::Function {
+            params: vec![],
+            return_type: Box::new(Type::Float),
+        }),
+        "__math_e" => Some(Type::Function {
+            params: vec![],
+            return_type: Box::new(Type::Float),
+        }),
+        "__math_sqrt" => Some(Type::Function {
+            params: vec![Type::Float],
+            return_type: Box::new(Type::Float),
+        }),
+        "__math_pow" => Some(Type::Function {
+            params: vec![Type::Float, Type::Float],
+            return_type: Box::new(Type::Float),
+        }),
+        "__math_abs" => Some(Type::Function {
+            params: vec![Type::Float],
+            return_type: Box::new(Type::Float),
+        }),
+        "__math_min" => Some(Type::Function {
+            params: vec![Type::Float, Type::Float],
+            return_type: Box::new(Type::Float),
+        }),
+        "__math_max" => Some(Type::Function {
+            params: vec![Type::Float, Type::Float],
+            return_type: Box::new(Type::Float),
+        }),
+        "__math_sin" => Some(Type::Function {
+            params: vec![Type::Float],
+            return_type: Box::new(Type::Float),
+        }),
+        "__math_cos" => Some(Type::Function {
+            params: vec![Type::Float],
+            return_type: Box::new(Type::Float),
+        }),
+        "__math_tan" => Some(Type::Function {
+            params: vec![Type::Float],
+            return_type: Box::new(Type::Float),
+        }),
+        "__math_log" => Some(Type::Function {
+            params: vec![Type::Float],
+            return_type: Box::new(Type::Float),
+        }),
+        "__math_ceil" => Some(Type::Function {
+            params: vec![Type::Float],
+            return_type: Box::new(Type::Float),
+        }),
+        "__math_floor" => Some(Type::Function {
+            params: vec![Type::Float],
+            return_type: Box::new(Type::Float),
+        }),
+        "__math_round" => Some(Type::Function {
+            params: vec![Type::Float],
+            return_type: Box::new(Type::Float),
+        }),
+
+        "__time_now" => Some(Type::Function {
+            params: vec![],
+            return_type: Box::new(Type::Int),
+        }),
+        "__time_timestamp" => Some(Type::Function {
+            params: vec![],
+            return_type: Box::new(Type::Int),
+        }),
+        "__time_sleep" => Some(Type::Function {
+            params: vec![Type::Float],
+            return_type: Box::new(Type::Void),
+        }),
+        "__time_format" => Some(Type::Function {
+            params: vec![Type::Int],
+            return_type: Box::new(Type::String),
+        }),
+
+        "__json_parse" => Some(Type::Function {
+            params: vec![Type::String],
+            return_type: Box::new(Type::String),
+        }),
+        "__json_stringify" => Some(Type::Function {
+            params: vec![Type::String],
+            return_type: Box::new(Type::String),
+        }),
+
         "RangeError" => Some(Type::Named("RangeError".to_string(), vec![])),
         "ArrayIterator" => Some(Type::Named("ArrayIterator".to_string(), vec![])),
         _ => None,

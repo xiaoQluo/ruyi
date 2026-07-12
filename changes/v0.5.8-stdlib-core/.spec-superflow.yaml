@@ -1,0 +1,41 @@
+# .spec-superflow.yaml — v0.5.8-stdlib-core
+# Lightweight state machine. Derived data; rebuildable from artifacts.
+
+# === Core state ===
+state: closing
+workflow: hotfix
+
+# === Hashes (fast staleness detection) ===
+artifacts_hash: sha256:placeholder-replaced-on-DP-2-approval
+contract_hash: sha256:placeholder-replaced-on-DP-2-approval
+
+# === Execution progress ===
+execution_mode: hotfix
+batches_completed: 5
+test_result: "math+time slices wiring complete across runtime/typechecker/codegen, json blocked by parser dyn bug, runtime archive anomaly deferred to v0.5.9"
+
+# === Metadata ===
+change_name: v0.5.8-stdlib-core
+last_transition: 2026-07-12T18:55:00Z
+last_transition_from: executing
+last_transition_to: closing
+
+# === Decision points ===
+dp_0_decisions: "变更名: v0.5.8-stdlib-core; 意图: 补全 roadmap 4.2/4.3/4.4（math/time/json 三个 P0 stdlib 模块）在四层的接线；命名路线 A 路（runtime 改 __X_* 与 28 条现存 __builtin_*/__string_* 一致）；dev/v0.5.8 分支推进；不在本卷修 parser dyn bug 与 runtime archive 异常"
+dp_0_result: confirmed
+dp_0_confirmed: true
+dp_0_timestamp: 2026-07-12T16:45:00Z
+dp_1_result: "confirmed: 20 个 __math_*/__time_*/__json_* FFI 入口 + 3 件 A 路决策已识别（含 fmt_ffi 8-arg 重复命名避让）。Scope in: 4 文件 6 类变更 (runtime 3 FFI 文件重命名, builtins re-export, typechecker 14+4+2 入口, codegen 14+4+2 declare, specs/docs 6 件卷宗, fmt_ffi.rs 命名回归治理性撤改). Scope out: parser dyn bug, runtime archive 异常, fmt_ffi 8-arg 迁移, __builtin_map_*/__string_* 同族 typechecker 注册缺漏, stdlib FFI cleanup __io_*/__process_*/__path_*"
+dp_1_timestamp: 2026-07-12T17:00:00Z
+dp_2_result: "approved: 4 件法度文件 + 3 件 delta spec 均已就位 (proposal.md 7-section/decision rationale, design.md 6 decisions/4 risks/migration/rollback, tasks.md 25 atomic TDD tasks across 6 batches with 18 file paths, execution-contract.md hotfix mode/intent lock/scope fence/acceptance criteria). 20 个 __X_* FFI 四元组 (stdlib名 / typechecker类型签名 / codegen LLVM 声明名 / runtime 符号名) 全部锁定. artifacts_hash/contract_hash 占位待 DP-2 后替换"
+dp_2_timestamp: 2026-07-12T17:30:00Z
+dp_3_result: "approved: contract locked per execution-contract.md; A 路采纳 (runtime 改名为 __* 与 28 条现存一致); 3 件 Out of Scope 明示 (parser dyn bug / runtime archive / fmt_ffi 8-arg); acceptance 4 条 fix; risks R1-R4 with mitigation per decision"
+dp_3_timestamp: 2026-07-12T17:35:00Z
+dp_4_result: "hotfix path: 一致性 attestation (cargo check + cargo build exit 0, --check math/time 出 'Type checking passed.', json 出 parser bug 已记入) 直接进入执行阶段; 不需分批"
+dp_4_timestamp: 2026-07-12T17:40:00Z
+dp_5_result: "approved: Batch A-E 全完成 (math 14/time 4/json 2 全部 runtime 重命名 + typechecker 注册 + codegen LLVM 声明; fmt_ffi 回滚至原始 ruyi_string_replace_all 命名暴露 builtins.rs:773 同名异构 bug, 已处理). 验证: cargo check --workspace exit 0; cargo build --release exit 0; --check math.ry / time.ry 'Type checking passed.'; --check json.ry 已知 parser bug; cargo test -p ruyi_runtime --no-default-features (17 个 FFI 单测) 通过. 0 个新增编译警告"
+dp_5_timestamp: 2026-07-12T18:30:00Z
+dp_6_result: "approved: 5-dim verification pass. (1) Completeness: 14+4+2=20 个 FFI 入口全部接线; 6 件卷宗法度文件全入库. (2) Correctness: cargo build --release exit 0; --check math/time 出 'Type checking passed.'; runtime 17 个 FFI 单测通过; --check json.ry 已知 parser bug 仅注记. (3) Coherence: 三层 (runtime/typechecker/codegen) 命名严格一致 (A 路 __*); fmt_ffi.rs 重复命名回滚清楚记载原因. (4) Invariant: AGENTS.md 原则 (零警告, Javadoc 保留, 语义不变仅符号重命名, 不影响 v0.5.7 主线). (5) Cost: 4 文件 modification + 3 文件新 untracked + 卷宗 9 件, 净增 1 commit (feat) + 1 commit (chore)"
+dp_6_timestamp: 2026-07-12T18:55:00Z
+dp_7_result: "approved: archive closure complete. v0.5.8-stdlib-core archived at dev/v0.5.8 with (a) feat(stdlib) commit linking math/time/json FFI wiring, (b) chore(sdd) commit linking 9 件卷宗法度文件, (c) push to origin/dev/v0.5.8. decision-point-audit.md generated. Out-of-scope Known risks (R1 runtime archive, R2 parser dyn) recorded for v0.5.9 backlog with retrofit notes. branch dev/v0.5.8 ready for merge to main per AGENTS.md policy when玉帝 directs release"
+dp_7_timestamp: 2026-07-12T18:55:00Z
