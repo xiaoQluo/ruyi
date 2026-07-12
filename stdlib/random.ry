@@ -35,7 +35,7 @@ export class Random {
      * @param seed Optional deterministic seed
      */
     fn new(seed?: int): Random {
-        self.rng = __random_new(seed or 0);
+        self.rng = __random_new(seed || 0);
         return self;
     }
 

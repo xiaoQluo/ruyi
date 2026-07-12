@@ -1905,11 +1905,20 @@ impl Parser {
                 self.advance();
                 // Check if next token could start a type (for `dyn Trait` syntax).
                 // If not, treat as bare `dyn` (any dynamic type).
+                //
+                // R2 / v0.5.9: LBrace intentionally NOT in this list. In a
+                // function declaration like `fn f(): dyn { ... }`, the `{`
+                // after `dyn` opens the function body, NOT an anonymous
+                // object type. Treating it as `Dyn({...})` would make the
+                // parser try to interpret statement-level keywords (e.g.
+                // `return`) as object field names. Anonymous object types
+                // (`dyn { field: T }`) are not used by any code in
+                // stdlib/ or examples/, so dropping LBrace from the
+                // type-starter set is safe.
                 if matches!(
                     self.current_token(),
                     Some(Token::Ident(_))
                         | Some(Token::Fn)
-                        | Some(Token::LBrace)
                         | Some(Token::LBracket)
                         | Some(Token::LParen)
                         | Some(Token::Void)
@@ -2052,6 +2061,11 @@ impl Parser {
     fn parse_formal_param(&mut self) -> Result<Param, ParseError> {
         let is_rest = self.match_token(&Token::Spread);
         let pattern = self.parse_pattern()?;
+        // Optional parameter marker: `name?: type` (R2 / v0.5.9).
+        // The `?` is consumed here so the colon-to-type transition
+        // below sees `:` directly. Typechecker/codegen treat the
+        // argument as nullable at the call site.
+        let is_optional = self.match_token(&Token::Question);
         let ty = if self.check(&Token::Colon) {
             Some(self.parse_type_annotation()?)
         } else {
@@ -2067,6 +2081,7 @@ impl Parser {
             ty,
             init,
             is_rest,
+            is_optional,
         })
     }
 }
@@ -2332,6 +2347,7 @@ fn expr_to_arrow_params(expr: Expr) -> Result<Vec<Param>, ParseError> {
             ty: None,
             init: None,
             is_rest: false,
+            is_optional: false,
         }]),
         Expr::Sequence(exprs) => {
             let mut params = Vec::new();
@@ -2342,6 +2358,7 @@ fn expr_to_arrow_params(expr: Expr) -> Result<Vec<Param>, ParseError> {
                         ty: None,
                         init: None,
                         is_rest: false,
+                        is_optional: false,
                     }),
                     _ => {
                         return Err(ParseError::SyntaxError {
@@ -2364,6 +2381,7 @@ fn expr_to_arrow_params(expr: Expr) -> Result<Vec<Param>, ParseError> {
                             ty: None,
                             init: None,
                             is_rest: false,
+                            is_optional: false,
                         }),
                         _ => {
                             return Err(ParseError::SyntaxError {
@@ -2381,6 +2399,7 @@ fn expr_to_arrow_params(expr: Expr) -> Result<Vec<Param>, ParseError> {
                 ty: None,
                 init: None,
                 is_rest: false,
+                is_optional: false,
             }]),
             _ => Err(ParseError::SyntaxError {
                 message: "invalid arrow function parameters".into(),
@@ -2395,6 +2414,7 @@ fn expr_to_arrow_params(expr: Expr) -> Result<Vec<Param>, ParseError> {
                 ty,
                 init: None,
                 is_rest: false,
+                is_optional: false,
             })
             .collect()),
         _ => Err(ParseError::SyntaxError {

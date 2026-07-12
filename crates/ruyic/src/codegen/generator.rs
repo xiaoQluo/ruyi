@@ -677,6 +677,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                                 )),
                                 init: None,
                                 is_rest: false,
+                                is_optional: false,
                             }];
                             method_params.extend(
                                 params

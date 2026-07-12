@@ -391,6 +391,7 @@ fn compile_class<'ctx>(
                 )),
                 init: None,
                 is_rest: false,
+                is_optional: false,
             }];
             method_params.extend(
                 params
@@ -426,6 +427,7 @@ fn compile_class<'ctx>(
                 )),
                 init: None,
                 is_rest: false,
+                is_optional: false,
             }];
             method_params.extend(
                 params
@@ -535,6 +537,7 @@ fn compile_impl<'ctx>(
                 ty: Some(for_type.clone()),
                 init: None,
                 is_rest: false,
+                is_optional: false,
             })
             .chain(
                 params

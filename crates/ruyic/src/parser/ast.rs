@@ -82,6 +82,12 @@ pub struct Param {
     pub ty: Option<TypeAnnotation>,
     pub init: Option<Box<Expr>>,
     pub is_rest: bool,
+    /// True if the parameter is declared with the optional marker `?`,
+    /// e.g. `fn f(seed?: int)`. Callers may pass `null` (or omit the
+    /// argument where supported). Codegen currently passes the runtime
+    /// `null` representation when the argument is omitted; the function
+    /// body is responsible for handling it (typically via `x or default`).
+    pub is_optional: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
