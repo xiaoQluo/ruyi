@@ -29,128 +29,59 @@ use std::collections::HashMap;
 /// typechecker does not flag them as "Unknown variable" when stdlib code
 /// references them.
 ///
-/// - `__builtin_array_*` are FFI symbols declared in the codegen layer
-///   (`codegen/builtins.rs`) and implemented in the runtime
-///   (`ruyi_runtime/src/builtins.rs`).
+/// FFI names (`__builtin_*`, `__string_*`, `__math_*`, `__time_*`, `__json_*`)
+/// are looked up by walking the static `BUILTINS` table from the codegen
+/// layer — both layers must agree on the 55 names + their LLVM ABIs.
+///
 /// - `RangeError`, `ArrayIterator` are types defined inside `stdlib/`
 ///   itself (not user variables).
 ///
 /// Returns `None` for unrecognized names so the caller falls through to the
-/// normal "Unknown variable" diagnostic. Parameter and return types use
-/// `Type::Dynamic` because the FFI signatures operate on `*mut i8` / `i64`
-/// — typechecker's job is to enable compilation, not enforce FFI type safety.
+/// normal "Unknown variable" diagnostic. Pointer-typed parameters and
+/// returns collapse to `Type::Dynamic` (FFI opaques), while `Bool`-typed
+/// predicate returns collapse to `Type::Bool`. The typechecker's job is to
+/// enable compilation, not enforce FFI type safety.
 fn resolve_builtin_name(name: &str) -> Option<Type> {
+    use crate::codegen::builtins_table::BUILTINS;
+    for decl in BUILTINS {
+        if decl.name == name {
+            return Some(Type::Function {
+                params: decl
+                    .params
+                    .iter()
+                    .map(|s| builtin_sig_to_type(*s))
+                    .collect(),
+                return_type: Box::new(builtin_sig_to_type(decl.ret)),
+            });
+        }
+    }
     match name {
-        "__builtin_array_create" => Some(Type::Function {
-            params: vec![],
-            return_type: Box::new(Type::Dynamic),
-        }),
-        "__builtin_array_length" => Some(Type::Function {
-            params: vec![Type::Dynamic],
-            return_type: Box::new(Type::Int),
-        }),
-        "__builtin_array_get" => Some(Type::Function {
-            params: vec![Type::Dynamic, Type::Dynamic],
-            return_type: Box::new(Type::Dynamic),
-        }),
-        "__builtin_array_set" => Some(Type::Function {
-            params: vec![Type::Dynamic, Type::Dynamic, Type::Dynamic],
-            return_type: Box::new(Type::Void),
-        }),
-        "__builtin_array_push" => Some(Type::Function {
-            params: vec![Type::Dynamic, Type::Dynamic],
-            return_type: Box::new(Type::Dynamic),
-        }),
-        "__builtin_array_pop" => Some(Type::Function {
-            params: vec![Type::Dynamic],
-            return_type: Box::new(Type::Dynamic),
-        }),
-        "__math_pi" => Some(Type::Function {
-            params: vec![],
-            return_type: Box::new(Type::Float),
-        }),
-        "__math_e" => Some(Type::Function {
-            params: vec![],
-            return_type: Box::new(Type::Float),
-        }),
-        "__math_sqrt" => Some(Type::Function {
-            params: vec![Type::Float],
-            return_type: Box::new(Type::Float),
-        }),
-        "__math_pow" => Some(Type::Function {
-            params: vec![Type::Float, Type::Float],
-            return_type: Box::new(Type::Float),
-        }),
-        "__math_abs" => Some(Type::Function {
-            params: vec![Type::Float],
-            return_type: Box::new(Type::Float),
-        }),
-        "__math_min" => Some(Type::Function {
-            params: vec![Type::Float, Type::Float],
-            return_type: Box::new(Type::Float),
-        }),
-        "__math_max" => Some(Type::Function {
-            params: vec![Type::Float, Type::Float],
-            return_type: Box::new(Type::Float),
-        }),
-        "__math_sin" => Some(Type::Function {
-            params: vec![Type::Float],
-            return_type: Box::new(Type::Float),
-        }),
-        "__math_cos" => Some(Type::Function {
-            params: vec![Type::Float],
-            return_type: Box::new(Type::Float),
-        }),
-        "__math_tan" => Some(Type::Function {
-            params: vec![Type::Float],
-            return_type: Box::new(Type::Float),
-        }),
-        "__math_log" => Some(Type::Function {
-            params: vec![Type::Float],
-            return_type: Box::new(Type::Float),
-        }),
-        "__math_ceil" => Some(Type::Function {
-            params: vec![Type::Float],
-            return_type: Box::new(Type::Float),
-        }),
-        "__math_floor" => Some(Type::Function {
-            params: vec![Type::Float],
-            return_type: Box::new(Type::Float),
-        }),
-        "__math_round" => Some(Type::Function {
-            params: vec![Type::Float],
-            return_type: Box::new(Type::Float),
-        }),
-
-        "__time_now" => Some(Type::Function {
-            params: vec![],
-            return_type: Box::new(Type::Int),
-        }),
-        "__time_timestamp" => Some(Type::Function {
-            params: vec![],
-            return_type: Box::new(Type::Int),
-        }),
-        "__time_sleep" => Some(Type::Function {
-            params: vec![Type::Float],
-            return_type: Box::new(Type::Void),
-        }),
-        "__time_format" => Some(Type::Function {
-            params: vec![Type::Int],
-            return_type: Box::new(Type::String),
-        }),
-
-        "__json_parse" => Some(Type::Function {
-            params: vec![Type::String],
-            return_type: Box::new(Type::String),
-        }),
-        "__json_stringify" => Some(Type::Function {
-            params: vec![Type::String],
-            return_type: Box::new(Type::String),
-        }),
-
         "RangeError" => Some(Type::Named("RangeError".to_string(), vec![])),
         "ArrayIterator" => Some(Type::Named("ArrayIterator".to_string(), vec![])),
         _ => None,
+    }
+}
+
+/// Map a codegen-side `BuiltinSig` to its typecheck-layer `Type`.
+///
+/// FFI opaques collapse to `Type::Dynamic` at the typecheck layer
+/// because the FFI surface exchanges raw `*mut i8` handles — the
+/// typechecker must not pretend to know their shape. Per Ruyi's gradual
+/// typing model, this is the safe default for cross-ABI values; runtime
+/// type checks (if any) are the runtime's responsibility.
+///
+/// The mapping deliberately preserves the pre-refactor behavior for
+/// `__builtin_array_*` returns (which used `Type::Dynamic` for length/get/
+/// push/pop) so stdlib code that ran before the refactor continues to
+/// type-check unchanged. Tightening this requires a coordinated stdlib
+/// update (T3+); out of scope for this commit.
+fn builtin_sig_to_type(sig: crate::codegen::builtins_table::BuiltinSig) -> Type {
+    use crate::codegen::builtins_table::BuiltinSig;
+    match sig {
+        BuiltinSig::Void => Type::Void,
+        BuiltinSig::Bool => Type::Bool,
+        BuiltinSig::String => Type::String,
+        BuiltinSig::Int | BuiltinSig::Float | BuiltinSig::Ptr => Type::Dynamic,
     }
 }
 

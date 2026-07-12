@@ -8,16 +8,27 @@ use inkwell::context::Context;
  * @date 2026-05-01
  */
 use inkwell::module::Module;
+use inkwell::types::{BasicType, FunctionType};
 use inkwell::values::{BasicValueEnum, FunctionValue};
 
 use crate::cli::gc_mode::GcMode;
 use crate::typechecker::types::Type;
+
+use super::builtins_table::{
+    params_to_metadata, sig_to_basic_type, BuiltinDecl, BuiltinSig, BUILTINS,
+};
 
 /// Declare built-in runtime functions in the LLVM module.
 ///
 /// `gc_mode` selects which heap allocator symbol to declare:
 /// `Stub` → `@cc_alloc`, `Real` → `@ruyi_gc_alloc`. All other runtime
 /// functions are mode-independent.
+///
+/// The 55 `__builtin_*` / `__string_*` / `__math_*` / `__time_*` / `__json_*`
+/// FFI entries are declared by iterating the static `BUILTINS` table; the
+/// 26 internal `ruyi_*` / `printf` / GC helpers below are kept as
+/// bespoke `declare_*` wrappers because they take extra arguments
+/// (e.g. `gc_mode`) or call into `gc_alloc::GcAllocFn`.
 pub fn declare_builtins<'ctx>(context: &'ctx Context, module: &Module<'ctx>, gc_mode: GcMode) {
     declare_printf(context, module);
     declare_alloc(context, module, gc_mode);
@@ -46,71 +57,30 @@ pub fn declare_builtins<'ctx>(context: &'ctx Context, module: &Module<'ctx>, gc_
     declare_ruyi_bool_to_string(context, module);
     declare_pow(context, module);
 
-    // __builtin_array_* declarations (used by stdlib/collections.ry)
-    declare_builtin_array_create(context, module);
-    declare_builtin_array_get(context, module);
-    declare_builtin_array_set(context, module);
-    declare_builtin_array_push(context, module);
-    declare_builtin_array_pop(context, module);
-    declare_builtin_array_length(context, module);
+    // 55 FFI entries (array, map, set, string, math, time, json) are
+    // declared by walking the static BUILTINS table.
+    for decl in BUILTINS {
+        declare_builtin_from_table(context, module, decl);
+    }
+}
 
-    // __builtin_map_* declarations (used by stdlib/collections.ry)
-    declare_builtin_map_create(context, module);
-    declare_builtin_map_get(context, module);
-    declare_builtin_map_set(context, module);
-    declare_builtin_map_delete(context, module);
-    declare_builtin_map_has(context, module);
-    declare_builtin_map_keys(context, module);
-    declare_builtin_map_values(context, module);
-
-    // __builtin_set_* declarations (used by stdlib/collections.ry)
-    declare_builtin_set_create(context, module);
-    declare_builtin_set_add(context, module);
-    declare_builtin_set_delete(context, module);
-    declare_builtin_set_has(context, module);
-
-    // __string_* declarations (used by stdlib/string.ry)
-    declare_string_join(context, module);
-    declare_string_from_char_code(context, module);
-    declare_string_from_char_codes(context, module);
-    declare_string_replace_all(context, module);
-    declare_string_length(context, module);
-    declare_string_contains(context, module);
-    declare_string_starts_with(context, module);
-    declare_string_ends_with(context, module);
-    declare_string_index_of(context, module);
-    declare_string_last_index_of(context, module);
-    declare_string_char_at(context, module);
-    declare_string_char_code_at(context, module);
-    declare_string_repeat(context, module);
-    declare_string_substring(context, module);
-    declare_string_to_upper_case(context, module);
-    declare_string_to_lower_case(context, module);
-    declare_string_trim(context, module);
-    declare_string_split(context, module);
-
-    declare_math_pi(context, module);
-    declare_math_e(context, module);
-    declare_math_sqrt(context, module);
-    declare_math_pow(context, module);
-    declare_math_abs(context, module);
-    declare_math_min(context, module);
-    declare_math_max(context, module);
-    declare_math_sin(context, module);
-    declare_math_cos(context, module);
-    declare_math_tan(context, module);
-    declare_math_log(context, module);
-    declare_math_ceil(context, module);
-    declare_math_floor(context, module);
-    declare_math_round(context, module);
-
-    declare_time_now(context, module);
-    declare_time_timestamp(context, module);
-    declare_time_sleep(context, module);
-    declare_time_format(context, module);
-
-    declare_json_parse(context, module);
-    declare_json_stringify(context, module);
+/// Declare one FFI entry from a `BuiltinDecl` record.
+///
+/// `Builtin's LLVM ABI is constructed by mapping each `BuiltinSig`
+/// variant through `sig_to_basic_type` (return) / `params_to_metadata`
+/// (parameters); the resulting `FunctionType` is registered against
+/// `module` so call sites can resolve the symbol via `module.get_function`.
+fn declare_builtin_from_table<'ctx>(
+    context: &'ctx Context,
+    module: &Module<'ctx>,
+    decl: &BuiltinDecl,
+) {
+    let param_tys = params_to_metadata(context, decl.params);
+    let fn_type: FunctionType<'_> = match decl.ret {
+        BuiltinSig::Void => context.void_type().fn_type(&param_tys, false),
+        ret => sig_to_basic_type(context, ret).fn_type(&param_tys, false),
+    };
+    module.add_function(decl.name, fn_type, None);
 }
 
 fn declare_printf<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
@@ -691,23 +661,6 @@ pub fn build_ruyi_obj_get<'ctx>(
         .into_pointer_value()
 }
 
-// ============================================================
-// __builtin_array_* declarations
-// ============================================================
-
-fn declare_builtin_array_create<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = i8_ptr.fn_type(&[], false);
-    module.add_function("__builtin_array_create", fn_type, None);
-}
-
-fn declare_builtin_array_get<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let i64_ty = context.i64_type();
-    let fn_type = i64_ty.fn_type(&[i8_ptr.into(), i64_ty.into()], false);
-    module.add_function("__builtin_array_get", fn_type, None);
-}
-
 /// Build a call to `__builtin_array_get(arr, index)`.
 ///
 /// Returns the element as an `i64`. Bounds checking and negative-index
@@ -727,362 +680,4 @@ pub fn build_builtin_array_get<'ctx>(
         .left()
         .unwrap()
         .into_int_value()
-}
-
-fn declare_builtin_array_set<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let i64_ty = context.i64_type();
-    let fn_type = context
-        .void_type()
-        .fn_type(&[i8_ptr.into(), i64_ty.into(), i64_ty.into()], false);
-    module.add_function("__builtin_array_set", fn_type, None);
-}
-
-fn declare_builtin_array_push<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let i64_ty = context.i64_type();
-    let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i64_ty.into()], false);
-    module.add_function("__builtin_array_push", fn_type, None);
-}
-
-fn declare_builtin_array_pop<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let i64_ty = context.i64_type();
-    let fn_type = i64_ty.fn_type(&[i8_ptr.into()], false);
-    module.add_function("__builtin_array_pop", fn_type, None);
-}
-
-fn declare_builtin_array_length<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let i64_ty = context.i64_type();
-    let fn_type = i64_ty.fn_type(&[i8_ptr.into()], false);
-    module.add_function("__builtin_array_length", fn_type, None);
-}
-
-// ============================================================
-// __builtin_map_* declarations
-// ============================================================
-
-fn declare_builtin_map_create<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = i8_ptr.fn_type(&[], false);
-    module.add_function("__builtin_map_create", fn_type, None);
-}
-
-fn declare_builtin_map_get<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
-    module.add_function("__builtin_map_get", fn_type, None);
-}
-
-fn declare_builtin_map_set<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = context
-        .void_type()
-        .fn_type(&[i8_ptr.into(), i8_ptr.into(), i8_ptr.into()], false);
-    module.add_function("__builtin_map_set", fn_type, None);
-}
-
-fn declare_builtin_map_delete<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = context
-        .void_type()
-        .fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
-    module.add_function("__builtin_map_delete", fn_type, None);
-}
-
-fn declare_builtin_map_has<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let i1_ty = context.bool_type();
-    let fn_type = i1_ty.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
-    module.add_function("__builtin_map_has", fn_type, None);
-}
-
-fn declare_builtin_map_keys<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
-    module.add_function("__builtin_map_keys", fn_type, None);
-}
-
-fn declare_builtin_map_values<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
-    module.add_function("__builtin_map_values", fn_type, None);
-}
-
-// ============================================================
-// __builtin_set_* declarations
-// ============================================================
-
-fn declare_builtin_set_create<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = i8_ptr.fn_type(&[], false);
-    module.add_function("__builtin_set_create", fn_type, None);
-}
-
-fn declare_builtin_set_add<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = context
-        .void_type()
-        .fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
-    module.add_function("__builtin_set_add", fn_type, None);
-}
-
-fn declare_builtin_set_delete<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let i1_ty = context.bool_type();
-    let fn_type = i1_ty.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
-    module.add_function("__builtin_set_delete", fn_type, None);
-}
-
-fn declare_builtin_set_has<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let i1_ty = context.bool_type();
-    let fn_type = i1_ty.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
-    module.add_function("__builtin_set_has", fn_type, None);
-}
-
-// ============================================================
-// __string_* declarations
-// ============================================================
-
-fn declare_string_join<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
-    module.add_function("__string_join", fn_type, None);
-}
-
-fn declare_string_from_char_code<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let i64_ty = context.i64_type();
-    let fn_type = i8_ptr.fn_type(&[i64_ty.into()], false);
-    module.add_function("__string_from_char_code", fn_type, None);
-}
-
-fn declare_string_from_char_codes<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
-    module.add_function("__string_from_char_codes", fn_type, None);
-}
-
-fn declare_string_replace_all<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into(), i8_ptr.into()], false);
-    module.add_function("__string_replace_all", fn_type, None);
-}
-
-fn declare_string_length<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let i64_ty = context.i64_type();
-    let fn_type = i64_ty.fn_type(&[i8_ptr.into()], false);
-    module.add_function("__string_length", fn_type, None);
-}
-
-fn declare_string_contains<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let i1_ty = context.bool_type();
-    let fn_type = i1_ty.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
-    module.add_function("__string_contains", fn_type, None);
-}
-
-fn declare_string_starts_with<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let i1_ty = context.bool_type();
-    let fn_type = i1_ty.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
-    module.add_function("__string_starts_with", fn_type, None);
-}
-
-fn declare_string_ends_with<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let i1_ty = context.bool_type();
-    let fn_type = i1_ty.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
-    module.add_function("__string_ends_with", fn_type, None);
-}
-
-fn declare_string_index_of<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let i64_ty = context.i64_type();
-    let fn_type = i64_ty.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
-    module.add_function("__string_index_of", fn_type, None);
-}
-
-fn declare_string_last_index_of<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let i64_ty = context.i64_type();
-    let fn_type = i64_ty.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
-    module.add_function("__string_last_index_of", fn_type, None);
-}
-
-fn declare_string_char_at<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let i64_ty = context.i64_type();
-    let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i64_ty.into()], false);
-    module.add_function("__string_char_at", fn_type, None);
-}
-
-fn declare_string_char_code_at<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let i64_ty = context.i64_type();
-    let fn_type = i64_ty.fn_type(&[i8_ptr.into(), i64_ty.into()], false);
-    module.add_function("__string_char_code_at", fn_type, None);
-}
-
-fn declare_string_repeat<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let i64_ty = context.i64_type();
-    let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i64_ty.into()], false);
-    module.add_function("__string_repeat", fn_type, None);
-}
-
-fn declare_string_substring<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let i64_ty = context.i64_type();
-    let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i64_ty.into(), i64_ty.into()], false);
-    module.add_function("__string_substring", fn_type, None);
-}
-
-fn declare_string_to_upper_case<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
-    module.add_function("__string_to_upper_case", fn_type, None);
-}
-
-fn declare_string_to_lower_case<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
-    module.add_function("__string_to_lower_case", fn_type, None);
-}
-
-fn declare_string_trim<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
-    module.add_function("__string_trim", fn_type, None);
-}
-
-fn declare_string_split<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
-    module.add_function("__string_split", fn_type, None);
-}
-
-fn declare_math_pi<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let f64_ty = context.f64_type();
-    let fn_type = f64_ty.fn_type(&[], false);
-    module.add_function("__math_pi", fn_type, None);
-}
-
-fn declare_math_e<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let f64_ty = context.f64_type();
-    let fn_type = f64_ty.fn_type(&[], false);
-    module.add_function("__math_e", fn_type, None);
-}
-
-fn declare_math_sqrt<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let f64_ty = context.f64_type();
-    let fn_type = f64_ty.fn_type(&[f64_ty.into()], false);
-    module.add_function("__math_sqrt", fn_type, None);
-}
-
-fn declare_math_pow<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let f64_ty = context.f64_type();
-    let fn_type = f64_ty.fn_type(&[f64_ty.into(), f64_ty.into()], false);
-    module.add_function("__math_pow", fn_type, None);
-}
-
-fn declare_math_abs<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let f64_ty = context.f64_type();
-    let fn_type = f64_ty.fn_type(&[f64_ty.into()], false);
-    module.add_function("__math_abs", fn_type, None);
-}
-
-fn declare_math_min<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let f64_ty = context.f64_type();
-    let fn_type = f64_ty.fn_type(&[f64_ty.into(), f64_ty.into()], false);
-    module.add_function("__math_min", fn_type, None);
-}
-
-fn declare_math_max<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let f64_ty = context.f64_type();
-    let fn_type = f64_ty.fn_type(&[f64_ty.into(), f64_ty.into()], false);
-    module.add_function("__math_max", fn_type, None);
-}
-
-fn declare_math_sin<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let f64_ty = context.f64_type();
-    let fn_type = f64_ty.fn_type(&[f64_ty.into()], false);
-    module.add_function("__math_sin", fn_type, None);
-}
-
-fn declare_math_cos<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let f64_ty = context.f64_type();
-    let fn_type = f64_ty.fn_type(&[f64_ty.into()], false);
-    module.add_function("__math_cos", fn_type, None);
-}
-
-fn declare_math_tan<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let f64_ty = context.f64_type();
-    let fn_type = f64_ty.fn_type(&[f64_ty.into()], false);
-    module.add_function("__math_tan", fn_type, None);
-}
-
-fn declare_math_log<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let f64_ty = context.f64_type();
-    let fn_type = f64_ty.fn_type(&[f64_ty.into()], false);
-    module.add_function("__math_log", fn_type, None);
-}
-
-fn declare_math_ceil<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let f64_ty = context.f64_type();
-    let fn_type = f64_ty.fn_type(&[f64_ty.into()], false);
-    module.add_function("__math_ceil", fn_type, None);
-}
-
-fn declare_math_floor<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let f64_ty = context.f64_type();
-    let fn_type = f64_ty.fn_type(&[f64_ty.into()], false);
-    module.add_function("__math_floor", fn_type, None);
-}
-
-fn declare_math_round<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let f64_ty = context.f64_type();
-    let fn_type = f64_ty.fn_type(&[f64_ty.into()], false);
-    module.add_function("__math_round", fn_type, None);
-}
-
-fn declare_time_now<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i64_ty = context.i64_type();
-    let fn_type = i64_ty.fn_type(&[], false);
-    module.add_function("__time_now", fn_type, None);
-}
-
-fn declare_time_timestamp<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i64_ty = context.i64_type();
-    let fn_type = i64_ty.fn_type(&[], false);
-    module.add_function("__time_timestamp", fn_type, None);
-}
-
-fn declare_time_sleep<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let f64_ty = context.f64_type();
-    let void_ty = context.void_type();
-    let fn_type = void_ty.fn_type(&[f64_ty.into()], false);
-    module.add_function("__time_sleep", fn_type, None);
-}
-
-fn declare_time_format<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let i64_ty = context.i64_type();
-    let fn_type = i8_ptr.fn_type(&[i64_ty.into()], false);
-    module.add_function("__time_format", fn_type, None);
-}
-
-fn declare_json_parse<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
-    module.add_function("__json_parse", fn_type, None);
-}
-
-fn declare_json_stringify<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
-    let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
-    module.add_function("__json_stringify", fn_type, None);
 }

@@ -51,7 +51,7 @@ pub use exception::{
     ExceptionTableRegistry, FunctionExceptionTable, LandingPadAction, LandingPadDescriptor,
     RuyiException, StackFrame, TypeId,
 };
-pub use fmt_ffi::ruyi_string_replace_all;
+pub use fmt_ffi::__string_replace_all;
 pub use gc::{
     barrier::WriteBarrier, generational::GenerationalCollector, old::OldGeneration, roots::RootSet,
     young::YoungGeneration, Collector, GcAllocator, MarkSweepCollector,
