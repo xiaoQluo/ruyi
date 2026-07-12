@@ -1,6 +1,7 @@
 pub mod arc_ops;
 pub mod async_codegen;
 pub mod builtins;
+pub mod builtins_table;
 pub mod decl;
 pub mod expr;
 pub mod gc_alloc;
