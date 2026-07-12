@@ -72,7 +72,7 @@
 
 ### Sub-batch 1.1: Supertrait cycle detection (full DFS)
 
-- [ ] **1.1 编写失败的测试**
+- [x] **1.1 编写失败的测试**
 
 ```rust
 // crates/ruyic/tests/supertraits_cycle.rs
@@ -144,12 +144,12 @@ fn unknown_supertrait_still_reported() {
 
 **Files**: `Create: crates/ruyic/tests/supertraits_cycle.rs`
 
-- [ ] **1.2 运行测试并确认失败**
+- [x] **1.2 运行测试并确认失败**
 
 Run: `cargo test -p ruyic --test supertraits_cycle -- --nocapture`
 Expected: FAIL — compilation error `cannot find type TraitRegistry` or `has_cycle is not a method`. Current `validate_supertraits` (traits.rs:255) only checks immediate 2-level cycles via `super_info.supertraits.contains(name)`, so the 3-level case is not detected.
 
-- [ ] **1.3 实现最小化代码**
+- [x] **1.3 实现最小化代码**
 
 ```rust
 // crates/ruyic/src/typechecker/supertraits.rs
@@ -265,12 +265,12 @@ registry.validate_supertrait_cycles(&mut trait_diagnostics);
 
 **Files**: `Create: crates/ruyic/src/typechecker/supertraits.rs`, `Modify: crates/ruyic/src/typechecker/diagnostics.rs`, `Modify: crates/ruyic/src/typechecker/traits.rs`, `Modify: crates/ruyic/src/typechecker/checker.rs`
 
-- [ ] **1.4 运行测试并确认通过**
+- [x] **1.4 运行测试并确认通过**
 
 Run: `cargo test -p ruyic --test supertraits_cycle -- --nocapture`
 Expected: PASS — all 4 tests pass. The 3-level cycle is detected, 2-level still works, linear chain passes, unknown supertrait still produces the existing diagnostic.
 
-- [ ] **1.5 提交**
+- [x] **1.5 提交**
 
 ```bash
 git add crates/ruyic/src/typechecker/supertraits.rs \
@@ -283,7 +283,7 @@ git commit -m "feat(typechecker): DFS-based supertrait cycle detection (any dept
 
 ### Sub-batch 1.2: Narrowing — else-branch reverse narrowing
 
-- [ ] **1.6 编写失败的测试**
+- [x] **1.6 编写失败的测试**
 
 ```rust
 // crates/ruyic/tests/narrowing_reverse.rs
@@ -332,12 +332,12 @@ fn else_branch_widens_after_instanceof_check() {
 
 **Files**: `Create: crates/ruyic/tests/narrowing_reverse.rs`
 
-- [ ] **1.7 运行测试并确认失败**
+- [x] **1.7 运行测试并确认失败**
 
 Run: `cargo test -p ruyic --test narrowing_reverse -- --nocapture`
 Expected: FAIL — second test fails with "obj.x not found" because `obj` is still narrowed to `B` in the else branch. The current `narrow_for_condition` (inference.rs:1640) only narrows in `true_branch=true` cases; the false branch (`true_branch=false`) leaves the variable unchanged, so the `else` body sees `x` as still nullable when it should be widened to `int`.
 
-- [ ] **1.8 实现最小化代码**
+- [x] **1.8 实现最小化代码**
 
 ```rust
 // crates/ruyic/src/typechecker/narrowing.rs
@@ -397,12 +397,12 @@ pub fn apply_reverse_narrow(
 
 **Files**: `Create: crates/ruyic/src/typechecker/narrowing.rs`, `Modify: crates/ruyic/src/typechecker/inference.rs`
 
-- [ ] **1.9 运行测试并确认通过**
+- [x] **1.9 运行测试并确认通过**
 
 Run: `cargo test -p ruyic --test narrowing_reverse -- --nocapture`
 Expected: PASS — both tests pass. `else` branch of `if (x === null)` sees `x: int`, else branch of `if (obj instanceof B)` sees `obj: A`.
 
-- [ ] **1.10 提交**
+- [x] **1.10 提交**
 
 ```bash
 git add crates/ruyic/src/typechecker/narrowing.rs \
@@ -413,7 +413,7 @@ git commit -m "feat(typechecker): reverse narrowing in else branch for null/inst
 
 ### Sub-batch 1.3: Exhaustiveness for Type::Union and Expr::Match
 
-- [ ] **1.11 编写失败的测试**
+- [x] **1.11 编写失败的测试**
 
 ```rust
 // crates/ruyic/tests/exhaustiveness_union.rs
@@ -469,12 +469,12 @@ fn match_on_union_missing_variant_emits_diagnostic() {
 
 **Files**: `Create: crates/ruyic/tests/exhaustiveness_union.rs`
 
-- [ ] **1.12 运行测试并确认失败**
+- [x] **1.12 运行测试并确认失败**
 
 Run: `cargo test -p ruyic --test exhaustiveness_union -- --nocapture`
 Expected: FAIL — second test passes vacuously today (no exhaustiveness check exists for Type::Union). After implementing `check_union`, the second test must produce a diagnostic, and after fixing the test to expect the diagnostic, both tests pass.
 
-- [ ] **1.13 实现最小化代码**
+- [x] **1.13 实现最小化代码**
 
 ```rust
 // crates/ruyic/src/typechecker/exhaustiveness.rs
@@ -563,12 +563,12 @@ let report = if let Type::Union(_) = subject_type {
 
 **Files**: `Create: crates/ruyic/src/typechecker/exhaustiveness.rs`, `Modify: crates/ruyic/src/typechecker/patterns.rs`
 
-- [ ] **1.14 运行测试并确认通过**
+- [x] **1.14 运行测试并确认通过**
 
 Run: `cargo test -p ruyic --test exhaustiveness_union -- --nocapture`
 Expected: PASS — `match (r) { Ok(v) => ..., Err(e) => ... }` is exhaustive; `match (r) { Ok(v) => ... }` triggers the non-exhaustive diagnostic.
 
-- [ ] **1.15 提交**
+- [x] **1.15 提交**
 
 ```bash
 git add crates/ruyic/src/typechecker/exhaustiveness.rs \
@@ -579,7 +579,7 @@ git commit -m "feat(typechecker): exhaustive match analysis for Type::Union subj
 
 ### Sub-batch 1.4: Self-referential — element-level Self reference
 
-- [ ] **1.16 编写失败的测试**
+- [x] **1.16 编写失败的测试**
 
 ```rust
 // crates/ruyic/tests/self_referential.rs
@@ -622,12 +622,12 @@ fn self_type_in_trait_method_signature_resolves_to_trait() {
 
 **Files**: `Create: crates/ruyic/tests/self_referential.rs`
 
-- [ ] **1.17 运行测试并确认失败**
+- [x] **1.17 运行测试并确认失败**
 
 Run: `cargo test -p ruyic --test self_referential -- --nocapture`
 Expected: FAIL — `Self` is not recognized in element (method parameter or return) position; current `Type::from_annotation` in `types.rs` treats bare `Self` as an unresolved identifier and emits "unknown type Self" diagnostic.
 
-- [ ] **1.18 实现最小化代码**
+- [x] **1.18 实现最小化代码**
 
 ```rust
 // crates/ruyic/src/typechecker/self_ty.rs
@@ -685,12 +685,12 @@ if let Some(ty) = self_ty::resolve(
 
 **Files**: `Create: crates/ruyic/src/typechecker/self_ty.rs`, `Modify: crates/ruyic/src/typechecker/types.rs`, `Modify: crates/ruyic/src/typechecker/inference.rs`
 
-- [ ] **1.19 运行测试并确认通过**
+- [x] **1.19 运行测试并确认通过**
 
 Run: `cargo test -p ruyic --test self_referential -- --nocapture`
 Expected: PASS — both `class Node { fn successor(self): Node ... }` and `trait Chainable { fn then(self): Self; }` resolve `Self` correctly.
 
-- [ ] **1.20 提交**
+- [x] **1.20 提交**
 
 ```bash
 git add crates/ruyic/src/typechecker/self_ty.rs \
@@ -704,7 +704,7 @@ git commit -m "feat(typechecker): resolve bare Self identifier at element level"
 
 ### Sub-batch 2.1: Async GC roots
 
-- [ ] **2.1 编写失败的测试**
+- [x] **2.1 编写失败的测试**
 
 ```rust
 // crates/ruyi_runtime/tests/async_gc_roots.rs
@@ -732,12 +732,12 @@ fn suspended_task_payload_survives_gc_collect() {
 
 **Files**: `Create: crates/ruyi_runtime/tests/async_gc_roots.rs`
 
-- [ ] **2.2 运行测试并确认失败**
+- [x] **2.2 运行测试并确认失败**
 
 Run: `cargo test -p ruyi_runtime --test async_gc_roots -- --nocapture`
 Expected: FAIL — currently `ruyi_gc_collect` (gc_exports.rs:39) calls `collect_full` without consulting suspended-task stacks, so the payload is collected and the assertion fails. Comment at `async_runtime.rs:429` already acknowledges this gap.
 
-- [ ] **2.3 实现最小化代码**
+- [x] **2.3 实现最小化代码**
 
 ```rust
 // crates/ruyic/src/runtime/async_gc_roots.rs
@@ -818,12 +818,12 @@ extern "C" {
 
 **Files**: `Create: crates/ruyic/src/runtime/async_gc_roots.rs`, `Modify: crates/ruyi_runtime/src/gc_exports.rs`, `Modify: crates/ruyi_runtime/src/async_runtime.rs`
 
-- [ ] **2.4 运行测试并确认通过**
+- [x] **2.4 运行测试并确认通过**
 
 Run: `cargo test -p ruyi_runtime --test async_gc_roots -- --nocapture`
 Expected: PASS — payload survives `gc_collect` because the suspended task registers its stack base as a GC root.
 
-- [ ] **2.5 提交**
+- [x] **2.5 提交**
 
 ```bash
 git add crates/ruyic/src/runtime/async_gc_roots.rs \
@@ -837,7 +837,7 @@ git commit -m "feat(runtime): GC roots for suspended async tasks"
 
 ### Sub-batch 3.1: random.ry
 
-- [ ] **3.1 编写失败的测试**
+- [x] **3.1 编写失败的测试**
 
 ```rust
 // crates/ruyi_runtime/tests/random_ffi.rs
@@ -876,12 +876,12 @@ fn choice_returns_element_from_slice() {
 
 **Files**: `Create: crates/ruyi_runtime/tests/random_ffi.rs`
 
-- [ ] **3.2 运行测试并确认失败**
+- [x] **3.2 运行测试并确认失败**
 
 Run: `cargo test -p ruyi_runtime --test random_ffi -- --nocapture`
 Expected: FAIL — `ruyi_runtime::random_ffi` does not exist; `ruyi_random_seed`, `ruyi_random_int`, etc. are undefined.
 
-- [ ] **3.3 实现最小化代码**
+- [x] **3.3 实现最小化代码**
 
 ```rust
 // crates/ruyic/src/runtime/random_ffi.rs
@@ -982,12 +982,12 @@ export fn shuffle<T>(items: Array<T>): void {
 
 **Files**: `Create: crates/ruyic/src/runtime/random_ffi.rs`, `Create: stdlib/random.ry`, `Modify: crates/ruyi_runtime/src/lib.rs`
 
-- [ ] **3.4 运行测试并确认通过**
+- [x] **3.4 运行测试并确认通过**
 
 Run: `cargo test -p ruyi_runtime --test random_ffi -- --nocapture && cargo test -p ruyic --test integration -- random_smoke`
 Expected: PASS — `ruyi_random_seed(42)` is deterministic, `ruyi_random_range(5, 10)` returns values in `[5, 10)`, `ruyi_random_choice` returns elements from the slice.
 
-- [ ] **3.5 提交**
+- [x] **3.5 提交**
 
 ```bash
 git add crates/ruyic/src/runtime/random_ffi.rs \
@@ -999,7 +999,7 @@ git commit -m "feat(stdlib): random module with 5 FFI-backed functions"
 
 ### Sub-batch 3.2: fmt.ry
 
-- [ ] **3.6 编写失败的测试**
+- [x] **3.6 编写失败的测试**
 
 ```rust
 // crates/ruyi_runtime/tests/fmt_ffi.rs
@@ -1040,12 +1040,12 @@ fn pad_right_aligns() {
 
 **Files**: `Create: crates/ruyi_runtime/tests/fmt_ffi.rs`
 
-- [ ] **3.7 运行测试并确认失败**
+- [x] **3.7 运行测试并确认失败**
 
 Run: `cargo test -p ruyi_runtime --test fmt_ffi -- --nocapture`
 Expected: FAIL — `ruyi_runtime::fmt_ffi` does not exist; `ruyi_fmt_format_int`, `ruyi_fmt_format_float`, `ruyi_fmt_pad_right` are undefined.
 
-- [ ] **3.8 实现最小化代码**
+- [x] **3.8 实现最小化代码**
 
 ```rust
 // crates/ruyic/src/runtime/fmt_ffi.rs
@@ -1136,12 +1136,12 @@ export fn pad_right(s: string, width: int): string {
 
 **Files**: `Create: crates/ruyic/src/runtime/fmt_ffi.rs`, `Create: stdlib/fmt.ry`
 
-- [ ] **3.9 运行测试并确认通过**
+- [x] **3.9 运行测试并确认通过**
 
 Run: `cargo test -p ruyi_runtime --test fmt_ffi -- --nocapture`
 Expected: PASS — `format_int(42, 10)` returns `"42"`, `format_int(255, 16)` returns `"ff"`, `pad_right("hi", 5)` returns `"hi   "`.
 
-- [ ] **3.10 提交**
+- [x] **3.10 提交**
 
 ```bash
 git add crates/ruyic/src/runtime/fmt_ffi.rs \
@@ -1156,7 +1156,7 @@ Depends on: Sub-batch 1.1 (supertrait cycle detection must land first so `trait 
 
 ### Sub-batch 4.1: test.ry + parser @test
 
-- [ ] **4.1 编写失败的测试**
+- [x] **4.1 编写失败的测试**
 
 ```rust
 // crates/ruyic/tests/parser_test_attr.rs
@@ -1203,12 +1203,12 @@ fn test_registry_collects_only_annotated_fns() {
 
 **Files**: `Create: crates/ruyic/tests/parser_test_attr.rs`
 
-- [ ] **4.2 运行测试并确认失败**
+- [x] **4.2 运行测试并确认失败**
 
 Run: `cargo test -p ruyic --test parser_test_attr -- --nocapture`
 Expected: FAIL — `Declaration::Function` has no `annotations` field (ast.rs:32-39). The parser treats `@test` as a class annotation prefix (parser.rs:393) and routes to `parse_class_declaration`, so the fn never appears.
 
-- [ ] **4.3 实现最小化代码**
+- [x] **4.3 实现最小化代码**
 
 ```rust
 // Modify crates/ruyic/src/parser/ast.rs Declaration::Function variant:
@@ -1254,12 +1254,12 @@ Some(Token::Fn) | Some(Token::Async) | Some(Token::At) => {
 
 **Files**: `Modify: crates/ruyic/src/parser/ast.rs`, `Modify: crates/ruyic/src/parser/parser.rs`
 
-- [ ] **4.4 运行测试并确认通过（第一阶段：parser）**
+- [x] **4.4 运行测试并确认通过（第一阶段：parser）**
 
 Run: `cargo test -p ruyic --test parser_test_attr -- --nocapture`
 Expected: PASS for the first test (`at_test_attribute_parses_on_fn`); the second test still fails because `TestFunctionRegistry` does not exist yet.
 
-- [ ] **4.5 编写 test.ry stdlib + TestFunctionRegistry**
+- [x] **4.5 编写 test.ry stdlib + TestFunctionRegistry**
 
 ```rust
 // crates/ruyic/src/runtime/test_registry.rs
@@ -1346,12 +1346,12 @@ export fn suite(name: string, tests: Array<fn() -> void>): void {
 
 **Files**: `Create: crates/ruyic/src/runtime/test_registry.rs`, `Modify: crates/ruyic/src/typechecker/checker.rs`, `Create: stdlib/test.ry`
 
-- [ ] **4.6 运行测试并确认通过（第二阶段：registry + stdlib）**
+- [x] **4.6 运行测试并确认通过（第二阶段：registry + stdlib）**
 
 Run: `cargo test -p ruyic --test parser_test_attr -- --nocapture && cargo test -p ruyic --test integration -- test_smoke`
 Expected: PASS — both parser and registry tests pass.
 
-- [ ] **4.7 提交**
+- [x] **4.7 提交**
 
 ```bash
 git add crates/ruyic/src/parser/ast.rs \
@@ -1367,7 +1367,7 @@ git commit -m "feat(stdlib): test framework with @test fn attribute + registry"
 
 Depends on: Sub-batch 1.1 (supertraits cycle detection must merge first so `trait Add` compiles)
 
-- [ ] **4.8 编写失败的测试：trait Add + ArrayOps::sum**
+- [x] **4.8 编写失败的测试：trait Add + ArrayOps::sum**
 
 ```rust
 // crates/ruyic/tests/collections_arrayops.rs
@@ -1414,12 +1414,12 @@ fn array_any_all_compile() {
 
 **Files**: `Create: crates/ruyic/tests/collections_arrayops.rs`
 
-- [ ] **4.9 运行测试并确认失败**
+- [x] **4.9 运行测试并确认失败**
 
 Run: `cargo test -p ruyic --test collections_arrayops -- --nocapture`
 Expected: FAIL — `ArrayOps::sum`, `ArrayOps::any`, `ArrayOps::all` are not declared in `stdlib/collections.ry`. Test must fail because the methods do not exist.
 
-- [ ] **4.10 实现 5 个 ArrayOps 新方法（sum/product/min/max/mean）+ 测试通过**
+- [x] **4.10 实现 5 个 ArrayOps 新方法（sum/product/min/max/mean）+ 测试通过**
 
 ```ruyi
 // Append to stdlib/collections.ry ArrayOps trait (after line 113):
@@ -1670,12 +1670,12 @@ impl<T> ArrayOps<T> for Array<T> {
 
 **Files**: `Modify: stdlib/collections.ry`
 
-- [ ] **4.11 运行测试并确认通过**
+- [x] **4.11 运行测试并确认通过**
 
 Run: `cargo test -p ruyic --test collections_arrayops -- --nocapture`
 Expected: PASS — `trait Add`, `ArrayOps::sum`, `ArrayOps::any`, `ArrayOps::all` all compile because Sub-batch 1.1's supertrait cycle detection prevents `Add` from accidentally forming a cycle with `Array<T>`.
 
-- [ ] **4.12 编写 Iterator 新方法的测试**
+- [x] **4.12 编写 Iterator 新方法的测试**
 
 ```rust
 // Append to crates/ruyic/tests/collections_arrayops.rs:
@@ -1704,7 +1704,7 @@ fn iterator_filter_take_while_skip_while_enumerate_chain() {
 
 **Files**: `Modify: crates/ruyic/tests/collections_arrayops.rs`
 
-- [ ] **4.13 实现 5 个 Iterator 新方法（filter / take_while / skip_while / enumerate / chain）+ 测试通过**
+- [x] **4.13 实现 5 个 Iterator 新方法（filter / take_while / skip_while / enumerate / chain）+ 测试通过**
 
 ```ruyi
 // Append to stdlib/collections.ry Iterator trait (after line 28):
@@ -1801,12 +1801,12 @@ impl<T> Iterator<T> for ChainedIterator<T> {
 
 **Files**: `Modify: stdlib/collections.ry`
 
-- [ ] **4.14 运行测试并确认通过**
+- [x] **4.14 运行测试并确认通过**
 
 Run: `cargo test -p ruyic --test collections_arrayops -- --nocapture`
 Expected: PASS — the chained `filter → take_while → skip_while → enumerate → chain → collect` pipeline type-checks.
 
-- [ ] **4.15 提交**
+- [x] **4.15 提交**
 
 ```bash
 git add stdlib/collections.ry \
@@ -1816,7 +1816,7 @@ git commit -m "feat(stdlib): 15 new ArrayOps methods + 5 new Iterator combinator
 
 ## 5. Closeout
 
-- [ ] **5.1 验证所有 contract obligations**
+- [x] **5.1 验证所有 contract obligations**
 
 | # | Obligation | Verification |
 |---|-----------|---|
@@ -1833,7 +1833,7 @@ git commit -m "feat(stdlib): 15 new ArrayOps methods + 5 new Iterator combinator
 | 11 | v0.5.7 release commit on `dev/v0.5.7-p1-defects` branch | `git log --oneline dev/v0.5.7-p1-defects` shows the v0.5.7 commit hash |
 | 12 | Merge commit to main per AGENTS.md branch policy | `git log --oneline main | head -1` shows the merge commit from dev branch |
 
-- [ ] **5.2 最终构建 + 测试 + lint + fmt 验证**
+- [x] **5.2 最终构建 + 测试 + lint + fmt 验证**
 
 ```bash
 make check
@@ -1847,7 +1847,7 @@ make run-example EXAMPLE=collections
 
 Expected: All targets succeed. `make run-example EXAMPLE=random` compiles and runs `examples/random.ry` (must be created from `stdlib/random.ry` test fixtures). `make run-example EXAMPLE=collections` compiles and runs `examples/collections.ry` exercising `sum` / `partition` / `filter`.
 
-- [ ] **5.3 总结风险、follow-ups、归档准备**
+- [x] **5.3 总结风险、follow-ups、归档准备**
 
 Risks:
 - LLVM 14 availability on macOS: `brew install llvm@14` required. If absent, fall back to `cargo check -p ruyi_runtime --no-default-features` per AGENTS.md.

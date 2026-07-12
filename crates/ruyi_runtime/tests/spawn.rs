@@ -35,7 +35,9 @@ struct TestFuture {
 
 impl TestFuture {
     fn new() -> *mut u8 {
-        let boxed = Box::new(TestFuture { poll_fn: dummy_poll });
+        let boxed = Box::new(TestFuture {
+            poll_fn: dummy_poll,
+        });
         Box::into_raw(boxed) as *mut u8
     }
 }
@@ -44,7 +46,10 @@ impl TestFuture {
 fn ruyi_spawn_returns_non_null_handle() {
     let future = TestFuture::new();
     let handle = ruyi_spawn(future);
-    assert!(!handle.is_null(), "ruyi_spawn should return non-null task handle");
+    assert!(
+        !handle.is_null(),
+        "ruyi_spawn should return non-null task handle"
+    );
 }
 
 #[test]

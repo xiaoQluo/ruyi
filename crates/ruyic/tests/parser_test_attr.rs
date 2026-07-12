@@ -29,9 +29,9 @@ fn fn_decls(program: &ruyic::parser::ast::Program) -> Vec<(String, Vec<String>)>
         .items
         .iter()
         .filter_map(|item| match item {
-            ModuleItem::Declaration(Declaration::Function { name, annotations, .. }) => {
-                Some((name.clone(), annotations.clone()))
-            }
+            ModuleItem::Declaration(Declaration::Function {
+                name, annotations, ..
+            }) => Some((name.clone(), annotations.clone())),
             _ => None,
         })
         .collect()

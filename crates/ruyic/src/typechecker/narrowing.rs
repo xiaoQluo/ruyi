@@ -102,10 +102,7 @@ mod tests {
         let original = Type::Nullable(Box::new(Type::Int));
         let narrowed = Type::Int;
         apply_reverse_narrow(&mut env, &original, &narrowed);
-        assert_eq!(
-            env,
-            NarrowEnv::Widened(Type::Nullable(Box::new(Type::Int)))
-        );
+        assert_eq!(env, NarrowEnv::Widened(Type::Nullable(Box::new(Type::Int))));
     }
 
     #[test]

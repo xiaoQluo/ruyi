@@ -9,7 +9,6 @@
  * @author luozegang
  * @date 2026-07-10
  */
-
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -101,7 +100,9 @@ fn hello_ir_default_mode_emits_cc_alloc() {
     cmd.current_dir(&workspace);
     cmd.arg("examples/hello.ry");
     cmd.arg("--emit-llvm");
-    let out = cmd.output().expect("failed to spawn ruyic hello.ry --emit-llvm");
+    let out = cmd
+        .output()
+        .expect("failed to spawn ruyic hello.ry --emit-llvm");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
         out.status.success(),

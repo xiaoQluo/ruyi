@@ -207,11 +207,7 @@ fn test_check_union_directly() {
     let report_full = check_union(
         &mut bag2,
         &union_ty,
-        &[
-            "Red".to_string(),
-            "Green".to_string(),
-            "Blue".to_string(),
-        ],
+        &["Red".to_string(), "Green".to_string(), "Blue".to_string()],
     );
     assert!(report_full.is_exhaustive);
     assert!(report_full.missing_cases.is_empty());
@@ -219,11 +215,7 @@ fn test_check_union_directly() {
 
     // Wildcard suppresses the diagnostic and reports exhaustive.
     let mut bag3 = DiagnosticBag::new();
-    let report_wild = check_union(
-        &mut bag3,
-        &union_ty,
-        &["Red".to_string(), "_".to_string()],
-    );
+    let report_wild = check_union(&mut bag3, &union_ty, &["Red".to_string(), "_".to_string()]);
     assert!(report_wild.is_exhaustive);
     assert!(report_wild.missing_cases.is_empty());
     assert!(!bag3.has_warnings());

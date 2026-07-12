@@ -44,17 +44,10 @@ impl TestFunctionRegistry {
     /// Walk a slice of declarations and register every `Function` that
     /// carries the `@test` annotation. The `file` and `module` labels are
     /// stored verbatim on each entry.
-    pub fn collect_from_program(
-        &mut self,
-        decls: &[Declaration],
-        file: &str,
-        module: &str,
-    ) {
+    pub fn collect_from_program(&mut self, decls: &[Declaration], file: &str, module: &str) {
         for decl in decls {
             if let Declaration::Function {
-                name,
-                annotations,
-                ..
+                name, annotations, ..
             } = decl
             {
                 if annotations.iter().any(|a| a == "test") {

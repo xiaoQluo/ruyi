@@ -13,10 +13,8 @@
  */
 use std::collections::HashMap;
 
-use ruyic::typechecker::supertraits::{
-    detect_supertrait_cycle, validate_supertrait_chain,
-};
 use ruyic::typechecker::diagnostics::DiagnosticBag;
+use ruyic::typechecker::supertraits::{detect_supertrait_cycle, validate_supertrait_chain};
 
 // ── 1. Sanity ─────────────────────────────────────────────────
 
@@ -47,7 +45,11 @@ fn test_two_level_chain_no_cycle() {
     supertraits.insert("C".to_string(), vec![]);
 
     let result = detect_supertrait_cycle("A", &supertraits);
-    assert!(result.is_ok(), "linear chain must not be a cycle: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "linear chain must not be a cycle: {:?}",
+        result
+    );
 }
 
 // ── 3. Two-level cycle (A → B → A) ────────────────────────────

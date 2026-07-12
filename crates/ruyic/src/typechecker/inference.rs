@@ -607,7 +607,8 @@ impl TypeInference {
         ) {
             Ok(resolved) => resolved,
             Err(message) => {
-                self.diagnostics.add_error(DiagnosticKind::Other { message });
+                self.diagnostics
+                    .add_error(DiagnosticKind::Other { message });
                 Type::Error
             }
         }

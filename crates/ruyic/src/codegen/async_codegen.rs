@@ -410,8 +410,11 @@ pub fn compile_async_function<'ctx>(
     ctx.builder().position_at_end(new_entry);
 
     let struct_size = state_struct_type.size_of().unwrap();
-    let alloc_ptr = crate::codegen::gc_alloc::GcAllocFn::for_mode(ctx.gc_mode)
-        .emit(ctx.builder(), &ctx.module, struct_size);
+    let alloc_ptr = crate::codegen::gc_alloc::GcAllocFn::for_mode(ctx.gc_mode).emit(
+        ctx.builder(),
+        &ctx.module,
+        struct_size,
+    );
     let state_ptr = ctx
         .builder()
         .build_bitcast(alloc_ptr, state_ptr_type, "state_ptr")

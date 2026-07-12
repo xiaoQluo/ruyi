@@ -56,9 +56,9 @@ pub extern "C" fn ruyi_gc_collect() {
                 }
                 let future_ref: &(dyn crate::async_runtime::RuyiFuture<Output = ()> + Send) =
                     &*task.future;
-                let data_ptr =
-                    future_ref as *const (dyn crate::async_runtime::RuyiFuture<Output = ()> + Send)
-                        as *const u8;
+                let data_ptr = future_ref
+                    as *const (dyn crate::async_runtime::RuyiFuture<Output = ()> + Send)
+                    as *const u8;
                 let size = std::mem::size_of_val(future_ref);
                 if data_ptr.is_null() || size == 0 {
                     continue;
@@ -66,9 +66,8 @@ pub extern "C" fn ruyi_gc_collect() {
                 let step = std::mem::size_of::<usize>();
                 let mut offset = 0;
                 while offset + step <= size {
-                    let word = unsafe {
-                        std::ptr::read_unaligned(data_ptr.add(offset) as *const usize)
-                    };
+                    let word =
+                        unsafe { std::ptr::read_unaligned(data_ptr.add(offset) as *const usize) };
                     let candidate = word as *mut u8;
                     if !candidate.is_null() && collector.is_valid_payload(candidate) {
                         unsafe {

@@ -122,11 +122,7 @@ pub fn resolve(ann: &Type, enclosing: &Type, ctx: ElementContext) -> Result<Type
                 .iter()
                 .map(|p| resolve(p, enclosing, ElementContext::indirect()))
                 .collect::<Result<Vec<_>, _>>()?,
-            return_type: Box::new(resolve(
-                return_type,
-                enclosing,
-                ElementContext::indirect(),
-            )?),
+            return_type: Box::new(resolve(return_type, enclosing, ElementContext::indirect())?),
         }),
         Type::Object(fields) => {
             let mut resolved_fields = Vec::with_capacity(fields.len());

@@ -152,7 +152,12 @@ mod tests {
         let m = map_of(&[("P", &["Q"]), ("Q", &["R"]), ("R", &["P"])]);
         let err = detect_supertrait_cycle("P", &m).unwrap_err();
         for name in ["P", "Q", "R"] {
-            assert!(err.iter().any(|n| n == name), "missing {} in {:?}", name, err);
+            assert!(
+                err.iter().any(|n| n == name),
+                "missing {} in {:?}",
+                name,
+                err
+            );
         }
     }
 

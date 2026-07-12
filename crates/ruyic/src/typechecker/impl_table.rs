@@ -75,7 +75,13 @@ impl ImplTable {
     pub fn impls_of_trait(&self, trait_id: TraitId) -> Vec<(TypeId, &ImplDef)> {
         self.map
             .iter()
-            .filter_map(|((t, ty), def)| if *t == trait_id { Some((*ty, def)) } else { None })
+            .filter_map(|((t, ty), def)| {
+                if *t == trait_id {
+                    Some((*ty, def))
+                } else {
+                    None
+                }
+            })
             .collect()
     }
 }

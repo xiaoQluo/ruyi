@@ -196,9 +196,7 @@ fn test_stdlib_trait_registry_shape() {
     let array_ops = registry
         .get_trait("ArrayOps")
         .expect("trait `ArrayOps` must be declared in stdlib/collections.ry");
-    for required in [
-        "sort", "indexOf", "first", "last", "slice", "concat",
-    ] {
+    for required in ["sort", "indexOf", "first", "last", "slice", "concat"] {
         assert!(
             array_ops.methods.contains_key(required),
             "ArrayOps must declare `{}` (Spec 4.9), got methods: {:?}",

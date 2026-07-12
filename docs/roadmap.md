@@ -26,6 +26,8 @@ Ruyi is a compiled programming language targeting native code via LLVM. This roa
 | v0.5.3 | dev/v0.5.3 | ✅ Released | 2026-05 | v0.5.3 |
 | v0.5.4 | dev/v0.5.4 | ✅ Released | 2026-07 | v0.5.4 |
 | v0.5.5 | dev/v0.5.5 | ✅ Released | 2026-07 | v0.5.5 |
+| v0.5.6 | dev/v0.5.6-housekeeping | ✅ Released | 2026-07 | (无 tag，housekeeping) |
+| v0.5.7 | dev/v0.5.7-p1-defects | 📦 Pending Release | 2026-07 | v0.5.7 (待打) |
 
 ---
 
@@ -133,7 +135,7 @@ Net result: 1.8 Throw / 1.9 Match / 1.10 Template are FULL in `crates/ruyic/src/
 | 2.3 | **Async actually async** | Replace no-op `ruyi_await` with real future polling via work-stealing scheduler | P0 |
 | 2.4 | **`spawn` built-in** | Implement `spawn(fn)` to launch green threads on the scheduler | P0 |
 | 2.5 | **Exception landing pads** | Call `ruyi_exception_try`/`ruyi_exception_catch` from try/catch codegen | P0 |
-| 2.6 | **Async GC roots** | `register_async_roots` currently no-op; register suspended tasks | P1 |
+| 2.6 | **Async GC roots** | `register_async_roots` currently no-op; register suspended tasks | P1 ✅ (v0.5.7) |
 | 2.7 | **Thread-local GC heaps** | Wire multi-threaded GC to async runtime | P2 |
 
 ### v0.4 — Typechecker Hardening (Priority: HIGH)
@@ -141,11 +143,11 @@ Net result: 1.8 Throw / 1.9 Match / 1.10 Template are FULL in `crates/ruyic/src/
 | # | Task | Description | Priority |
 |---|------|-------------|----------|
 | 3.1 | **Enforce trait bounds** | `check_bounds()` in generics.rs currently returns true; actually verify impl exists | P0 |
-| 3.2 | **Supertrait checking** | Populate and validate `supertraits` field | P1 |
+| 3.2 | **Supertrait checking** | Populate and validate `supertraits` field | P1 ✅ (v0.5.7) |
 | 3.3 | **Full `impl Trait for Type`** | Support standalone `impl Printable for string { ... }` (currently incomplete) | P0 |
-| 3.4 | **Type narrowing beyond null** | Narrowing after `instanceof`, `typeof`, match patterns | P1 |
-| 3.5 | **Exhaustiveness checking** | Verify match arms cover all cases; warn on incomplete patterns | P1 |
-| 3.6 | **Self-referential type checking** | Classes referencing `self` in field types | P1 |
+| 3.4 | **Type narrowing beyond null** | Narrowing after `instanceof`, `typeof`, match patterns | P1 ✅ (v0.5.7) |
+| 3.5 | **Exhaustiveness checking** | Verify match arms cover all cases; warn on incomplete patterns | P1 ✅ (v0.5.7) |
+| 3.6 | **Self-referential type checking** | Classes referencing `self` in field types | P1 ✅ (v0.5.7) |
 
 ### v0.5 — Standard Library Expansion (Priority: HIGH)
 
@@ -155,11 +157,11 @@ Net result: 1.8 Throw / 1.9 Match / 1.10 Template are FULL in `crates/ruyic/src/
 | 4.2 | **`math.ry`** | Pi, E, sqrt, pow, sin, cos, tan, asin, acos, atan, log, log10, exp, abs, min, max | P0 |
 | 4.3 | **`time.ry`** | Duration, Timestamp, sleep (sync + async), Date formatting | P0 |
 | 4.4 | **`json.ry`** | JSON.parse, JSON.stringify with type-safe deserialization | P0 |
-| 4.5 | **`random.ry`** | Random.nextInt, nextFloat, nextBool, nextBytes, seed | P1 |
-| 4.6 | **`fmt.ry`** | Format strings: `fmt.format("{} is {} years old", name, age)` | P1 |
+| 4.5 | **`random.ry`** | Random.nextInt, nextFloat, nextBool, nextBytes, seed | P1 ✅ (v0.5.7) |
+| 4.6 | **`fmt.ry`** | Format strings: `fmt.format("{} is {} years old", name, age)` | P1 ✅ (v0.5.7) |
 | 4.7 | **`regex.ry`** | Regex class with match, replace, split | P2 |
-| 4.8 | **`test.ry`** | Built-in test framework: `@test` attribute, assert, assertEq, assertThrows | P1 |
-| 4.9 | **Expand `collections.ry`** | Array.sort, .contains, .indexOf, .first, .last, .slice, .concat; Iterator.takeWhile, .skipWhile, .chain, .enumerate, .zip, .sum, .product, .any, .all | P1 |
+| 4.8 | **`test.ry`** | Built-in test framework: `@test` attribute, assert, assertEq, assertThrows | P1 ✅ (v0.5.7) |
+| 4.9 | **Expand `collections.ry`** | Array.sort, .contains, .indexOf, .first, .last, .slice, .concat; Iterator.takeWhile, .skipWhile, .chain, .enumerate, .zip, .sum, .product, .any, .all | P1 ✅ (v0.5.7) |
 | 4.10 | **Merge `core.ry` + `string.ry`** | Duplicate String methods; consolidate into one module | P2 |
 | 4.11 | **`buffer.ry`** | Buffer/ByteArray type for binary data | P2 |
 | 4.12 | **`net.ry`** | TCPClient, TCPServer (basic socket I/O) | P2 |

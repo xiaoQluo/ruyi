@@ -142,11 +142,7 @@ mod tests {
     fn full_coverage_no_warning() {
         let mut bag = DiagnosticBag::new();
         let ty = union(&["A", "B"]);
-        let report = check_union(
-            &mut bag,
-            &ty,
-            &["A".to_string(), "B".to_string()],
-        );
+        let report = check_union(&mut bag, &ty, &["A".to_string(), "B".to_string()]);
         assert!(report.is_exhaustive);
         assert!(!bag.has_warnings());
     }
