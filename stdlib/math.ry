@@ -1,0 +1,162 @@
+/**
+ * Ruyi Standard Library - Math Module
+ *
+ * Provides mathematical functions and constants for numerical computations.
+ * All functions operate on `float` (f64) values.
+ *
+ * @author Ruyi Team
+ * @date 2026-07-12
+ */
+
+// ============================================================
+// Constants
+// ============================================================
+
+/**
+ * The ratio of a circle's circumference to its diameter (π ≈ 3.14159).
+ */
+export const PI: float = __math_pi();
+
+/**
+ * Euler's number, the base of natural logarithms (e ≈ 2.71828).
+ */
+export const E: float = __math_e();
+
+// ============================================================
+// Basic Math Functions
+// ============================================================
+
+/**
+ * Returns the square root of x.
+ *
+ * @param x The value to compute the square root of
+ * @return The square root of x
+ */
+export fn sqrt(x: float): float {
+    return __math_sqrt(x);
+}
+
+/**
+ * Returns x raised to the power of y.
+ *
+ * @param x The base value
+ * @param y The exponent value
+ * @return x raised to the power of y
+ */
+export fn pow(x: float, y: float): float {
+    return __math_pow(x, y);
+}
+
+/**
+ * Returns the absolute value of x.
+ *
+ * @param x The value to compute the absolute value of
+ * @return The absolute value of x
+ */
+export fn abs(x: float): float {
+    return __math_abs(x);
+}
+
+/**
+ * Returns the smaller of two values.
+ *
+ * @param a First value
+ * @param b Second value
+ * @return The smaller of a and b
+ */
+export fn min(a: float, b: float): float {
+    return __math_min(a, b);
+}
+
+/**
+ * Returns the larger of two values.
+ *
+ * @param a First value
+ * @param b Second value
+ * @return The larger of a and b
+ */
+export fn max(a: float, b: float): float {
+    return __math_max(a, b);
+}
+
+// ============================================================
+// Trigonometric Functions
+// ============================================================
+
+/**
+ * Returns the sine of x (measured in radians).
+ *
+ * @param x The angle in radians
+ * @return The sine of x
+ */
+export fn sin(x: float): float {
+    return __math_sin(x);
+}
+
+/**
+ * Returns the cosine of x (measured in radians).
+ *
+ * @param x The angle in radians
+ * @return The cosine of x
+ */
+export fn cos(x: float): float {
+    return __math_cos(x);
+}
+
+/**
+ * Returns the tangent of x (measured in radians).
+ *
+ * @param x The angle in radians
+ * @return The tangent of x
+ */
+export fn tan(x: float): float {
+    return __math_tan(x);
+}
+
+// ============================================================
+// Logarithmic Functions
+// ============================================================
+
+/**
+ * Returns the natural logarithm of x.
+ *
+ * @param x The value to compute the logarithm of (must be positive)
+ * @return The natural logarithm of x
+ */
+export fn log(x: float): float {
+    return __math_log(x);
+}
+
+// ============================================================
+// Rounding Functions
+// ============================================================
+
+/**
+ * Returns the smallest integer greater than or equal to x.
+ *
+ * @param x The value to round up
+ * @return The ceiling of x
+ */
+export fn ceil(x: float): float {
+    return __math_ceil(x);
+}
+
+/**
+ * Returns the largest integer less than or equal to x.
+ *
+ * @param x The value to round down
+ * @return The floor of x
+ */
+export fn floor(x: float): float {
+    return __math_floor(x);
+}
+
+/**
+ * Returns the nearest integer to x.
+ *
+ * @param x The value to round
+ * @return The rounded value of x
+ */
+export fn round(x: float): float {
+    return __math_round(x);
+}

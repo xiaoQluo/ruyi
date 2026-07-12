@@ -9,7 +9,10 @@ pub mod exception;
 pub mod fmt_ffi;
 pub mod gc;
 pub mod gc_exports;
+pub mod json_ffi;
+pub mod math_ffi;
 pub mod random_ffi;
+pub mod time_ffi;
 
 pub use alloc::{
     allocate, deallocate, reallocate, ruyi_alloc, ruyi_dealloc, ruyi_realloc, GcObjectHeader, Heap,

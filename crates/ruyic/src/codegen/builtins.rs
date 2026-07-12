@@ -88,6 +88,29 @@ pub fn declare_builtins<'ctx>(context: &'ctx Context, module: &Module<'ctx>, gc_
     declare_string_to_lower_case(context, module);
     declare_string_trim(context, module);
     declare_string_split(context, module);
+
+    declare_math_pi(context, module);
+    declare_math_e(context, module);
+    declare_math_sqrt(context, module);
+    declare_math_pow(context, module);
+    declare_math_abs(context, module);
+    declare_math_min(context, module);
+    declare_math_max(context, module);
+    declare_math_sin(context, module);
+    declare_math_cos(context, module);
+    declare_math_tan(context, module);
+    declare_math_log(context, module);
+    declare_math_ceil(context, module);
+    declare_math_floor(context, module);
+    declare_math_round(context, module);
+
+    declare_time_now(context, module);
+    declare_time_timestamp(context, module);
+    declare_time_sleep(context, module);
+    declare_time_format(context, module);
+
+    declare_json_parse(context, module);
+    declare_json_stringify(context, module);
 }
 
 fn declare_printf<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
@@ -940,4 +963,126 @@ fn declare_string_split<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     let i8_ptr = context.i8_type().ptr_type(Default::default());
     let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
     module.add_function("__string_split", fn_type, None);
+}
+
+fn declare_math_pi<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let f64_ty = context.f64_type();
+    let fn_type = f64_ty.fn_type(&[], false);
+    module.add_function("__math_pi", fn_type, None);
+}
+
+fn declare_math_e<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let f64_ty = context.f64_type();
+    let fn_type = f64_ty.fn_type(&[], false);
+    module.add_function("__math_e", fn_type, None);
+}
+
+fn declare_math_sqrt<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let f64_ty = context.f64_type();
+    let fn_type = f64_ty.fn_type(&[f64_ty.into()], false);
+    module.add_function("__math_sqrt", fn_type, None);
+}
+
+fn declare_math_pow<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let f64_ty = context.f64_type();
+    let fn_type = f64_ty.fn_type(&[f64_ty.into(), f64_ty.into()], false);
+    module.add_function("__math_pow", fn_type, None);
+}
+
+fn declare_math_abs<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let f64_ty = context.f64_type();
+    let fn_type = f64_ty.fn_type(&[f64_ty.into()], false);
+    module.add_function("__math_abs", fn_type, None);
+}
+
+fn declare_math_min<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let f64_ty = context.f64_type();
+    let fn_type = f64_ty.fn_type(&[f64_ty.into(), f64_ty.into()], false);
+    module.add_function("__math_min", fn_type, None);
+}
+
+fn declare_math_max<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let f64_ty = context.f64_type();
+    let fn_type = f64_ty.fn_type(&[f64_ty.into(), f64_ty.into()], false);
+    module.add_function("__math_max", fn_type, None);
+}
+
+fn declare_math_sin<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let f64_ty = context.f64_type();
+    let fn_type = f64_ty.fn_type(&[f64_ty.into()], false);
+    module.add_function("__math_sin", fn_type, None);
+}
+
+fn declare_math_cos<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let f64_ty = context.f64_type();
+    let fn_type = f64_ty.fn_type(&[f64_ty.into()], false);
+    module.add_function("__math_cos", fn_type, None);
+}
+
+fn declare_math_tan<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let f64_ty = context.f64_type();
+    let fn_type = f64_ty.fn_type(&[f64_ty.into()], false);
+    module.add_function("__math_tan", fn_type, None);
+}
+
+fn declare_math_log<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let f64_ty = context.f64_type();
+    let fn_type = f64_ty.fn_type(&[f64_ty.into()], false);
+    module.add_function("__math_log", fn_type, None);
+}
+
+fn declare_math_ceil<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let f64_ty = context.f64_type();
+    let fn_type = f64_ty.fn_type(&[f64_ty.into()], false);
+    module.add_function("__math_ceil", fn_type, None);
+}
+
+fn declare_math_floor<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let f64_ty = context.f64_type();
+    let fn_type = f64_ty.fn_type(&[f64_ty.into()], false);
+    module.add_function("__math_floor", fn_type, None);
+}
+
+fn declare_math_round<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let f64_ty = context.f64_type();
+    let fn_type = f64_ty.fn_type(&[f64_ty.into()], false);
+    module.add_function("__math_round", fn_type, None);
+}
+
+fn declare_time_now<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i64_ty = context.i64_type();
+    let fn_type = i64_ty.fn_type(&[], false);
+    module.add_function("__time_now", fn_type, None);
+}
+
+fn declare_time_timestamp<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i64_ty = context.i64_type();
+    let fn_type = i64_ty.fn_type(&[], false);
+    module.add_function("__time_timestamp", fn_type, None);
+}
+
+fn declare_time_sleep<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let f64_ty = context.f64_type();
+    let void_ty = context.void_type();
+    let fn_type = void_ty.fn_type(&[f64_ty.into()], false);
+    module.add_function("__time_sleep", fn_type, None);
+}
+
+fn declare_time_format<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i64_ty = context.i64_type();
+    let fn_type = i8_ptr.fn_type(&[i64_ty.into()], false);
+    module.add_function("__time_format", fn_type, None);
+}
+
+fn declare_json_parse<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
+    module.add_function("__json_parse", fn_type, None);
+}
+
+fn declare_json_stringify<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
+    module.add_function("__json_stringify", fn_type, None);
 }

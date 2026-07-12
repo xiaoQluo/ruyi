@@ -19,6 +19,18 @@ use crate::gc_exports::ruyi_gc_alloc;
 pub use crate::random_ffi::{
     ruyi_random_bool, ruyi_random_bytes, ruyi_random_float, ruyi_random_int, ruyi_random_new,
 };
+pub use crate::math_ffi::{
+    __math_sqrt, __math_pow, __math_abs, __math_min, __math_max,
+    __math_sin, __math_cos, __math_tan, __math_log,
+    __math_ceil, __math_floor, __math_round,
+    __math_pi, __math_e,
+};
+pub use crate::time_ffi::{
+    __time_now, __time_timestamp, __time_sleep, __time_format,
+};
+pub use crate::json_ffi::{
+    __json_parse, __json_stringify,
+};
 use std::alloc::{alloc, Layout};
 use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, CString};

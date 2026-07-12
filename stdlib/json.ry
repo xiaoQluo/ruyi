@@ -1,0 +1,45 @@
+/**
+ * Ruyi Standard Library - JSON Module
+ *
+ * Provides JSON parsing and stringification functions.
+ * This is a basic implementation that handles JSON objects, arrays,
+ * strings, numbers, booleans, and null values.
+ *
+ * @author Ruyi Team
+ * @date 2026-07-12
+ */
+
+// ============================================================
+// JSON Functions
+// ============================================================
+
+/**
+ * Parses a JSON string and returns a Ruyi value.
+ *
+ * @param json_string The JSON string to parse
+ * @return The parsed value, or null on error
+ */
+export fn parse(json_string: string): dyn {
+    return __json_parse(json_string);
+}
+
+/**
+ * Stringifies a Ruyi value to a JSON string.
+ *
+ * @param value The value to convert to JSON
+ * @return The JSON string representation
+ */
+export fn stringify(value: dyn): string {
+    return __json_stringify(value);
+}
+
+/**
+ * Checks if a string is valid JSON.
+ *
+ * @param json_string The string to check
+ * @return true if the string is valid JSON, false otherwise
+ */
+export fn isValid(json_string: string): bool {
+    let result = parse(json_string);
+    return result != null;
+}
