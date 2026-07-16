@@ -10,7 +10,7 @@
  * @date 2026-05-01
  */
 use crate::parser::ast::{
-    ArrayElement, ArrowBody, BinaryOp, Declaration, Expr, MemberProperty, ModuleItem,
+    ArrayElement, ArrowBody, AssignOp, BinaryOp, Declaration, Expr, MemberProperty, ModuleItem,
     ObjectProperty, Pattern, PropertyName, Statement, UnaryOp,
 };
 use crate::typechecker::constraints::ConstraintSolver;
@@ -327,16 +327,22 @@ impl TypeInference {
                     .collect();
 
                 // Phase 1: Infer return type (needs parameters in scope)
+                // Suppress diagnostics during return-type inference — this pass
+                // runs before the function body has been fully type-checked, so
+                // variables referenced in return expressions may not be declared
+                // yet. Phase 3 handles proper error reporting.
                 self.env.push_scope();
                 for (param, ty) in params.iter().zip(param_types.iter()) {
                     self.env
                         .declare_param(&pattern_name(&param.pattern), ty.clone());
                 }
 
+                let saved_diagnostics = std::mem::take(&mut self.diagnostics);
                 let ret_type = return_type
                     .as_ref()
                     .map(Type::from_annotation)
                     .unwrap_or_else(|| self.infer_return_type(body));
+                self.diagnostics = saved_diagnostics;
 
                 let fn_ret_type = if *is_async {
                     Type::Future(Box::new(ret_type.clone()))
@@ -363,7 +369,7 @@ impl TypeInference {
                 // Pop the temporary scope used for return type inference
                 self.env.pop_scope();
 
-                // Phase 2: Declare function name in outer (global) scope
+                // Phase 2: Declare function name in outer scope
                 self.env.declare_let(name, fn_type.clone());
 
                 // Phase 3: Type check the function body
@@ -1194,12 +1200,16 @@ impl TypeInference {
                 let else_ty = self.synthesize(else_branch);
                 then_ty.least_upper_bound(&else_ty)
             }
-            Expr::Assignment { left, op: _, right } => {
+            Expr::Assignment { left, op, right } => {
                 let right_ty = self.synthesize(right);
                 match left.as_ref() {
                     Expr::Identifier(name) => {
                         if let Some(existing_ty) = self.env.lookup(name).cloned() {
-                            if !right_ty.is_consistent_with(&existing_ty) {
+                            // NullishAssign (??=) assigns only when LHS is null,
+                            // so relaxed type-checking: skip the consistency check
+                            if op != &AssignOp::NullishAssign
+                                && !right_ty.is_consistent_with(&existing_ty)
+                            {
                                 self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
                                     expected: existing_ty,
                                     found: right_ty.clone(),

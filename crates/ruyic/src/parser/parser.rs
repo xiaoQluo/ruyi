@@ -837,7 +837,8 @@ impl Parser {
                 self.advance();
                 Ok(Statement::Empty)
             }
-            Some(Token::Let) | Some(Token::Const) | Some(Token::Class) => {
+            Some(Token::Let) | Some(Token::Const) | Some(Token::Class) | Some(Token::Fn)
+            | Some(Token::Async) => {
                 let decl = self.parse_declaration()?;
                 Ok(Statement::Declaration(decl))
             }
@@ -1971,10 +1972,36 @@ impl Parser {
                 self.advance();
                 let mut fields = Vec::new();
                 while !self.check(&Token::RBrace) && !self.is_at_end() {
-                    let name = self.expect_ident()?;
-                    self.expect(Token::Colon)?;
-                    let ty = self.parse_type()?;
-                    fields.push(TypeField { name, ty });
+                    if self.check(&Token::Fn) {
+                        // Method signature: fn name(params): return_type
+                        self.advance();
+                        let name = self.expect_ident()?;
+                        self.expect(Token::LParen)?;
+                        let mut params = Vec::new();
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            params.push(self.parse_type()?);
+                            if !self.match_token(&Token::Comma) {
+                                break;
+                            }
+                        }
+                        self.expect(Token::RParen)?;
+                        if !self.match_token(&Token::FatArrow) && !self.match_token(&Token::Colon) {
+                            return Err(self.error("expected '->' or ':' after method parameters"));
+                        }
+                        let return_type = Box::new(self.parse_type()?);
+                        fields.push(TypeField {
+                            name,
+                            ty: TypeAnnotation::Function {
+                                params,
+                                return_type,
+                            },
+                        });
+                    } else {
+                        let name = self.expect_ident()?;
+                        self.expect(Token::Colon)?;
+                        let ty = self.parse_type()?;
+                        fields.push(TypeField { name, ty });
+                    }
                     if !self.match_token(&Token::Comma) {
                         break;
                     }
