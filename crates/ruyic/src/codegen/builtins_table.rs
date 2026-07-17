@@ -13,7 +13,7 @@
  * The typecheck layer collapses these to `Type::Bool` via the
  * `builtin_sig_to_type` helper in `inference.rs`.
  *
- * Order: array (6) → map (7) → set (4) → string (18) → math (14) → time (4) → json (2).
+ * Order: array (6) → map (7) → set (4) → string (18) → math (14) → time (4) → json (2) → path (8) → io (17) → process (20).
  *
  * @author Ruyi Team
  * @date 2026-07-12
@@ -366,6 +366,257 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         ret: BuiltinSig::String,
         params: &[BuiltinSig::String],
     },
+    // ============================================================
+    // __path_* (8)
+    // ============================================================
+    BuiltinDecl {
+        name: "__path_join",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__path_basename",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__path_dirname",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__path_extname",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__path_is_absolute",
+        ret: BuiltinSig::Bool,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__path_normalize",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__path_separator",
+        ret: BuiltinSig::String,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__path_relative",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String, BuiltinSig::String],
+    },
+    // ============================================================
+    // __io_* (17)
+    // ============================================================
+    // Sync (9)
+    BuiltinDecl {
+        name: "__io_read_line",
+        ret: BuiltinSig::String,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__io_file_read_text",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__io_file_write_text",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::String, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__io_file_read_lines",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__io_file_exists",
+        ret: BuiltinSig::Bool,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__io_is_directory",
+        ret: BuiltinSig::Bool,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__io_is_file",
+        ret: BuiltinSig::Bool,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__io_file_delete",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__io_mkdir",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::String, BuiltinSig::Bool],
+    },
+    // Async (8)
+    BuiltinDecl {
+        name: "__io_file_read_text_async",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__io_file_write_text_async",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::String, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__io_file_read_lines_async",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__io_file_exists_async",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__io_is_directory_async",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__io_is_file_async",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__io_file_delete_async",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__io_mkdir_async",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::String, BuiltinSig::Bool],
+    },
+    // ============================================================
+    // __process_* (20)
+    // ============================================================
+    // Execution + lifecycle (9)
+    BuiltinDecl {
+        name: "__process_exec",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__process_exec_with",
+        ret: BuiltinSig::Ptr,
+        params: &[
+            BuiltinSig::String,
+            BuiltinSig::String,
+            BuiltinSig::Ptr,
+            BuiltinSig::Bool,
+        ],
+    },
+    BuiltinDecl {
+        name: "__process_create",
+        ret: BuiltinSig::Ptr,
+        params: &[
+            BuiltinSig::String,
+            BuiltinSig::String,
+            BuiltinSig::Ptr,
+            BuiltinSig::Bool,
+        ],
+    },
+    BuiltinDecl {
+        name: "__process_wait",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__process_wait_async",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__process_kill",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    // I/O pipes (4)
+    BuiltinDecl {
+        name: "__process_write_input",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__process_close_input",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__process_read_output",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__process_read_error",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::Ptr],
+    },
+    // Environment (3)
+    BuiltinDecl {
+        name: "__process_get_env",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__process_set_env",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::String, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__process_get_all_env",
+        ret: BuiltinSig::Ptr,
+        params: &[],
+    },
+    // System info (6)
+    BuiltinDecl {
+        name: "__process_get_pid",
+        ret: BuiltinSig::Int,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__process_get_ppid",
+        ret: BuiltinSig::Int,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__process_get_platform",
+        ret: BuiltinSig::String,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__process_get_cpu_count",
+        ret: BuiltinSig::Int,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__process_get_total_memory",
+        ret: BuiltinSig::Int,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__process_get_free_memory",
+        ret: BuiltinSig::Int,
+        params: &[],
+    },
+    // Signal (1)
+    BuiltinDecl {
+        name: "__process_signal_available",
+        ret: BuiltinSig::Bool,
+        params: &[BuiltinSig::Int],
+    },
 ];
 
 /// Resolve a `BuiltinSig` to its inkwell `BasicTypeEnum` representation.
@@ -406,11 +657,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builtins_count_is_55() {
+    fn builtins_count_is_101() {
         assert_eq!(
             BUILTINS.len(),
-            56,
-            "expected exactly 56 FFI entries (v0.5.9 T4 added 8-arg __string_replace_all)"
+            101,
+            "expected exactly 101 FFI entries (56 base + path 8 + io 17 + process 20)"
         );
     }
 

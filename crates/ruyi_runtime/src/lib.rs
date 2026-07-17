@@ -9,8 +9,11 @@ pub mod exception;
 pub mod fmt_ffi;
 pub mod gc;
 pub mod gc_exports;
+pub mod io_ffi;
 pub mod json_ffi;
 pub mod math_ffi;
+pub mod path_ffi;
+pub mod process_ffi;
 pub mod random_ffi;
 pub mod time_ffi;
 
