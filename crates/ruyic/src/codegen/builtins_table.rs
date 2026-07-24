@@ -1437,6 +1437,113 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         ret: BuiltinSig::Void,
         params: &[],
     },
+    // ============================================================
+    // barrier_ffi (3) — thread synchronization barrier
+    // ============================================================
+    BuiltinDecl {
+        name: "__barrier_new",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__barrier_wait",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__barrier_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    // ============================================================
+    // once_ffi (5) — one-time initialisation guard
+    // ============================================================
+    BuiltinDecl {
+        name: "__once_new",
+        ret: BuiltinSig::Ptr,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__once_do",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__once_is_completed",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__once_reset",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__once_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    // ============================================================
+    // semaphore_ffi (6) — counting semaphore
+    // ============================================================
+    BuiltinDecl {
+        name: "__semaphore_new",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__semaphore_acquire",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__semaphore_try_acquire",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__semaphore_release",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__semaphore_available",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__semaphore_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    // ============================================================
+    // condvar_ffi (5) — condition variable
+    // ============================================================
+    BuiltinDecl {
+        name: "__condvar_new",
+        ret: BuiltinSig::Ptr,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__condvar_wait",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__condvar_notify_one",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__condvar_notify_all",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__condvar_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
 ];
 
 /// Resolve a `BuiltinSig` to its inkwell `BasicTypeEnum` representation.
@@ -1478,11 +1585,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builtins_count_is_249() {
+    fn builtins_count_is_268() {
         assert_eq!(
             BUILTINS.len(),
-            249,
-            "expected exactly 249 FFI entries (244 + 5 tls_store)"
+            268,
+            "expected exactly 268 FFI entries (249 + 19 barrier/once/semaphore/condvar)"
         );
     }
 

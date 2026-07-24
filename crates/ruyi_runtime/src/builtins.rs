@@ -2,6 +2,7 @@ pub use crate::atomic_ffi::{
     __atomic_i64_cas, __atomic_i64_fetch_add, __atomic_i64_fetch_sub, __atomic_i64_free,
     __atomic_i64_load, __atomic_i64_new, __atomic_i64_store, __atomic_i64_swap,
 };
+pub use crate::barrier_ffi::{__barrier_free, __barrier_new, __barrier_wait};
 pub use crate::channel_ffi::{
     __channel_clone, __channel_clone_free, __channel_clone_send, __channel_free,
     __channel_is_closed, __channel_new, __channel_recv, __channel_select_add,
@@ -12,6 +13,9 @@ pub use crate::compress_ffi::{
     __compress_deflate, __compress_finish, __compress_gzip, __compress_new, __compress_write,
     __compress_zlib, __decompress_deflate, __decompress_finish, __decompress_gzip,
     __decompress_new, __decompress_write, __decompress_zlib,
+};
+pub use crate::condvar_ffi::{
+    __condvar_free, __condvar_new, __condvar_notify_all, __condvar_notify_one, __condvar_wait,
 };
 pub use crate::crypto_ffi::{
     __crypto_aes_gcm_decrypt_hex, __crypto_aes_gcm_decrypt_raw, __crypto_aes_gcm_encrypt_hex,
@@ -29,6 +33,7 @@ pub use crate::math_ffi::{
 pub use crate::mutex_ffi::{
     __mutex_free, __mutex_lock, __mutex_new, __mutex_try_lock, __mutex_unlock,
 };
+pub use crate::once_ffi::{__once_do, __once_free, __once_is_completed, __once_new, __once_reset};
 /**
  * Built-in runtime functions for Ruyi.
  *
@@ -52,6 +57,10 @@ pub use crate::random_ffi::{
 pub use crate::rwlock_ffi::{
     __rwlock_free, __rwlock_new, __rwlock_read_lock, __rwlock_read_unlock, __rwlock_try_read_lock,
     __rwlock_try_write_lock, __rwlock_write_lock, __rwlock_write_unlock,
+};
+pub use crate::semaphore_ffi::{
+    __semaphore_acquire, __semaphore_available, __semaphore_free, __semaphore_new,
+    __semaphore_release, __semaphore_try_acquire,
 };
 pub use crate::thread_ffi::{
     __thread_cpu_count, __thread_detach, __thread_id, __thread_join, __thread_sleep, __thread_spawn,
