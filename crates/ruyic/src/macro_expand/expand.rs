@@ -840,6 +840,17 @@ fn apply_template(
     let mut i = 0;
 
     while i < template.len() {
+        // New format: $name is a single Ident token
+        if let Token::Ident(name) = &template[i] {
+            if let Some(stripped) = name.strip_prefix('$') {
+                if let Some(cap) = captures.get(stripped) {
+                    result.extend(cap.tokens.clone());
+                    i += 1;
+                    continue;
+                }
+            }
+        }
+        // Legacy format: Dollar followed by Ident
         if template[i] == Token::Dollar {
             if let Some(Token::Ident(name)) = template.get(i + 1) {
                 if let Some(cap) = captures.get(name) {

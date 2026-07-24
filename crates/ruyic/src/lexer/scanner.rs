@@ -51,8 +51,13 @@ impl Scanner {
         if (self.template_context || self.dq_in_interp) && self.current_char() == '}' {
             let start = self.current_location();
             self.advance();
-            self.dq_in_interp = false;
-            self.pending_dq_string = true;
+            if self.template_context {
+                // After ${...} in template string, continue scanning template
+                self.pending_template_part = true;
+            } else {
+                self.dq_in_interp = false;
+                self.pending_dq_string = true;
+            }
             return Ok(TokenWithLocation {
                 token: Token::TemplateExprEnd,
                 start,
@@ -69,10 +74,7 @@ impl Scanner {
                 self.advance();
                 Token::TemplateExprStart
             }
-            '$' => {
-                self.advance();
-                Token::Dollar
-            }
+            '$' => self.scan_ident_or_keyword(),
             'a'..='z' | 'A'..='Z' | '_' => self.scan_ident_or_keyword(),
             '0'..='9' => self.scan_number()?,
             '"' => return self.scan_string('"'),
@@ -443,7 +445,7 @@ impl Scanner {
     }
 
     fn is_ident_part(&self, ch: char) -> bool {
-        matches!(ch, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_')
+        matches!(ch, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '$')
     }
 
     fn resolve_keyword(ident: &str) -> Token {

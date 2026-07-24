@@ -704,3 +704,32 @@ fn test_whitespace_between_tokens() {
 fn test_eof_only() {
     assert_tokens("", &[Token::Eof]);
 }
+
+#[test]
+fn test_dollar_ident() {
+    assert_tokens("$foo", &[Token::Ident("$foo".into()), Token::Eof]);
+}
+
+#[test]
+fn test_dollar_dollar_ident() {
+    assert_tokens("$$", &[Token::Ident("$$".into()), Token::Eof]);
+}
+
+#[test]
+fn test_underscore_dollar_ident() {
+    assert_tokens("_$bar", &[Token::Ident("_$bar".into()), Token::Eof]);
+}
+
+#[test]
+fn test_let_dollar_variable() {
+    assert_tokens(
+        "let $x = 5",
+        &[
+            Token::Let,
+            Token::Ident("$x".into()),
+            Token::Assign,
+            Token::Int(5),
+            Token::Eof,
+        ],
+    );
+}
