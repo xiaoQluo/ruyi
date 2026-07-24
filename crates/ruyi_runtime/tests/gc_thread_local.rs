@@ -43,7 +43,9 @@ fn test_thread_local_collect_isolation() {
     assert!(!main_obj2.is_null());
 
     // Root one object
-    unsafe { ruyi_gc_add_root(main_obj1); }
+    unsafe {
+        ruyi_gc_add_root(main_obj1);
+    }
 
     unsafe {
         *(main_obj1 as *mut u64) = 0xDEADBEEF;
@@ -70,7 +72,9 @@ fn test_thread_local_collect_isolation() {
         // Note: main_obj2 might be collected or not depending on implementation
     }
 
-    unsafe { ruyi_gc_remove_root(main_obj1); }
+    unsafe {
+        ruyi_gc_remove_root(main_obj1);
+    }
 }
 
 #[test]
@@ -181,7 +185,9 @@ fn test_thread_local_gc_stress() {
 
                 // Keep some objects rooted
                 if i % 10 == 0 {
-                    unsafe { ruyi_gc_add_root(obj); }
+                    unsafe {
+                        ruyi_gc_add_root(obj);
+                    }
                     roots.push(obj);
                 }
 
@@ -207,7 +213,9 @@ fn test_thread_local_gc_stress() {
 
             // Clean up roots
             for &obj in &roots {
-                unsafe { ruyi_gc_remove_root(obj); }
+                unsafe {
+                    ruyi_gc_remove_root(obj);
+                }
             }
 
             ruyi_gc_collect();

@@ -9,8 +9,8 @@ mod c_exports;
 pub mod compress_ffi;
 pub mod crypto_ffi;
 pub mod exception;
-pub mod fmt_ffi;
 pub mod float_ffi;
+pub mod fmt_ffi;
 pub mod gc;
 pub mod gc_exports;
 pub mod io_ffi;
@@ -38,11 +38,10 @@ pub use async_runtime::{
     Waker, WorkStealingDeque, GLOBAL_SCHEDULER,
 };
 pub use builtins::{
-    ruyi_array_alloc, ruyi_array_get, ruyi_array_length, ruyi_array_pop, ruyi_array_push,
-    ruyi_array_set, ruyi_bigint_eq, ruyi_bigint_from_str, ruyi_bool_to_string,
-    ruyi_float_to_string, ruyi_int_to_string, ruyi_member_access, ruyi_object_alloc,
-    __random_bool, __random_bytes, __random_float, __random_int, __random_new,
-    ruyi_string_concat,
+    __random_bool, __random_bytes, __random_float, __random_int, __random_new, ruyi_array_alloc,
+    ruyi_array_get, ruyi_array_length, ruyi_array_pop, ruyi_array_push, ruyi_array_set,
+    ruyi_bigint_eq, ruyi_bigint_from_str, ruyi_bool_to_string, ruyi_float_to_string,
+    ruyi_int_to_string, ruyi_member_access, ruyi_object_alloc, ruyi_string_concat,
 };
 pub use c_exports::cc_alloc;
 #[cfg(feature = "inkwell")]

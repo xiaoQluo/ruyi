@@ -8,7 +8,6 @@
  * @author Ruyi Team
  * @date 2026-07-24
  */
-
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
@@ -88,21 +87,18 @@ pub extern "C" fn __crypto_sha1(data: *const c_char) -> *mut c_char {
 // ============================================================
 
 #[no_mangle]
-pub extern "C" fn __crypto_hmac_sha256(
-    key: *const c_char,
-    data: *const c_char,
-) -> *mut c_char {
+pub extern "C" fn __crypto_hmac_sha256(key: *const c_char, data: *const c_char) -> *mut c_char {
     if key.is_null() || data.is_null() {
         return std::ptr::null_mut();
     }
     let k = unsafe { cstr_bytes(key) };
     let d = unsafe { cstr_bytes(data) };
 
-    let mut mac = <hmac::Hmac::<Sha256> as hmac::Mac>::new_from_slice(k).unwrap_or_else(|_| {
+    let mut mac = <hmac::Hmac<Sha256> as hmac::Mac>::new_from_slice(k).unwrap_or_else(|_| {
         let hashed = Sha256::digest(k);
-        <hmac::Hmac::<Sha256> as hmac::Mac>::new_from_slice(&hashed).unwrap()
+        <hmac::Hmac<Sha256> as hmac::Mac>::new_from_slice(&hashed).unwrap()
     });
-    <hmac::Hmac::<Sha256> as hmac::Mac>::update(&mut mac, d);
+    <hmac::Hmac<Sha256> as hmac::Mac>::update(&mut mac, d);
     let result = mac.finalize().into_bytes();
     to_cstring(hex_encode(&result))
 }
@@ -163,7 +159,11 @@ pub extern "C" fn __crypto_aes_gcm_decrypt_hex(
         Some(v) if v.len() == 12 => v,
         _ => return std::ptr::null_mut(),
     };
-    let combined = hex_decode(unsafe { CStr::from_ptr(combined_hex) }.to_str().unwrap_or(""));
+    let combined = hex_decode(
+        unsafe { CStr::from_ptr(combined_hex) }
+            .to_str()
+            .unwrap_or(""),
+    );
     let combined = match combined {
         Some(v) if v.len() >= 16 => v,
         _ => return std::ptr::null_mut(),
@@ -206,7 +206,11 @@ pub extern "C" fn __crypto_x25519_dh_hex(
         Some(v) if v.len() == 32 => v,
         _ => return std::ptr::null_mut(),
     };
-    let pub_bytes = match hex_decode(unsafe { CStr::from_ptr(peer_pub_hex) }.to_str().unwrap_or("")) {
+    let pub_bytes = match hex_decode(
+        unsafe { CStr::from_ptr(peer_pub_hex) }
+            .to_str()
+            .unwrap_or(""),
+    ) {
         Some(v) if v.len() == 32 => v,
         _ => return std::ptr::null_mut(),
     };
@@ -247,7 +251,12 @@ pub extern "C" fn __crypto_aes_gcm_encrypt_raw(
     cipher_out: *mut u8,
     tag_out: *mut u8,
 ) -> i32 {
-    if key.is_null() || nonce.is_null() || plain.is_null() || cipher_out.is_null() || tag_out.is_null() {
+    if key.is_null()
+        || nonce.is_null()
+        || plain.is_null()
+        || cipher_out.is_null()
+        || tag_out.is_null()
+    {
         return -1;
     }
     let k = unsafe { std::slice::from_raw_parts(key, 32) };
@@ -278,7 +287,8 @@ pub extern "C" fn __crypto_aes_gcm_decrypt_raw(
     tag: *const u8,
     plain_out: *mut u8,
 ) -> i32 {
-    if key.is_null() || nonce.is_null() || cipher.is_null() || plain_out.is_null() || tag.is_null() {
+    if key.is_null() || nonce.is_null() || cipher.is_null() || plain_out.is_null() || tag.is_null()
+    {
         return -1;
     }
     let k = unsafe { std::slice::from_raw_parts(key, 32) };

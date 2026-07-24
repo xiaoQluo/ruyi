@@ -8,7 +8,6 @@
  * @author Ruyi Team
  * @date 2026-07-24
  */
-
 use std::ffi::{CStr, CString};
 use std::io::{self, Read, Write};
 use std::os::raw::c_char;
@@ -70,7 +69,10 @@ fn tcp_write(socket: i64, buf: &[u8]) -> io::Result<()> {
     if tcp_write_raw(socket, buf) >= 0 {
         Ok(())
     } else {
-        Err(io::Error::new(io::ErrorKind::ConnectionAborted, "tcp write"))
+        Err(io::Error::new(
+            io::ErrorKind::ConnectionAborted,
+            "tcp write",
+        ))
     }
 }
 
@@ -99,7 +101,10 @@ fn handshake(conn: &mut Connection, socket: i64) -> io::Result<()> {
             let mut buf = [0u8; 16384];
             let n = tcp_read(socket, &mut buf)?;
             if n == 0 {
-                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "eof during handshake"));
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "eof during handshake",
+                ));
             }
             conn.read_tls(&mut io::Cursor::new(&buf[..n]))?;
             tls_flush(conn, socket)?;
@@ -139,7 +144,8 @@ fn read_cstr(conn: &mut Connection, socket: i64, max_len: i64) -> *mut c_char {
                 if tls_flush(conn, socket).is_err() {
                     break -1;
                 }
-                if conn.process_new_packets()
+                if conn
+                    .process_new_packets()
                     .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
                     .is_err()
                 {
@@ -230,26 +236,38 @@ pub extern "C" fn __tls_connect(socket: i64, hostname: *const c_char) -> *mut i8
 
 #[no_mangle]
 pub extern "C" fn __tls_read_cstr(tls: *mut i8, max_len: i64) -> *mut c_char {
-    if tls.is_null() { return std::ptr::null_mut(); }
+    if tls.is_null() {
+        return std::ptr::null_mut();
+    }
     let s = unsafe { &mut *(tls as *mut Session) };
     read_cstr(&mut s.conn, s.socket, max_len)
 }
 
 #[no_mangle]
 pub extern "C" fn __tls_write(tls: *mut i8, data: *const c_char) -> i64 {
-    if tls.is_null() { return -1; }
+    if tls.is_null() {
+        return -1;
+    }
     let s = unsafe { &mut *(tls as *mut Session) };
     write_cstr(&mut s.conn, s.socket, data)
 }
 
 #[no_mangle]
 pub extern "C" fn __tls_write_raw(tls: *mut i8, data: *const u8, len: i64) -> i64 {
-    if tls.is_null() || data.is_null() || len <= 0 { return 0; }
+    if tls.is_null() || data.is_null() || len <= 0 {
+        return 0;
+    }
     let bytes = unsafe { std::slice::from_raw_parts(data, len as usize) };
     let s = unsafe { &mut *(tls as *mut Session) };
-    if s.conn.writer().write_all(bytes).is_err() { return -1; }
-    if tls_flush(&mut s.conn, s.socket).is_err() { return -1; }
-    if s.conn.writer().flush().is_err() { return -1; }
+    if s.conn.writer().write_all(bytes).is_err() {
+        return -1;
+    }
+    if tls_flush(&mut s.conn, s.socket).is_err() {
+        return -1;
+    }
+    if s.conn.writer().flush().is_err() {
+        return -1;
+    }
     len
 }
 
@@ -262,23 +280,37 @@ fn read_buf(conn: &mut Connection, socket: i64, data_ptr: *mut i64, max_len: usi
         match conn.reader().read(&mut buf) {
             Ok(n) => break n as i64,
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                if !conn.wants_read() { break 0; }
+                if !conn.wants_read() {
+                    break 0;
+                }
                 let mut tls_buf = [0u8; 16384];
                 let n = match tcp_read(socket, &mut tls_buf) {
                     Ok(n) => n,
                     Err(_) => break -1,
                 };
-                if n == 0 { break 0; }
-                if conn.read_tls(&mut io::Cursor::new(&tls_buf[..n])).is_err() { break -1; }
-                if tls_flush(conn, socket).is_err() { break -1; }
-                if conn.process_new_packets()
+                if n == 0 {
+                    break 0;
+                }
+                if conn.read_tls(&mut io::Cursor::new(&tls_buf[..n])).is_err() {
+                    break -1;
+                }
+                if tls_flush(conn, socket).is_err() {
+                    break -1;
+                }
+                if conn
+                    .process_new_packets()
                     .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
-                    .is_err() { break -1; }
+                    .is_err()
+                {
+                    break -1;
+                }
             }
             Err(_) => break -1,
         }
     };
-    if n <= 0 { return if n == 0 { 0 } else { -1 }; }
+    if n <= 0 {
+        return if n == 0 { 0 } else { -1 };
+    }
     let n = n as usize;
     unsafe {
         for i in 0..n {
@@ -290,27 +322,41 @@ fn read_buf(conn: &mut Connection, socket: i64, data_ptr: *mut i64, max_len: usi
 
 #[no_mangle]
 pub extern "C" fn __tls_read_raw(tls: *mut i8, arr: *mut i8) -> i64 {
-    if tls.is_null() || arr.is_null() { return -1; }
+    if tls.is_null() || arr.is_null() {
+        return -1;
+    }
     let (len_ptr, cap_ptr, data_ptr) = unsafe { crate::io_ffi::array_ptr(arr) };
     let cap = unsafe { *cap_ptr } as usize;
-    if cap == 0 { return 0; }
+    if cap == 0 {
+        return 0;
+    }
     let s = unsafe { &mut *(tls as *mut Session) };
     let n = read_buf(&mut s.conn, s.socket, data_ptr, cap);
-    if n > 0 { unsafe { *len_ptr = n; } }
+    if n > 0 {
+        unsafe {
+            *len_ptr = n;
+        }
+    }
     n
 }
 
 #[no_mangle]
 pub extern "C" fn __tls_close(tls: *mut i8) {
-    if tls.is_null() { return; }
+    if tls.is_null() {
+        return;
+    }
     let s = unsafe { &mut *(tls as *mut Session) };
     close_session(&mut s.conn, s.socket);
 }
 
 #[no_mangle]
 pub extern "C" fn __tls_free(tls: *mut i8) {
-    if tls.is_null() { return; }
-    unsafe { let _ = Box::from_raw(tls as *mut Session); }
+    if tls.is_null() {
+        return;
+    }
+    unsafe {
+        let _ = Box::from_raw(tls as *mut Session);
+    }
 }
 
 // ============================================================
@@ -374,56 +420,86 @@ pub extern "C" fn __tls_server_accept(config: *mut i8, socket: i64) -> *mut i8 {
 
 #[no_mangle]
 pub extern "C" fn __tls_server_read_cstr(tls: *mut i8, max_len: i64) -> *mut c_char {
-    if tls.is_null() { return std::ptr::null_mut(); }
+    if tls.is_null() {
+        return std::ptr::null_mut();
+    }
     let s = unsafe { &mut *(tls as *mut Session) };
     read_cstr(&mut s.conn, s.socket, max_len)
 }
 
 #[no_mangle]
 pub extern "C" fn __tls_server_write(tls: *mut i8, data: *const c_char) -> i64 {
-    if tls.is_null() { return -1; }
+    if tls.is_null() {
+        return -1;
+    }
     let s = unsafe { &mut *(tls as *mut Session) };
     write_cstr(&mut s.conn, s.socket, data)
 }
 
 #[no_mangle]
 pub extern "C" fn __tls_server_write_raw(tls: *mut i8, data: *const u8, len: i64) -> i64 {
-    if tls.is_null() || data.is_null() || len <= 0 { return 0; }
+    if tls.is_null() || data.is_null() || len <= 0 {
+        return 0;
+    }
     let bytes = unsafe { std::slice::from_raw_parts(data, len as usize) };
     let s = unsafe { &mut *(tls as *mut Session) };
-    if s.conn.writer().write_all(bytes).is_err() { return -1; }
-    if tls_flush(&mut s.conn, s.socket).is_err() { return -1; }
-    if s.conn.writer().flush().is_err() { return -1; }
+    if s.conn.writer().write_all(bytes).is_err() {
+        return -1;
+    }
+    if tls_flush(&mut s.conn, s.socket).is_err() {
+        return -1;
+    }
+    if s.conn.writer().flush().is_err() {
+        return -1;
+    }
     len
 }
 
 #[no_mangle]
 pub extern "C" fn __tls_server_read_raw(tls: *mut i8, arr: *mut i8) -> i64 {
-    if tls.is_null() || arr.is_null() { return -1; }
+    if tls.is_null() || arr.is_null() {
+        return -1;
+    }
     let (len_ptr, cap_ptr, data_ptr) = unsafe { crate::io_ffi::array_ptr(arr) };
     let cap = unsafe { *cap_ptr } as usize;
-    if cap == 0 { return 0; }
+    if cap == 0 {
+        return 0;
+    }
     let s = unsafe { &mut *(tls as *mut Session) };
     let n = read_buf(&mut s.conn, s.socket, data_ptr, cap);
-    if n > 0 { unsafe { *len_ptr = n; } }
+    if n > 0 {
+        unsafe {
+            *len_ptr = n;
+        }
+    }
     n
 }
 
 #[no_mangle]
 pub extern "C" fn __tls_server_close(tls: *mut i8) {
-    if tls.is_null() { return; }
+    if tls.is_null() {
+        return;
+    }
     let s = unsafe { &mut *(tls as *mut Session) };
     close_session(&mut s.conn, s.socket);
 }
 
 #[no_mangle]
 pub extern "C" fn __tls_server_free(tls: *mut i8) {
-    if tls.is_null() { return; }
-    unsafe { let _ = Box::from_raw(tls as *mut Session); }
+    if tls.is_null() {
+        return;
+    }
+    unsafe {
+        let _ = Box::from_raw(tls as *mut Session);
+    }
 }
 
 #[no_mangle]
 pub extern "C" fn __tls_config_free(config: *mut i8) {
-    if config.is_null() { return; }
-    unsafe { let _ = Box::from_raw(config as *mut Arc<ServerConfig>); }
+    if config.is_null() {
+        return;
+    }
+    unsafe {
+        let _ = Box::from_raw(config as *mut Arc<ServerConfig>);
+    }
 }

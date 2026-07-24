@@ -8,7 +8,6 @@
  * @author Ruyi Team
  * @date 2026-07-24
  */
-
 use std::ffi::CStr;
 use std::io::Write;
 use std::os::raw::c_char;
@@ -29,34 +28,60 @@ fn b64enc(bytes: &[u8]) -> String {
         let t = (b0 << 16) | (b1 << 8) | b2;
         s.push(B64[((t >> 18) & 63) as usize] as char);
         s.push(B64[((t >> 12) & 63) as usize] as char);
-        s.push(if ch.len() > 1 { B64[((t >> 6) & 63) as usize] as char } else { '=' });
-        s.push(if ch.len() > 2 { B64[(t & 63) as usize] as char } else { '=' });
+        s.push(if ch.len() > 1 {
+            B64[((t >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        s.push(if ch.len() > 2 {
+            B64[(t & 63) as usize] as char
+        } else {
+            '='
+        });
     }
     s
 }
 
 fn b64dec(enc: &str) -> Option<Vec<u8>> {
     let s = enc.trim_end_matches('=');
-    if s.is_empty() { return Some(Vec::new()); }
+    if s.is_empty() {
+        return Some(Vec::new());
+    }
     let mut out = Vec::with_capacity(s.len() * 3 / 4);
     for ch in s.as_bytes().chunks(4) {
-        let vals: Vec<u32> = ch.iter().filter_map(|&c| match c {
-            b'A'..=b'Z' => Some((c - b'A') as u32),
-            b'a'..=b'z' => Some((c - b'a' + 26) as u32),
-            b'0'..=b'9' => Some((c - b'0' + 52) as u32),
-            b'+' => Some(62), b'/' => Some(63), _ => None,
-        }).collect();
-        if vals.is_empty() { continue; }
-        let t = (vals[0] << 18) | (*vals.get(1).unwrap_or(&0) << 12) | (*vals.get(2).unwrap_or(&0) << 6) | *vals.get(3).unwrap_or(&0);
+        let vals: Vec<u32> = ch
+            .iter()
+            .filter_map(|&c| match c {
+                b'A'..=b'Z' => Some((c - b'A') as u32),
+                b'a'..=b'z' => Some((c - b'a' + 26) as u32),
+                b'0'..=b'9' => Some((c - b'0' + 52) as u32),
+                b'+' => Some(62),
+                b'/' => Some(63),
+                _ => None,
+            })
+            .collect();
+        if vals.is_empty() {
+            continue;
+        }
+        let t = (vals[0] << 18)
+            | (*vals.get(1).unwrap_or(&0) << 12)
+            | (*vals.get(2).unwrap_or(&0) << 6)
+            | *vals.get(3).unwrap_or(&0);
         out.push(((t >> 16) & 0xFF) as u8);
-        if vals.len() > 2 { out.push(((t >> 8) & 0xFF) as u8); }
-        if vals.len() > 3 { out.push((t & 0xFF) as u8); }
+        if vals.len() > 2 {
+            out.push(((t >> 8) & 0xFF) as u8);
+        }
+        if vals.len() > 3 {
+            out.push((t & 0xFF) as u8);
+        }
     }
     Some(out)
 }
 
 fn to_cs(s: String) -> *mut c_char {
-    std::ffi::CString::new(s).map(|cs| cs.into_raw()).unwrap_or(std::ptr::null_mut())
+    std::ffi::CString::new(s)
+        .map(|cs| cs.into_raw())
+        .unwrap_or(std::ptr::null_mut())
 }
 
 // ── oneshot helpers ──────────────────────────────────────────
@@ -101,15 +126,20 @@ macro_rules! ffi_oneshot {
     ($export:ident, $inner:ident) => {
         #[no_mangle]
         pub extern "C" fn $export(b64: *const c_char) -> *mut c_char {
-            if b64.is_null() { return std::ptr::null_mut(); }
+            if b64.is_null() {
+                return std::ptr::null_mut();
+            }
             let input_str = match unsafe { CStr::from_ptr(b64) }.to_str() {
-                Ok(s) => s, Err(_) => return std::ptr::null_mut(),
+                Ok(s) => s,
+                Err(_) => return std::ptr::null_mut(),
             };
             let input = match b64dec(input_str) {
-                Some(v) => v, None => return std::ptr::null_mut(),
+                Some(v) => v,
+                None => return std::ptr::null_mut(),
             };
             let out = match $inner(&input) {
-                Some(v) => v, None => return std::ptr::null_mut(),
+                Some(v) => v,
+                None => return std::ptr::null_mut(),
             };
             to_cs(b64enc(&out))
         }
@@ -171,9 +201,12 @@ pub extern "C" fn __compress_new(format: i64) -> *mut c_char {
 
 #[no_mangle]
 pub extern "C" fn __compress_write(handle: *mut c_char, b64: *const c_char) -> *mut c_char {
-    if handle.is_null() || b64.is_null() { return std::ptr::null_mut(); }
+    if handle.is_null() || b64.is_null() {
+        return std::ptr::null_mut();
+    }
     let input = match b64dec(unsafe { CStr::from_ptr(b64) }.to_str().unwrap_or("")) {
-        Some(v) => v, None => return std::ptr::null_mut(),
+        Some(v) => v,
+        None => return std::ptr::null_mut(),
     };
     let stream = unsafe { &mut *(handle as *mut CStream) };
     let new_bytes = match stream {
@@ -186,7 +219,9 @@ pub extern "C" fn __compress_write(handle: *mut c_char, b64: *const c_char) -> *
 
 #[no_mangle]
 pub extern "C" fn __compress_finish(handle: *mut c_char) -> *mut c_char {
-    if handle.is_null() { return std::ptr::null_mut(); }
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
     let stream = unsafe { Box::from_raw(handle as *mut CStream) };
     let new_bytes = match *stream {
         CStream::Gzip(enc, off) => stream_finish_impl!(enc, off),
@@ -209,9 +244,12 @@ pub extern "C" fn __decompress_new(format: i64) -> *mut c_char {
 
 #[no_mangle]
 pub extern "C" fn __decompress_write(handle: *mut c_char, b64: *const c_char) -> *mut c_char {
-    if handle.is_null() || b64.is_null() { return std::ptr::null_mut(); }
+    if handle.is_null() || b64.is_null() {
+        return std::ptr::null_mut();
+    }
     let input = match b64dec(unsafe { CStr::from_ptr(b64) }.to_str().unwrap_or("")) {
-        Some(v) => v, None => return std::ptr::null_mut(),
+        Some(v) => v,
+        None => return std::ptr::null_mut(),
     };
     let stream = unsafe { &mut *(handle as *mut DStream) };
     let new_bytes = match stream {
@@ -224,7 +262,9 @@ pub extern "C" fn __decompress_write(handle: *mut c_char, b64: *const c_char) ->
 
 #[no_mangle]
 pub extern "C" fn __decompress_finish(handle: *mut c_char) -> *mut c_char {
-    if handle.is_null() { return std::ptr::null_mut(); }
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
     let stream = unsafe { Box::from_raw(handle as *mut DStream) };
     let new_bytes = match *stream {
         DStream::Gzip(dec, off) => stream_finish_impl!(dec, off),
@@ -241,37 +281,52 @@ mod tests {
     use super::*;
     use std::ffi::CString;
 
-    #[test] fn test_b64_roundtrip() {
+    #[test]
+    fn test_b64_roundtrip() {
         let d = b"Hello, Ruyi!\x00\xFF\x80";
         assert_eq!(b64dec(&b64enc(d)).unwrap(), d);
     }
 
-    #[test] fn test_gzip() {
+    #[test]
+    fn test_gzip() {
         let i = b"Hello, Ruyi! Gzip roundtrip test.";
         let c = __compress_gzip(CString::new(b64enc(i)).unwrap().as_ptr());
         let d = __decompress_gzip(c);
-        assert_eq!(b64dec(unsafe { CStr::from_ptr(d) }.to_str().unwrap()).unwrap(), i);
+        assert_eq!(
+            b64dec(unsafe { CStr::from_ptr(d) }.to_str().unwrap()).unwrap(),
+            i
+        );
     }
 
-    #[test] fn test_zlib() {
+    #[test]
+    fn test_zlib() {
         let i = b"Zlib test for Ruyi.";
         let c = __compress_zlib(CString::new(b64enc(i)).unwrap().as_ptr());
         let d = __decompress_zlib(c);
-        assert_eq!(b64dec(unsafe { CStr::from_ptr(d) }.to_str().unwrap()).unwrap(), i);
+        assert_eq!(
+            b64dec(unsafe { CStr::from_ptr(d) }.to_str().unwrap()).unwrap(),
+            i
+        );
     }
 
-    #[test] fn test_deflate() {
+    #[test]
+    fn test_deflate() {
         let i = b"Raw deflate for WS.";
         let c = __compress_deflate(CString::new(b64enc(i)).unwrap().as_ptr());
         let d = __decompress_deflate(c);
-        assert_eq!(b64dec(unsafe { CStr::from_ptr(d) }.to_str().unwrap()).unwrap(), i);
+        assert_eq!(
+            b64dec(unsafe { CStr::from_ptr(d) }.to_str().unwrap()).unwrap(),
+            i
+        );
     }
 
-    #[test] fn test_null() {
+    #[test]
+    fn test_null() {
         assert!(__compress_gzip(std::ptr::null()).is_null());
     }
 
-    #[test] fn test_streaming_gzip() {
+    #[test]
+    fn test_streaming_gzip() {
         let parts: [&[u8]; 3] = [b"Hello, ", b"streaming ", b"gzip!"];
         let h = __compress_new(0);
         assert!(!h.is_null());
@@ -280,14 +335,18 @@ mod tests {
             let b64 = CString::new(b64enc(p)).unwrap();
             let out = __compress_write(h, b64.as_ptr());
             assert!(!out.is_null());
-            all_compressed.extend_from_slice(b64dec(unsafe {
-                CStr::from_ptr(out)
-            }.to_str().unwrap()).unwrap().as_slice());
+            all_compressed.extend_from_slice(
+                b64dec(unsafe { CStr::from_ptr(out) }.to_str().unwrap())
+                    .unwrap()
+                    .as_slice(),
+            );
         }
         let final_out = __compress_finish(h);
-        all_compressed.extend_from_slice(b64dec(unsafe {
-            CStr::from_ptr(final_out)
-        }.to_str().unwrap()).unwrap().as_slice());
+        all_compressed.extend_from_slice(
+            b64dec(unsafe { CStr::from_ptr(final_out) }.to_str().unwrap())
+                .unwrap()
+                .as_slice(),
+        );
         let b64_all = CString::new(b64enc(&all_compressed)).unwrap();
         let dec = __decompress_gzip(b64_all.as_ptr());
         let combined: Vec<u8> = parts.concat();

@@ -545,7 +545,10 @@ fn test_nested_try_catch_propagates_to_outer() {
     // Outer entry covers PC 30 and handles ERROR (catches RuntimeError too).
     // entry_for_pc returns the first matching entry (innermost), so we verify
     // outer entry via direct table inspection.
-    let outer = table.entries.iter().find(|e| e.landing_pad == 200)
+    let outer = table
+        .entries
+        .iter()
+        .find(|e| e.landing_pad == 200)
         .expect("outer entry must exist");
     assert_eq!(
         outer.matching_handler(builtin_type_ids::RUNTIME_ERROR),

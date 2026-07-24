@@ -96,7 +96,7 @@ pub extern "C" fn __net_tcp_read(handle: i64, max_bytes: i64) -> *mut c_char {
     if let Some(stream) = streams.get_mut(&handle) {
         let mut buf = vec![0u8; max_bytes as usize];
         match stream.read(&mut buf) {
-            Ok(0) => unsafe { str_to_heap("") },          // EOF
+            Ok(0) => unsafe { str_to_heap("") }, // EOF
             Ok(n) => unsafe { str_to_heap(&String::from_utf8_lossy(&buf[..n])) },
             Err(_) => unsafe { str_to_heap("") },
         }
@@ -126,10 +126,14 @@ pub extern "C" fn __net_tcp_write(handle: i64, data: *const c_char) -> i64 {
 
 #[no_mangle]
 pub extern "C" fn __net_tcp_write_raw(handle: i64, data: *const u8, len: i64) -> i64 {
-    if data.is_null() || len <= 0 { return 0; }
+    if data.is_null() || len <= 0 {
+        return 0;
+    }
     let buf = unsafe { std::slice::from_raw_parts(data, len as usize) };
     let mut map = SOCKETS.lock().unwrap();
-    if map.is_none() { return -1; }
+    if map.is_none() {
+        return -1;
+    }
     let streams = map.as_mut().unwrap();
     if let Some(stream) = streams.get_mut(&handle) {
         match stream.write(buf) {
@@ -146,13 +150,19 @@ pub extern "C" fn __net_tcp_write_raw(handle: i64, data: *const u8, len: i64) ->
 /// Returns bytes actually read (0 = EOF), or -1/-2 on error.
 #[no_mangle]
 pub extern "C" fn __net_tcp_read_raw(handle: i64, arr: *mut i8) -> i64 {
-    if arr.is_null() { return -1; }
+    if arr.is_null() {
+        return -1;
+    }
     let (len_ptr, cap_ptr, data_ptr) = unsafe { crate::io_ffi::array_ptr(arr) };
     let cap = unsafe { *cap_ptr } as usize;
-    if cap == 0 { return 0; }
+    if cap == 0 {
+        return 0;
+    }
 
     let mut map = SOCKETS.lock().unwrap();
-    if map.is_none() { return -1; }
+    if map.is_none() {
+        return -1;
+    }
     let streams = map.as_mut().unwrap();
     match streams.get_mut(&handle) {
         Some(stream) => {
@@ -231,7 +241,10 @@ pub extern "C" fn __net_tcp_set_timeout(handle: i64, timeout_ms: i64) -> i64 {
     let streams = map.as_mut().unwrap();
     if let Some(stream) = streams.get_mut(&handle) {
         let dur = std::time::Duration::from_millis(timeout_ms as u64);
-        match stream.set_read_timeout(Some(dur)).and(stream.set_write_timeout(Some(dur))) {
+        match stream
+            .set_read_timeout(Some(dur))
+            .and(stream.set_write_timeout(Some(dur)))
+        {
             Ok(_) => 0,
             Err(_) => -1,
         }

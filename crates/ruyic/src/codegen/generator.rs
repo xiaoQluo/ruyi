@@ -731,12 +731,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         let i64_ty = ctx.context.i64_type();
         let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
         let type_info_struct = ctx.context.struct_type(
-            &[
-                i64_ty.into(),
-                i8_ptr.into(),
-                i8_ptr.into(),
-                i8_ptr.into(),
-            ],
+            &[i64_ty.into(), i8_ptr.into(), i8_ptr.into(), i8_ptr.into()],
             false,
         );
 
@@ -757,21 +752,15 @@ impl<'ctx> CodeGenerator<'ctx> {
                     let str_bytes = name.as_bytes();
                     let str_len = str_bytes.len() as u32 + 1;
                     let str_array_ty = ctx.context.i8_type().array_type(str_len);
-                    let str_global = ctx.module.add_global(
-                        str_array_ty,
-                        None,
-                        &format!("ti_str_{}", name),
-                    );
-                    str_global.set_initializer(
-                        &ctx.context.const_string(str_bytes, true),
-                    );
+                    let str_global =
+                        ctx.module
+                            .add_global(str_array_ty, None, &format!("ti_str_{}", name));
+                    str_global.set_initializer(&ctx.context.const_string(str_bytes, true));
                     str_global.set_linkage(inkwell::module::Linkage::Private);
 
                     // const GEP via const_cast: bitcast [N x i8]* to i8*
                     // Both addresses are identical; const_cast emits LLVMConstBitCast.
-                    let str_ptr = str_global
-                        .as_pointer_value()
-                        .const_cast(i8_ptr);
+                    let str_ptr = str_global.as_pointer_value().const_cast(i8_ptr);
 
                     let type_id = arc_type_id;
                     arc_type_id += 1;
@@ -790,9 +779,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         }
 
         for (i, item) in program.items.iter().enumerate() {
-            ctx.set_allow_partial_codegen(
-                self.allow_partial_codegen || i < self.stdlib_item_count,
-            );
+            ctx.set_allow_partial_codegen(self.allow_partial_codegen || i < self.stdlib_item_count);
             match item {
                 crate::parser::ast::ModuleItem::Declaration(decl) => {
                     if let crate::parser::ast::Declaration::Function { name, is_async, .. } = decl {

@@ -580,9 +580,7 @@ impl Driver {
             for item in &expanded.items {
                 if let crate::parser::ast::ModuleItem::Declaration(decl) = item {
                     if let crate::parser::ast::Declaration::Function {
-                        name,
-                        annotations,
-                        ..
+                        name, annotations, ..
                     } = decl
                     {
                         if annotations.iter().any(|a| a == "test") {

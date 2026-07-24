@@ -47,7 +47,9 @@ fn test_gc_collect_survives_reachable() {
     let obj = ruyi_gc_alloc(64);
     assert!(!obj.is_null());
 
-    unsafe { ruyi_gc_add_root(obj); }
+    unsafe {
+        ruyi_gc_add_root(obj);
+    }
 
     unsafe {
         *(obj as *mut u64) = 0xDEADBEEF;
@@ -63,7 +65,9 @@ fn test_gc_collect_survives_reachable() {
         );
     }
 
-    unsafe { ruyi_gc_remove_root(obj); }
+    unsafe {
+        ruyi_gc_remove_root(obj);
+    }
 }
 
 #[test]
@@ -87,14 +91,18 @@ fn test_gc_add_remove_root() {
         *(obj as *mut u64) = 0xCAFEBABE;
     }
 
-    unsafe { ruyi_gc_add_root(obj); }
+    unsafe {
+        ruyi_gc_add_root(obj);
+    }
     ruyi_gc_collect();
 
     unsafe {
         assert_eq!(*(obj as *mut u64), 0xCAFEBABE);
     }
 
-    unsafe { ruyi_gc_remove_root(obj); }
+    unsafe {
+        ruyi_gc_remove_root(obj);
+    }
     ruyi_gc_collect();
 
     let check = ruyi_gc_alloc(16);
@@ -113,10 +121,16 @@ fn test_gc_write_barrier() {
         (*old_header).set_generation(2);
     }
 
-    unsafe { ruyi_gc_write_barrier(old, young); }
+    unsafe {
+        ruyi_gc_write_barrier(old, young);
+    }
 
-    unsafe { ruyi_gc_add_root(old); }
-    unsafe { ruyi_gc_add_root(young); }
+    unsafe {
+        ruyi_gc_add_root(old);
+    }
+    unsafe {
+        ruyi_gc_add_root(young);
+    }
 
     unsafe {
         *(young as *mut u64) = 0x1234;
@@ -126,8 +140,12 @@ fn test_gc_write_barrier() {
         assert_eq!(*(young as *mut u64), 0x1234);
     }
 
-    unsafe { ruyi_gc_remove_root(old); }
-    unsafe { ruyi_gc_remove_root(young); }
+    unsafe {
+        ruyi_gc_remove_root(old);
+    }
+    unsafe {
+        ruyi_gc_remove_root(young);
+    }
 }
 
 #[test]
@@ -145,7 +163,9 @@ fn test_gc_stress() {
         }
 
         if i % 2 == 0 {
-            unsafe { ruyi_gc_add_root(obj); }
+            unsafe {
+                ruyi_gc_add_root(obj);
+            }
             roots.push(obj);
         }
     }
@@ -162,7 +182,9 @@ fn test_gc_stress() {
     }
 
     for &obj in &roots {
-        unsafe { ruyi_gc_remove_root(obj); }
+        unsafe {
+            ruyi_gc_remove_root(obj);
+        }
     }
 
     ruyi_gc_collect();

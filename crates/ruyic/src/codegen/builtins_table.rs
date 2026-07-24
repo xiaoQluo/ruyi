@@ -798,7 +798,12 @@ pub static BUILTINS: &[BuiltinDecl] = &[
     BuiltinDecl {
         name: "__net_udp_send_to",
         ret: BuiltinSig::Int,
-        params: &[BuiltinSig::Int, BuiltinSig::String, BuiltinSig::Int, BuiltinSig::String],
+        params: &[
+            BuiltinSig::Int,
+            BuiltinSig::String,
+            BuiltinSig::Int,
+            BuiltinSig::String,
+        ],
     },
     BuiltinDecl {
         name: "__net_udp_recv_from",
@@ -983,12 +988,26 @@ pub static BUILTINS: &[BuiltinDecl] = &[
     BuiltinDecl {
         name: "__crypto_aes_gcm_encrypt_raw",
         ret: BuiltinSig::Int,
-        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr, BuiltinSig::Ptr, BuiltinSig::Int, BuiltinSig::Ptr, BuiltinSig::Ptr],
+        params: &[
+            BuiltinSig::Ptr,
+            BuiltinSig::Ptr,
+            BuiltinSig::Ptr,
+            BuiltinSig::Int,
+            BuiltinSig::Ptr,
+            BuiltinSig::Ptr,
+        ],
     },
     BuiltinDecl {
         name: "__crypto_aes_gcm_decrypt_raw",
         ret: BuiltinSig::Int,
-        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr, BuiltinSig::Ptr, BuiltinSig::Int, BuiltinSig::Ptr, BuiltinSig::Ptr],
+        params: &[
+            BuiltinSig::Ptr,
+            BuiltinSig::Ptr,
+            BuiltinSig::Ptr,
+            BuiltinSig::Int,
+            BuiltinSig::Ptr,
+            BuiltinSig::Ptr,
+        ],
     },
     BuiltinDecl {
         name: "__crypto_x25519_keypair_raw",

@@ -11,7 +11,6 @@
  * @author Ruyi Team
  * @date 2026-07-24
  */
-
 use std::sync::Mutex;
 
 /// Create a new unlocked mutex.  Returns an opaque `*mut i8` handle.

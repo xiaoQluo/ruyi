@@ -11,7 +11,6 @@
  * @author Ruyi Team
  * @date 2026-07-24
  */
-
 use std::sync::atomic::{AtomicI64, Ordering};
 
 /// Allocate a new AtomicI64 initialised to `value`.

@@ -266,9 +266,7 @@ pub extern "C" fn __io_read_dir(path: *const c_char) -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn __io_file_size(path: *const c_char) -> i64 {
     let p = unsafe { cstr_to_str(path) };
-    fs::metadata(p)
-        .map(|m| m.len() as i64)
-        .unwrap_or(-1)
+    fs::metadata(p).map(|m| m.len() as i64).unwrap_or(-1)
 }
 
 /// Return modification time as Unix epoch milliseconds. Returns -1 on error.
@@ -342,7 +340,9 @@ pub extern "C" fn __io_read_random(size: i64) -> *mut c_char {
     let mut file = match std::fs::File::open("/dev/urandom") {
         Ok(f) => f,
         Err(_) => {
-            unsafe { std::alloc::dealloc(buf, layout); }
+            unsafe {
+                std::alloc::dealloc(buf, layout);
+            }
             return std::ptr::null_mut();
         }
     };
@@ -353,12 +353,16 @@ pub extern "C" fn __io_read_random(size: i64) -> *mut c_char {
             Ok(0) => break,
             Ok(n) => read += n,
             Err(_) => {
-                unsafe { std::alloc::dealloc(buf, layout); }
+                unsafe {
+                    std::alloc::dealloc(buf, layout);
+                }
                 return std::ptr::null_mut();
             }
         }
     }
-    unsafe { *buf.add(count) = 0; }
+    unsafe {
+        *buf.add(count) = 0;
+    }
     buf as *mut c_char
 }
 
@@ -416,7 +420,11 @@ pub extern "C" fn __fs_open_write(path: *const c_char) -> i64 {
 #[no_mangle]
 pub extern "C" fn __fs_open_append(path: *const c_char) -> i64 {
     let p = unsafe { cstr_to_str(path) };
-    match std::fs::OpenOptions::new().append(true).create(true).open(p) {
+    match std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(p)
+    {
         Ok(f) => {
             let h = next_fh();
             file_handles().as_mut().unwrap().insert(h, f);
@@ -446,10 +454,14 @@ pub(crate) unsafe fn array_ptr(ptr: *mut i8) -> (*mut i64, *mut i64, *mut i64) {
 
 #[no_mangle]
 pub extern "C" fn __fs_read_raw(handle: i64, arr: *mut i8) -> i64 {
-    if arr.is_null() { return -1; }
+    if arr.is_null() {
+        return -1;
+    }
     let (len_ptr, cap_ptr, data_ptr) = unsafe { array_ptr(arr) };
     let cap = unsafe { *cap_ptr } as usize;
-    if cap == 0 { return 0; }
+    if cap == 0 {
+        return 0;
+    }
 
     let mut guard = file_handles();
     let map = guard.as_mut().unwrap();
@@ -476,10 +488,14 @@ pub extern "C" fn __fs_read_raw(handle: i64, arr: *mut i8) -> i64 {
 
 #[no_mangle]
 pub extern "C" fn __fs_write_raw(handle: i64, arr: *mut i8) -> i64 {
-    if arr.is_null() { return -1; }
+    if arr.is_null() {
+        return -1;
+    }
     let (len_ptr, _cap_ptr, data_ptr) = unsafe { array_ptr(arr) };
     let len = unsafe { *len_ptr } as usize;
-    if len == 0 { return 0; }
+    if len == 0 {
+        return 0;
+    }
 
     let mut guard = file_handles();
     let map = guard.as_mut().unwrap();
@@ -556,10 +572,14 @@ use std::io::{stdin, stdout};
 
 #[no_mangle]
 pub extern "C" fn __io_read_raw(arr: *mut i8) -> i64 {
-    if arr.is_null() { return -1; }
+    if arr.is_null() {
+        return -1;
+    }
     let (len_ptr, cap_ptr, data_ptr) = unsafe { array_ptr(arr) };
     let cap = unsafe { *cap_ptr } as usize;
-    if cap == 0 { return 0; }
+    if cap == 0 {
+        return 0;
+    }
 
     let mut buf = vec![0u8; cap];
     let mut lock = stdin().lock();
@@ -580,10 +600,14 @@ pub extern "C" fn __io_read_raw(arr: *mut i8) -> i64 {
 
 #[no_mangle]
 pub extern "C" fn __io_write_raw(arr: *mut i8) -> i64 {
-    if arr.is_null() { return -1; }
+    if arr.is_null() {
+        return -1;
+    }
     let (len_ptr, _cap_ptr, data_ptr) = unsafe { array_ptr(arr) };
     let len = unsafe { *len_ptr } as usize;
-    if len == 0 { return 0; }
+    if len == 0 {
+        return 0;
+    }
 
     let mut buf = Vec::with_capacity(len);
     unsafe {
@@ -608,10 +632,14 @@ pub extern "C" fn __io_flush() -> i64 {
 
 #[no_mangle]
 pub extern "C" fn __io_write_stderr_raw(arr: *mut i8) -> i64 {
-    if arr.is_null() { return -1; }
+    if arr.is_null() {
+        return -1;
+    }
     let (len_ptr, _cap_ptr, data_ptr) = unsafe { array_ptr(arr) };
     let len = unsafe { *len_ptr } as usize;
-    if len == 0 { return 0; }
+    if len == 0 {
+        return 0;
+    }
 
     let mut buf = Vec::with_capacity(len);
     unsafe {
@@ -863,7 +891,10 @@ mod tests {
     #[test]
     fn test_read_random_positive() {
         let result = __io_read_random(32);
-        assert!(!result.is_null(), "should return non-null buffer for size=32");
+        assert!(
+            !result.is_null(),
+            "should return non-null buffer for size=32"
+        );
         unsafe {
             let slice = std::slice::from_raw_parts(result as *const u8, 32);
             // All bytes must be in valid range
@@ -878,13 +909,7 @@ mod tests {
 
     #[test]
     fn test_read_random_zero_and_negative() {
-        assert!(
-            __io_read_random(0).is_null(),
-            "null for size=0"
-        );
-        assert!(
-            __io_read_random(-5).is_null(),
-            "null for size=-5"
-        );
+        assert!(__io_read_random(0).is_null(), "null for size=0");
+        assert!(__io_read_random(-5).is_null(), "null for size=-5");
     }
 }

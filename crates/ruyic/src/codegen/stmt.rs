@@ -690,40 +690,40 @@ fn compile_throw<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>, expr: &Expr) -> R
     // Handle both `throw ClassName(...)` and `throw new ClassName(...)` patterns.
     // Extract the class name and argument list for downstream processing.
     let (throw_class, args): (Option<String>, Vec<&crate::parser::ast::Argument>) = match expr {
-        Expr::New { callee, args } => {
-            match callee.as_ref() {
-                Expr::Identifier(n) => (Some(n.clone()), args.iter().collect()),
-                Expr::Call { callee: c, args: call_args } => {
-                    if let Expr::Identifier(n) = c.as_ref() {
-                        if args.is_empty() {
-                            return compile_throw(
-                                ctx,
-                                &Expr::Call {
-                                    callee: Box::new(Expr::Identifier(n.clone())),
-                                    args: call_args.clone(),
-                                },
-                            );
-                        }
+        Expr::New { callee, args } => match callee.as_ref() {
+            Expr::Identifier(n) => (Some(n.clone()), args.iter().collect()),
+            Expr::Call {
+                callee: c,
+                args: call_args,
+            } => {
+                if let Expr::Identifier(n) = c.as_ref() {
+                    if args.is_empty() {
+                        return compile_throw(
+                            ctx,
+                            &Expr::Call {
+                                callee: Box::new(Expr::Identifier(n.clone())),
+                                args: call_args.clone(),
+                            },
+                        );
                     }
-                    return Err("throw new: unsupported callee".to_string());
                 }
-                _ => return Err("throw new: unsupported callee".to_string()),
+                return Err("throw new: unsupported callee".to_string());
             }
-        }
+            _ => return Err("throw new: unsupported callee".to_string()),
+        },
         Expr::Call { callee, args } => {
             let name = match callee.as_ref() {
                 Expr::Identifier(n) => n.clone(),
-                Expr::Member { object, property, .. } => {
-                    match (object.as_ref(), property) {
-                        (
-                            Expr::Identifier(n),
-                            crate::parser::ast::MemberProperty::Ident(method),
-                        ) if method == "new" => n.clone(),
-                        _ => {
-                            return Err("throw: unsupported callee".to_string())
-                        }
+                Expr::Member {
+                    object, property, ..
+                } => match (object.as_ref(), property) {
+                    (Expr::Identifier(n), crate::parser::ast::MemberProperty::Ident(method))
+                        if method == "new" =>
+                    {
+                        n.clone()
                     }
-                }
+                    _ => return Err("throw: unsupported callee".to_string()),
+                },
                 _ => return Err("throw: unsupported callee".to_string()),
             };
             let is_class = ctx.class_struct_types.contains_key(&name)
@@ -764,8 +764,8 @@ fn compile_throw<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>, expr: &Expr) -> R
                 emit_throw_call(ctx, exc_ptr)?;
             }
             _ => {
-                let class_name = throw_class
-                    .ok_or("throw requires a class name for non-literal arguments")?;
+                let class_name =
+                    throw_class.ok_or("throw requires a class name for non-literal arguments")?;
                 let args_cloned: Vec<crate::parser::ast::Argument> =
                     args.iter().map(|a| (*a).clone()).collect();
                 let exc_result =

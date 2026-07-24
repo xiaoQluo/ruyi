@@ -194,9 +194,7 @@ impl TypeInference {
         for item in &program.items {
             let decl_opt: Option<&Declaration> = match item {
                 ModuleItem::Declaration(decl) => Some(decl),
-                ModuleItem::Export(crate::parser::ast::ExportDecl::Declaration(decl)) => {
-                    Some(decl)
-                }
+                ModuleItem::Export(crate::parser::ast::ExportDecl::Declaration(decl)) => Some(decl),
                 _ => None,
             };
             if let Some(decl) = decl_opt {
@@ -212,9 +210,10 @@ impl TypeInference {
                         let param_types: Vec<Type> = params
                             .iter()
                             .map(|p| {
-                                let mut ty = p.ty.as_ref()
-                                    .map(Type::from_annotation)
-                                    .unwrap_or(Type::Dynamic);
+                                let mut ty =
+                                    p.ty.as_ref()
+                                        .map(Type::from_annotation)
+                                        .unwrap_or(Type::Dynamic);
                                 // Auto-wrap rest params as Array<T> so the
                                 // typechecker/codegen recognise them as variadic.
                                 if p.is_rest {
@@ -358,9 +357,10 @@ impl TypeInference {
                 let param_types: Vec<Type> = params
                     .iter()
                     .map(|p| {
-                        let mut ty = p.ty.as_ref()
-                            .map(Type::from_annotation)
-                            .unwrap_or(Type::Dynamic);
+                        let mut ty =
+                            p.ty.as_ref()
+                                .map(Type::from_annotation)
+                                .unwrap_or(Type::Dynamic);
                         if p.is_rest {
                             ty = Type::Array(Box::new(ty));
                         }
@@ -380,9 +380,7 @@ impl TypeInference {
                 }
 
                 // Push declared return type so collapse logic in infer_return_type sees it.
-                let declared_ret = return_type
-                    .as_ref()
-                    .map(Type::from_annotation);
+                let declared_ret = return_type.as_ref().map(Type::from_annotation);
                 self.return_type_stack
                     .push(declared_ret.clone().unwrap_or(Type::Void));
 
@@ -503,7 +501,11 @@ impl TypeInference {
                 self.env.declare_let(name, Type::Dynamic);
                 Type::Dynamic
             }
-            Declaration::ExternFn { name, params: _, return_type: _ } => {
+            Declaration::ExternFn {
+                name,
+                params: _,
+                return_type: _,
+            } => {
                 // FFI symbol registered in BUILTINS table; resolve its signature there.
                 let fn_ty = resolve_builtin_name(name).unwrap_or(Type::Dynamic);
                 self.env.declare_let(name, fn_ty);

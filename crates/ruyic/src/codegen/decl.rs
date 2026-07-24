@@ -13,9 +13,9 @@ use super::expr::compile_expr;
 use super::generator::CodegenContext;
 use super::stmt::compile_block;
 use super::types::{function_type_from_ruyi, ruyi_type_to_llvm};
-use ruyi_exception::landing_pad::LandingPadGenerator;
 use crate::parser::ast::{Binding, ClassElement, Declaration, Expr, Pattern, PropertyName};
 use crate::typechecker::types::Type;
+use ruyi_exception::landing_pad::LandingPadGenerator;
 
 /// Compile a declaration.
 pub fn compile_declaration<'ctx>(
@@ -117,7 +117,10 @@ fn compile_array_destructure<'ctx>(
     binding: &Binding,
     elements: &[crate::parser::ast::ArrayPatternElement],
 ) -> Result<(), String> {
-    let init = binding.init.as_ref().ok_or("Array destructuring requires an initializer")?;
+    let init = binding
+        .init
+        .as_ref()
+        .ok_or("Array destructuring requires an initializer")?;
     let result = compile_expr(ctx, init)?;
     let arr_ptr = match result.value {
         BasicValueEnum::PointerValue(p) => p,
@@ -137,11 +140,7 @@ fn compile_array_destructure<'ctx>(
             crate::parser::ast::ArrayPatternElement::Pattern(pat) => {
                 let name = match pat {
                     crate::parser::ast::Pattern::Identifier(n) => n.clone(),
-                    _ => {
-                        return Err(
-                            "Nested destructuring patterns not yet supported".to_string()
-                        )
-                    }
+                    _ => return Err("Nested destructuring patterns not yet supported".to_string()),
                 };
                 let idx_val = ctx.context.i64_type().const_int(i, false);
                 let elem_val = ctx

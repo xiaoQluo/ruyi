@@ -932,7 +932,11 @@ fn main(): int {
 "#;
     let ir = compile_to_ir(source, "exception_throw").expect("Failed to compile");
     assert!(ir.contains("landingpad"), "Expected landingpad; IR: {}", ir);
-    assert!(ir.contains("personality"), "Expected personality; IR: {}", ir);
+    assert!(
+        ir.contains("personality"),
+        "Expected personality; IR: {}",
+        ir
+    );
 }
 
 #[test]
@@ -957,7 +961,11 @@ fn main(): int {
 "#;
     let ir = compile_to_ir(source, "exception_nested").expect("Failed to compile");
     assert!(ir.contains("landingpad"), "Expected landingpad; IR: {}", ir);
-    assert!(ir.contains("resume"), "Expected resume (finally without catch); IR: {}", ir);
+    assert!(
+        ir.contains("resume"),
+        "Expected resume (finally without catch); IR: {}",
+        ir
+    );
 }
 
 #[test]
@@ -982,5 +990,9 @@ fn main(): int {
 "#;
     let ir = compile_to_ir(source, "exception_rethrow").expect("Failed to compile");
     assert!(ir.contains("landingpad"), "Expected landingpad; IR: {}", ir);
-    assert!(ir.contains("invoke"), "Expected invoke for try call; IR: {}", ir);
+    assert!(
+        ir.contains("invoke"),
+        "Expected invoke for try call; IR: {}",
+        ir
+    );
 }
