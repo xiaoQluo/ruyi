@@ -1371,6 +1371,24 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         ret: BuiltinSig::Void,
         params: &[BuiltinSig::Int],
     },
+    // ============================================================
+    // spawn_blocking (3) — offload blocking work to thread pool
+    // ============================================================
+    BuiltinDecl {
+        name: "ruyi_spawn_blocking",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "ruyi_spawn_blocking_poll",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "ruyi_spawn_blocking_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
 ];
 
 /// Resolve a `BuiltinSig` to its inkwell `BasicTypeEnum` representation.
@@ -1412,11 +1430,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builtins_count_is_237() {
+    fn builtins_count_is_240() {
         assert_eq!(
             BUILTINS.len(),
-            237,
-            "expected exactly 237 FFI entries (213 + 10 channel + 8 rwlock + 6 thread)"
+            240,
+            "expected exactly 240 FFI entries (213 + 10 channel + 8 rwlock + 6 thread + 3 spawn_blocking)"
         );
     }
 
