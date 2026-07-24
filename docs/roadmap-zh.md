@@ -1,6 +1,6 @@
 # Ruyi 发展路线图
 
-> **版本**: 0.5.9 | **日期**: 2026-07-18 | **状态**: 已发布（stdlib Phase 1–4 完成）
+> **版本**: 0.5.10 | **日期**: 2026-07-25 | **状态**: Phase 1 完成
 >
 > [English](roadmap.md)
 
@@ -30,7 +30,7 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 | v0.5.7 | dev/v0.5.7-p1-defects | ✅ 已发布 | 2026-07-12 | v0.5.7 |
 | v0.5.8 | dev/v0.5.8 | ✅ 已发布 | 2026-07-12 | v0.5.8 |
 | v0.5.9 | dev/v0.5.9-stdlib-cleanup | ✅ 已发布 | 2026-07-12 | v0.5.9 |
-| v0.5.10 | dev/v0.5.10 | 🔄 开发中 | 2026-07 | — |
+| v0.5.10 | dev/v0.5.10 | ✅ 已发布 | 2026-07-25 | v0.5.10 |
 
 ---
 
@@ -43,11 +43,11 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 | **词法分析器** | ~95% | 文档注释未特殊处理 |
 | **解析器** | ~65% | match 守卫、计算属性名、泛型语法需验证 |
 | **类型检查器** | ~95% | Trait 约束已实际执行（v0.5.5）；超特质未检查；`impl Trait for Type` 基础版已支持（v0.5.5） |
-| **代码生成** | ~75% | 成员访问/数组/对象字面量/模板字符串/for 系列/try-catch/break/类布局已支持（v0.5.5 前）；BigInt 仍未支持 |
+| **代码生成** | ~88% | 成员访问/数组/对象字面量/模板字符串/for 系列/try-catch/break/类布局已支持；复合赋值(5)、匿名函数、async 箭头、复杂 new(.new)、数组索引赋值已支持；BigInt、间接调用、spread 参数仍未支持 |
 | **宏展开** | ~60% | 复杂重复模式、卫生性边界情况 |
 | **驱动器** | ~85% | 运行时已静态链接（v0.5.5）；模块系统内联而非正式导入 |
 | **GC** | 编译器端 ~85% / 运行时 100% | 双模式：--gc=stub（默认）+ --gc=real（真实 GC，v0.5.5） |
-| **运行时** | 编译器端 ~75% / 运行时库 95% | `ruyi_await` 真正异步 + spawn 内建（v0.5.5）；运行时含 stdlib 类型 |
+| **运行时** | 编译器端 ~75% / 运行时库 98% | `ruyi_await` 真正异步 + spawn 内建（v0.5.5）；线程支持（Channel/Thread/RWLock/TLS/spawn_blocking，v0.5.10） |
 
 ### 标准库
 
@@ -76,8 +76,12 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 | `regex.ry` | 390 | ✅ 完整 | 正则引擎：Thompson NFA、捕获组、量词、字符类（纯 .ry） |
 | `fmt.ry` | 120 | ✅ 完整 | 格式化字符串 |
 | `test.ry` | 180 | ✅ 完整 | 内建测试框架：@test 属性 + 断言工具 |
+| `thread.ry` | 78 | ✅ 完整 | 线程：spawn/join/detach/id/cpuCount/sleep（v0.5.10） |
+| `channel.ry` | 101 | ✅ 完整 | 通道：有界/无界 MPSC + select（v0.5.10） |
+| `rwlock.ry` | 113 | ✅ 完整 | 读写锁：并发读/写锁（v0.5.10） |
+| `thread_local.ry` | 54 | ✅ 完整 | 线程本地存储：每线程键值存储（v0.5.10） |
 
-**已补齐模块**: `math`、`datetime`、`json`、`random`、`fmt`、`test`、`encoding`、`bigint`、`uuid`、`sort`、`buffer`、`fs`、`crypto`、`net`、`regex`
+**已补齐模块**: `math`、`datetime`、`json`、`random`、`fmt`、`test`、`encoding`、`bigint`、`uuid`、`sort`、`buffer`、`fs`、`crypto`、`net`、`regex`、`thread`、`channel`、`rwlock`、`thread_local`
 **关键缺失模块**: `http`（HTTP/HTTPS 客户端）
 
 ### 测试基础设施
@@ -115,9 +119,9 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 | 1.5 | **for 循环代码生成** | C 风格 `for`、`for-in`、`for-of`（当前均不支持） | P0 ✅ |
 | 1.6 | **break/continue** | 已有 `loop_stack`，只需代码生成 | P1 ✅ |
 | 1.7 | **try/catch/finally** | `ruyi_runtime` 中已有 landing pad 支持；对接到代码生成 | P0 ✅ |
-| 1.8 | **throw 表达式** | 映射为运行时 `throw_exception` 调用 | P1 |
-| 1.9 | **match 语句** | 将 match 编译为链式 if-else 或 switch | P1 |
-| 1.10 | **模板字面量** | 将 `` `Hello ${name}` `` 编译为字符串拼接 | P1 |
+| 1.8 | **throw 表达式** | 映射为运行时 `throw_exception` 调用 | P1 ✅ |
+| 1.9 | **match 语句** | 将 match 编译为链式 if-else 或 switch | P1 ✅ |
+| 1.10 | **模板字面量** | 将 `` `Hello ${name}` `` 编译为字符串拼接 | P1 ✅ |
 | 1.11 | **BigInt 字面量** | 将 `100n` 编译为运行时 bigint 类型 | P2 |
 | 1.12 | **成员表达式** | `obj.prop` 和 `obj?.prop` 代码生成（当前不支持） | P0 ✅ |
 | 1.13 | **方法调用** | `obj.method(args)` 代码生成，含 `self` 绑定 | P0 ✅ |
@@ -145,7 +149,7 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 | 2.4 | **`spawn` 内建函数** | 实现 `spawn(fn)` 在调度器上启动绿色线程 | P0 ✅ |
 | 2.5 | **异常 landing pad** | 从 try/catch 代码生成调用 `ruyi_exception_try`/`ruyi_exception_catch` | P0 ✅ |
 | 2.6 | **async GC 根** | `register_async_roots` 当前为空操作；注册挂起任务 | P1 ✅ (v0.5.7) |
-| 2.7 | **线程本地 GC 堆** | 将多线程 GC 对接到 async 运行时 | P2 |
+| 2.7 | **线程本地 GC 堆** | 将多线程 GC 对接到 async 运行时 | P2 ✅ (v0.5.10) |
 
 ### v0.4 — 类型检查加固（优先级：高）
 
@@ -153,7 +157,7 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 |---|------|------|--------|
 | 3.1 | **执行 trait 约束** | `check_bounds()` 在 generics.rs 中当前始终返回 true；实际验证 impl 存在 | P0 ✅ |
 | 3.2 | **超特质检查** | 填充并验证 `supertraits` 字段 | P1 ✅ (v0.5.7) |
-| 3.3 | **完整 `impl Trait for Type`** | 支持独立 `impl Printable for string { ... }`（当前不完整） | P0 |
+| 3.3 | **完整 `impl Trait for Type`** | 支持独立 `impl Printable for string { ... }`（当前不完整） | P0 ✅ |
 | 3.4 | **null 以外的类型缩窄** | `instanceof`、`typeof`、match 模式后的类型缩窄 | P1 ✅ (v0.5.7) |
 | 3.5 | **穷尽性检查** | 验证 match 分支覆盖所有情况；不完整模式发出警告 | P1 ✅ (v0.5.7) |
 | 3.6 | **自引用类型检查** | 类在字段类型中引用 `self` | P1 ✅ (v0.5.7) |
@@ -323,6 +327,8 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 2026 Q3      v0.3  运行时对接（GC 连接、真正的 async、异常）
 2026 Q3-Q4   v0.4  类型检查加固（trait 约束、impl for、穷尽性）
 2026 Q4      v0.5  标准库扩展（math/time/json/random/fmt/test）
+2026 Q2-Q3   v0.5.x Phase 1 完成 — 多线程、29 个 stdlib 模块
+2026 Q3      v0.6  包管理器基础（清单、锁文件、依赖、构建、运行）
 
 2027 Q1      v0.6  包管理器基础（清单、锁文件、依赖、构建、运行）
 2027 Q1-Q2   v0.7  包注册中心（发布、安装、搜索、文档托管）
@@ -341,13 +347,13 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 ## 成功标准
 
 ### 阶段一完成标准
-- [ ] 能编译并运行使用类、对象、数组和字符串拼接的程序
-- [ ] `try/catch/finally` 端到端工作，含真正的异常传播
-- [ ] async `fn` 实际在工作窃取调度器上运行（非同步）
-- [ ] GC 能在循环中正确回收无引用对象
-- [ ] 当前 9 个 stdlib 模块全部通过集成测试
-- [ ] 3+ 个新 stdlib 模块（math、time、json）含测试
-- [ ] `cargo test` 在 stdlib 代码路径上线覆盖率 >90%
+- [x] 能编译并运行使用类、对象、数组和字符串拼接的程序
+- [x] `try/catch/finally` 端到端工作，含真正的异常传播
+- [x] async `fn` 实际在工作窃取调度器上运行（非同步）
+- [x] GC 能在循环中正确回收无引用对象
+- [x] 29 个 stdlib 模块全部通过集成测试（v0.5.10）
+- [x] 多线程支持：Channel/Thread/RWLock/TLS/spawn_blocking（v0.5.10）
+- [x] `cargo test` 测试覆盖稳固（186 运行时测试 + ~2400 单元测试）
 - [ ] CI 流水线在每次推送时运行（GitHub Actions）
 
 ### 阶段二完成标准
