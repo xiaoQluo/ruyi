@@ -50,6 +50,12 @@ pub struct WeakTable {
     object_slots: HashMap<*mut u8, Vec<u64>>,
 }
 
+impl Default for WeakTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WeakTable {
     pub fn new() -> Self {
         Self {

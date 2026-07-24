@@ -268,7 +268,7 @@ pub fn compile_function<'ctx>(
     // every Ruyi function frame. Without this, functions without a landingpad
     // instruction cannot be unwound through when a callee throws.
     use inkwell::attributes::{Attribute, AttributeLoc};
-    let lp_gen = LandingPadGenerator::new(&ctx.context, &ctx.module, ctx.builder());
+    let lp_gen = LandingPadGenerator::new(ctx.context, ctx.module, ctx.builder());
     let personality = lp_gen.get_personality_function();
     function.set_personality_function(personality);
 
@@ -647,21 +647,19 @@ fn compile_impl<'ctx>(
                         return Err(e);
                     }
                 }
-            } else {
-                if let Err(e) = compile_function(
-                    ctx,
-                    &mangled_name,
-                    &impl_params,
-                    return_type.as_ref(),
-                    None,
-                    None,
-                    method_body,
-                ) {
-                    if ctx.allow_partial_codegen() {
-                        log::warn!("Skipping method codegen for {}: {}", method_name, e);
-                    } else {
-                        return Err(e);
-                    }
+            } else if let Err(e) = compile_function(
+                ctx,
+                &mangled_name,
+                &impl_params,
+                return_type.as_ref(),
+                None,
+                None,
+                method_body,
+            ) {
+                if ctx.allow_partial_codegen() {
+                    log::warn!("Skipping method codegen for {}: {}", method_name, e);
+                } else {
+                    return Err(e);
                 }
             }
         }

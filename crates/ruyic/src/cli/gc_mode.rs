@@ -12,8 +12,10 @@ use std::str::FromStr;
 
 /// GC 模式枚举
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum GcMode {
     /// 占位分配器（默认）
+    #[default]
     Stub,
     /// 真实 generational GC
     Real,
@@ -43,11 +45,6 @@ impl GcMode {
     }
 }
 
-impl Default for GcMode {
-    fn default() -> Self {
-        GcMode::Stub
-    }
-}
 
 impl fmt::Display for GcMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

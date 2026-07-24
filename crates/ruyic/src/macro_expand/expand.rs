@@ -859,7 +859,7 @@ fn apply_template(
 fn tokens_to_source(tokens: &[Token]) -> String {
     tokens
         .iter()
-        .map(|t| token_to_source(t))
+        .map(token_to_source)
         .collect::<Vec<_>>()
         .join(" ")
 }

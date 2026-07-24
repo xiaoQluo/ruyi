@@ -111,7 +111,7 @@ pub fn mangle_name(name: &str, type_args: &[Type]) -> String {
     if type_args.is_empty() {
         name.to_string()
     } else {
-        let args_str: Vec<String> = type_args.iter().map(|t| mangle_type(t)).collect();
+        let args_str: Vec<String> = type_args.iter().map(mangle_type).collect();
         format!("{}__{}", name, args_str.join("__"))
     }
 }
@@ -132,7 +132,7 @@ fn mangle_type(ty: &Type) -> String {
         Type::Nullable(inner) => format!("{}__opt", mangle_type(inner)),
         Type::Array(elem) => format!("Array__{}", mangle_type(elem)),
         Type::Tuple(types) => {
-            let elem_strs: Vec<String> = types.iter().map(|t| mangle_type(t)).collect();
+            let elem_strs: Vec<String> = types.iter().map(mangle_type).collect();
             format!("Tuple__{}", elem_strs.join("_"))
         }
         Type::Object(fields) => {
@@ -146,12 +146,12 @@ fn mangle_type(ty: &Type) -> String {
             params,
             return_type,
         } => {
-            let param_strs: Vec<String> = params.iter().map(|p| mangle_type(p)).collect();
+            let param_strs: Vec<String> = params.iter().map(mangle_type).collect();
             format!("fn_{}_{}", param_strs.join("_"), mangle_type(return_type))
         }
         Type::Named(name, _) => name.clone(),
         Type::Generic { base, args } => {
-            let arg_strs: Vec<String> = args.iter().map(|a| mangle_type(a)).collect();
+            let arg_strs: Vec<String> = args.iter().map(mangle_type).collect();
             format!("{}__{}", base, arg_strs.join("__"))
         }
         Type::TypeVar(var) => var.name.clone(),
@@ -160,7 +160,7 @@ fn mangle_type(ty: &Type) -> String {
         Type::Self_ => "Self".to_string(),
         Type::Error => "error".to_string(),
         Type::Union(parts) => {
-            let elem_strs: Vec<String> = parts.iter().map(|t| mangle_type(t)).collect();
+            let elem_strs: Vec<String> = parts.iter().map(mangle_type).collect();
             format!("Union__{}", elem_strs.join("_or_"))
         }
     }

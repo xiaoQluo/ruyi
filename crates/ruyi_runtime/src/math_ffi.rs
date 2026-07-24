@@ -1,4 +1,5 @@
-/**
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+/*!
  * C FFI implementations backing `stdlib/math.ry`.
  *
  * Provides math functions via C ABI for use by Ruyi standard library.

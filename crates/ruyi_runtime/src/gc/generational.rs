@@ -102,7 +102,7 @@ impl GenerationalCollector {
             as *mut GcObjectHeader;
         let young_objs = self.young.objects();
         let old_objs = self.old.objects();
-        young_objs.iter().any(|&h| h == header_addr) || old_objs.iter().any(|&h| h == header_addr)
+        young_objs.contains(&header_addr) || old_objs.contains(&header_addr)
     }
 
     /// Register all active async tasks as GC roots.

@@ -106,7 +106,7 @@ impl MarkSweepCollector {
         let header_addr = (ptr as usize).wrapping_sub(std::mem::size_of::<GcObjectHeader>())
             as *mut GcObjectHeader;
         let objects = self.objects.lock().unwrap();
-        objects.iter().any(|&obj| obj == header_addr)
+        objects.contains(&header_addr)
     }
 
     /// Enable or disable collection.
@@ -227,6 +227,12 @@ impl Default for Collector {
 ///
 /// New code should use `MarkSweepCollector::allocate`.
 pub struct GcAllocator;
+
+impl Default for GcAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl GcAllocator {
     pub fn new() -> Self {

@@ -32,7 +32,7 @@ impl RootSet {
         // Validate alignment before dereferencing.
         // GC objects are always 8-byte aligned (alignment of GcObjectHeader).
         let addr = ptr as usize;
-        if addr % std::mem::align_of::<GcObjectHeader>() != 0 {
+        if !addr.is_multiple_of(std::mem::align_of::<GcObjectHeader>()) {
             return;
         }
         let header = GcObjectHeader::from_payload(ptr);
@@ -49,7 +49,7 @@ impl RootSet {
             return;
         }
         let addr = ptr as usize;
-        if addr % std::mem::align_of::<GcObjectHeader>() != 0 {
+        if !addr.is_multiple_of(std::mem::align_of::<GcObjectHeader>()) {
             return;
         }
         let header = GcObjectHeader::from_payload(ptr);
@@ -69,7 +69,7 @@ impl RootSet {
             return;
         }
         let addr = ptr as usize;
-        if addr % std::mem::align_of::<GcObjectHeader>() != 0 {
+        if !addr.is_multiple_of(std::mem::align_of::<GcObjectHeader>()) {
             return;
         }
         let header = GcObjectHeader::from_payload(ptr);
@@ -86,7 +86,7 @@ impl RootSet {
             return;
         }
         let addr = ptr as usize;
-        if addr % std::mem::align_of::<GcObjectHeader>() != 0 {
+        if !addr.is_multiple_of(std::mem::align_of::<GcObjectHeader>()) {
             return;
         }
         let header = GcObjectHeader::from_payload(ptr);

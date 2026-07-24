@@ -42,15 +42,12 @@ impl ArcClassRegistry {
 
     fn scan_declaration(&mut self, decl: &crate::parser::ast::Declaration) {
         use crate::parser::ast::Declaration;
-        match decl {
-            Declaration::Class {
+        if let Declaration::Class {
                 name, annotations, ..
-            } => {
-                if annotations.iter().any(|a| a == "arc") {
-                    self.arc_classes.insert(name.clone());
-                }
+            } = decl {
+            if annotations.iter().any(|a| a == "arc") {
+                self.arc_classes.insert(name.clone());
             }
-            _ => {}
         }
     }
 

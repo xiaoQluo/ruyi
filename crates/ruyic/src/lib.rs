@@ -1,3 +1,14 @@
+#![allow(clippy::collapsible_match)]
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::only_used_in_recursion)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::module_inception)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::if_same_then_else)]
+#![allow(clippy::match_like_matches_macro)]
+#![allow(clippy::unnecessary_to_owned)]
+
 pub mod cli;
 pub mod codegen;
 pub mod diagnostics;

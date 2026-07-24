@@ -891,7 +891,7 @@ fn compile_bigint_match<'ctx>(
                         _ => return Err("BigInt literal must be a pointer".to_string()),
                     };
                     let eq_i8 =
-                        build_ruyi_bigint_eq(ctx.builder(), &ctx.module, scrutinee_ptr, lit_ptr)?;
+                        build_ruyi_bigint_eq(ctx.builder(), ctx.module, scrutinee_ptr, lit_ptr)?;
                     let is_match = ctx.builder().build_int_compare(
                         IntPredicate::NE,
                         eq_i8,
@@ -919,7 +919,7 @@ fn compile_bigint_match<'ctx>(
                             };
                             let eq_i8 = build_ruyi_bigint_eq(
                                 ctx.builder(),
-                                &ctx.module,
+                                ctx.module,
                                 scrutinee_ptr,
                                 lit_ptr,
                             )?;
@@ -1129,26 +1129,23 @@ fn collect_object_pattern_checks(
         Pattern::Object(obj_fields) => {
             let mut checks = Vec::new();
             for f in obj_fields {
-                match f {
-                    crate::parser::ast::ObjectPatternField::Property {
+                if let crate::parser::ast::ObjectPatternField::Property {
                         key,
                         pattern: inner,
-                    } => {
-                        if let Pattern::Literal(lit) = inner {
-                            if let Expr::IntLiteral(n) = lit.as_ref() {
-                                let field_index =
-                                    fields
-                                        .iter()
-                                        .position(|(name, _)| name == key)
-                                        .ok_or_else(|| format!("Unknown field: {}", key))?;
-                                checks.push(FieldCheck {
-                                    field_index,
-                                    expected_value: *n,
-                                });
-                            }
+                    } = f {
+                    if let Pattern::Literal(lit) = inner {
+                        if let Expr::IntLiteral(n) = lit.as_ref() {
+                            let field_index =
+                                fields
+                                    .iter()
+                                    .position(|(name, _)| name == key)
+                                    .ok_or_else(|| format!("Unknown field: {}", key))?;
+                            checks.push(FieldCheck {
+                                field_index,
+                                expected_value: *n,
+                            });
                         }
                     }
-                    _ => {}
                 }
             }
             Ok(checks)

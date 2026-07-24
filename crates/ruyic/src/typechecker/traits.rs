@@ -300,7 +300,7 @@ impl TraitRegistry {
         type_name: &str,
         method_name: &str,
     ) -> Option<(&str, &TraitMethod)> {
-        for ((impl_type, _trait_name), _impl_idx) in &self.type_trait_impls {
+        for (impl_type, _trait_name) in self.type_trait_impls.keys() {
             if impl_type == type_name {
                 if let Some(trait_info) = self.traits.get(_trait_name) {
                     if let Some(method) = trait_info.methods.get(method_name) {

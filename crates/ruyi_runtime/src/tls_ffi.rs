@@ -1,3 +1,5 @@
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+
 /**
  * TLS FFI — HTTPS / secure sockets via rustls.
  *
@@ -184,9 +186,9 @@ fn write_cstr(conn: &mut Connection, socket: i64, data: *const c_char) -> i64 {
 }
 
 fn close_session(conn: &mut Connection, socket: i64) {
-    let _ = conn.send_close_notify();
+    conn.send_close_notify();
     let _ = tls_flush(conn, socket);
-    let _ = crate::net_ffi::__net_tcp_close(socket);
+    crate::net_ffi::__net_tcp_close(socket);
 }
 
 // ── session types ────────────────────────────────────────────

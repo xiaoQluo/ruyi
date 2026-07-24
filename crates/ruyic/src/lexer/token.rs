@@ -1,4 +1,4 @@
-/**
+/*!
  * Token definitions for the Ruyi lexical analyzer.
  *
  * @author Ruyi Team
