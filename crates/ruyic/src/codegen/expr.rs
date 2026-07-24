@@ -173,9 +173,10 @@ fn infer_param_types_expr(expr: &Expr, param_map: &mut std::collections::HashMap
                                     | BinaryOp::Minus
                                     | BinaryOp::Slash
                                     | BinaryOp::Percent
-                            ) {
-                                param_map.insert(lname, Type::Int);
-                            }
+                            )
+                        {
+                            param_map.insert(lname, Type::Int);
+                        }
                     }
                 }
             }
@@ -3047,12 +3048,7 @@ fn compile_array_literal<'ctx>(
 
                 if super::builtins::is_gc_managed(&val.ty) {
                     if let BasicValueEnum::PointerValue(pv) = val.value {
-                        super::builtins::build_gc_write_barrier(
-                            ctx.builder(),
-                            ctx.module,
-                            ptr,
-                            pv,
-                        );
+                        super::builtins::build_gc_write_barrier(ctx.builder(), ctx.module, ptr, pv);
                     }
                 }
             }
@@ -3175,12 +3171,7 @@ fn compile_object_literal<'ctx>(
 
                 if super::builtins::is_gc_managed(&val.ty) {
                     if let BasicValueEnum::PointerValue(pv) = val.value {
-                        super::builtins::build_gc_write_barrier(
-                            ctx.builder(),
-                            ctx.module,
-                            ptr,
-                            pv,
-                        );
+                        super::builtins::build_gc_write_barrier(ctx.builder(), ctx.module, ptr, pv);
                     }
                 }
 

@@ -1,0 +1,79 @@
+/**
+ * Ruyi Standard Library — Thread
+ *
+ * Native OS thread creation and management.
+ * Each thread has its own independent GC heap.
+ *
+ * Thread entry points are closures `fn()` — they capture variables
+ * by value (deep copy for GC types, ref-count for ARC types).
+ *
+ * Usage:
+ *   import { Thread } from "./thread";
+ *
+ *   let t = Thread.spawn(() => {
+ *       // This runs in a new OS thread with its own GC heap
+ *       heavyComputation();
+ *   });
+ *
+ *   t.join();     // Wait for thread to finish
+ *   // or
+ *   t.detach();   // Let thread run independently
+ *
+ *   let id = Thread.id();        // Current thread ID
+ *   let n = Thread.cpuCount();   // Available CPU cores
+ *   Thread.sleep(1000);          // Sleep 1000ms
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+export class Thread {
+    _handle: int;
+
+    /**
+     * Spawn a new OS thread executing the given closure.
+     *
+     * The closure runs in a new thread with its own GC heap.
+     * Returns a Thread handle for joining or detaching.
+     */
+    static fn spawn(): Thread {
+        // spawn() is handled as a compiler builtin that calls ruyi_thread_spawn
+        // The closure capturing is managed by the compiler.
+        // For the stdlib API, spawn is a language-level builtin.
+        let t = new Thread();
+        t._handle = -1;
+        return t;
+    }
+
+    /**
+     * Wait for the thread to finish.
+     * Returns 0 on success, -1 on error.
+     */
+    fn join(): int {
+        return __thread_join(self._handle);
+    }
+
+    /**
+     * Detach the thread — it runs independently and is reclaimed
+     * automatically when it finishes.
+     * Returns 0 on success, -1 on error.
+     */
+    fn detach(): int {
+        return __thread_detach(self._handle);
+    }
+
+    /** Get the current thread's ID. */
+    static fn id(): int {
+        return __thread_id();
+    }
+
+    /** Get the number of available CPU cores. */
+    static fn cpuCount(): int {
+        return __thread_cpu_count();
+    }
+
+    /** Sleep the current thread for `ms` milliseconds. */
+    static fn sleep(ms: int): void {
+        __thread_sleep(ms);
+    }
+}

@@ -1242,6 +1242,135 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         ret: BuiltinSig::Int,
         params: &[],
     },
+    // ============================================================
+    // channel_ffi (10) — bounded/unbounded MPSC channels
+    // ============================================================
+    BuiltinDecl {
+        name: "__channel_new",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__channel_send",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__channel_try_send",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__channel_recv",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__channel_try_recv",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__channel_is_closed",
+        ret: BuiltinSig::Bool,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__channel_clone",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__channel_sender_send",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__channel_sender_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__channel_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    // ============================================================
+    // rwlock_ffi (8) — read-write lock
+    // ============================================================
+    BuiltinDecl {
+        name: "__rwlock_new",
+        ret: BuiltinSig::Ptr,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__rwlock_read_lock",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__rwlock_try_read_lock",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__rwlock_read_unlock",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__rwlock_write_lock",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__rwlock_try_write_lock",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__rwlock_write_unlock",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__rwlock_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    // ============================================================
+    // thread_ffi (6) — OS thread spawning and management
+    // ============================================================
+    BuiltinDecl {
+        name: "__thread_spawn",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__thread_join",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__thread_detach",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__thread_id",
+        ret: BuiltinSig::Int,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__thread_cpu_count",
+        ret: BuiltinSig::Int,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__thread_sleep",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Int],
+    },
 ];
 
 /// Resolve a `BuiltinSig` to its inkwell `BasicTypeEnum` representation.
@@ -1283,11 +1412,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builtins_count_is_213() {
+    fn builtins_count_is_237() {
         assert_eq!(
             BUILTINS.len(),
-            213,
-            "expected exactly 213 FFI entries (210 + 3 read_raw)"
+            237,
+            "expected exactly 237 FFI entries (213 + 10 channel + 8 rwlock + 6 thread)"
         );
     }
 

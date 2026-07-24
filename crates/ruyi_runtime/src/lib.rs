@@ -13,6 +13,7 @@ pub mod async_runtime;
 pub mod atomic_ffi;
 pub mod builtins;
 mod c_exports;
+pub mod channel_ffi;
 pub mod compress_ffi;
 pub mod crypto_ffi;
 pub mod exception;
@@ -28,6 +29,8 @@ pub mod net_ffi;
 pub mod path_ffi;
 pub mod process_ffi;
 pub mod random_ffi;
+pub mod rwlock_ffi;
+pub mod thread_ffi;
 pub mod time_ffi;
 pub mod tls_ffi;
 

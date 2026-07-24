@@ -2,6 +2,11 @@ pub use crate::atomic_ffi::{
     __atomic_i64_cas, __atomic_i64_fetch_add, __atomic_i64_fetch_sub, __atomic_i64_free,
     __atomic_i64_load, __atomic_i64_new, __atomic_i64_store, __atomic_i64_swap,
 };
+pub use crate::channel_ffi::{
+    __channel_clone, __channel_free, __channel_is_closed, __channel_new, __channel_recv,
+    __channel_send, __channel_sender_free, __channel_sender_send, __channel_try_recv,
+    __channel_try_send,
+};
 pub use crate::compress_ffi::{
     __compress_deflate, __compress_finish, __compress_gzip, __compress_new, __compress_write,
     __compress_zlib, __decompress_deflate, __decompress_finish, __decompress_gzip,
@@ -42,6 +47,13 @@ pub use crate::mutex_ffi::{
  */
 pub use crate::random_ffi::{
     __random_bool, __random_bytes, __random_float, __random_int, __random_new,
+};
+pub use crate::rwlock_ffi::{
+    __rwlock_free, __rwlock_new, __rwlock_read_lock, __rwlock_read_unlock, __rwlock_try_read_lock,
+    __rwlock_try_write_lock, __rwlock_write_lock, __rwlock_write_unlock,
+};
+pub use crate::thread_ffi::{
+    __thread_cpu_count, __thread_detach, __thread_id, __thread_join, __thread_sleep, __thread_spawn,
 };
 pub use crate::time_ffi::{__time_format, __time_now, __time_sleep, __time_timestamp};
 pub use crate::tls_ffi::{

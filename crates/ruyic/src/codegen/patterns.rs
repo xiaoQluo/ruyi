@@ -1130,16 +1130,16 @@ fn collect_object_pattern_checks(
             let mut checks = Vec::new();
             for f in obj_fields {
                 if let crate::parser::ast::ObjectPatternField::Property {
-                        key,
-                        pattern: inner,
-                    } = f {
+                    key,
+                    pattern: inner,
+                } = f
+                {
                     if let Pattern::Literal(lit) = inner {
                         if let Expr::IntLiteral(n) = lit.as_ref() {
-                            let field_index =
-                                fields
-                                    .iter()
-                                    .position(|(name, _)| name == key)
-                                    .ok_or_else(|| format!("Unknown field: {}", key))?;
+                            let field_index = fields
+                                .iter()
+                                .position(|(name, _)| name == key)
+                                .ok_or_else(|| format!("Unknown field: {}", key))?;
                             checks.push(FieldCheck {
                                 field_index,
                                 expected_value: *n,

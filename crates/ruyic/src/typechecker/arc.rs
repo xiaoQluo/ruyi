@@ -43,8 +43,9 @@ impl ArcClassRegistry {
     fn scan_declaration(&mut self, decl: &crate::parser::ast::Declaration) {
         use crate::parser::ast::Declaration;
         if let Declaration::Class {
-                name, annotations, ..
-            } = decl {
+            name, annotations, ..
+        } = decl
+        {
             if annotations.iter().any(|a| a == "arc") {
                 self.arc_classes.insert(name.clone());
             }
