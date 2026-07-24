@@ -23,6 +23,10 @@ pub use crate::crypto_ffi::{
     __crypto_sha512, __crypto_x25519_dh_hex, __crypto_x25519_dh_raw, __crypto_x25519_keypair_hex,
     __crypto_x25519_keypair_raw, __crypto_x25519_pubkey_hex, __crypto_x25519_pubkey_raw,
 };
+pub use crate::fiber_ffi::{
+    __fiber_detach, __fiber_id, __fiber_is_finished, __fiber_join, __fiber_sleep, __fiber_spawn,
+    __fiber_yield,
+};
 pub use crate::float_ffi::{__f64_from_bits, __f64_to_bits};
 use crate::gc_exports::ruyi_gc_alloc;
 pub use crate::json_ffi::{__json_parse, __json_stringify};

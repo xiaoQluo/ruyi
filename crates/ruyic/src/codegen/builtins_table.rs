@@ -1412,6 +1412,44 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         params: &[BuiltinSig::Int],
     },
     // ============================================================
+    // fiber_ffi (7) — lightweight fiber (纎程) concurrency
+    // ============================================================
+    BuiltinDecl {
+        name: "__fiber_spawn",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__fiber_join",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__fiber_is_finished",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__fiber_detach",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__fiber_id",
+        ret: BuiltinSig::Int,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__fiber_sleep",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__fiber_yield",
+        ret: BuiltinSig::Void,
+        params: &[],
+    },
+    // ============================================================
     // spawn_blocking (3) — offload blocking work to thread pool
     // ============================================================
     BuiltinDecl {
@@ -1605,11 +1643,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builtins_count_is_272() {
+    fn builtins_count_is_279() {
         assert_eq!(
             BUILTINS.len(),
-            272,
-            "expected exactly 272 FFI entries (268 + 4 recv_timeout/is_finished/join_timeout/spawn_named)"
+            279,
+            "expected exactly 279 FFI entries (268 + 4 recv_timeout/is_finished/join_timeout/spawn_named + 7 fiber_ffi)"
         );
     }
 

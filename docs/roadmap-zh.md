@@ -40,14 +40,14 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 
 | 模块 | 完成度 | 主要缺口 |
 |------|--------|----------|
-| **词法分析器** | ~95% | 文档注释未特殊处理 |
+| **词法分析器** | ~98% | `$` 标识符已支持（对齐 spec §2.5）；文档注释未特殊处理 |
 | **解析器** | ~65% | match 守卫、计算属性名、泛型语法需验证 |
 | **类型检查器** | ~95% | Trait 约束已实际执行（v0.5.5）；超特质未检查；`impl Trait for Type` 基础版已支持（v0.5.5） |
 | **代码生成** | ~88% | 成员访问/数组/对象字面量/模板字符串/for 系列/try-catch/break/类布局已支持；复合赋值(5)、匿名函数、async 箭头、复杂 new(.new)、数组索引赋值已支持；BigInt、间接调用、spread 参数仍未支持 |
 | **宏展开** | ~60% | 复杂重复模式、卫生性边界情况 |
 | **驱动器** | ~85% | 运行时已静态链接（v0.5.5）；模块系统内联而非正式导入 |
 | **GC** | 编译器端 ~85% / 运行时 100% | 双模式：--gc=stub（默认）+ --gc=real（真实 GC，v0.5.5） |
-| **运行时** | 编译器端 ~75% / 运行时库 98% | `ruyi_await` 真正异步 + spawn 内建（v0.5.5）；线程支持（Channel/Thread/RWLock/TLS/spawn_blocking，v0.5.10） |
+| **运行时** | 编译器端 ~75% / 运行时库 98% | `ruyi_await` 真正异步 + spawn 内建（v0.5.5）；线程支持（Channel/Thread/RWLock/TLS/spawn_blocking/spawnNamed/joinTimeout/isFinished，v0.5.10）；同步原语（Barrier/Once/Semaphore/Condvar，v0.5.10） |
 
 ### 标准库
 
@@ -76,12 +76,16 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 | `regex.ry` | 390 | ✅ 完整 | 正则引擎：Thompson NFA、捕获组、量词、字符类（纯 .ry） |
 | `fmt.ry` | 120 | ✅ 完整 | 格式化字符串 |
 | `test.ry` | 180 | ✅ 完整 | 内建测试框架：@test 属性 + 断言工具 |
-| `thread.ry` | 78 | ✅ 完整 | 线程：spawn/join/detach/id/cpuCount/sleep（v0.5.10） |
-| `channel.ry` | 101 | ✅ 完整 | 通道：有界/无界 MPSC + select（v0.5.10） |
+| `thread.ry` | 107 | ✅ 完整 | 线程：spawn/join/detach/id/cpuCount/sleep/spawnNamed/joinTimeout/isFinished（v0.5.10） |
+| `channel.ry` | 111 | ✅ 完整 | 通道：有界/无界 MPSC + select + recvTimeout（v0.5.10） |
 | `rwlock.ry` | 113 | ✅ 完整 | 读写锁：并发读/写锁（v0.5.10） |
 | `thread_local.ry` | 54 | ✅ 完整 | 线程本地存储：每线程键值存储（v0.5.10） |
+| `barrier.ry` | 39 | ✅ 完整 | 屏障：N线程集合点（v0.5.10） |
+| `once.ry` | 54 | ✅ 完整 | Once：一次性初始化守卫（v0.5.10） |
+| `semaphore.ry` | 57 | ✅ 完整 | 信号量：计数信号量 acquire/tryAcquire/release（v0.5.10） |
+| `condvar.ry` | 70 | ✅ 完整 | 条件变量：wait/notifyOne/notifyAll（v0.5.10） |
 
-**已补齐模块**: `math`、`datetime`、`json`、`random`、`fmt`、`test`、`encoding`、`bigint`、`uuid`、`sort`、`buffer`、`fs`、`crypto`、`net`、`regex`、`thread`、`channel`、`rwlock`、`thread_local`
+**已补齐模块**: `math`、`datetime`、`json`、`random`、`fmt`、`test`、`encoding`、`bigint`、`uuid`、`sort`、`buffer`、`fs`、`crypto`、`net`、`regex`、`thread`、`channel`、`rwlock`、`thread_local`、`barrier`、`once`、`semaphore`、`condvar`
 **关键缺失模块**: `http`（HTTP/HTTPS 客户端）
 
 ### 测试基础设施
@@ -327,7 +331,7 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 2026 Q3      v0.3  运行时对接（GC 连接、真正的 async、异常）
 2026 Q3-Q4   v0.4  类型检查加固（trait 约束、impl for、穷尽性）
 2026 Q4      v0.5  标准库扩展（math/time/json/random/fmt/test）
-2026 Q2-Q3   v0.5.x Phase 1 完成 — 多线程、29 个 stdlib 模块
+2026 Q2-Q3   v0.5.x Phase 1 完成 — 多线程、33 个 stdlib 模块
 2026 Q3      v0.6  包管理器基础（清单、锁文件、依赖、构建、运行）
 
 2027 Q1      v0.6  包管理器基础（清单、锁文件、依赖、构建、运行）
@@ -351,8 +355,8 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 - [x] `try/catch/finally` 端到端工作，含真正的异常传播
 - [x] async `fn` 实际在工作窃取调度器上运行（非同步）
 - [x] GC 能在循环中正确回收无引用对象
-- [x] 29 个 stdlib 模块全部通过集成测试（v0.5.10）
-- [x] 多线程支持：Channel/Thread/RWLock/TLS/spawn_blocking（v0.5.10）
+- [x] 33 个 stdlib 模块全部通过集成测试（v0.5.10）
+- [x] 多线程支持：Channel/Thread/RWLock/TLS/spawn_blocking/spawnNamed/joinTimeout/isFinished + Barrier/Once/Semaphore/Condvar（v0.5.10）
 - [x] `cargo test` 测试覆盖稳固（186 运行时测试 + ~2400 单元测试）
 - [ ] CI 流水线在每次推送时运行（GitHub Actions）
 

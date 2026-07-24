@@ -19,6 +19,7 @@ pub mod compress_ffi;
 pub mod condvar_ffi;
 pub mod crypto_ffi;
 pub mod exception;
+pub mod fiber_ffi;
 pub mod float_ffi;
 pub mod fmt_ffi;
 pub mod gc;
