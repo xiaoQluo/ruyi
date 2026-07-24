@@ -1,0 +1,18 @@
+# .spec-superflow.yaml — stdlib-io-path-process-ffi
+
+state: executing
+workflow: full
+
+change_name: stdlib-io-path-process-ffi
+
+# === Decision points ===
+dp_1_result: "confirmed: 单次变更一次性实现 IO(17) + Path(8) + Process(20) 共 45 个 FFI 函数后端。Problem: stdlib/io.ry/path.ry/process.ry Ruyi 层 API 已就绪，但 codegen builtins_table.rs 无 FFI declare、runtime 无 extern \"C\" 实现，导致链接失败。Scope in: 新增 io_ffi.rs/path_ffi.rs/process_ffi.rs 到 crates/ruyi_runtime/src/、扩展 builtins_table.rs 45 条声明、注册 lib.rs 新模块、Rust 单元测试 + .ry 集成测试、沿用现有异常模式处理错误。Scope out: 不修改 stdlib .ry 源文件、不新增其他模块、不重构 codegen 管线、不支持 Windows。Success: 45 符号全部可链接、make build-release 通过、make test 通过、.ry 集成测试全部正确。拆分: 不拆，单变更三模块一并交付。实现深度: 完整实现（非 stub），含真实进程 spawn/wait/kill/stdin/stdout 管道、跨平台信号处理。错误处理: Rust FFI 抛异常 → Ruyi 层捕获转换为 IOError/ProcessException，完整测试覆盖。"
+dp_1_timestamp: 2026-07-17T00:00:00Z
+dp_2_result: "approved: 4 件规划工件齐全且一致。proposal.md: Why (链接失败的 45 个 FFI 符号缺失) + What (3 新文件 2 改文件) + Scope in/out (全 45 函数完整实现, 不改 stdlib .ry, 不支持 Windows) + 7 Acceptance Criteria。specs/01-io-ffi.md: 5 REQ + 11 SCEN 覆盖 17 函数（含 async 变体）。specs/02-path-ffi.md: 4 REQ + 11 SCEN 覆盖 8 纯字符串运算函数。specs/03-process-ffi.md: 6 REQ + 16 SCEN 覆盖 20 函数（含生命周期、I/O 管道、环境变量、系统信息）。design.md: 8 Decisions (D1 三独立文件 / D2 thread::spawn async / D3 opaque Process handle / D4 ruyi_throw 异常 / D5 单数组 varargs / D6 ruyi_alloc 内存 / D7 .ry 集成测试 / D8 cfg(unix) 守卫) + 5 Risks with mitigations。tasks.md: 4 Batch (B1 Path 8fn / B2 IO 17fn / B3 Process 20fn / B4 Final Verify) + 21 tasks 全 TDD 五阶段 + builtins_table 计数递进 56→64→81→101 + 零 TODO/TBD。已交接至 ssf-contract-builder。"
+dp_2_timestamp: 2026-07-17T00:00:00Z
+dp_3_result: "approved: contract locked per execution-contract.md; 单变更 stdlib-io-path-process-ffi, 4 batch 顺序 (B1 Path 8fn → B2 IO 17fn → B3 Process 20fn → B4 Final Verify), builtins_table count 递进 56→64→81→101; 9 files (3 新 + 3 改 + 3 .ry integration); TDD 五阶段 (RED→GREEN→REFACTOR→VERIFY→DOC); 4 review gates (G1 Path tests→G2 IO tests→G3 Process tests→G4 full acceptance); 5 handoff rules + 7 escalation rules; 7 build rules (no_mangle+BuiltinSig+ruyi_alloc+ruyi_throw+cfg(unix)+opaque handle+rust stdlib only); zero ambiguity, zero unmapped requirements"
+dp_3_timestamp: 2026-07-17T00:00:00Z
+dp_4_result: "inline: 3 batches consolidated execution, TDD full (RED→GREEN→REFACTOR→VERIFY→DOC)"
+dp_4_timestamp: 2026-07-17T14:30:00Z
+dp_5_result: "PASS: 39/39 new tests (path 13 + io 10 + process 14 + builtins_table 2); cargo check --workspace: 0 errors 0 warnings; cargo fmt: clean; make build-release: OK with LLVM 14; commit 920eccf on dev/stdlib-io-path-process-ffi; 1 pre-existing GC test failure (async_gc_roots::register_and_unregister_track_ids) unrelated; .ry integration test blocked by pre-existing parser bug in auto-loaded stdlib (nested generics >>)"
+dp_5_timestamp: 2026-07-17T15:02:00Z

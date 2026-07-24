@@ -1,0 +1,1121 @@
+/**
+ * Standard Library - File System Module
+ *
+ * Provides comprehensive file system operations wrapping IO, Path, and extended
+ * IO FFI symbols. All operations support both synchronous and asynchronous
+ * access patterns with full type safety.
+ *
+ * Features:
+ *   - Path utilities (delegated to Path class)
+ *   - File metadata (exists, isFile, isDir, size, mtime)
+ *   - File read/write (sync + async with append support)
+ *   - Directory operations (list, create, remove, ensure)
+ *   - Recursive operations (walk, copy, list)
+ *   - File manipulation (rename, delete, truncate, touch)
+ *   - Temp file utilities
+ *   - FileInfo data class
+ *   - High-level helpers (isBinary, isEmptyFile, base64/hex encode)
+ *
+ * Path and File operations delegate to the Path and File classes
+ * from stdlib/path.ry and stdlib/io.ry respectively.
+ * Encoding operations delegate to stdlib/encoding.ry.
+ *
+ * All FFI symbols are globally registered — no imports needed.
+ *
+ * @author Ruyi Team
+ * @date 2026-07-17
+ */
+
+// ============================================================
+// Imports
+// ============================================================
+
+// Note: `Path` and `File` classes from stdlib/path.ry and stdlib/io.ry are not
+// imported here. Earlier revisions delegated to those classes, but the ruyic
+// typechecker currently misroutes static-method calls on them as if they were
+// instance methods whose receiver should be a `Path` / `File` value. To stay
+// portable across the current typechecker, fs.ry reaches directly for the
+// underlying `__path_*` / `__io_file_*` FFI symbols. The Path and File classes
+// remain available to other stdlib modules and end-user code.
+import { base64Encode, base64Decode, hexEncode, hexDecode } from "./encoding";
+import { fromCharCode } from "./string";
+import { nowMs } from "./time";
+
+// Type alias to work around ruyic parser limitation: nested generics
+// like `Future<Array<T>>` are parsed as `Future<Array<T` followed by `>>`
+// shift tokens. Using a named alias produces a single-token type expression.
+type StringArray = Array<string>;
+
+// ============================================================
+// Path Utilities
+// ============================================================
+
+/**
+ * Checks if a path is absolute (starts from root).
+ * @param path Path to check
+ * @return true if path is absolute, false otherwise
+ */
+export fn isAbsolute(path: string): bool {
+    return __path_is_absolute(path);
+}
+
+/**
+ * Checks if a path is relative.
+ * @param path Path to check
+ * @return true if path is relative (not absolute)
+ */
+export fn isRelative(path: string): bool {
+    return !__path_is_absolute(path);
+}
+
+/**
+ * Joins multiple path segments into a single path.
+ * Inserts platform separators between segments as needed.
+ *
+ * @param segments Path string segments
+ * @return Joined path string
+ */
+export fn join(...segments: string): string {
+    return __path_join(segments);
+}
+
+/**
+ * Returns the last component of a path (the file or directory name).
+ * @param path Path string
+ * @return Base name (filename or last directory component)
+ */
+export fn basename(path: string): string {
+    return __path_basename(path);
+}
+
+/**
+ * Returns the directory portion of a path (everything before the last separator).
+ * @param path Path string
+ * @return Directory path, or empty string if no directory component
+ */
+export fn dirname(path: string): string {
+    return __path_dirname(path);
+}
+
+/**
+ * Returns the file extension including the leading dot.
+ * @param path Path string
+ * @return Extension string (e.g. ".txt"), or empty string if none
+ */
+export fn extname(path: string): string {
+    return __path_extname(path);
+}
+
+/**
+ * Normalizes a path by resolving ".." and "." segments.
+ * @param path Path to normalize
+ * @return Normalized path string
+ */
+export fn normalize(path: string): string {
+    return __path_normalize(path);
+}
+
+/**
+ * Resolves a relative path against a base directory.
+ * If the relative path is already absolute, it is returned unchanged.
+ * @param base Base directory path
+ * @param relative Relative path to resolve
+ * @return Resolved absolute path
+ */
+export fn resolve(base: string, relative: string): string {
+    if (__path_is_absolute(relative)) {
+        return relative;
+    }
+    let joined: Array<string> = [base, relative];
+    return __path_join(joined);
+}
+
+/**
+ * Computes the relative path from one location to another.
+ * @param from Source path
+ * @param to Destination path
+ * @return Relative path string from `from` to `to`
+ */
+export fn relative(from: string, to: string): string {
+    return __path_relative(from, to);
+}
+
+// ============================================================
+// File Metadata
+// ============================================================
+
+/**
+ * Checks whether a file or directory exists at the given path.
+ * @param path Path to check
+ * @return true if the path exists, false otherwise
+ */
+export fn exists(path: string): bool {
+    return __io_file_exists(path);
+}
+
+/**
+ * Checks whether a file or directory exists at the given path (async).
+ * @param path Path to check
+ * @return Future resolving to true if the path exists
+ */
+export async fn existsAsync(path: string): Future<bool> {
+    return __io_file_exists_async(path);
+}
+
+/**
+ * Checks if the path refers to a regular file.
+ * Returns false for directories, symlinks, or non-existent paths.
+ * @param path Path to check
+ * @return true if the path is a regular file
+ */
+export fn isFile(path: string): bool {
+    return __io_is_file(path);
+}
+
+/**
+ * Checks if the path refers to a regular file (async).
+ * @param path Path to check
+ * @return Future resolving to true if the path is a regular file
+ */
+export async fn isFileAsync(path: string): Future<bool> {
+    return __io_is_file_async(path);
+}
+
+/**
+ * Checks if the path refers to a directory.
+ * @param path Path to check
+ * @return true if the path is a directory
+ */
+export fn isDir(path: string): bool {
+    return __io_is_directory(path);
+}
+
+/**
+ * Checks if the path refers to a directory (async).
+ * @param path Path to check
+ * @return Future resolving to true if the path is a directory
+ */
+export async fn isDirAsync(path: string): Future<bool> {
+    return __io_is_directory_async(path);
+}
+
+/**
+ * Returns the size of a file in bytes.
+ * @param path Path to the file
+ * @return File size in bytes, or -1 if the file does not exist or an error occurred
+ */
+export fn size(path: string): int {
+    return __io_file_size(path);
+}
+
+/**
+ * Returns the size of a file in bytes (async wrapper over sync FFI).
+ * @param path Path to the file
+ * @return Future resolving to file size in bytes, or -1 on error
+ */
+export async fn sizeAsync(path: string): Future<int> {
+    return __io_file_size(path);
+}
+
+/**
+ * Returns the last modification time of a file as epoch milliseconds.
+ * @param path Path to the file
+ * @return Epoch milliseconds, or -1 if the file does not exist or an error occurred
+ */
+export fn mtime(path: string): int {
+    return __io_file_mtime(path);
+}
+
+/**
+ * Returns the last modification time of a file as epoch milliseconds (async).
+ * @param path Path to the file
+ * @return Future resolving to epoch milliseconds, or -1 on error
+ */
+export async fn mtimeAsync(path: string): Future<int> {
+    return __io_file_mtime(path);
+}
+
+// ============================================================
+// File Read/Write
+// ============================================================
+
+/**
+ * Reads the entire contents of a file as a string.
+ * Throws if the file does not exist or cannot be read.
+ * @param path Path to the file
+ * @return File contents as a string
+ */
+export fn readFile(path: string): string {
+    return __io_file_read_text(path);
+}
+
+/**
+ * Reads the entire contents of a file as a string (async).
+ * @param path Path to the file
+ * @return Future resolving to file contents
+ */
+export async fn readFileAsync(path: string): Future<string> {
+    return __io_file_read_text_async(path);
+}
+
+/**
+ * Writes string content to a file, overwriting any existing content.
+ * Creates the file if it does not exist. Fails if parent directory does not exist.
+ * @param path Path to the file
+ * @param content Content to write
+ */
+export fn writeFile(path: string, content: string): void {
+    __io_file_write_text(path, content);
+}
+
+/**
+ * Writes string content to a file, overwriting any existing content (async).
+ * @param path Path to the file
+ * @param content Content to write
+ * @return Future that completes when the write is done
+ */
+export async fn writeFileAsync(path: string, content: string): Future<void> {
+    __io_file_write_text_async(path, content);
+}
+
+/**
+ * Appends string content to the end of a file.
+ * Creates the file if it does not exist.
+ * @param path Path to the file
+ * @param content Content to append
+ */
+export fn appendFile(path: string, content: string): void {
+    __io_file_append_text(path, content);
+}
+
+/**
+ * Appends string content to the end of a file (async wrapper over sync FFI).
+ * Creates the file if it does not exist.
+ * @param path Path to the file
+ * @param content Content to append
+ * @return Future that completes when the append is done
+ */
+export async fn appendFileAsync(path: string, content: string): Future<void> {
+    __io_file_append_text(path, content);
+}
+
+/**
+ * Copies a file from source to destination.
+ * Reads the source file and writes its contents to the destination.
+ * Does NOT preserve file metadata (permissions, timestamps).
+ * Fails if the source file does not exist.
+ * @param src Source file path
+ * @param dst Destination file path
+ */
+export fn copyFile(src: string, dst: string): void {
+    let content = __io_file_read_text(src);
+    __io_file_write_text(dst, content);
+}
+
+/**
+ * Copies a file from source to destination (async).
+ * Reads the source file and writes its contents to the destination.
+ * Does NOT preserve file metadata.
+ * @param src Source file path
+ * @param dst Destination file path
+ * @return Future that completes when the copy is done
+ */
+export async fn copyFileAsync(src: string, dst: string): Future<void> {
+    let content = __io_file_read_text_async(src);
+    __io_file_write_text_async(dst, content);
+}
+
+/**
+ * Reads the contents of a file as an array of lines.
+ * Line endings are stripped from each line.
+ * @param path Path to the file
+ * @return Array of strings, one per line
+ */
+export fn readLines(path: string): Array<string> {
+    return __io_file_read_lines(path);
+}
+
+/**
+ * Reads the contents of a file as an array of lines (async).
+ * @param path Path to the file
+ * @return Future resolving to array of strings, one per line
+ */
+export async fn readLinesAsync(path: string): Future<StringArray> {
+    return __io_file_read_lines_async(path);
+}
+
+/**
+ * Writes an array of lines to a file, joining with Unix newlines.
+ * @param path Path to the file
+ * @param lines Array of line strings to write
+ */
+export fn writeLines(path: string, lines: Array<string>): void {
+    __io_file_write_text(path, __string_join(lines, "\n"));
+}
+
+// ============================================================
+// Directory Operations
+// ============================================================
+
+/**
+ * Lists the names of entries within a directory.
+ * @param path Path to the directory
+ * @return Array of entry names (not full paths), or empty array on error
+ */
+export fn readDir(path: string): Array<string> {
+    return __io_read_dir(path);
+}
+
+/**
+ * Lists the names of entries within a directory (async wrapper over sync FFI).
+ * @param path Path to the directory
+ * @return Future resolving to array of entry names, or empty array on error
+ */
+export async fn readDirAsync(path: string): Future<StringArray> {
+    return __io_read_dir(path);
+}
+
+/**
+ * Creates a new directory.
+ * @param path Path to create
+ * @param recursive If true, creates parent directories as needed (default: false)
+ */
+export fn mkdir(path: string, recursive: bool = false): void {
+    __io_mkdir(path, recursive);
+}
+
+/**
+ * Creates a new directory (async).
+ * @param path Path to create
+ * @param recursive If true, creates parent directories as needed (default: false)
+ * @return Future that completes when directory is created
+ */
+export async fn mkdirAsync(path: string, recursive: bool = false): Future<void> {
+    __io_mkdir_async(path, recursive);
+}
+
+/**
+ * Removes a directory.
+ * @param path Path to the directory
+ * @param recursive If true, removes contents recursively (default: false)
+ * @return true if the directory was removed successfully, false on error
+ */
+export fn removeDir(path: string, recursive: bool = false): bool {
+    return __io_remove_dir(path, recursive);
+}
+
+/**
+ * Removes a directory (async wrapper over sync FFI).
+ * @param path Path to the directory
+ * @param recursive If true, removes contents recursively (default: false)
+ * @return Future resolving to true if successful, false on error
+ */
+export async fn removeDirAsync(path: string, recursive: bool = false): Future<void> {
+    __io_remove_dir(path, recursive);
+}
+
+/**
+ * Ensures a directory exists, creating all parent directories as needed.
+ * Equivalent to `mkdir -p` on Unix. Idempotent — does nothing if the
+ * directory already exists.
+ * @param path Path to the directory to ensure
+ */
+export fn ensureDir(path: string): void {
+    if (!__io_is_directory(path)) {
+        let normalized = __path_normalize(path);
+        if (normalized !== "" && normalized !== ".") {
+            // do nothing else
+            let __ensure_normalized = normalized;
+            // Build components list by splitting on separator
+            let components: Array<string> = [];
+            let current = normalized;
+
+            while (true) {
+                let base = __path_basename(current);
+                if (base === "" || base === "." || base === "..") {
+                    break;
+                }
+                components.push(base);
+                let parent = __path_dirname(current);
+                if (parent === current || parent === "") {
+                    break;
+                }
+                current = parent;
+            }
+
+            // Rebuild path from root, creating each level
+            let built: string = "";
+            for (let i = components.length - 1; i >= 0; i = i - 1) {
+                let comp: string = components[i];
+                if (built === "") {
+                    built = comp;
+                } else {
+                    let __join_arr: Array<string> = [built,  comp];
+                    built = __path_join(__join_arr);
+                }
+                if (!__io_is_directory(built)) {
+                    __io_mkdir(built, false);
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Ensures a directory exists, creating all parent directories as needed (async).
+ * @param path Path to the directory to ensure
+ * @return Future that completes when the directory is ensured
+ */
+export async fn ensureDirAsync(path: string): Future<void> {
+    let isDir = __io_is_directory_async(path);
+    if (!isDir) {
+        let normalized = __path_normalize(path);
+        if (normalized !== "" && normalized !== ".") {
+            let components: Array<string> = [];
+            let current = normalized;
+
+            while (true) {
+                let base = __path_basename(current);
+                if (base === "" || base === "." || base === "..") {
+                    break;
+                }
+                components.push(base);
+                let parent = __path_dirname(current);
+                if (parent === current || parent === "") {
+                    break;
+                }
+                current = parent;
+            }
+
+            let built: string = "";
+            for (let i = components.length - 1; i >= 0; i = i - 1) {
+                let comp: string = components[i];
+                if (built === "") {
+                    built = comp;
+                } else {
+                    let __join_arr: Array<string> = [built, comp];
+                    built = __path_join(__join_arr);
+                }
+                if (!__io_is_directory_async(built)) {
+                    __io_mkdir_async(built, false);
+                }
+            }
+        }
+    }
+}
+
+// File Manipulation
+// ============================================================
+
+/**
+ * Renames or moves a file/directory.
+ * @param oldPath Current path
+ * @param newPath New path
+ * @return true if the rename was successful, false on error
+ */
+export fn rename(oldPath: string, newPath: string): bool {
+    return __io_rename(oldPath, newPath);
+}
+
+/**
+ * Renames or moves a file/directory (async wrapper over sync FFI).
+ * @param oldPath Current path
+ * @param newPath New path
+ * @return Future resolving to true if successful, false on error
+ */
+export async fn renameAsync(oldPath: string, newPath: string): Future<void> {
+    __io_rename(oldPath, newPath);
+}
+
+/**
+ * Deletes a file.
+ * Does NOT throw if the file does not exist — the call is silently ignored.
+ * @param path Path to the file to delete
+ */
+export fn deleteFile(path: string): void {
+    __io_file_delete(path);
+}
+
+/**
+ * Deletes a file (async).
+ * @param path Path to the file to delete
+ * @return Future that completes when deletion is done
+ */
+export async fn deleteFileAsync(path: string): Future<void> {
+    __io_file_delete_async(path);
+}
+
+/**
+ * Truncates a file to the given size by keeping the first `size` characters.
+ * If the file is smaller than `size`, it is left unchanged.
+ * If the file does not exist, this function fails.
+ * Note: Operates on text content — binary files may be corrupted.
+ * @param path Path to the file
+ * @param size Maximum number of characters to keep
+ */
+export fn truncate(path: string, size: int): void {
+    let content = __io_file_read_text(path);
+    if (__string_length(content) > size) {
+        __io_file_write_text(path, content.substring(0, size));
+    }
+}
+
+/**
+ * Creates an empty file, or updates the modification time of an existing file.
+ * If the file does not exist, an empty file is created.
+ * If the file exists, an empty string is written to update mtime.
+ * @param path Path to the file
+ */
+export fn touch(path: string): void {
+    if (__io_file_exists(path)) {
+        __io_file_append_text(path, "");
+    } else {
+        __io_file_write_text(path, "");
+    }
+}
+
+// ============================================================
+// Recursive Operations
+// ============================================================
+
+/**
+ * Recursively walks a directory, returning all file and directory paths.
+ * Paths returned are absolute. Handles circular symlinks by tracking
+ * visited paths (normalized paths are compared).
+ * @param dir Root directory to walk
+ * @return Array of absolute paths (files and directories) within the directory tree
+ */
+export fn walkDir(dir: string): Array<string> {
+    let results: Array<string> = [];
+    let visited: Array<string> = [];
+    walkDirInternal(dir, results, visited);
+    return results;
+}
+
+/**
+ * Internal recursive walk implementation with visited tracking.
+ */
+fn walkDirInternal(current: string, results: Array<string>, visited: Array<string>): void {
+    let normalized = __path_normalize(current);
+
+    // Check for circular references — if already visited, do nothing.
+    let alreadyVisited = false;
+    for (let i = 0; i < visited.length; i = i + 1) {
+        let v: string = visited[i];
+        if (v === normalized) {
+            alreadyVisited = true;
+        }
+    }
+    if (!alreadyVisited) {
+        visited.push(normalized);
+
+        if (!__io_is_directory(current)) {
+            // Single file — just add it if it exists.
+            if (__io_file_exists(current)) {
+                results.push(normalized);
+            }
+        } else {
+            results.push(normalized);
+
+            let entries: Array<string> = __io_read_dir(current);
+            let entryCount = entries.length;
+            for (let i = 0; i < entryCount; i = i + 1) {
+                let entry: string = entries[i];
+                // Skip "." and ".." to prevent infinite loops
+                if (entry !== "." && entry !== "..") {
+                    let __join_arr: Array<string> = [current,  entry];
+                    let fullPath = __path_join(__join_arr);
+                    walkDirInternal(fullPath, results, visited);
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Recursively lists all files in a directory tree (excluding directories).
+ * Uses walkDir internally and filters for files only.
+ * @param dir Root directory
+ * @return Array of absolute file paths
+ */
+export fn listAllFiles(dir: string): Array<string> {
+    let all = walkDir(dir);
+    let files: Array<string> = [];
+    for (let i = 0; i < all.length; i = i + 1) {
+        if (__io_is_file(all[i])) {
+            files.push(all[i]);
+        }
+    }
+    return files;
+}
+
+/**
+ * Recursively lists all subdirectories in a directory tree (excluding files).
+ * Uses walkDir internally and filters for directories only.
+ * @param dir Root directory
+ * @return Array of absolute directory paths
+ */
+export fn listAllDirs(dir: string): Array<string> {
+    let all = walkDir(dir);
+    let dirs: Array<string> = [];
+    for (let i = 0; i < all.length; i = i + 1) {
+        if (__io_is_directory(all[i])) {
+            dirs.push(all[i]);
+        }
+    }
+    return dirs;
+}
+
+/**
+ * Recursively copies a directory from source to destination.
+ * Creates the destination directory and recursively copies all files
+ * and subdirectories. Preserves the directory structure.
+ * If a file fails to copy, the operation continues with remaining files.
+ * @param src Source directory path
+ * @param dst Destination directory path
+ */
+export fn copyDir(src: string, dst: string): void {
+    // Normalize both paths
+    let normSrc = __path_normalize(src);
+    let normDst = __path_normalize(dst);
+
+    if (__io_is_directory(normSrc)) {
+        // Create the root destination directory
+        __io_mkdir(normDst, true);
+
+        let entries = walkDir(normSrc);
+
+        for (let i = 0; i < entries.length; i = i + 1) {
+            let srcPath = entries[i];
+
+            // Compute relative path from source and append to destination
+            let relPath = __path_relative(normSrc, srcPath);
+
+            if (relPath !== "" && relPath !== ".") {
+                let __join_arr: Array<string> = [normDst,  relPath];
+                let dstPath = __path_join(__join_arr);
+
+                if (__io_is_directory(srcPath)) {
+                    if (!__io_is_directory(dstPath)) {
+                        __io_mkdir(dstPath, false);
+                    }
+                } else if (__io_is_file(srcPath)) {
+                    let content = __io_file_read_text(srcPath);
+                    __io_file_write_text(dstPath, content);
+                }
+            }
+        }
+    }
+}
+
+// ============================================================
+// Temp Files
+// ============================================================
+
+/**
+ * Returns the system temporary directory path.
+ * On macOS and Linux, this is "/tmp".
+ * On Windows, this is typically "C:\\Windows\\Temp".
+ * @return Temp directory path
+ */
+export fn tempDir(): string {
+    return "/tmp";
+}
+
+/**
+ * Generates a temporary file path under the temp directory.
+ * The returned path does NOT create the file — use touch() or writeFile()
+ * to create it. Uniqueness is not guaranteed; callers should check existence
+ * and retry if needed.
+ * @param prefix Prefix for the temp file name (default: "ruyi_")
+ * @return Full temp file path, e.g. "/tmp/ruyi_temp"
+ */
+export fn tempFilePath(prefix: string = "ruyi_"): string {
+    let tmp = tempDir();
+    let baseName: string = prefix + "temp_" + nowMs().toString();
+    let __join_arr: Array<string> = [tmp, baseName];
+    return __path_join(__join_arr);
+}
+
+// ============================================================
+// FileInfo Class
+// ============================================================
+
+/**
+ * Represents metadata about a file or directory in the file system.
+ * A lightweight data class for passing file information around.
+ */
+export class FileInfo {
+    /** Full path to the file or directory */
+    path: string;
+
+    /** File size in bytes (-1 if unknown or error) */
+    size: int;
+
+    /** Whether the path refers to a directory */
+    isDir: bool;
+
+    /** Whether the path refers to a regular file */
+    isFile: bool;
+
+    /** Last modification time as epoch milliseconds (-1 if unknown) */
+    mtime: int;
+
+    /**
+     * Creates a FileInfo by inspecting the file system.
+     * All fields are populated from FFI calls. If the path does not exist,
+     * size and mtime will be -1, and isDir/isFile will both be false.
+     * @param path Path to inspect
+     * @return FileInfo populated with current metadata
+     */
+    static fn fromPath(path: string): FileInfo {
+        let info = FileInfo.new();
+        info.path = path;
+        info.size = __io_file_size(path);
+        info.isDir = __io_is_directory(path);
+        info.isFile = __io_is_file(path);
+        info.mtime = __io_file_mtime(path);
+        return info;
+    }
+
+    /**
+     * Creates an empty FileInfo with no path set.
+     * All numeric fields are -1, boolean fields are false.
+     */
+    fn new() {
+        self.path = "";
+        self.size = -1;
+        self.isDir = false;
+        self.isFile = false;
+        self.mtime = -1;
+    }
+}
+
+// ============================================================
+// High-level Helpers
+// ============================================================
+
+/**
+ * Heuristic check for whether a file appears to be binary.
+ * Reads the first 512 bytes and checks for null bytes (character code 0).
+ * Text files rarely contain null bytes, while binary files often do.
+ * @param path Path to the file
+ * @return true if the file appears binary, false if text-like, null if the file doesn't exist
+ */
+export fn isBinary(path: string): bool {
+    if (!__io_file_exists(path)) {
+        return false;
+    }
+    let content = __io_file_read_text(path);
+    let checkLen = 512;
+    let contentLen = __string_length(content);
+    if (contentLen < checkLen) {
+        checkLen = contentLen;
+    }
+    for (let i = 0; i < checkLen; i = i + 1) {
+        if (content.charCodeAt(i) === 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Checks if a file is empty (size === 0).
+ * Returns true for non-existent paths (they have size 0 semantically).
+ * @param path Path to the file
+ * @return true if the file is empty or doesn't exist
+ */
+export fn isEmptyFile(path: string): bool {
+    let s = __io_file_size(path);
+    return s === 0 || s === -1;
+}
+
+/**
+ * Checks if a path appears to be a symbolic link.
+ * Currently returns false for all paths — symlink detection requires
+ * platform-specific FFI that is not yet available.
+ * @param path Path to check
+ * @return false (not yet supported)
+ */
+export fn isSymlink(path: string): bool {
+    return false;
+}
+
+/**
+ * Reads a file and returns its contents as a Base64-encoded string.
+ * Useful for embedding file contents in text-based protocols.
+ * @param path Path to the file
+ * @return Base64-encoded file contents
+ */
+export fn readFileAsBase64(path: string): string {
+    let content = __io_file_read_text(path);
+    return base64Encode(content);
+}
+
+/**
+ * Reads a file and returns its contents as a hexadecimal string.
+ * Each byte is encoded as a two-character lowercase hex pair.
+ * @param path Path to the file
+ * @return Hex-encoded file contents
+ */
+export fn readFileAsHex(path: string): string {
+    let content = __io_file_read_text(path);
+    return hexEncode(content);
+}
+
+/**
+ * Writes Base64-encoded content to a file after decoding it.
+ * @param path Destination file path
+ * @param b64 Base64-encoded content string
+ */
+export fn writeFileFromBase64(path: string, b64: string): void {
+    let decoded = base64Decode(b64);
+    __io_file_write_text(path, decoded);
+}
+
+/**
+ * Writes hex-encoded content to a file after decoding it.
+ * @param path Destination file path
+ * @param hex Hex-encoded content string
+ */
+export fn writeFileFromHex(path: string, hex: string): void {
+    let decoded = hexDecode(hex);
+    __io_file_write_text(path, decoded);
+}
+
+/**
+ * Convenience function to get the file extension.
+ * Delegates to Path.extname internally.
+ * @param path Path string
+ * @return Extension including the dot, or empty string
+ */
+export fn fileExtension(path: string): string {
+    return __path_extname(path);
+}
+
+/**
+ * Checks if a path has a specific extension (case-sensitive).
+ * @param path Path to check
+ * @param ext Extension to match (e.g., ".txt" or "txt")
+ * @return true if the path ends with the extension
+ */
+export fn hasExtension(path: string, ext: string): bool {
+    let dotExt = ext;
+    if (!ext.startsWith(".")) {
+        dotExt = "." + ext;
+    }
+    return path.endsWith(dotExt);
+}
+
+/**
+ * Reads a file, applies a transformation function, and writes the result back.
+ * Useful for inline file editing.
+ * @param path Path to the file
+ * @param transform Function taking file contents and returning new contents
+ */
+export fn transformFile(path: string, transform: fn(string) -> string): void {
+    let content = __io_file_read_text(path);
+    let transformed = transform(content);
+    __io_file_write_text(path, transformed);
+}
+
+/**
+ * Checks if two files have identical content by comparing their text content.
+ * This is a text-based comparison and may be inaccurate for binary files.
+ * @param path1 First file path
+ * @param path2 Second file path
+ * @return true if both files exist and have identical text content
+ */
+export fn filesEqual(path1: string, path2: string): bool {
+    if (!__io_file_exists(path1) || !__io_file_exists(path2)) {
+        return false;
+    }
+    let content1 = __io_file_read_text(path1);
+    let content2 = __io_file_read_text(path2);
+    return content1 === content2;
+}
+
+/**
+ * Concatenates multiple text files and writes the result to a destination.
+ * Reads all source files in order and joins their contents.
+ * @param sources Array of file paths to concatenate
+ * @param dest Destination file path
+ */
+export fn concatFiles(sources: Array<string>, dest: string): void {
+    let combined = "";
+    for (let i = 0; i < sources.length; i = i + 1) {
+        if (__io_file_exists(sources[i])) {
+            combined = combined + __io_file_read_text(sources[i]);
+        }
+    }
+    __io_file_write_text(dest, combined);
+}
+
+/**
+ * Moves a file from source to destination. Deletes the source on success.
+ * Equivalent to rename() followed by existence check.
+ * @param src Source file path
+ * @param dst Destination file path
+ * @return true if the move was successful (renamed and source no longer exists)
+ */
+export fn moveFile(src: string, dst: string): bool {
+    let ok = __io_rename(src, dst);
+    return ok;
+}
+
+/**
+ * Returns the parent directory of a path.
+ * Convenience wrapper around dirname().
+ * @param path Path string
+ * @return Parent directory path
+ */
+export fn parentDir(path: string): string {
+    return __path_dirname(path);
+}
+
+/**
+ * Returns the file name without its extension.
+ * @param path Path string
+ * @return File name without extension
+ */
+export fn fileNameWithoutExt(path: string): string {
+    let base = __path_basename(path);
+    let ext = __path_extname(path);
+    if (ext === "") {
+        return base;
+    }
+    let extLen = __string_length(ext);
+    return base.substring(0, __string_length(base) - extLen);
+}
+
+/**
+ * Changes the extension of a file path.
+ * If the file has no extension, the new extension is appended.
+ * @param path Path string
+ * @param newExt New extension (with or without leading dot)
+ * @return Path with the new extension
+ */
+export fn changeExtension(path: string, newExt: string): string {
+    let ext = __path_extname(path);
+    let base = path.substring(0, __string_length(path) - __string_length(ext));
+    let normalizedExt = newExt;
+    if (newExt.startsWith(".") === false) {
+        normalizedExt = "." + newExt;
+    }
+    return base + normalizedExt;
+}
+
+/**
+ * Creates a uniquely-named temporary directory.
+ * Does NOT create the directory — call mkdir() to actually create it.
+ * @param prefix Prefix for the directory name (default: "ruyi_dir_")
+ * @return Full path for a temp directory
+ */
+export fn tempDirPath(prefix: string = "ruyi_dir_"): string {
+    let tmp = tempDir();
+    let baseName: string = prefix + "temp_" + nowMs().toString();
+    let __join_arr: Array<string> = [tmp, baseName];
+    return __path_join(__join_arr);
+}
+
+/**
+ * Common text file extensions that are unlikely to be binary.
+ */
+const TEXT_EXTENSIONS: Array<string> = [
+    ".txt", ".md", ".ry", ".rs", ".ts", ".js", ".py", ".go",
+    ".java", ".c", ".h", ".cpp", ".hpp", ".cs", ".rb", ".php",
+    ".swift", ".kt", ".scala", ".lua", ".sh", ".bash", ".zsh",
+    ".yaml", ".yml", ".json", ".xml", ".html", ".css", ".scss",
+    ".toml", ".ini", ".cfg", ".conf", ".log", ".csv", ".tsv",
+];
+
+/**
+ * Checks if a file path has a known text-based extension.
+ * Useful as a quick pre-check before calling isBinary().
+ * @param path Path to check
+ * @return true if the extension matches a known text type
+ */
+export fn isTextExtension(path: string): bool {
+    let ext = __path_extname(path);
+    if (ext === "") {
+        return false;
+    }
+    // Compare against known text extensions
+    let extensions = TEXT_EXTENSIONS;
+    for (let i = 0; i < extensions.length; i = i + 1) {
+        if (ext === extensions[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// ============================================================
+// FileReader / FileWriter — streaming file I/O
+// ============================================================
+
+extern fn __fs_open_read(path: string): int;
+extern fn __fs_open_write(path: string): int;
+extern fn __fs_open_append(path: string): int;
+extern fn __fs_close(handle: int): void;
+extern fn __fs_read_raw(handle: int, buf: Array<int>): int;
+extern fn __fs_write_raw(handle: int, buf: Array<int>): int;
+extern fn __fs_seek(handle: int, offset: int, whence: int): int;
+extern fn __fs_tell(handle: int): int;
+
+import { Buffer } from "./buffer";
+
+export class FileReader {
+    _h: int;
+
+    static fn open(path: string): FileReader? {
+        let h = __fs_open_read(path);
+        if (h < 0) { return null; }
+        let r = new FileReader();
+        r._h = h;
+        return r;
+    }
+
+    fn read(size: int): Buffer? {
+        let buf = Buffer.alloc(size);
+        let n = __fs_read_raw(self._h, buf.data);
+        if (n < 0) { return null; }
+        if (n === 0) { return null; }
+        return buf;
+    }
+
+    fn seek(offset: int, whence: int): int {
+        return __fs_seek(self._h, offset, whence);
+    }
+
+    fn tell(): int { return __fs_tell(self._h); }
+
+    fn close(): void { __fs_close(self._h); self._h = -1; }
+}
+
+export class FileWriter {
+    _h: int;
+
+    static fn open(path: string): FileWriter? {
+        let h = __fs_open_write(path);
+        if (h < 0) { return null; }
+        let w = new FileWriter();
+        w._h = h;
+        return w;
+    }
+
+    static fn append(path: string): FileWriter? {
+        let h = __fs_open_append(path);
+        if (h < 0) { return null; }
+        let w = new FileWriter();
+        w._h = h;
+        return w;
+    }
+
+    fn write(data: Buffer): int {
+        return __fs_write_raw(self._h, data.data);
+    }
+
+    fn close(): void { __fs_close(self._h); self._h = -1; }
+}

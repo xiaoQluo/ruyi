@@ -1,0 +1,69 @@
+/**
+ * Ruyi Standard Library — Mutex
+ *
+ * Mutual-exclusion lock for protecting shared state across concurrent
+ * green threads. Built on `std::sync::Mutex<()>` via FFI.
+ *
+ * The lock/unlock pattern stores an opaque guard pointer internally;
+ * calling lock() twice or unlock() on an unlocked mutex is a runtime
+ * error (the FFI layer returns null and subsequent calls are no-ops).
+ *
+ * Usage:
+ *   import { Mutex } from "./mutex";
+ *   let m = Mutex.new();
+ *   m.lock();
+ *   // ... critical section ...
+ *   m.unlock();
+ *   m.free();
+ *
+ *   // Non-blocking:
+ *   if (m.tryLock()) {
+ *       // ... critical section ...
+ *       m.unlock();
+ *   }
+ *
+ * @author Ruyi Team
+ * @date 2026-07-24
+ */
+
+export class Mutex {
+    _ptr: dyn;
+    _guard: dyn;
+
+    /** Creates a new unlocked Mutex. Must be freed with free() when done. */
+    static fn new(): Mutex {
+        let m = new Mutex();
+        m._ptr = __mutex_new();
+        return m;
+    }
+
+    /** Acquire the lock. Blocks until available. */
+    fn lock(): void {
+        self._guard = __mutex_lock(self._ptr);
+    }
+
+    /** Release the lock. Must have been acquired by this Mutex instance. */
+    fn unlock(): void {
+        if (self._guard !== null) {
+            __mutex_unlock(self._guard);
+            self._guard = null;
+        }
+    }
+
+    /** Try to acquire the lock without blocking.
+     *  Returns true on success (lock held), false if already locked. */
+    fn tryLock(): bool {
+        let g = __mutex_try_lock(self._ptr);
+        if (g !== null) {
+            self._guard = g;
+            return true;
+        }
+        return false;
+    }
+
+    /** Deallocate the mutex. Must NOT be locked when called. */
+    fn free(): void {
+        self._guard = null;
+        __mutex_free(self._ptr);
+    }
+}

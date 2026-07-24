@@ -12,6 +12,14 @@
  * @date 2026-05-05
  */
 
+import { quickSort } from "./sort";
+
+// Type aliases to work around the `>>` lexer tokenisation bug.
+// Without these, `Iterator<Pair<int, T>>` is tokenised as
+// `Iterator<Pair<int, T` followed by `>>` (right-shift).
+type EnumPair<T> = Pair<int, T>;
+type ZipPair<T> = Pair<T, T>;
+
 // ============================================================
 // Numeric Operator Traits (Spec 4.9)
 // ============================================================
@@ -317,33 +325,11 @@ impl<T> ArrayOps<T> for Array<T> {
      * array is left untouched (the type checker infers a fresh local).
      */
     fn sort(self): Array<T> {
-        let result: Array<T> = [];
-        let len = __builtin_array_length(self);
-        let i = 0;
-        while (i < len) {
-            result = __builtin_array_push(result, __builtin_array_get(self, i));
-            i = i + 1;
-        }
-        // Insertion sort over the fresh copy.
-        let n = __builtin_array_length(result);
-        let i2 = 1;
-        while (i2 < n) {
-            let key = __builtin_array_get(result, i2);
-            let j = i2 - 1;
-            while (j >= 0) {
-                let cur = __builtin_array_get(result, j);
-                let greater = cur > key;
-                if (greater) {
-                    __builtin_array_set(result, j + 1, cur);
-                    j = j - 1;
-                } else {
-                    break;
-                }
-            }
-            __builtin_array_set(result, j + 1, key);
-            i2 = i2 + 1;
-        }
-        return result;
+        return quickSort(self, (a, b) => {
+            if (a > b) { return 1; }
+            if (a < b) { return -1; }
+            return 0;
+        });
     }
 
     /**
@@ -436,6 +422,9 @@ export class ArrayIterator<T> {
         }
         return null;
     }
+}
+
+impl<T> Iterator<T> for ArrayIterator<T> {}
 
     // ── Spec 4.9 Iterator extensions ──────────────────────────
 
@@ -465,23 +454,17 @@ export class ArrayIterator<T> {
     }
 
     /**
-     * Returns a new iterator yielding `(index, value)` pairs. The pair
-     * shape is exposed via `EnumeratedIterator.next()` rather than the
-     * return type, because the Ruyi lexer reads `>>` as a single right-
-     * shift token and nested generics (`Iterator<Pair<int, T>>`) parse
-     * incorrectly.
+     * Returns a new iterator yielding `(index, value)` pairs.
      */
-    fn enumerate(self): Iterator<T> {
+    fn enumerate(self): Iterator<EnumPair<T> > {
         return EnumeratedIterator.new(self, 0);
     }
 
     /**
      * Returns a new iterator yielding `(a, b)` pairs from `self` and
-     * `other`. Stops at the shorter of the two sequences. The pair
-     * shape is exposed via `ZippedIterator.next()`; same lexer caveat
-     * as `enumerate`.
+     * `other`. Stops at the shorter of the two sequences.
      */
-    fn zip(self, other: Iterator<T>): Iterator<T> {
+    fn zip(self, other: Iterator<T>): Iterator<ZipPair<T> > {
         return ZippedIterator.new(self, other);
     }
 
@@ -791,6 +774,12 @@ export class Map<K, V> {
     fn iter(self): MapIterator<K, V> {
         return MapIterator.new(self);
     }
+
+    // ── Internal accessors (used by MapIterator) ──────────────
+
+    fn _getRaw(self, key: K): V? {
+        return __builtin_map_get(self._data, key);
+    }
 }
 
 /**
@@ -808,11 +797,9 @@ export class MapIterator<K, V> {
 
     fn next(self): { key: K, value: V }? {
         let mapKeys = self._map.keys();
-        // Using internal _data handle — no public API for raw builtin map handle
-        let mapData = self._map._data;
         if (self._index < __builtin_array_length(mapKeys)) {
             let key = __builtin_array_get(mapKeys, self._index);
-            let value = __builtin_map_get(mapData, key);
+            let value = self._map._getRaw(key);
             self._index = self._index + 1;
             return { key: key, value: value };
         }
@@ -903,6 +890,12 @@ export class Set<T> {
         return SetIterator.new(self);
     }
 
+    // ── Internal accessor (used by SetIterator) ───────────────
+
+    fn _elementsArray(self): Array<T> {
+        return self._elements;
+    }
+
     /**
      * Returns all elements in the set as an array.
      * @return Array of elements
@@ -934,8 +927,7 @@ export class SetIterator<T> {
     }
 
     fn next(self): T? {
-        // Using internal _elements handle — toArray() would create an unnecessary copy
-        let setElements = self._set._elements;
+        let setElements = self._set._elementsArray();
         if (self._index < __builtin_array_length(setElements)) {
             let elem = __builtin_array_get(setElements, self._index);
             self._index = self._index + 1;
@@ -944,3 +936,5 @@ export class SetIterator<T> {
         return null;
     }
 }
+
+impl<T> Iterator<T> for SetIterator<T> {}

@@ -1,0 +1,165 @@
+/**
+ * Ruyi Standard Library - Argument Parser
+ *
+ * Simple command-line argument parsing utilities for flag detection,
+ * positional argument extraction, and key-value option parsing.
+ *
+ * Assumes the caller has access to the raw argument array (typically
+ * obtained via `process.argv` or an equivalent mechanism). This module
+ * does NOT read from the OS directly — it operates on an `Array<string>`
+ * passed by the caller.
+ *
+ * Usage:
+ *   import { parseArgs } from "./argparser";
+ *   let opts = parseArgs(argv, ["--verbose", "--config"], ["-v", "-c"]);
+ *   if (opts.hasFlag("--verbose")) { ... }
+ *   let config = opts.getOpt("--config");
+ *
+ * @author Ruyi Team
+ * @date 2026-07-24
+ */
+
+// ============================================================
+// ParsedArgs Class
+// ============================================================
+
+/**
+ * Holds the result of parsing command-line arguments.
+ */
+export class ParsedArgs {
+    _flags: Array<string>;
+    _opts: Map<string, string>;
+    _positional: Array<string>;
+
+    fn new() {
+        self._flags = [];
+        self._opts = Map.new();
+        self._positional = [];
+    }
+
+    /**
+     * Checks whether a flag was present on the command line.
+     * @param name Flag name (e.g. "--verbose")
+     * @return true if the flag was set
+     */
+    fn hasFlag(name: string): bool {
+        let i = 0;
+        while (i < self._flags.length()) {
+            if (self._flags.get(i) === name) {
+                return true;
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    /**
+     * Returns the value of a named option, or null if not present.
+     * @param name Option name (e.g. "--config")
+     * @return Option value, or null
+     */
+    fn getOpt(name: string): string? {
+        return self._opts.get(name);
+    }
+
+    /**
+     * Returns all positional (non-flag) arguments.
+     * @return Array of positional argument strings
+     */
+    fn positional(): Array<string> {
+        return self._positional;
+    }
+
+    /**
+     * Returns the positional argument at the given index, or null.
+     * @param index Zero-based index
+     * @return Argument string, or null if out of bounds
+     */
+    fn get(index: int): string? {
+        if (index < 0 || index >= self._positional.length()) {
+            return null;
+        }
+        return self._positional.get(index);
+    }
+}
+
+// ============================================================
+// Public API
+// ============================================================
+
+/**
+ * Parses command-line arguments into flags, options, and positionals.
+ *
+ * Flags (e.g. "--verbose", "-v") are boolean toggles. Options (e.g.
+ * "--config value", "-c value") consume the next argument as their
+ * value. Everything else is treated as a positional argument.
+ *
+ * Long and short forms for the same option are recognized: if "--config"
+ * is in `longForms`, then "-c" at the same index in `shortForms` is
+ * treated as equivalent, and vice versa.
+ *
+ * @param argv Raw argument array (argv[0] is typically the program name)
+ * @param longForms Array of long-form flag/option names (e.g. ["--verbose", "--config"])
+ * @param shortForms Array of short-form flag/option names (e.g. ["-v", "-c"]), paired by index with longForms
+ * @return ParsedArgs containing flags, options, and positional arguments
+ */
+export fn parseArgs(argv: Array<string>, longForms: Array<string>, shortForms: Array<string>): ParsedArgs {
+    let result = ParsedArgs.new();
+
+    // Build lookup: short → long
+    let shortMap: Map<string, string> = Map.new();
+    let i = 0;
+    while (i < shortForms.length() && i < longForms.length()) {
+        shortMap.set(shortForms.get(i), longForms.get(i));
+        i = i + 1;
+    }
+
+    // Build set of known names for quick lookup
+    let knownLong: Map<string, bool> = Map.new();
+    i = 0;
+    while (i < longForms.length()) {
+        knownLong.set(longForms.get(i), true);
+        i = i + 1;
+    }
+
+    let j = 0;
+    let argc = argv.length();
+
+    // Skip program name (argv[0])
+    if (argc > 0) {
+        j = 1;
+    }
+
+    while (j < argc) {
+        let arg = argv.get(j);
+        let resolved: string = arg;
+
+        // Resolve short form → long form
+        let mapped = shortMap.get(arg);
+        if (mapped !== null) {
+            resolved = mapped;
+        }
+
+        if (knownLong.has(resolved) !== null && knownLong.has(resolved)) {
+            // Check if next argument exists and is not a known flag
+            if (j + 1 < argc) {
+                let next = argv.get(j + 1);
+                if (knownLong.has(next) === null || !knownLong.has(next)) {
+                    // Treat as option: --key value
+                    result._opts.set(resolved, next);
+                    j = j + 2;
+                    continue;
+                }
+            }
+            // Treat as boolean flag
+            result._flags.push(resolved);
+            j = j + 1;
+        } else {
+            // Positional argument
+            result._positional.push(arg);
+            j = j + 1;
+        }
+    }
+
+    return result;
+}

@@ -13,7 +13,8 @@ impl Exception {
     }
 
     pub fn throw(&self) {
-        panic!("{}: {}", self.type_name, self.message);
+        eprintln!("{}: {}", self.type_name, self.message);
+        std::process::abort();
     }
 }
 

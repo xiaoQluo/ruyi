@@ -1,0 +1,10 @@
+schema_version: "1.0"
+change_id: v0.5.9-class-codegen
+created_at: "2026-07-16"
+status: dp_2_approved
+dp_1_result: "confirmed: 方案A — 重构 compile_simple_member_access 为通用 compile_expr→GEP 路径，范围 class instance member access，不含 trait/impl/泛型"
+dp_1_timestamp: "2026-07-16T09:45:00Z"
+dp_2_result: "approved: 8 SPEC 需求 + 4 设计决策 + 6 Batch TDD 任务，全部通过审查"
+dp_2_timestamp: "2026-07-16T10:00:00Z"
+dp_3_result: "approved: 执行合同通过审查，6 Batch 顺序实施"
+dp_3_timestamp: "2026-07-16T10:15:00Z"

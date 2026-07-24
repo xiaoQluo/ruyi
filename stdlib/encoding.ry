@@ -1,0 +1,803 @@
+/**
+ * Ruyi Standard Library - Encoding Module
+ *
+ * Comprehensive encoding/decoding utilities implemented in pure .ry:
+ *   - Base64 (RFC 4648 standard alphabet)
+ *   - Base64URL (RFC 4648 URL-safe alphabet, padless)
+ *   - Hex (lowercase)
+ *   - URL / Percent-encoding (RFC 3986)
+ *
+ * All functions are self-contained and require no external imports.
+ *
+ * @author Ruyi Team
+ * @date 2026-07-17
+ */
+
+// ============================================================
+// Constants
+// ============================================================
+
+/**
+ * Standard Base64 alphabet per RFC 4648.
+ * Characters: A-Z (0-25), a-z (26-51), 0-9 (52-61), + (62), / (63)
+ */
+export const BASE64_ALPHABET: string =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/**
+ * URL-safe Base64 alphabet per RFC 4648.
+ * Uses '-' instead of '+' and '_' instead of '/'.
+ */
+export const BASE64URL_ALPHABET: string =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+/**
+ * Lowercase hexadecimal character set.
+ */
+export const HEX_CHARS: string = "0123456789abcdef";
+
+// ============================================================
+// Internal Helpers
+// ============================================================
+
+/**
+ * Converts a single hex character to its integer value (0-15).
+ * Returns -1 for invalid characters (case-insensitive).
+ * @param c Single hex character
+ * @return Integer value or -1 if invalid
+ */
+fn hexCharToValue(c: string): int {
+    let code = c.charCodeAt(0);
+    if (code >= 48 && code <= 57) { return code - 48; }
+    if (code >= 65 && code <= 70) { return code - 65 + 10; }
+    if (code >= 97 && code <= 102) { return code - 97 + 10; }
+    return -1;
+}
+
+/**
+ * Converts a byte value to a two-character uppercase hex string.
+ * @param byte Byte value (0-255)
+ * @return Two-char hex string like "A1" or "0F"
+ */
+fn byteToUpperHex(byte: int): string {
+    let upper = (byte >> 4) & 0x0f;
+    let lower = byte & 0x0f;
+    return HEX_CHARS.charAt(upper).toUpperCase() + HEX_CHARS.charAt(lower).toUpperCase();
+}
+
+/**
+ * Tests if a character belongs to the RFC 3986 unreserved set.
+ * Unreserved: A-Z, a-z, 0-9, -, _, ., ~
+ * @param c Single character to test
+ * @return true if the character is unreserved
+ */
+fn isUnreserved(c: string): bool {
+    let code = c.charCodeAt(0);
+    if (code >= 65 && code <= 90) { return true; }
+    if (code >= 97 && code <= 122) { return true; }
+    if (code >= 48 && code <= 57) { return true; }
+    if (c === "-" || c === "_" || c === "." || c === "~") { return true; }
+    return false;
+}
+
+/**
+ * Tests if a character is safe for the less-aggressive urlEncode.
+ * Same as unreserved, plus the reserved-but-commonly-safe chars.
+ * @param c Single character to test
+ * @return true if the character needs no encoding
+ */
+fn isUrlSafe(c: string): bool {
+    return isUnreserved(c);
+}
+
+/**
+ * Tests if a character is safe for urlEncodeComponent.
+ * Component-safe means it is excluded from being percent-encoded;
+ * this is the unreserved set (A-Za-z0-9-_.~).
+ * @param c Single character to test
+ * @return true if the character needs no encoding in a component
+ */
+fn isComponentSafe(c: string): bool {
+    return isUnreserved(c);
+}
+
+// ============================================================
+// Base64 (RFC 4648 Standard Alphabet)
+// ============================================================
+
+/**
+ * Encodes a string to Base64 per RFC 4648.
+ *
+ * Processes input 3 bytes at a time: each 24-bit group is split into
+ * four 6-bit indices that map to alphabet characters. Padding '=' is
+ * added when the input length is not a multiple of 3.
+ *
+ * @param data Input string to encode
+ * @return Base64-encoded string
+ */
+export fn base64Encode(data: string): string {
+    let result = "";
+    let len = data.length();
+    if (len === 0) { return ""; }
+
+    let i = 0;
+    while (i < len) {
+        let b1 = data.charCodeAt(i);
+        let b2 = 0;
+        let b3 = 0;
+        if (i + 1 < len) { b2 = data.charCodeAt(i + 1); }
+        if (i + 2 < len) { b3 = data.charCodeAt(i + 2); }
+
+        let triple = (b1 << 16) | (b2 << 8) | b3;
+
+        let c1 = BASE64_ALPHABET.charAt((triple >> 18) & 63);
+        let c2 = BASE64_ALPHABET.charAt((triple >> 12) & 63);
+
+        result = result + c1 + c2;
+
+        if (i + 1 < len) {
+            result = result + BASE64_ALPHABET.charAt((triple >> 6) & 63);
+        } else {
+            result = result + "=";
+        }
+
+        if (i + 2 < len) {
+            result = result + BASE64_ALPHABET.charAt(triple & 63);
+        } else {
+            result = result + "=";
+        }
+
+        i = i + 3;
+    }
+    return result;
+}
+
+/**
+ * Decodes a Base64-encoded string back to the original string.
+ *
+ * Processes 4 encoded characters at a time, converting each back to
+ * 3 original bytes. Handles '=' padding correctly. Invalid characters
+ * are treated as zero (skipped in output).
+ *
+ * @param encoded Base64-encoded string
+ * @return Decoded original string
+ */
+export fn base64Decode(encoded: string): string {
+    let result = "";
+    let len = encoded.length();
+    if (len === 0) { return ""; }
+
+    let i = 0;
+    while (i < len) {
+        let c1 = encoded.charAt(i);
+        let c2 = "A";
+        let c3 = "A";
+        let c4 = "A";
+
+        if (i + 1 < len) { c2 = encoded.charAt(i + 1); }
+        if (i + 2 < len) { c3 = encoded.charAt(i + 2); }
+        if (i + 3 < len) { c4 = encoded.charAt(i + 3); }
+
+        let v1 = BASE64_ALPHABET.indexOf(c1);
+        let v2 = BASE64_ALPHABET.indexOf(c2);
+        let v3 = 0;
+        let v4 = 0;
+
+        if (c3 !== "=") { v3 = BASE64_ALPHABET.indexOf(c3); }
+        if (c4 !== "=") { v4 = BASE64_ALPHABET.indexOf(c4); }
+
+        if (v1 === -1) { v1 = 0; }
+        if (v2 === -1) { v2 = 0; }
+        if (c3 !== "=" && v3 === -1) { v3 = 0; }
+        if (c4 !== "=" && v4 === -1) { v4 = 0; }
+
+        let n = (v1 << 18) | (v2 << 12) | (v3 << 6) | v4;
+
+        result = result + fromCharCode((n >> 16) & 255);
+        if (c3 !== "=") {
+            result = result + fromCharCode((n >> 8) & 255);
+        }
+        if (c4 !== "=") {
+            result = result + fromCharCode(n & 255);
+        }
+
+        i = i + 4;
+    }
+    return result;
+}
+
+// ============================================================
+// Base64URL (RFC 4648 URL-Safe Alphabet)
+// ============================================================
+
+/**
+ * Encodes a string to Base64URL per RFC 4648.
+ *
+ * Uses the URL-safe alphabet ('-' instead of '+', '_' instead of '/').
+ * Output is padless (no trailing '=') for safe use in URLs and filenames.
+ *
+ * @param data Input string to encode
+ * @return Base64URL-encoded string (no padding)
+ */
+export fn base64UrlEncode(data: string): string {
+    let result = "";
+    let len = data.length();
+    if (len === 0) { return ""; }
+
+    let i = 0;
+    while (i < len) {
+        let b1 = data.charCodeAt(i);
+        let b2 = 0;
+        let b3 = 0;
+        if (i + 1 < len) { b2 = data.charCodeAt(i + 1); }
+        if (i + 2 < len) { b3 = data.charCodeAt(i + 2); }
+
+        let triple = (b1 << 16) | (b2 << 8) | b3;
+
+        result = result + BASE64URL_ALPHABET.charAt((triple >> 18) & 63);
+        result = result + BASE64URL_ALPHABET.charAt((triple >> 12) & 63);
+
+        if (i + 1 < len) {
+            result = result + BASE64URL_ALPHABET.charAt((triple >> 6) & 63);
+        }
+        if (i + 2 < len) {
+            result = result + BASE64URL_ALPHABET.charAt(triple & 63);
+        }
+
+        i = i + 3;
+    }
+    return result;
+}
+
+/**
+ * Decodes a Base64URL-encoded string back to the original string.
+ *
+ * Accepts both padded and padless input. Uses the URL-safe alphabet.
+ * Invalid characters are silently skipped. Trailing '=' is handled.
+ *
+ * @param encoded Base64URL-encoded string (padded or padless)
+ * @return Decoded original string
+ */
+export fn base64UrlDecode(encoded: string): string {
+    let result = "";
+    let len = encoded.length();
+    if (len === 0) { return ""; }
+
+    let i = 0;
+    while (i < len) {
+        let c1 = encoded.charAt(i);
+        if (c1 === "=") { break; }
+        let v1 = BASE64URL_ALPHABET.indexOf(c1);
+
+        let c2 = "A";
+        let v2 = 0;
+        if (i + 1 < len && encoded.charAt(i + 1) !== "=") {
+            c2 = encoded.charAt(i + 1);
+            v2 = BASE64URL_ALPHABET.indexOf(c2);
+        }
+
+        let c3 = "A";
+        let v3 = 0;
+        if (i + 2 < len && encoded.charAt(i + 2) !== "=") {
+            c3 = encoded.charAt(i + 2);
+            v3 = BASE64URL_ALPHABET.indexOf(c3);
+        }
+
+        let c4 = "A";
+        let v4 = 0;
+        if (i + 3 < len && encoded.charAt(i + 3) !== "=") {
+            c4 = encoded.charAt(i + 3);
+            v4 = BASE64URL_ALPHABET.indexOf(c4);
+        }
+
+        if (v1 === -1) { v1 = 0; }
+        if (v2 === -1) { v2 = 0; }
+        if (c3 !== "A" && v3 === -1) { v3 = 0; }
+        if (c4 !== "A" && v4 === -1) { v4 = 0; }
+
+        let n = (v1 << 18) | (v2 << 12) | (v3 << 6) | v4;
+
+        result = result + fromCharCode((n >> 16) & 255);
+        if (i + 2 < len && c3 !== "=") {
+            result = result + fromCharCode((n >> 8) & 255);
+        }
+        if (i + 3 < len && c4 !== "=") {
+            result = result + fromCharCode(n & 255);
+        }
+
+        i = i + 4;
+    }
+    return result;
+}
+
+// ============================================================
+// Hex (Lowercase)
+// ============================================================
+
+/**
+ * Encodes a string to lowercase hexadecimal.
+ *
+ * Each byte is converted to two hex characters (high nibble first).
+ * For example, 'A' (65) becomes "41".
+ *
+ * @param data Input string to encode
+ * @return Lowercase hex-encoded string
+ */
+export fn hexEncode(data: string): string {
+    let result = "";
+    let len = data.length();
+    let i = 0;
+    while (i < len) {
+        let byte = data.charCodeAt(i);
+        result = result +
+            HEX_CHARS.charAt((byte >> 4) & 0x0f) +
+            HEX_CHARS.charAt(byte & 0x0f);
+        i = i + 1;
+    }
+    return result;
+}
+
+/**
+ * Decodes a hex-encoded string back to the original string.
+ *
+ * Accepts both uppercase and lowercase hex digits. Returns an empty
+ * string if the input length is odd or contains invalid characters.
+ *
+ * @param hex Hex-encoded string (case-insensitive)
+ * @return Decoded original string, or empty on invalid input
+ */
+export fn hexDecode(hex: string): string {
+    let result = "";
+    let len = hex.length();
+    if (len === 0) { return ""; }
+    if (len % 2 !== 0) { return ""; }
+
+    let i = 0;
+    while (i < len) {
+        let v1 = hexCharToValue(hex.charAt(i));
+        let v2 = hexCharToValue(hex.charAt(i + 1));
+        if (v1 === -1 || v2 === -1) { return ""; }
+        let byte = (v1 << 4) | v2;
+        result = result + fromCharCode(byte);
+        i = i + 2;
+    }
+    return result;
+}
+
+// ============================================================
+// URL / Percent-Encoding (RFC 3986)
+// ============================================================
+
+/**
+ * Percent-encodes a string for safe use in a URL.
+ *
+ * Unreserved characters (A-Z, a-z, 0-9, -, _, ., ~) are left as-is.
+ * Space is encoded as %20. All other bytes become %XX (uppercase hex).
+ *
+ * @param data Input string to encode
+ * @return Percent-encoded string
+ */
+export fn urlEncode(data: string): string {
+    let result = "";
+    let len = data.length();
+    let i = 0;
+    while (i < len) {
+        let c = data.charAt(i);
+        if (isUrlSafe(c)) {
+            result = result + c;
+        } else if (c === " ") {
+            result = result + "%20";
+        } else {
+            result = result + "%" + byteToUpperHex(data.charCodeAt(i));
+        }
+        i = i + 1;
+    }
+    return result;
+}
+
+/**
+ * Decodes a percent-encoded string.
+ *
+ * Converts %XX sequences back to the corresponding byte. Also treats
+ * '+' as space for application/x-www-form-urlencoded compatibility.
+ * Invalid escape sequences (e.g., %ZZ) are left as-is.
+ *
+ * @param encoded Percent-encoded string
+ * @return Decoded string
+ */
+export fn urlDecode(encoded: string): string {
+    let result = "";
+    let len = encoded.length();
+    let i = 0;
+    while (i < len) {
+        let c = encoded.charAt(i);
+        if (c === "%") {
+            if (i + 2 < len) {
+                let v1 = hexCharToValue(encoded.charAt(i + 1));
+                let v2 = hexCharToValue(encoded.charAt(i + 2));
+                if (v1 !== -1 && v2 !== -1) {
+                    let byte = (v1 << 4) | v2;
+                    result = result + fromCharCode(byte);
+                    i = i + 3;
+                    continue;
+                }
+            }
+            result = result + c;
+        } else if (c === "+") {
+            result = result + " ";
+        } else {
+            result = result + c;
+        }
+        i = i + 1;
+    }
+    return result;
+}
+
+/**
+ * Percent-encodes a string for use as a URL query component.
+ *
+ * More aggressive than urlEncode: encodes the full unreserved set
+ * (A-Z, a-z, 0-9, -, _, ., ~). Everything else, including reserved
+ * characters like '&', '=', '?', '!', etc., is percent-encoded.
+ *
+ * @param data Input string to encode
+ * @return Percent-encoded component string
+ */
+export fn urlEncodeComponent(data: string): string {
+    let result = "";
+    let len = data.length();
+    let i = 0;
+    while (i < len) {
+        let c = data.charAt(i);
+        if (isComponentSafe(c)) {
+            result = result + c;
+        } else {
+            result = result + "%" + byteToUpperHex(data.charCodeAt(i));
+        }
+        i = i + 1;
+    }
+    return result;
+}
+
+/**
+ * Decodes a percent-encoded URL component.
+ *
+ * Converts %XX sequences back to bytes. Unlike urlDecode, '+' is NOT
+ * treated as space, matching the JavaScript encodeURIComponent/decodeURIComponent
+ * convention where '+' is a literal character in components.
+ *
+ * @param encoded Percent-encoded component string
+ * @return Decoded string
+ */
+export fn urlDecodeComponent(encoded: string): string {
+    let result = "";
+    let len = encoded.length();
+    let i = 0;
+    while (i < len) {
+        let c = encoded.charAt(i);
+        if (c === "%") {
+            if (i + 2 < len) {
+                let v1 = hexCharToValue(encoded.charAt(i + 1));
+                let v2 = hexCharToValue(encoded.charAt(i + 2));
+                if (v1 !== -1 && v2 !== -1) {
+                    let byte = (v1 << 4) | v2;
+                    result = result + fromCharCode(byte);
+                    i = i + 3;
+                    continue;
+                }
+            }
+            result = result + c;
+        } else {
+            result = result + c;
+        }
+        i = i + 1;
+    }
+    return result;
+}
+
+// ============================================================
+// Utility Functions
+// ============================================================
+
+/**
+ * Validates whether a string is a well-formed Base64-encoded string.
+ *
+ * Checks that every character is in the standard alphabet or is a
+ * trailing '=' padding character, and that the length is a multiple
+ * of 4 (excluding trailing newlines/whitespace which are ignored).
+ *
+ * @param str String to validate
+ * @return true if the string is valid Base64
+ */
+export fn isBase64(str: string): bool {
+    let len = str.length();
+    if (len === 0) { return false; }
+
+    // Scan through, skipping whitespace
+    let dataLen = 0;
+    let i = 0;
+    while (i < len) {
+        let c = str.charAt(i);
+        // Skip whitespace characters
+        if (c === " " || c === "\n" || c === "\r" || c === "\t") {
+            i = i + 1;
+            continue;
+        }
+        if (c === "=") {
+            // Padding only allowed at the end
+            let j = i + 1;
+            while (j < len) {
+                let nc = str.charAt(j);
+                if (nc === " " || nc === "\n" || nc === "\r" || nc === "\t") {
+                    j = j + 1;
+                    continue;
+                }
+                if (nc === "=") {
+                    j = j + 1;
+                    continue;
+                }
+                return false;
+            }
+            dataLen = dataLen + 1;
+            break;
+        }
+        if (BASE64_ALPHABET.indexOf(c) === -1) {
+            return false;
+        }
+        dataLen = dataLen + 1;
+        i = i + 1;
+    }
+
+    return dataLen % 4 === 0;
+}
+
+/**
+ * Validates whether a string is a well-formed hex-encoded string.
+ *
+ * The length must be even, and every character must be a valid hex
+ * digit (0-9, a-f, A-F). An empty string returns false.
+ *
+ * @param str String to validate
+ * @return true if the string is valid hex
+ */
+export fn isHex(str: string): bool {
+    let len = str.length();
+    if (len === 0 || len % 2 !== 0) { return false; }
+
+    let i = 0;
+    while (i < len) {
+        let c = str.charAt(i).toLowerCase();
+        if (HEX_CHARS.indexOf(c) === -1) { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+
+// ============================================================
+// Additional Utility Functions
+// ============================================================
+
+/**
+ * Validates whether a string is a well-formed Base64URL-encoded string.
+ *
+ * Every character must be in the URL-safe alphabet (- instead of +,
+ * _ instead of /). Optional trailing '=' padding is allowed but not
+ * required. Unlike isBase64, the length does not need to be a multiple
+ * of 4 since padless Base64URL is valid.
+ *
+ * @param str String to validate
+ * @return true if the string is valid Base64URL
+ */
+export fn isBase64Url(str: string): bool {
+    let len = str.length();
+    if (len === 0) { return false; }
+
+    let i = 0;
+    while (i < len) {
+        let c = str.charAt(i);
+        if (c === "=") {
+            // Padding only allowed at the very end
+            let j = i;
+            while (j < len) {
+                if (str.charAt(j) !== "=") { return false; }
+                j = j + 1;
+            }
+            return true;
+        }
+        if (BASE64URL_ALPHABET.indexOf(c) === -1) { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+
+/**
+ * Converts a standard Base64-encoded string to Base64URL format.
+ *
+ * Replaces '+' with '-' and '/' with '_', and strips trailing '='
+ * padding for URL safety.
+ *
+ * @param base64 Standard Base64-encoded string (padded or unpadded)
+ * @return Base64URL-encoded string (padless)
+ */
+export fn base64ToBase64Url(base64: string): string {
+    let result = "";
+    let len = base64.length();
+    let i = 0;
+    while (i < len) {
+        let c = base64.charAt(i);
+        if (c === "+") {
+            result = result + "-";
+        } else if (c === "/") {
+            result = result + "_";
+        } else if (c !== "=") {
+            result = result + c;
+        }
+        i = i + 1;
+    }
+    return result;
+}
+
+/**
+ * Converts a Base64URL-encoded string to standard Base64 format.
+ *
+ * Replaces '-' with '+' and '_' with '/', and adds '=' padding to
+ * make the output length a multiple of 4.
+ *
+ * @param base64url Base64URL-encoded string (padded or padless)
+ * @return Standard Base64-encoded string (padded)
+ */
+export fn base64UrlToBase64(base64url: string): string {
+    let result = "";
+    let len = base64url.length();
+    let i = 0;
+    while (i < len) {
+        let c = base64url.charAt(i);
+        if (c === "-") {
+            result = result + "+";
+        } else if (c === "_") {
+            result = result + "/";
+        } else if (c !== "=") {
+            result = result + c;
+        }
+        i = i + 1;
+    }
+    // Add padding
+    let mod = result.length() % 4;
+    if (mod === 2) {
+        result = result + "==";
+    } else if (mod === 3) {
+        result = result + "=";
+    }
+    return result;
+}
+
+/**
+ * Encodes an `Array<byte>` to a Base64 string.
+ *
+ * Convenience function that converts the byte array to a string
+ * internally and then applies Base64 encoding.
+ *
+ * @param data Array<byte> of byte values (0-255)
+ * @return Base64-encoded string
+ */
+export fn base64EncodeBytes(data: Array<byte>): string {
+    let len = data.length();
+    if (len === 0) { return ""; }
+    let str = "";
+    let i = 0;
+    while (i < len) {
+        str = str + fromCharCode(data.get(i));
+        i = i + 1;
+    }
+    return base64Encode(str);
+}
+
+/**
+ * Decodes a Base64-encoded string into an `Array<byte>`.
+ *
+ * Convenience function that first decodes the Base64 string, then
+ * extracts the byte values of each character.
+ *
+ * @param encoded Base64-encoded string
+ * @return Array<byte> of decoded byte values
+ */
+export fn base64DecodeToBytes(encoded: string): Array<byte> {
+    let str = base64Decode(encoded);
+    let len = str.length();
+    let result: Array<byte> = [];
+    let i = 0;
+    while (i < len) {
+        result.push(str.charCodeAt(i));
+        i = i + 1;
+    }
+    return result;
+}
+
+/**
+ * Encodes an `Array<byte>` to a Base64URL string (padless).
+ *
+ * Convenience function combining byte-array-to-string conversion
+ * with Base64URL encoding.
+ *
+ * @param data Array<byte> of byte values (0-255)
+ * @return Base64URL-encoded string (no padding)
+ */
+export fn base64UrlEncodeBytes(data: Array<byte>): string {
+    let len = data.length();
+    if (len === 0) { return ""; }
+    let str = "";
+    let i = 0;
+    while (i < len) {
+        str = str + fromCharCode(data.get(i));
+        i = i + 1;
+    }
+    return base64UrlEncode(str);
+}
+
+/**
+ * Decodes a Base64URL-encoded string into an `Array<byte>`.
+ *
+ * Convenience function combining Base64URL decoding with byte
+ * extraction.
+ *
+ * @param encoded Base64URL-encoded string (padded or padless)
+ * @return Array<byte> of decoded byte values
+ */
+export fn base64UrlDecodeToBytes(encoded: string): Array<byte> {
+    let str = base64UrlDecode(encoded);
+    let len = str.length();
+    let result: Array<byte> = [];
+    let i = 0;
+    while (i < len) {
+        result.push(str.charCodeAt(i));
+        i = i + 1;
+    }
+    return result;
+}
+
+/**
+ * Converts an `Array<byte>` to a lowercase hex string.
+ *
+ * Each byte is converted to two hex characters.
+ *
+ * @param data Array<byte> of byte values (0-255)
+ * @return Lowercase hex-encoded string
+ */
+export fn bytesToHex(data: Array<byte>): string {
+    let result = "";
+    let len = data.length();
+    let i = 0;
+    while (i < len) {
+        let byte = data.get(i);
+        result = result +
+            HEX_CHARS.charAt((byte >> 4) & 0x0f) +
+            HEX_CHARS.charAt(byte & 0x0f);
+        i = i + 1;
+    }
+    return result;
+}
+
+/**
+ * Converts a hex-encoded string to an `Array<byte>`.
+ *
+ * Returns an empty array if the input length is odd or contains
+ * invalid hex characters.
+ *
+ * @param hex Hex-encoded string (case-insensitive)
+ * @return Array<byte> of decoded byte values, or empty on error
+ */
+export fn hexToBytes(hex: string): Array<byte> {
+    let result: Array<byte> = [];
+    let len = hex.length();
+    if (len % 2 !== 0) { return result; }
+
+    let i = 0;
+    while (i < len) {
+        let v1 = hexCharToValue(hex.charAt(i));
+        let v2 = hexCharToValue(hex.charAt(i + 1));
+        if (v1 === -1 || v2 === -1) { return []; }
+        result.push((v1 << 4) | v2);
+        i = i + 2;
+    }
+    return result;
+}

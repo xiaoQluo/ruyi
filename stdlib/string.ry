@@ -1,9 +1,18 @@
 /**
- * Ruyi Standard Library - String Utility Module
+ * Ruyi Standard Library - String Utility Functions
  *
  * Provides standalone string utility functions.
- * For string instance methods (split, contains, trim, etc.),
- * use the core module which is automatically available.
+ * Must be explicitly imported: `import { join, template } from "string";`
+ *
+ * String instance methods (length, contains, trim, split, toUpperCase, etc.)
+ * are resolved directly by the codegen layer via the `__string_*` runtime
+ * builtins and do NOT require any import. See codegen/expr.rs for the
+ * method resolution logic.
+ *
+ * Available instance methods on all string values:
+ *   length() contains() startsWith() endsWith() indexOf() lastIndexOf()
+ *   charAt() charCodeAt() repeat() substring() slice()
+ *   toUpperCase() toLowerCase() trim() split() isEmpty()
  *
  * @author Ruyi Team
  * @date 2026-05-02
@@ -43,13 +52,16 @@ export fn fromCharCodes(codes: Array<int>): string {
 
 /**
  * Creates a string by concatenating all arguments.
+ *
  * @param args Values to concatenate
  * @return Concatenated string
  */
-export fn concat(args: ...string): string {
+export fn concat(...args: string): string {
     let result = "";
-    for arg of args {
-        result = result + arg;
+    let i = 0;
+    while (i < args.length) {
+        result = result + args[i];
+        i = i + 1;
     }
     return result;
 }
@@ -61,7 +73,7 @@ export fn concat(args: ...string): string {
  * @param values Values to substitute
  * @return Formatted string
  */
-export fn template(templateStr: string, values: Array<dyn>): string {
+export fn template(templateStr: string, ...values: dyn): string {
     let result = templateStr;
     let i = 0;
     while (i < values.length()) {
@@ -82,88 +94,12 @@ export fn template(templateStr: string, values: Array<dyn>): string {
  */
 export fn processTemplate(parts: Array<string>, context: dyn): string {
     let result = "";
-    for part of parts {
-        if (__string_length(part.toString()) > 0) {
-            result = result + part.toString();
+    let i = 0;
+    while (i < parts.length) {
+        if (__string_length(parts[i].toString()) > 0) {
+            result = result + parts[i].toString();
         }
+        i = i + 1;
     }
     return result;
-}
-
-// ============================================================
-// String Instance Methods
-// ============================================================
-// NOTE: This class serves as a type-level contract only.
-// Method calls on string values are resolved by the codegen layer
-// (expr.rs) which maps String.methodName → __string_methodName.
-// The method bodies here are for type-checking purposes and are
-// NOT executed at runtime. See codegen/expr.rs for the actual
-// method resolution logic.
-// ============================================================
-
-export class String {
-    fn length(self: string): int {
-        return __string_length(self);
-    }
-
-    fn contains(self: string, substr: string): bool {
-        return __string_contains(self, substr);
-    }
-
-    fn startsWith(self: string, prefix: string): bool {
-        return __string_starts_with(self, prefix);
-    }
-
-    fn endsWith(self: string, suffix: string): bool {
-        return __string_ends_with(self, suffix);
-    }
-
-    fn indexOf(self: string, substr: string): int {
-        return __string_index_of(self, substr);
-    }
-
-    fn lastIndexOf(self: string, substr: string): int {
-        return __string_last_index_of(self, substr);
-    }
-
-    fn charAt(self: string, index: int): string {
-        return __string_char_at(self, index);
-    }
-
-    fn charCodeAt(self: string, index: int): int {
-        return __string_char_code_at(self, index);
-    }
-
-    fn repeat(self: string, count: int): string {
-        return __string_repeat(self, count);
-    }
-
-    fn substring(self: string, start: int, end: int): string {
-        return __string_substring(self, start, end);
-    }
-
-    fn slice(self: string, start: int, end: int): string {
-        // TODO: slice should support negative indices (counting from end) unlike substring
-        return __string_substring(self, start, end);
-    }
-
-    fn toUpperCase(self: string): string {
-        return __string_to_upper_case(self);
-    }
-
-    fn toLowerCase(self: string): string {
-        return __string_to_lower_case(self);
-    }
-
-    fn trim(self: string): string {
-        return __string_trim(self);
-    }
-
-    fn split(self: string, separator: string): Array<string> {
-        return __string_split(self, separator);
-    }
-
-    fn isEmpty(self: string): bool {
-        return __string_length(self) === 0;
-    }
 }

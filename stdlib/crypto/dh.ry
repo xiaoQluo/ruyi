@@ -1,0 +1,69 @@
+/**
+ * Ruyi Standard Library — X25519 Diffie-Hellman
+ *
+ * Elliptic-curve key exchange via RustCrypto FFI.
+ * All I/O is hex-encoded for safe string transport.
+ *
+ * Usage:
+ *   import { X25519 } from "./dh";
+ *
+ *   // Alice
+ *   let alice = X25519.generateKeypair();
+ *   // Bob
+ *   let bob = X25519.generateKeypair();
+ *
+ *   // Alice derives shared secret from Bob's public key
+ *   let shared1 = X25519.dh(alice.privKey, bob.pubKey);
+ *   // Bob derives shared secret from Alice's public key
+ *   let shared2 = X25519.dh(bob.privKey, alice.pubKey);
+ *   // shared1 === shared2
+ *
+ * @author Ruyi Team
+ * @date 2026-07-24
+ */
+
+/**
+ * An X25519 keypair.
+ */
+export class X25519Keypair {
+    /** 64-char hex public key. */
+    pubKey: string;
+    /** 64-char hex private key. */
+    privKey: string;
+}
+
+export class X25519 {
+    /**
+     * Generates a new X25519 keypair.
+     *
+     * @return Keypair with pubKey and privKey (both 64-char hex)
+     */
+    static fn generateKeypair(): X25519Keypair {
+        let hex = __crypto_x25519_keypair_hex();
+        let kp = new X25519Keypair();
+        kp.pubKey = hex.substring(0, 64);
+        kp.privKey = hex.substring(64);
+        return kp;
+    }
+
+    /**
+     * Derives the X25519 shared secret from a private key and peer's public key.
+     *
+     * @param privKey 64-char hex private key
+     * @param peerPubKey 64-char hex peer public key
+     * @return 64-char hex shared secret
+     */
+    static fn dh(privKey: string, peerPubKey: string): string {
+        return __crypto_x25519_dh_hex(privKey, peerPubKey);
+    }
+
+    /**
+     * Derives the public key corresponding to a private key.
+     *
+     * @param privKey 64-char hex private key
+     * @return 64-char hex public key
+     */
+    static fn pubkey(privKey: string): string {
+        return __crypto_x25519_pubkey_hex(privKey);
+    }
+}

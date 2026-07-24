@@ -1,0 +1,16 @@
+fn inner(): void {
+    throw Error.new("nested error");
+}
+
+fn main(): int {
+    try {
+        try {
+            inner();
+        } finally {
+            print("finally");
+        }
+    } catch (e: Error) {
+        print("caught");
+    }
+    return 0;
+}

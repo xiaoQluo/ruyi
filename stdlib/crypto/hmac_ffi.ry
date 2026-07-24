@@ -1,0 +1,23 @@
+/**
+ * Ruyi Standard Library — HMAC (FFI-accelerated)
+ *
+ * Hardware-accelerated HMAC-SHA-256 via RustCrypto FFI.
+ *
+ * Usage:
+ *   import { hmacSha256 } from "./hmac_ffi";
+ *   hmacSha256("my-key", "data");  // 64-char hex
+ *
+ * @author Ruyi Team
+ * @date 2026-07-24
+ */
+
+/**
+ * HMAC-SHA-256 authentication code.
+ *
+ * @param key Secret key string
+ * @param data Message to authenticate
+ * @return 64-character lowercase hex HMAC
+ */
+export fn hmacSha256(key: string, data: string): string {
+    return __crypto_hmac_sha256(key, data);
+}

@@ -33,7 +33,7 @@ pub fn compile_match_stmt<'ctx>(
 
     // Build dispatch and arm blocks based on scrutinee type
     match scrutinee.ty {
-        Type::Int => compile_int_match(ctx, &scrutinee, arms, merge_bb),
+        Type::Int | Type::Byte => compile_int_match(ctx, &scrutinee, arms, merge_bb),
         Type::BigInt => compile_bigint_match(ctx, &scrutinee, arms, merge_bb),
         Type::Bool => compile_bool_match(ctx, &scrutinee, arms, merge_bb),
         Type::String => compile_string_match(ctx, &scrutinee, arms, merge_bb),

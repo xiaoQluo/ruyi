@@ -4,8 +4,9 @@
  * Provides a small printf-style `format()` and a convenience `println()`
  * that expand `{}` placeholders in a template string against the supplied
  * positional arguments. Each `{}` consumes the next argument's
- * `.toString()` form (matching the `Int.toString` / `Float.toString` /
- * `Bool.toString` contracts defined in `core.ry`).
+ * `.toString()` form (resolved by the codegen layer: `int.toString()`
+ * → `ruyi_int_to_string`, `float.toString()` → `ruyi_float_to_string`,
+ * `bool.toString()` → `ruyi_bool_to_string`).
  *
  * The stdlib layer is intentionally thin: every actual substitution is
  * delegated to the runtime FFI `__string_replace_all`. No regex, no
@@ -29,10 +30,13 @@
  * @param args Positional values to substitute into the placeholders
  * @return Resulting string after substitution
  */
-export fn format(template: string, args: ...dyn): string {
+export fn format(template: string, ...args: dyn): string {
     let result = template;
-    for arg of args {
+    let i = 0;
+    while (i < args.length) {
+        let arg: dyn = args[i];
         result = __string_replace_all_legacy(result, "{}", arg.toString());
+        i = i + 1;
     }
     return result;
 }
@@ -41,12 +45,8 @@ export fn format(template: string, args: ...dyn): string {
  * Format the template and print the result followed by a newline.
  *
  * @param template Template string containing `{}` placeholders
- * @param args Positional values to substitute into the placeholders
+ * @param args Positional values to substitute
  */
-export fn println(template: string, args: ...dyn): void {
-    let line = template;
-    for arg of args {
-        line = __string_replace_all_legacy(line, "{}", arg.toString());
-    }
-    print(line + "\n");
+export fn println(template: string, ...args: dyn): void {
+    print(format(template, args) + "\n");
 }

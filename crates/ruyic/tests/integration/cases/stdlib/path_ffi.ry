@@ -1,0 +1,35 @@
+import { Path } from "path";
+
+fn main() {
+    let base = Path.basename("/home/user/file.txt");
+    if (base === "file.txt") {
+        print("OK basename");
+    }
+
+    let dir = Path.dirname("/home/user/file.txt");
+    if (dir === "/home/user") {
+        print("OK dirname");
+    }
+
+    let ext = Path.extname("archive.tar.gz");
+    if (ext === ".gz") {
+        print("OK extname");
+    }
+
+    let joined = Path.join(["/home", "user", "docs"]);
+    if (joined === "/home/user/docs") {
+        print("OK join");
+    }
+
+    let sep = Path.separator();
+    if (sep === "/") {
+        print("OK separator");
+    }
+
+    let norm = Path.normalize("/a/b/../c/./d");
+    if (norm === "/a/c/d") {
+        print("OK normalize");
+    }
+
+    print("path_test: all passed");
+}

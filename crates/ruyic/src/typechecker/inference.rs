@@ -10,7 +10,7 @@
  * @date 2026-05-01
  */
 use crate::parser::ast::{
-    ArrayElement, ArrowBody, BinaryOp, Declaration, Expr, MemberProperty, ModuleItem,
+    ArrayElement, ArrowBody, AssignOp, BinaryOp, Declaration, Expr, MemberProperty, ModuleItem,
     ObjectProperty, Pattern, PropertyName, Statement, UnaryOp,
 };
 use crate::typechecker::constraints::ConstraintSolver;
@@ -23,7 +23,7 @@ use crate::typechecker::generics::{
 use crate::typechecker::narrowing::{apply_reverse_narrow, NarrowEnv};
 use crate::typechecker::traits::TraitRegistry;
 use crate::typechecker::types::{ObjectField, Type};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Recognizes stdlib-internal names (FFI builtins + stdlib type names) so the
 /// typechecker does not flag them as "Unknown variable" when stdlib code
@@ -80,6 +80,7 @@ fn builtin_sig_to_type(sig: crate::codegen::builtins_table::BuiltinSig) -> Type 
     match sig {
         BuiltinSig::Void => Type::Void,
         BuiltinSig::Bool => Type::Bool,
+        BuiltinSig::Byte => Type::Byte,
         BuiltinSig::String => Type::String,
         BuiltinSig::Int | BuiltinSig::Float | BuiltinSig::Ptr => Type::Dynamic,
     }
@@ -120,6 +121,12 @@ pub struct TypeInference {
     /// consulted in `synthesize_member_access` to resolve `instance.method`
     /// accesses as first-class function values.
     class_methods: HashMap<String, Vec<ObjectField>>,
+    /// Names of `static fn` methods declared on each class body.
+    /// Populated in `infer_class_element` (Method case) when `is_static` is
+    /// true. Consulted in `synthesize_member_access` so that
+    /// `Class.method()` (where `Class` is an identifier) is treated as a
+    /// static call rather than an instance method dispatch.
+    static_method_names: HashMap<String, HashSet<String>>,
 }
 
 impl TypeInference {
@@ -178,55 +185,85 @@ impl TypeInference {
             class_stack: Vec::new(),
             class_fields: HashMap::new(),
             class_methods: HashMap::new(),
+            static_method_names: HashMap::new(),
         }
     }
 
     pub fn infer_program(&mut self, program: &crate::parser::ast::Program) -> InferenceResult {
-        // Pass 1: Collect all function declarations (signatures only)
-        // This enables forward references - functions can call other functions defined later
+        // Pass 1: Collect all function / const / let declarations — enables forward references.
         for item in &program.items {
-            if let ModuleItem::Declaration(decl) = item {
-                if let Declaration::Function {
-                    name,
-                    type_params,
-                    params,
-                    return_type,
-                    is_async,
-                    ..
-                } = decl
-                {
-                    let param_types: Vec<Type> = params
-                        .iter()
-                        .map(|p| {
-                            p.ty.as_ref()
-                                .map(Type::from_annotation)
-                                .unwrap_or(Type::Dynamic)
-                        })
-                        .collect();
-                    let ret_type = return_type
-                        .as_ref()
-                        .map(Type::from_annotation)
-                        .unwrap_or(Type::Dynamic);
-                    let fn_ret_type = if *is_async {
-                        Type::Future(Box::new(ret_type.clone()))
-                    } else {
-                        ret_type.clone()
-                    };
-                    let fn_type = Type::Function {
-                        params: param_types.clone(),
-                        return_type: Box::new(fn_ret_type),
-                    };
-                    if !type_params.is_empty() {
-                        let generic_def = make_generic_function_def(
-                            name,
-                            type_params,
-                            &param_types,
-                            &ret_type,
-                            &mut self.tracker,
-                        );
-                        self.tracker.register_generic(generic_def);
+            let decl_opt: Option<&Declaration> = match item {
+                ModuleItem::Declaration(decl) => Some(decl),
+                ModuleItem::Export(crate::parser::ast::ExportDecl::Declaration(decl)) => Some(decl),
+                _ => None,
+            };
+            if let Some(decl) = decl_opt {
+                match decl {
+                    Declaration::Function {
+                        name,
+                        type_params,
+                        params,
+                        return_type,
+                        is_async,
+                        ..
+                    } => {
+                        let param_types: Vec<Type> = params
+                            .iter()
+                            .map(|p| {
+                                let mut ty =
+                                    p.ty.as_ref()
+                                        .map(Type::from_annotation)
+                                        .unwrap_or(Type::Dynamic);
+                                // Auto-wrap rest params as Array<T> so the
+                                // typechecker/codegen recognise them as variadic.
+                                if p.is_rest {
+                                    ty = Type::Array(Box::new(ty));
+                                }
+                                ty
+                            })
+                            .collect();
+                        let ret_type = return_type
+                            .as_ref()
+                            .map(Type::from_annotation)
+                            .unwrap_or(Type::Dynamic);
+                        let fn_ret_type = if *is_async {
+                            Type::Future(Box::new(ret_type.clone()))
+                        } else {
+                            ret_type.clone()
+                        };
+                        let fn_type = Type::Function {
+                            params: param_types.clone(),
+                            return_type: Box::new(fn_ret_type),
+                        };
+                        if !type_params.is_empty() {
+                            let generic_def = make_generic_function_def(
+                                name,
+                                type_params,
+                                &param_types,
+                                &ret_type,
+                                &mut self.tracker,
+                            );
+                            self.tracker.register_generic(generic_def);
+                        }
+                        self.env.declare_let(name, fn_type);
                     }
-                    self.env.declare_let(name, fn_type);
+                    Declaration::Const(bindings) | Declaration::Let(bindings) => {
+                        let is_const = matches!(decl, Declaration::Const(_));
+                        for binding in bindings {
+                            let ty = binding
+                                .ty
+                                .as_ref()
+                                .map(Type::from_annotation)
+                                .unwrap_or(Type::Dynamic);
+                            let name = pattern_name(&binding.pattern);
+                            if is_const {
+                                self.env.declare_const(&name, ty);
+                            } else {
+                                self.env.declare_let(&name, ty);
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -320,23 +357,40 @@ impl TypeInference {
                 let param_types: Vec<Type> = params
                     .iter()
                     .map(|p| {
-                        p.ty.as_ref()
-                            .map(Type::from_annotation)
-                            .unwrap_or(Type::Dynamic)
+                        let mut ty =
+                            p.ty.as_ref()
+                                .map(Type::from_annotation)
+                                .unwrap_or(Type::Dynamic);
+                        if p.is_rest {
+                            ty = Type::Array(Box::new(ty));
+                        }
+                        ty
                     })
                     .collect();
 
                 // Phase 1: Infer return type (needs parameters in scope)
+                // Suppress diagnostics during return-type inference — this pass
+                // runs before the function body has been fully type-checked, so
+                // variables referenced in return expressions may not be declared
+                // yet. Phase 3 handles proper error reporting.
                 self.env.push_scope();
                 for (param, ty) in params.iter().zip(param_types.iter()) {
                     self.env
                         .declare_param(&pattern_name(&param.pattern), ty.clone());
                 }
 
+                // Push declared return type so collapse logic in infer_return_type sees it.
+                let declared_ret = return_type.as_ref().map(Type::from_annotation);
+                self.return_type_stack
+                    .push(declared_ret.clone().unwrap_or(Type::Void));
+
+                let saved_diagnostics = std::mem::take(&mut self.diagnostics);
                 let ret_type = return_type
                     .as_ref()
                     .map(Type::from_annotation)
                     .unwrap_or_else(|| self.infer_return_type(body));
+                self.diagnostics = saved_diagnostics;
+                self.return_type_stack.pop();
 
                 let fn_ret_type = if *is_async {
                     Type::Future(Box::new(ret_type.clone()))
@@ -363,7 +417,7 @@ impl TypeInference {
                 // Pop the temporary scope used for return type inference
                 self.env.pop_scope();
 
-                // Phase 2: Declare function name in outer (global) scope
+                // Phase 2: Declare function name in outer scope
                 self.env.declare_let(name, fn_type.clone());
 
                 // Phase 3: Type check the function body
@@ -447,6 +501,16 @@ impl TypeInference {
                 self.env.declare_let(name, Type::Dynamic);
                 Type::Dynamic
             }
+            Declaration::ExternFn {
+                name,
+                params: _,
+                return_type: _,
+            } => {
+                // FFI symbol registered in BUILTINS table; resolve its signature there.
+                let fn_ty = resolve_builtin_name(name).unwrap_or(Type::Dynamic);
+                self.env.declare_let(name, fn_ty);
+                Type::Dynamic
+            }
         }
     }
 
@@ -459,7 +523,7 @@ impl TypeInference {
                 return_type,
                 body,
                 is_async,
-                is_static: _,
+                is_static,
                 is_getter: _,
                 is_setter: _,
             } => {
@@ -497,6 +561,12 @@ impl TypeInference {
                             ty: method_type,
                             optional: false,
                         });
+                    if *is_static {
+                        self.static_method_names
+                            .entry(class_name.clone())
+                            .or_default()
+                            .insert(method_name.clone());
+                    }
                 }
 
                 self.env.push_scope();
@@ -1194,12 +1264,16 @@ impl TypeInference {
                 let else_ty = self.synthesize(else_branch);
                 then_ty.least_upper_bound(&else_ty)
             }
-            Expr::Assignment { left, op: _, right } => {
+            Expr::Assignment { left, op, right } => {
                 let right_ty = self.synthesize(right);
                 match left.as_ref() {
                     Expr::Identifier(name) => {
                         if let Some(existing_ty) = self.env.lookup(name).cloned() {
-                            if !right_ty.is_consistent_with(&existing_ty) {
+                            // NullishAssign (??=) assigns only when LHS is null,
+                            // so relaxed type-checking: skip the consistency check
+                            if op != &AssignOp::NullishAssign
+                                && !right_ty.is_consistent_with(&existing_ty)
+                            {
                                 self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
                                     expected: existing_ty,
                                     found: right_ty.clone(),
@@ -1445,7 +1519,9 @@ impl TypeInference {
             | BinaryOp::Star
             | BinaryOp::Percent
             | BinaryOp::Power => {
-                if left_ty == Type::Int && right_ty == Type::Int {
+                if (left_ty == Type::Int || left_ty == Type::Byte)
+                    && (right_ty == Type::Int || right_ty == Type::Byte)
+                {
                     Type::Int
                 } else if left_ty == Type::String || right_ty == Type::String {
                     if matches!(op, BinaryOp::Plus) {
@@ -1453,8 +1529,8 @@ impl TypeInference {
                     } else {
                         Type::Dynamic
                     }
-                } else if (left_ty == Type::Int || left_ty == Type::Float)
-                    && (right_ty == Type::Int || right_ty == Type::Float)
+                } else if (left_ty == Type::Int || left_ty == Type::Float || left_ty == Type::Byte)
+                    && (right_ty == Type::Int || right_ty == Type::Float || right_ty == Type::Byte)
                 {
                     Type::Float
                 } else if left_ty.is_dynamic() || right_ty.is_dynamic() {
@@ -1468,10 +1544,12 @@ impl TypeInference {
                 }
             }
             BinaryOp::Slash => {
-                if left_ty == Type::Int && right_ty == Type::Int {
+                if (left_ty == Type::Int || left_ty == Type::Byte)
+                    && (right_ty == Type::Int || right_ty == Type::Byte)
+                {
                     Type::Int
-                } else if (left_ty == Type::Int || left_ty == Type::Float)
-                    && (right_ty == Type::Int || right_ty == Type::Float)
+                } else if (left_ty == Type::Int || left_ty == Type::Float || left_ty == Type::Byte)
+                    && (right_ty == Type::Int || right_ty == Type::Float || right_ty == Type::Byte)
                 {
                     Type::Float
                 } else if left_ty.is_dynamic() || right_ty.is_dynamic() {
@@ -1503,7 +1581,9 @@ impl TypeInference {
             | BinaryOp::Shl
             | BinaryOp::Shr
             | BinaryOp::UShr => {
-                if left_ty == Type::Int && right_ty == Type::Int {
+                if (left_ty == Type::Int || left_ty == Type::Byte)
+                    && (right_ty == Type::Int || right_ty == Type::Byte)
+                {
                     Type::Int
                 } else if left_ty.is_dynamic() || right_ty.is_dynamic() {
                     Type::Dynamic
@@ -1521,6 +1601,7 @@ impl TypeInference {
             UnaryOp::Not => Type::Bool,
             UnaryOp::Minus => match operand_ty {
                 Type::Int => Type::Int,
+                Type::Byte => Type::Int,
                 Type::Float => Type::Float,
                 Type::Dynamic => Type::Dynamic,
                 _ => {
@@ -1533,17 +1614,20 @@ impl TypeInference {
             },
             UnaryOp::Plus => match operand_ty {
                 Type::Int => Type::Int,
+                Type::Byte => Type::Int,
                 Type::Float => Type::Float,
                 Type::Dynamic => Type::Dynamic,
                 _ => Type::Error,
             },
             UnaryOp::Tilde => match operand_ty {
                 Type::Int => Type::Int,
+                Type::Byte => Type::Int,
                 Type::Dynamic => Type::Dynamic,
                 _ => Type::Error,
             },
             UnaryOp::PreIncrement | UnaryOp::PreDecrement => match operand_ty {
                 Type::Int => Type::Int,
+                Type::Byte => Type::Int,
                 Type::Float => Type::Float,
                 Type::Dynamic => Type::Dynamic,
                 _ => Type::Error,
@@ -1621,9 +1705,20 @@ impl TypeInference {
                 .add_error(DiagnosticKind::UnsafeNullableAccess { ty: obj_ty.clone() });
         }
 
-        let is_static_call = prop_name == "new"
-            && matches!(object, Expr::Identifier(_))
-            && matches!(obj_ty, Type::Named(_, _));
+        let is_static_call = matches!(object, Expr::Identifier(_))
+            && matches!(obj_ty, Type::Named(_, _))
+            && if prop_name == "new" {
+                true
+            } else {
+                match obj_ty {
+                    Type::Named(type_name, _) => self
+                        .static_method_names
+                        .get(type_name)
+                        .map(|names| names.contains(prop_name))
+                        .unwrap_or(false),
+                    _ => false,
+                }
+            };
 
         let result = match obj_ty {
             Type::Tuple(types) => {
@@ -1750,6 +1845,7 @@ impl TypeInference {
                                         "bool" => Type::Bool,
                                         "string" => Type::String,
                                         "bigint" => Type::BigInt,
+                                        "byte" | "u8" => Type::Byte,
                                         _ => return,
                                     };
                                     if true_branch {
@@ -1772,6 +1868,7 @@ impl TypeInference {
                                         "bool" => Type::Bool,
                                         "string" => Type::String,
                                         "bigint" => Type::BigInt,
+                                        "byte" | "u8" => Type::Byte,
                                         _ => return,
                                     };
                                     if true_branch {
@@ -1964,12 +2061,26 @@ impl TypeInference {
         let mut return_types = Vec::new();
         self.collect_return_types(body, &mut return_types);
         if return_types.is_empty() {
-            Type::Void
-        } else {
-            return_types
-                .into_iter()
-                .fold(Type::Never, |acc, ty| acc.least_upper_bound(&ty))
+            return Type::Void;
         }
+        let folded = return_types
+            .into_iter()
+            .fold(Type::Never, |acc, ty| acc.least_upper_bound(&ty));
+        let expected = self.return_type_stack.last().cloned().unwrap_or(Type::Void);
+        match &expected {
+            Type::Void => {
+                if matches!(folded, Type::Null) {
+                    return Type::Void;
+                }
+            }
+            Type::Future(inner) if matches!(inner.as_ref(), Type::Void) => {
+                if matches!(&folded, Type::Future(_)) {
+                    return expected;
+                }
+            }
+            _ => {}
+        }
+        folded
     }
 
     fn collect_return_types(&mut self, stmts: &[Statement], return_types: &mut Vec<Type>) {

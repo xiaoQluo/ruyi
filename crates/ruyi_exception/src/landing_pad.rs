@@ -243,7 +243,7 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
         }
     }
 
-    fn get_personality_function(&self) -> FunctionValue<'ctx> {
+    pub fn get_personality_function(&self) -> FunctionValue<'ctx> {
         let i32_ty = self.context.i32_type();
         let personality_ty = i32_ty.fn_type(&[], false);
         get_or_insert_function(self.module, "__gxx_personality_v0", personality_ty)

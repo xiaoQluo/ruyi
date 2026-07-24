@@ -1,0 +1,140 @@
+/**
+ * Ruyi Standard Library — PBKDF2 Password-Based Key Derivation
+ *
+ * Implements PBKDF2-HMAC-SHA256 and PBKDF2-HMAC-SHA512 per RFC 2898.
+ *
+ * @author Ruyi Team
+ * @date 2026-07-24
+ */
+
+import { hmacSha256Bytes, hmacSha512Bytes } from "./hmac";
+import { bytesToHex } from "../encoding";
+import { stringToBytes, copyArray, bytesToString } from "./util";
+
+// ============================================================
+// PBKDF2 — Password-Based Key Derivation Function 2 (RFC 2898)
+// ============================================================
+
+/**
+ * Derives a key using PBKDF2-HMAC-SHA256.
+ *
+ * Per RFC 2898 Section 5.2:
+ *   DK = T_1 || T_2 || ... || T_len
+ *   T_i = U_1 ^ U_2 ^ ... ^ U_c
+ *   U_1 = PRF(Password, Salt || INT_BE(i))
+ *   U_j = PRF(Password, U_{j-1})
+ *
+ * @param password Password string
+ * @param salt Salt string (should be unique, at least 8 bytes)
+ * @param iterations Iteration count (higher = more secure, e.g., 100000+)
+ * @param keyLen Desired derived key length in bytes
+ * @return Hex-encoded derived key
+ */
+export fn pbkdf2Sha256(password: string, salt: string, iterations: int, keyLen: int): string {
+    if (keyLen <= 0) {
+        return "";
+    }
+    let result: Array<int> = [];
+
+    let blockIndex = 1;
+    while (result.length() < keyLen) {
+        // Build Salt || INT_BE(blockIndex)
+        let saltBytes = stringToBytes(salt);
+        let salted: Array<int> = copyArray(saltBytes);
+        // 4-byte big-endian block index
+        salted.push((blockIndex >> 24) & 0xFF);
+        salted.push((blockIndex >> 16) & 0xFF);
+        salted.push((blockIndex >> 8) & 0xFF);
+        salted.push(blockIndex & 0xFF);
+
+        // U_1 = PRF(password, salted)
+        let u = hmacSha256Bytes(password, bytesToString(salted));
+        let t = copyArray(u);
+
+        // U_2 .. U_c
+        let iter = 1;
+        while (iter < iterations) {
+            u = hmacSha256Bytes(password, bytesToString(u));
+            // XOR u into t
+            let i = 0;
+            let ulen = u.length();
+            while (i < ulen) {
+                t.set(i, t.get(i) ^ u.get(i));
+                i = i + 1;
+            }
+            iter = iter + 1;
+        }
+
+        // Append t to result
+        let j = 0;
+        let tlen = t.length();
+        while (j < tlen && result.length() < keyLen) {
+            result.push(t.get(j));
+            j = j + 1;
+        }
+
+        blockIndex = blockIndex + 1;
+    }
+
+    return bytesToHex(result);
+}
+
+/**
+ * Derives a key using PBKDF2-HMAC-SHA512.
+ *
+ * Same algorithm as PBKDF2-SHA256 but using SHA-512 as the PRF,
+ * producing larger internal blocks (64 bytes vs 32 bytes).
+ *
+ * @param password Password string
+ * @param salt Salt string
+ * @param iterations Iteration count
+ * @param keyLen Desired derived key length in bytes
+ * @return Hex-encoded derived key
+ */
+export fn pbkdf2Sha512(password: string, salt: string, iterations: int, keyLen: int): string {
+    if (keyLen <= 0) {
+        return "";
+    }
+    let result: Array<int> = [];
+
+    let blockIndex = 1;
+    while (result.length() < keyLen) {
+        // Build Salt || INT_BE(blockIndex)
+        let saltBytes = stringToBytes(salt);
+        let salted: Array<int> = copyArray(saltBytes);
+        salted.push((blockIndex >> 24) & 0xFF);
+        salted.push((blockIndex >> 16) & 0xFF);
+        salted.push((blockIndex >> 8) & 0xFF);
+        salted.push(blockIndex & 0xFF);
+
+        // U_1 = PRF(password, salted)
+        let u = hmacSha512Bytes(password, bytesToString(salted));
+        let t = copyArray(u);
+
+        // U_2 .. U_c
+        let iter = 1;
+        while (iter < iterations) {
+            u = hmacSha512Bytes(password, bytesToString(u));
+            // XOR u into t
+            let i = 0;
+            let ulen = u.length();
+            while (i < ulen) {
+                t.set(i, t.get(i) ^ u.get(i));
+                i = i + 1;
+            }
+            iter = iter + 1;
+        }
+
+        // Append t to result
+        let j = 0;
+        let tlen = t.length();
+        while (j < tlen && result.length() < keyLen) {
+            result.push(t.get(j));
+            j = j + 1;
+        }
+
+        blockIndex = blockIndex + 1;
+    }
+
+    return bytesToHex(result);
+}

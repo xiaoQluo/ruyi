@@ -1,0 +1,223 @@
+/**
+ * HMAC sub-module: Keyed-Hash Message Authentication Code (RFC 2104) implementations.
+ *
+ * Provides HMAC-SHA256, HMAC-SHA512, and HMAC-SHA1.
+ *
+ * @author Ruyi Team
+ * @date 2026-07-24
+ */
+
+import { sha256Raw, sha512Raw, sha1Raw } from "./hash";
+import { bytesToHex } from "../encoding";
+import { stringToBytes, zeroArray, copyArray, bytesToString } from "./util";
+
+// ============================================================
+// HMAC — Keyed-Hash Message Authentication Code (RFC 2104)
+// ============================================================
+
+/**
+ * HMAC-SHA-256: HMAC(key, message) = H(k⊕opad || H(k⊕ipad || m)).
+ *
+ * Block size = 64 bytes for SHA-256.
+ * Keys longer than 64 bytes are hashed with SHA-256 first.
+ * ipad = 0x36 repeated 64 times, opad = 0x5C repeated 64 times.
+ *
+ * @param key Secret key string
+ * @param message Message to authenticate
+ * @return 64-character lowercase hex HMAC-SHA-256
+ */
+export fn hmacSha256(key: string, message: string): string {
+    return bytesToHex(hmacSha256Bytes(key, message));
+}
+
+/**
+ * HMAC-SHA-256 returning raw 32-byte array.
+ *
+ * @param key Secret key string
+ * @param message Message to authenticate
+ * @return 32-byte HMAC-SHA-256
+ */
+export fn hmacSha256Bytes(key: string, message: string): Array<int> {
+    let keyBytes = stringToBytes(key);
+    let msgBytes = stringToBytes(message);
+
+    // Block size for SHA-256 is 64 bytes
+    let blockSize = 64;
+
+    // If key is longer than block size, hash it first
+    if (keyBytes.length() > blockSize) {
+        keyBytes = sha256Raw(keyBytes);
+    }
+
+    // Pad key to block size with zeros
+    let paddedKey: Array<int> = zeroArray(blockSize);
+    let i = 0;
+    let klen = keyBytes.length();
+    while (i < klen) {
+        paddedKey.set(i, keyBytes.get(i));
+        i = i + 1;
+    }
+
+    // Compute inner hash: H(k ⊕ ipad || message)
+    let innerPad: Array<int> = [];
+    i = 0;
+    while (i < blockSize) {
+        innerPad.push(paddedKey.get(i) ^ 0x36);
+        i = i + 1;
+    }
+    // Append message
+    i = 0;
+    let mlen = msgBytes.length();
+    while (i < mlen) {
+        innerPad.push(msgBytes.get(i));
+        i = i + 1;
+    }
+    let innerHash = sha256Raw(innerPad);
+
+    // Compute outer hash: H(k ⊕ opad || innerHash)
+    let outerPad: Array<int> = [];
+    i = 0;
+    while (i < blockSize) {
+        outerPad.push(paddedKey.get(i) ^ 0x5C);
+        i = i + 1;
+    }
+    i = 0;
+    while (i < 32) {
+        outerPad.push(innerHash.get(i));
+        i = i + 1;
+    }
+
+    return sha256Raw(outerPad);
+}
+
+/**
+ * HMAC-SHA-512: HMAC(key, message) = H(k⊕opad || H(k⊕ipad || m)).
+ *
+ * Block size = 128 bytes for SHA-512.
+ * Keys longer than 128 bytes are hashed with SHA-512 first.
+ * ipad = 0x36 repeated 128 times, opad = 0x5C repeated 128 times.
+ *
+ * @param key Secret key string
+ * @param message Message to authenticate
+ * @return 128-character lowercase hex HMAC-SHA-512
+ */
+export fn hmacSha512(key: string, message: string): string {
+    return bytesToHex(hmacSha512Bytes(key, message));
+}
+
+/**
+ * HMAC-SHA-512 returning raw 64-byte array.
+ *
+ * @param key Secret key string
+ * @param message Message to authenticate
+ * @return 64-byte HMAC-SHA-512
+ */
+export fn hmacSha512Bytes(key: string, message: string): Array<int> {
+    let keyBytes = stringToBytes(key);
+    let msgBytes = stringToBytes(message);
+    let blockSize = 128;
+
+    // If key is longer than block size, hash it first
+    if (keyBytes.length() > blockSize) {
+        keyBytes = sha512Raw(keyBytes);
+    }
+
+    // Pad key to block size
+    let paddedKey: Array<int> = zeroArray(blockSize);
+    let i = 0;
+    let klen = keyBytes.length();
+    while (i < klen) {
+        paddedKey.set(i, keyBytes.get(i));
+        i = i + 1;
+    }
+
+    // Inner: H(k ⊕ ipad || message)
+    let innerPad: Array<int> = [];
+    i = 0;
+    while (i < blockSize) {
+        innerPad.push(paddedKey.get(i) ^ 0x36);
+        i = i + 1;
+    }
+    i = 0;
+    let mlen = msgBytes.length();
+    while (i < mlen) {
+        innerPad.push(msgBytes.get(i));
+        i = i + 1;
+    }
+    let innerHash = sha512Raw(innerPad);
+
+    // Outer: H(k ⊕ opad || innerHash)
+    let outerPad: Array<int> = [];
+    i = 0;
+    while (i < blockSize) {
+        outerPad.push(paddedKey.get(i) ^ 0x5C);
+        i = i + 1;
+    }
+    i = 0;
+    while (i < 64) {
+        outerPad.push(innerHash.get(i));
+        i = i + 1;
+    }
+
+    return sha512Raw(outerPad);
+}
+
+/**
+ * HMAC-SHA-1: HMAC(key, message) = H(k⊕opad || H(k⊕ipad || m)).
+ *
+ * Block size = 64 bytes for SHA-1.
+ * Keys longer than 64 bytes are hashed with SHA-1 first.
+ * ipad = 0x36 repeated 64 times, opad = 0x5C repeated 64 times.
+ *
+ * @param key Secret key string
+ * @param message Message to authenticate
+ * @return 40-character lowercase hex HMAC-SHA-1
+ */
+export fn hmacSha1(key: string, message: string): string {
+    let keyBytes = stringToBytes(key);
+    let msgBytes = stringToBytes(message);
+    let blockSize = 64;
+
+    if (keyBytes.length() > blockSize) {
+        keyBytes = sha1Raw(keyBytes);
+    }
+
+    // Pad key to block size
+    let paddedKey: Array<int> = zeroArray(blockSize);
+    let i = 0;
+    let klen = keyBytes.length();
+    while (i < klen) {
+        paddedKey.set(i, keyBytes.get(i));
+        i = i + 1;
+    }
+
+    // Inner: H(k ⊕ ipad || message)
+    let innerPad: Array<int> = [];
+    i = 0;
+    while (i < blockSize) {
+        innerPad.push(paddedKey.get(i) ^ 0x36);
+        i = i + 1;
+    }
+    i = 0;
+    let mlen = msgBytes.length();
+    while (i < mlen) {
+        innerPad.push(msgBytes.get(i));
+        i = i + 1;
+    }
+    let innerHash = sha1Raw(innerPad);
+
+    // Outer: H(k ⊕ opad || innerHash)
+    let outerPad: Array<int> = [];
+    i = 0;
+    while (i < blockSize) {
+        outerPad.push(paddedKey.get(i) ^ 0x5C);
+        i = i + 1;
+    }
+    i = 0;
+    while (i < 20) {
+        outerPad.push(innerHash.get(i));
+        i = i + 1;
+    }
+
+    return bytesToHex(sha1Raw(outerPad));
+}

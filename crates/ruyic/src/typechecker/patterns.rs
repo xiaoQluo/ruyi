@@ -195,7 +195,7 @@ fn extract_field_pattern(covered_str: &str, field_name: &str) -> Option<String> 
 /// Finds missing cases for exhaustiveness checking.
 fn find_missing_cases(scrutinee_type: &Type, covered: &HashSet<String>) -> Vec<String> {
     match scrutinee_type {
-        Type::Int | Type::BigInt => {
+        Type::Int | Type::BigInt | Type::Byte => {
             if covered.contains("_") || covered.is_empty() {
                 vec![]
             } else {

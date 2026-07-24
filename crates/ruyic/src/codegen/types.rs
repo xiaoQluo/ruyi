@@ -30,6 +30,7 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: &Type) -> BasicTypeEn
         Type::Int => BasicTypeEnum::IntType(context.i64_type()),
         Type::Float => BasicTypeEnum::FloatType(context.f64_type()),
         Type::Bool => BasicTypeEnum::IntType(context.bool_type()),
+        Type::Byte => BasicTypeEnum::IntType(context.i8_type()),
         Type::String => BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default())),
         Type::Null => BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default())),
         Type::Void | Type::Never => {
@@ -152,6 +153,10 @@ impl<'ctx> LlvmTypes<'ctx> {
 
     pub fn bool_type(&self) -> IntType<'ctx> {
         self.context.bool_type()
+    }
+
+    pub fn byte_type(&self) -> IntType<'ctx> {
+        self.context.i8_type()
     }
 
     pub fn ptr_type(&self) -> PointerType<'ctx> {

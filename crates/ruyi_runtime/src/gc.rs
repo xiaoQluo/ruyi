@@ -237,11 +237,17 @@ impl GcAllocator {
         unsafe { std::alloc::System.alloc(layout) }
     }
 
-    pub fn deallocate(&self, ptr: *mut u8, layout: std::alloc::Layout) {
+    /// # Safety
+    /// `ptr` must be a valid, non-null pointer previously returned by [`Self::allocate`]
+    /// with the same `layout`.
+    pub unsafe fn deallocate(&self, ptr: *mut u8, layout: std::alloc::Layout) {
         unsafe { std::alloc::System.dealloc(ptr, layout) }
     }
 
-    pub fn reallocate(
+    /// # Safety
+    /// `ptr` must be a valid, non-null pointer previously returned by [`Self::allocate`]
+    /// with `old_layout`. The original buffer is deallocated on success.
+    pub unsafe fn reallocate(
         &self,
         ptr: *mut u8,
         old_layout: std::alloc::Layout,

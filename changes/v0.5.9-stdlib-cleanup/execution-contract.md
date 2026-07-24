@@ -2,8 +2,8 @@
 
 **Change**: `v0.5.9-stdlib-cleanup`
 **Mode**: full
-**State**: specifying
-**Branch**: `dev/v0.5.9-stdlib-cleanup` (not yet created)
+**State**: closing
+**Branch**: `dev/v0.5.9-stdlib-cleanup` → merged to `main` via `2b63f4c`
 
 ## Intent Lock
 

@@ -97,6 +97,8 @@ pub enum EmitType {
     TypedAst,
     /// Parse and type check only (no codegen)
     Check,
+    /// Discover `@test fn` annotations and list them.
+    Test,
 }
 
 /// Optimization level.
@@ -246,6 +248,9 @@ pub struct Driver {
     resolver: ModuleResolver,
     /// Macro registry for macro expansion
     macro_registry: MacroRegistry,
+    /// Number of stdlib ModuleItems from the most recent `resolve_modules` call.
+    /// Passed to CodeGenerator to scope `allow_partial_codegen` to stdlib-only.
+    last_stdlib_item_count: usize,
 }
 
 impl Driver {
@@ -253,6 +258,7 @@ impl Driver {
         Self {
             resolver: ModuleResolver::new(search_paths),
             macro_registry: MacroRegistry::with_builtins(),
+            last_stdlib_item_count: 0,
         }
     }
 
@@ -323,15 +329,17 @@ impl Driver {
                 all_items.push(module_item.clone());
             }
         }
+        let stdlib_count = all_items.len();
         all_items.extend(program.items);
         program.items = all_items;
+        self.last_stdlib_item_count = stdlib_count;
 
         Ok(program)
     }
 
     /// Auto-load essential stdlib modules.
     fn auto_load_stdlib(&mut self) -> Result<(), CompileError> {
-        let stdlib_modules = ["error", "core", "option", "collections"];
+        let stdlib_modules = ["error", "option", "collections"];
 
         for module_name in &stdlib_modules {
             let module_path = PathBuf::from(format!("stdlib/{}.ry", module_name));
@@ -496,7 +504,13 @@ impl Driver {
                     }
                 }
                 _ => {
-                    program.items.push(item);
+                    // Unwrap `export fn` / `export const` / `export class` etc.
+                    // into bare declarations so the type checker (Pass 2) and
+                    // codegen can process their bodies / initializers.
+                    // Without this, `export const FOO = ...` inside a module
+                    // is invisible to the module's own functions, forcing the
+                    // accessor-function workaround (`fn foo() { return FOO; }`).
+                    Self::push_unwrapped(&mut program, &item);
                 }
             }
         }
@@ -558,6 +572,43 @@ impl Driver {
             });
         }
 
+        if matches!(options.emit, EmitType::Test) {
+            use crate::runtime::test_registry::TestFunctionRegistry;
+            let mut registry = TestFunctionRegistry::new();
+            let file_str = options.input.display().to_string();
+            let mut idx: usize = 0;
+            for item in &expanded.items {
+                if let crate::parser::ast::ModuleItem::Declaration(decl) = item {
+                    if let crate::parser::ast::Declaration::Function {
+                        name, annotations, ..
+                    } = decl
+                    {
+                        if annotations.iter().any(|a| a == "test") {
+                            registry.register(crate::runtime::test_registry::TestFnEntry {
+                                name: name.clone(),
+                                file: file_str.clone(),
+                                line: idx,
+                                module: "<test>".to_string(),
+                            });
+                            idx += 1;
+                        }
+                    }
+                }
+            }
+            let count = registry.count();
+            println!("Discovered {} @test fn declaration(s):", count);
+            for entry in registry.all() {
+                println!("  - {} ({}:{})", entry.name, entry.file, entry.line);
+            }
+            if count == 0 {
+                println!("(none — add `import {{ assert_eq }} from \"./test\"` and `@test fn name() {{ ... }}`)");
+            }
+            return Ok(CompileResult {
+                llvm_ir: None,
+                output_path: PathBuf::from(""),
+            });
+        }
+
         Self::ensure_runtime_built()?;
 
         // Phase 5: Code generation
@@ -569,11 +620,7 @@ impl Driver {
             .unwrap_or("main");
         let mut generator = CodeGenerator::with_gc_mode(&context, module_name, options.gc_mode);
 
-        // Allow partial codegen for compilations that include stdlib modules.
-        // Since stdlib is always auto-loaded and merged into the program,
-        // we enable this flag for all compilations to gracefully handle
-        // unsupported patterns in stdlib (e.g., chained member access).
-        generator.allow_partial_codegen = true;
+        generator.stdlib_item_count = self.last_stdlib_item_count;
 
         generator.generate_with_env(&expanded, &type_result.tracker, Some(&type_result.env))?;
 

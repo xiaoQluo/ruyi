@@ -50,7 +50,7 @@ impl RuyiFuture for CFuture {
 ///
 /// Returns `0` for Pending, `1` for Ready.
 #[no_mangle]
-pub extern "C" fn ruyi_async_poll(future_ptr: *mut u8, waker_ptr: *mut u8) -> i32 {
+pub unsafe extern "C" fn ruyi_async_poll(future_ptr: *mut u8, waker_ptr: *mut u8) -> i32 {
     let poll_fn_ptr = unsafe {
         let ptr_val = std::ptr::read::<*mut u8>(future_ptr as *const *mut u8);
         std::mem::transmute::<*mut u8, PollFn>(ptr_val)

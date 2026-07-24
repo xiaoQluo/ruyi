@@ -43,6 +43,9 @@ struct Args {
     #[arg(long, help = "Parse and type check only (no codegen)")]
     check: bool,
 
+    #[arg(long, help = "Discover @test fn declarations and list them")]
+    test: bool,
+
     #[arg(
         long,
         default_value = "stub",
@@ -69,6 +72,8 @@ fn main() {
         EmitType::Ast
     } else if args.emit_typed_ast {
         EmitType::TypedAst
+    } else if args.test {
+        EmitType::Test
     } else if args.check {
         EmitType::Check
     } else if args.emit_llvm {
@@ -121,6 +126,9 @@ fn main() {
             }
             EmitType::Binary => {
                 println!("Binary written to: {}", result.output_path.display());
+            }
+            EmitType::Test => {
+                println!("Test discovery complete.");
             }
         },
         Err(e) => {

@@ -176,7 +176,7 @@ impl TraitRegistry {
             Type::Named(name, _) | Type::Generic { base: name, .. } => self
                 .type_trait_impls
                 .contains_key(&(name.clone(), trait_name.to_string())),
-            Type::String | Type::Int | Type::Float | Type::Bool => self
+            Type::String | Type::Int | Type::Float | Type::Bool | Type::Byte => self
                 .type_trait_impls
                 .contains_key(&(ty.to_string(), trait_name.to_string())),
             Type::Dynamic | Type::Error => true,
@@ -191,7 +191,7 @@ impl TraitRegistry {
                 .type_trait_impls
                 .get(&(name.clone(), trait_name.to_string()))
                 .copied(),
-            Type::String | Type::Int | Type::Float | Type::Bool => self
+            Type::String | Type::Int | Type::Float | Type::Bool | Type::Byte => self
                 .type_trait_impls
                 .get(&(ty.to_string(), trait_name.to_string()))
                 .copied(),

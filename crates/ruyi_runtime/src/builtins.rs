@@ -1,8 +1,27 @@
+pub use crate::atomic_ffi::{
+    __atomic_i64_cas, __atomic_i64_fetch_add, __atomic_i64_fetch_sub, __atomic_i64_free,
+    __atomic_i64_load, __atomic_i64_new, __atomic_i64_store, __atomic_i64_swap,
+};
+pub use crate::compress_ffi::{
+    __compress_deflate, __compress_finish, __compress_gzip, __compress_new, __compress_write,
+    __compress_zlib, __decompress_deflate, __decompress_finish, __decompress_gzip,
+    __decompress_new, __decompress_write, __decompress_zlib,
+};
+pub use crate::crypto_ffi::{
+    __crypto_aes_gcm_decrypt_hex, __crypto_aes_gcm_decrypt_raw, __crypto_aes_gcm_encrypt_hex,
+    __crypto_aes_gcm_encrypt_raw, __crypto_hmac_sha256, __crypto_sha1, __crypto_sha256,
+    __crypto_sha512, __crypto_x25519_dh_hex, __crypto_x25519_dh_raw, __crypto_x25519_keypair_hex,
+    __crypto_x25519_keypair_raw, __crypto_x25519_pubkey_hex, __crypto_x25519_pubkey_raw,
+};
+pub use crate::float_ffi::{__f64_from_bits, __f64_to_bits};
 use crate::gc_exports::ruyi_gc_alloc;
 pub use crate::json_ffi::{__json_parse, __json_stringify};
 pub use crate::math_ffi::{
     __math_abs, __math_ceil, __math_cos, __math_e, __math_floor, __math_log, __math_max,
     __math_min, __math_pi, __math_pow, __math_round, __math_sin, __math_sqrt, __math_tan,
+};
+pub use crate::mutex_ffi::{
+    __mutex_free, __mutex_lock, __mutex_new, __mutex_try_lock, __mutex_unlock,
 };
 /**
  * Built-in runtime functions for Ruyi.
@@ -14,7 +33,7 @@ pub use crate::math_ffi::{
  * with GC integration deferred to a later milestone.
  *
  * The `random_ffi` module is re-exported here so the five
- * `ruyi_random_*` symbols are part of the same public surface as the
+ * `__random_*` symbols are part of the same public surface as the
  * other builtins. Implementations live in `random_ffi.rs`; this file
  * just re-registers them under the `builtins` namespace.
  *
@@ -22,9 +41,15 @@ pub use crate::math_ffi::{
  * @date 2026-05-02
  */
 pub use crate::random_ffi::{
-    ruyi_random_bool, ruyi_random_bytes, ruyi_random_float, ruyi_random_int, ruyi_random_new,
+    __random_bool, __random_bytes, __random_float, __random_int, __random_new,
 };
 pub use crate::time_ffi::{__time_format, __time_now, __time_sleep, __time_timestamp};
+pub use crate::tls_ffi::{
+    __tls_close, __tls_config_free, __tls_connect, __tls_free, __tls_read_cstr, __tls_read_raw,
+    __tls_server_accept, __tls_server_close, __tls_server_config_new, __tls_server_free,
+    __tls_server_read_cstr, __tls_server_read_raw, __tls_server_write, __tls_server_write_raw,
+    __tls_write, __tls_write_raw,
+};
 use std::alloc::{alloc, Layout};
 use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, CString};
@@ -96,6 +121,7 @@ pub extern "C" fn ruyi_bool_to_string(b: bool) -> *mut i8 {
 ///
 /// `lhs` and `rhs` must each be null-terminated or null.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn ruyi_string_concat(lhs: *const i8, rhs: *const i8) -> *mut i8 {
     unsafe {
         let lhs_bytes = if lhs.is_null() {
@@ -192,6 +218,7 @@ pub extern "C" fn ruyi_object_alloc(field_count: i64) -> *mut i8 {
 ///
 /// `s` must be a valid null-terminated string.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn ruyi_bigint_from_str(s: *const i8) -> *mut i8 {
     unsafe {
         if s.is_null() {
@@ -222,6 +249,7 @@ pub extern "C" fn ruyi_bigint_from_str(s: *const i8) -> *mut i8 {
 /// `a` and `b` must either be null or pointers returned by
 /// `ruyi_bigint_from_str`.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn ruyi_bigint_eq(a: *mut i8, b: *mut i8) -> i8 {
     if a.is_null() || b.is_null() {
         return (a == b) as i8;
@@ -245,6 +273,7 @@ pub extern "C" fn ruyi_bigint_eq(a: *mut i8, b: *mut i8) -> i8 {
 /// `obj` must be a valid pointer returned by `ruyi_object_alloc`.
 /// `offset` must be non-negative and less than the field count.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn ruyi_member_access(obj: *mut i8, offset: i64) -> *mut i8 {
     unsafe {
         if obj.is_null() || offset < 0 {
@@ -290,6 +319,7 @@ fn object_field_map(obj: *mut i8) -> Option<HashMap<String, *mut i8>> {
 /// Returns a pointer to the field value, or null if the object is null,
 /// the key is null, or the key is not present.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn ruyi_obj_get(obj: *mut i8, key: *const i8) -> *mut i8 {
     if key.is_null() {
         return std::ptr::null_mut();
@@ -358,6 +388,7 @@ pub extern "C" fn ruyi_array_length(arr: *mut i8) -> i64 {
 ///
 /// Returns null if `arr` is null, `index` is out of bounds, or negative.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn ruyi_array_get(arr: *mut i8, index: i64) -> i64 {
     unsafe {
         if arr.is_null() || index < 0 {
@@ -376,6 +407,7 @@ pub extern "C" fn ruyi_array_get(arr: *mut i8, index: i64) -> i64 {
 ///
 /// Does nothing if `arr` is null or `index` is out of bounds.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn ruyi_array_set(arr: *mut i8, index: i64, value: i64) {
     unsafe {
         if arr.is_null() || index < 0 {
@@ -395,6 +427,7 @@ pub extern "C" fn ruyi_array_set(arr: *mut i8, index: i64, value: i64) {
 /// Reallocates the array if capacity is exceeded. Returns the (possibly
 /// reallocated) array pointer, or null on allocation failure.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn ruyi_array_push(arr: *mut i8, value: i64) -> *mut i8 {
     unsafe {
         if arr.is_null() {
@@ -436,6 +469,7 @@ pub extern "C" fn ruyi_array_push(arr: *mut i8, value: i64) -> *mut i8 {
 ///
 /// Returns null if `arr` is null or empty.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn ruyi_array_pop(arr: *mut i8) -> i64 {
     unsafe {
         if arr.is_null() {
@@ -626,6 +660,7 @@ pub extern "C" fn __builtin_set_has(data: *mut i8, value: *mut i8) -> bool {
 /// Array layout: [len: i64][cap: i64][data: *mut i8 * cap]
 /// Each element is treated as a null-terminated string pointer.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn __string_join(arr: *mut i8, separator: *const i8) -> *mut i8 {
     if arr.is_null() {
         return ruyi_string_concat(std::ptr::null(), std::ptr::null());
@@ -710,6 +745,7 @@ pub extern "C" fn __string_from_char_code(code: i64) -> *mut i8 {
 /// Create a string from an array of Unicode code points.
 /// Array layout: [len: i64][cap: i64][data: i64 * cap]
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn __string_from_char_codes(arr: *mut i8) -> *mut i8 {
     if arr.is_null() {
         return ruyi_string_concat(std::ptr::null(), std::ptr::null());
@@ -771,6 +807,7 @@ pub extern "C" fn __string_from_char_codes(arr: *mut i8) -> *mut i8 {
 /// with out-of-tree code and for `stdlib/fmt.ry`'s loop-over-args
 /// pattern. Plan to delete in v0.6.0.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn __string_replace_all_legacy(
     input: *const i8,
     pattern: *const i8,
@@ -848,6 +885,7 @@ pub extern "C" fn __string_replace_all_legacy(
 
 /// Get the byte length of a null-terminated string.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn __string_length(s: *const i8) -> i64 {
     if s.is_null() {
         return 0;
@@ -857,6 +895,7 @@ pub extern "C" fn __string_length(s: *const i8) -> i64 {
 
 /// Check if `haystack` contains `needle`.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn __string_contains(haystack: *const i8, needle: *const i8) -> bool {
     unsafe {
         if haystack.is_null() || needle.is_null() {
@@ -875,6 +914,7 @@ pub extern "C" fn __string_contains(haystack: *const i8, needle: *const i8) -> b
 
 /// Check if `s` starts with `prefix`.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn __string_starts_with(s: *const i8, prefix: *const i8) -> bool {
     unsafe {
         if s.is_null() || prefix.is_null() {
@@ -891,6 +931,7 @@ pub extern "C" fn __string_starts_with(s: *const i8, prefix: *const i8) -> bool 
 
 /// Check if `s` ends with `suffix`.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn __string_ends_with(s: *const i8, suffix: *const i8) -> bool {
     unsafe {
         if s.is_null() || suffix.is_null() {
@@ -907,6 +948,7 @@ pub extern "C" fn __string_ends_with(s: *const i8, suffix: *const i8) -> bool {
 
 /// Find the first index of `needle` in `haystack`. Returns -1 if not found.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn __string_index_of(haystack: *const i8, needle: *const i8) -> i64 {
     unsafe {
         if haystack.is_null() || needle.is_null() {
@@ -927,6 +969,7 @@ pub extern "C" fn __string_index_of(haystack: *const i8, needle: *const i8) -> i
 
 /// Find the last index of `needle` in `haystack`. Returns -1 if not found.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn __string_last_index_of(haystack: *const i8, needle: *const i8) -> i64 {
     unsafe {
         if haystack.is_null() || needle.is_null() {
@@ -947,6 +990,7 @@ pub extern "C" fn __string_last_index_of(haystack: *const i8, needle: *const i8)
 
 /// Get the character at `index`. Returns a new single-character string.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn __string_char_at(s: *const i8, index: i64) -> *mut i8 {
     unsafe {
         if s.is_null() || index < 0 {
@@ -976,6 +1020,7 @@ pub extern "C" fn __string_char_at(s: *const i8, index: i64) -> *mut i8 {
 
 /// Get the Unicode code point at `index`. Returns -1 if out of bounds.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn __string_char_code_at(s: *const i8, index: i64) -> i64 {
     unsafe {
         if s.is_null() || index < 0 {
@@ -993,6 +1038,7 @@ pub extern "C" fn __string_char_code_at(s: *const i8, index: i64) -> i64 {
 
 /// Repeat string `s` `count` times.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn __string_repeat(s: *const i8, count: i64) -> *mut i8 {
     unsafe {
         if s.is_null() || count <= 0 {
@@ -1019,6 +1065,7 @@ pub extern "C" fn __string_repeat(s: *const i8, count: i64) -> *mut i8 {
 
 /// Extract substring from `start` to `end`.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn __string_substring(s: *const i8, start: i64, end: i64) -> *mut i8 {
     unsafe {
         if s.is_null() {
@@ -1057,6 +1104,7 @@ pub extern "C" fn __string_substring(s: *const i8, start: i64, end: i64) -> *mut
 
 /// Convert string to uppercase.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn __string_to_upper_case(s: *const i8) -> *mut i8 {
     unsafe {
         if s.is_null() {
@@ -1079,6 +1127,7 @@ pub extern "C" fn __string_to_upper_case(s: *const i8) -> *mut i8 {
 
 /// Convert string to lowercase.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn __string_to_lower_case(s: *const i8) -> *mut i8 {
     unsafe {
         if s.is_null() {
@@ -1101,6 +1150,7 @@ pub extern "C" fn __string_to_lower_case(s: *const i8) -> *mut i8 {
 
 /// Trim whitespace from both ends.
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn __string_trim(s: *const i8) -> *mut i8 {
     unsafe {
         if s.is_null() {
@@ -1124,6 +1174,7 @@ pub extern "C" fn __string_trim(s: *const i8) -> *mut i8 {
 /// Split string by separator into array.
 /// Returns array pointer: [len: i64][cap: i64][data: *mut i8 * cap]
 #[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn __string_split(s: *const i8, separator: *const i8) -> *mut i8 {
     unsafe {
         if s.is_null() {

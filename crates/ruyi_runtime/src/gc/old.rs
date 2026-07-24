@@ -48,7 +48,9 @@ impl OldGeneration {
         self.objects.lock().unwrap().clear();
     }
 
-    pub fn add_object(&self, header: *mut GcObjectHeader) {
+    /// # Safety
+    /// `header` must be a valid, non-null pointer to a `GcObjectHeader`.
+    pub unsafe fn add_object(&self, header: *mut GcObjectHeader) {
         if !header.is_null() {
             unsafe { (*header).set_generation(2) };
             self.objects.lock().unwrap().push(header);

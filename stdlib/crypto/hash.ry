@@ -1,0 +1,1092 @@
+/**
+ * Ruyi Standard Library - Hash Algorithm Module
+ *
+ * Pure .ry implementations of standard hash algorithms.
+ * Supported algorithms:
+ *   - SHA-256 (RFC 6234) — 256-bit secure hash
+ *   - SHA-512 (RFC 6234) — 512-bit secure hash
+ *   - SHA-1   (RFC 3174) — 160-bit legacy hash
+ *   - MD5     (RFC 1321) — 128-bit legacy hash
+ *
+ * This module is extracted from crypto.ry and provides standalone hash
+ * implementations that can be imported by HMAC, PBKDF2, and other modules.
+ *
+ * Dependencies:
+ *   - ../encoding: bytesToHex
+ *   - ../string: fromCharCode
+ *   - ./util: stringToBytes, zeroArray, copyArray, rotr32, rotr64, u64
+ *
+ * @author Ruyi Team
+ * @date 2026-07-24
+ */
+
+import { bytesToHex } from "../encoding";
+import { fromCharCode } from "../string";
+import { stringToBytes, zeroArray, copyArray, rotr32, rotr64, u64 } from "./util";
+
+// ============================================================
+// SHA-2 Family Helpers
+// ============================================================
+
+/**
+ * SHA-256 Σ0 (Sigma upper 0): rotr2(x) ^ rotr13(x) ^ rotr22(x)
+ */
+fn sha256_Sigma0(x: int): int {
+    return rotr32(x, 2) ^ rotr32(x, 13) ^ rotr32(x, 22);
+}
+
+/**
+ * SHA-256 Σ1 (Sigma upper 1): rotr6(x) ^ rotr11(x) ^ rotr25(x)
+ */
+fn sha256_Sigma1(x: int): int {
+    return rotr32(x, 6) ^ rotr32(x, 11) ^ rotr32(x, 25);
+}
+
+/**
+ * SHA-256 σ0 (Sigma lower 0): rotr7(x) ^ rotr18(x) ^ (x >>> 3)
+ */
+fn sha256_sigma0(x: int): int {
+    return rotr32(x, 7) ^ rotr32(x, 18) ^ ((x & 0xFFFFFFFF) >>> 3);
+}
+
+/**
+ * SHA-256 σ1 (Sigma lower 1): rotr17(x) ^ rotr19(x) ^ (x >>> 10)
+ */
+fn sha256_sigma1(x: int): int {
+    return rotr32(x, 17) ^ rotr32(x, 19) ^ ((x & 0xFFFFFFFF) >>> 10);
+}
+
+/**
+ * SHA-256 Ch(e, f, g): (e & f) ^ ((~e) & g)  [32-bit]
+ */
+fn sha256_ch(e: int, f: int, g: int): int {
+    return (e & f) ^ (((~e) & 0xFFFFFFFF) & g);
+}
+
+/**
+ * SHA-256 Maj(a, b, c): (a & b) ^ (a & c) ^ (b & c)  [32-bit]
+ */
+fn sha256_maj(a: int, b: int, c: int): int {
+    return (a & b) ^ (a & c) ^ (b & c);
+}
+
+/**
+ * SHA-512 Σ0 (Sigma upper 0): rotr28(x) ^ rotr34(x) ^ rotr39(x)
+ */
+fn sha512_Sigma0(x: int): int {
+    return rotr64(x, 28) ^ rotr64(x, 34) ^ rotr64(x, 39);
+}
+
+/**
+ * SHA-512 Σ1 (Sigma upper 1): rotr14(x) ^ rotr18(x) ^ rotr41(x)
+ */
+fn sha512_Sigma1(x: int): int {
+    return rotr64(x, 14) ^ rotr64(x, 18) ^ rotr64(x, 41);
+}
+
+/**
+ * SHA-512 σ0 (Sigma lower 0): rotr1(x) ^ rotr8(x) ^ (x >>> 7)
+ */
+fn sha512_sigma0(x: int): int {
+    return rotr64(x, 1) ^ rotr64(x, 8) ^ (x >>> 7);
+}
+
+/**
+ * SHA-512 σ1 (Sigma lower 1): rotr19(x) ^ rotr61(x) ^ (x >>> 6)
+ */
+fn sha512_sigma1(x: int): int {
+    return rotr64(x, 19) ^ rotr64(x, 61) ^ (x >>> 6);
+}
+
+/**
+ * SHA-512 Ch(e, f, g): (e & f) ^ ((~e) & g)  [64-bit]
+ */
+fn sha512_ch(e: int, f: int, g: int): int {
+    return (e & f) ^ ((~e) & g);
+}
+
+/**
+ * SHA-512 Maj(a, b, c): (a & b) ^ (a & c) ^ (b & c)  [64-bit]
+ */
+fn sha512_maj(a: int, b: int, c: int): int {
+    return (a & b) ^ (a & c) ^ (b & c);
+}
+
+// ============================================================
+// SHA-256 (RFC 6234)
+// ============================================================
+
+/**
+ * SHA-256 K constants: first 32 bits of the fractional parts of the
+ * cube roots of the first 64 primes (2..311).
+ */
+const SHA256_K: Array<int> = [
+    0x428A2F98, 0x71374491, 0xB5C0FBCF, 0xE9B5DBA5,
+    0x3956C25B, 0x59F111F1, 0x923F82A4, 0xAB1C5ED5,
+    0xD807AA98, 0x12835B01, 0x243185BE, 0x550C7DC3,
+    0x72BE5D74, 0x80DEB1FE, 0x9BDC06A7, 0xC19BF174,
+    0xE49B69C1, 0xEFBE4786, 0x0FC19DC6, 0x240CA1CC,
+    0x2DE92C6F, 0x4A7484AA, 0x5CB0A9DC, 0x76F988DA,
+    0x983E5152, 0xA831C66D, 0xB00327C8, 0xBF597FC7,
+    0xC6E00BF3, 0xD5A79147, 0x06CA6351, 0x14292967,
+    0x27B70A85, 0x2E1B2138, 0x4D2C6DFC, 0x53380D13,
+    0x650A7354, 0x766A0ABB, 0x81C2C92E, 0x92722C85,
+    0xA2BFE8A1, 0xA81A664B, 0xC24B8B70, 0xC76C51A3,
+    0xD192E819, 0xD6990624, 0xF40E3585, 0x106AA070,
+    0x19A4C116, 0x1E376C08, 0x2748774C, 0x34B0BCB5,
+    0x391C0CB3, 0x4ED8AA4A, 0x5B9CCA4F, 0x682E6FF3,
+    0x748F82EE, 0x78A5636F, 0x84C87814, 0x8CC70208,
+    0x90BEFFFA, 0xA4506CEB, 0xBEF9A3F7, 0xC67178F2
+];
+
+/**
+ * SHA-256 initial hash values: first 32 bits of the fractional parts
+ * of the square roots of the first 8 primes (2, 3, 5, 7, 11, 13, 17, 19).
+ */
+const SHA256_H0: Array<int> = [
+    0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A,
+    0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19
+];
+
+/**
+ * Pads input data for SHA-256 processing per RFC 6234.
+ *
+ * Appends a single '1' bit (0x80), pads with zeros until
+ * length ≡ 448 (mod 512), then appends the 64-bit big-endian
+ * original message length in bits.
+ *
+ * @param data Input byte array
+ * @param bitLen Original message length in bits
+ * @return Padded byte array with length a multiple of 64
+ */
+fn sha256_pad(data: Array<int>, bitLen: int): Array<int> {
+    let padded: Array<int> = copyArray(data);
+    // Append 0x80 (single '1' bit followed by 7 zero bits)
+    padded.push(0x80);
+
+    // Pad with zeros until length ≡ 56 (mod 64)
+    // Target: (data length + 1 + padZeros + 8) % 64 == 0
+    // So (data length + 1 + padZeros) % 64 == 56
+    let currentLen = padded.length();
+    while (currentLen % 64 !== 56) {
+        padded.push(0);
+        currentLen = currentLen + 1;
+    }
+
+    // Append 64-bit big-endian original message length in bits
+    // Upper 32 bits first, then lower 32 bits
+    padded.push((bitLen >> 56) & 0xFF);
+    padded.push((bitLen >> 48) & 0xFF);
+    padded.push((bitLen >> 40) & 0xFF);
+    padded.push((bitLen >> 32) & 0xFF);
+    padded.push((bitLen >> 24) & 0xFF);
+    padded.push((bitLen >> 16) & 0xFF);
+    padded.push((bitLen >> 8) & 0xFF);
+    padded.push(bitLen & 0xFF);
+
+    return padded;
+}
+
+/**
+ * Processes a single 64-byte SHA-256 block (512 bits).
+ *
+ * Expands the 16 32-bit words into the 64-entry message schedule W,
+ * then performs 64 rounds of compression updating the state hash.
+ *
+ * @param state Current 8-word hash state (modified in place)
+ * @param block 64-byte block to process
+ */
+fn sha256_compress(state: Array<int>, block: Array<int>) {
+    // Prepare 64-entry message schedule
+    let w: Array<int> = zeroArray(64);
+
+    // First 16 words: pack 4 bytes each big-endian from the block
+    let j = 0;
+    while (j < 16) {
+        let offset = j * 4;
+        w.set(j,
+            ((block.get(offset) & 0xFF) << 24) |
+            ((block.get(offset + 1) & 0xFF) << 16) |
+            ((block.get(offset + 2) & 0xFF) << 8) |
+            (block.get(offset + 3) & 0xFF)
+        );
+        j = j + 1;
+    }
+
+    // Extend to 64 words via message schedule
+    j = 16;
+    while (j < 64) {
+        let s0 = sha256_sigma0(w.get(j - 15));
+        let s1 = sha256_sigma1(w.get(j - 2));
+        let val = ((w.get(j - 16) + s0 + w.get(j - 7)) & 0xFFFFFFFF);
+        val = (val + s1) & 0xFFFFFFFF;
+        w.set(j, val);
+        j = j + 1;
+    }
+
+    // Initialize working variables from current state
+    let a = state.get(0);
+    let b = state.get(1);
+    let c = state.get(2);
+    let d = state.get(3);
+    let e = state.get(4);
+    let f = state.get(5);
+    let g = state.get(6);
+    let h = state.get(7);
+
+    // 64 rounds of compression
+    let round = 0;
+    while (round < 64) {
+        let t1 = h + sha256_Sigma1(e) + sha256_ch(e, f, g) + SHA256_K.get(round) + w.get(round);
+        t1 = t1 & 0xFFFFFFFF;
+        let t2 = sha256_Sigma0(a) + sha256_maj(a, b, c);
+        t2 = t2 & 0xFFFFFFFF;
+
+        h = g;
+        g = f;
+        f = e;
+        e = (d + t1) & 0xFFFFFFFF;
+        d = c;
+        c = b;
+        b = a;
+        a = (t1 + t2) & 0xFFFFFFFF;
+
+        round = round + 1;
+    }
+
+    // Update hash state
+    state.set(0, (state.get(0) + a) & 0xFFFFFFFF);
+    state.set(1, (state.get(1) + b) & 0xFFFFFFFF);
+    state.set(2, (state.get(2) + c) & 0xFFFFFFFF);
+    state.set(3, (state.get(3) + d) & 0xFFFFFFFF);
+    state.set(4, (state.get(4) + e) & 0xFFFFFFFF);
+    state.set(5, (state.get(5) + f) & 0xFFFFFFFF);
+    state.set(6, (state.get(6) + g) & 0xFFFFFFFF);
+    state.set(7, (state.get(7) + h) & 0xFFFFFFFF);
+}
+
+/**
+ * Computes the raw SHA-256 hash of a byte array.
+ *
+ * Pads the input, processes each 64-byte block, and returns the
+ * 32-byte (256-bit) digest as a byte array.
+ *
+ * @param data Input byte array
+ * @return 32-byte raw SHA-256 hash
+ */
+export fn sha256Raw(data: Array<int>): Array<int> {
+    let bitLen = data.length() * 8;
+    let padded = sha256_pad(data, bitLen);
+    let state = copyArray(SHA256_H0);
+
+    let offset = 0;
+    let tlen = padded.length();
+    while (offset < tlen) {
+        let block: Array<int> = [];
+        let k = 0;
+        while (k < 64) {
+            block.push(padded.get(offset + k));
+            k = k + 1;
+        }
+        sha256_compress(state, block);
+        offset = offset + 64;
+    }
+
+    // Pack 32-bit state words → 32 bytes (big-endian)
+    let result: Array<int> = [];
+    let i = 0;
+    while (i < 8) {
+        let val = state.get(i);
+        result.push((val >> 24) & 0xFF);
+        result.push((val >> 16) & 0xFF);
+        result.push((val >> 8) & 0xFF);
+        result.push(val & 0xFF);
+        i = i + 1;
+    }
+    return result;
+}
+
+/**
+ * Computes the SHA-256 hash of a string and returns the hex digest.
+ *
+ * @param data Input string
+ * @return 64-character lowercase hex string
+ */
+export fn sha256(data: string): string {
+    let bytes = stringToBytes(data);
+    let hash = sha256Raw(bytes);
+    return bytesToHex(hash);
+}
+
+/**
+ * Computes the SHA-256 hash of a string and returns the raw 32-byte array.
+ *
+ * @param data Input string
+ * @return 32-element byte array
+ */
+export fn sha256Bytes(data: string): Array<int> {
+    let bytes = stringToBytes(data);
+    return sha256Raw(bytes);
+}
+
+// ============================================================
+// SHA-512 (RFC 6234)
+// ============================================================
+
+/**
+ * SHA-512 K constants — high 32 bits of each 64-bit constant.
+ * Combined with SHA512_K_LO at use time via (hi << 32) | lo.
+ */
+const SHA512_K_HI: Array<int> = [
+    0x428A2F98, 0x71374491, 0xB5C0FBCF, 0xE9B5DBA5,
+    0x3956C25B, 0x59F111F1, 0x923F82A4, 0xAB1C5ED5,
+    0xD807AA98, 0x12835B01, 0x243185BE, 0x550C7DC3,
+    0x72BE5D74, 0x80DEB1FE, 0x9BDC06A7, 0xC19BF174,
+    0xE49B69C1, 0xEFBE4786, 0x0FC19DC6, 0x240CA1CC,
+    0x2DE92C6F, 0x4A7484AA, 0x5CB0A9DC, 0x76F988DA,
+    0x983E5152, 0xA831C66D, 0xB00327C8, 0xBF597FC7,
+    0xC6E00BF3, 0xD5A79147, 0x06CA6351, 0x14292967,
+    0x27B70A85, 0x2E1B2138, 0x4D2C6DFC, 0x53380D13,
+    0x650A7354, 0x766A0ABB, 0x81C2C92E, 0x92722C85,
+    0xA2BFE8A1, 0xA81A664B, 0xC24B8B70, 0xC76C51A3,
+    0xD192E819, 0xD6990624, 0xF40E3585, 0x106AA070,
+    0x19A4C116, 0x1E376C08, 0x2748774C, 0x34B0BCB5,
+    0x391C0CB3, 0x4ED8AA4A, 0x5B9CCA4F, 0x682E6FF3,
+    0x748F82EE, 0x78A5636F, 0x84C87814, 0x8CC70208,
+    0x90BEFFFA, 0xA4506CEB, 0xBEF9A3F7, 0xC67178F2,
+    0xCA273ECE, 0xD186B8C7, 0xEADA7DD6, 0xF57D4F7F,
+    0x06F067AA, 0x0A637DC5, 0x113F9804, 0x1B710B35,
+    0x28DB77F5, 0x32CAAB7B, 0x3C9EBE0A, 0x431D67C4,
+    0x4CC5D4BE, 0x597F299C, 0x5FCB6FAB, 0x6C44198C
+];
+
+/**
+ * SHA-512 K constants — low 32 bits of each 64-bit constant.
+ */
+const SHA512_K_LO: Array<int> = [
+    0xD728AE22, 0x23EF65CD, 0xEC4D3B2F, 0x8189DBBC,
+    0xF348B538, 0xB605D019, 0xAF194F9B, 0xDA6D8118,
+    0xA3030242, 0x45706FBE, 0x4EE4B28C, 0xD5FFB4E2,
+    0xF27B896F, 0x3B1696B1, 0x25C71235, 0xCF692694,
+    0x9EF14AD2, 0x384F25E3, 0x8B8CD5B5, 0x77AC9C65,
+    0x592B0275, 0x6EA6E483, 0xBD41FBD4, 0x831153B5,
+    0xEE66DFAB, 0x2DB43210, 0x98FB213F, 0xBEEF0EE4,
+    0x3DA88FC2, 0x930AA725, 0xE003826F, 0x0A0E6E70,
+    0x46D22FFC, 0x5C26C926, 0x5AC42AED, 0x9D95B3DF,
+    0x8BAF63DE, 0x3C77B2A8, 0x47EDAEE6, 0x1482353B,
+    0x4CF10364, 0xBBC42301, 0xD0F89791, 0x0654BE30,
+    0xD6EF5218, 0x5565A910, 0x5771202A, 0x32BBD1B8,
+    0xB8D2D0C8, 0x5141AB53, 0xDF8EEB99, 0xE19B48A8,
+    0xC5C95A63, 0xE3418ACB, 0x7763E373, 0xD6B2B8A3,
+    0x5DEFB2FC, 0x43172F60, 0xA1F0AB72, 0x1A6439EC,
+    0x23631E28, 0xDE82BDE9, 0xB2C67915, 0xE372532B,
+    0xEA26619C, 0x21C0C207, 0xCDE0EB1E, 0xEE6ED178,
+    0x72176FBA, 0xA2C898A6, 0xBEF90DAE, 0x131C471B,
+    0x23047D84, 0x40C72493, 0x15C9BEBC, 0x9C100D4C,
+    0xCB3E42B6, 0xFC657E2A, 0x3AD6FAEC, 0x4A475817
+];
+
+/**
+ * SHA-512 initial hash values — high 32 bits.
+ */
+const SHA512_H0_HI: Array<int> = [
+    0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A,
+    0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19
+];
+
+/**
+ * SHA-512 initial hash values — low 32 bits.
+ */
+const SHA512_H0_LO: Array<int> = [
+    0xF3BCC908, 0x84CAA73B, 0xFE94F82B, 0x5F1D36F1,
+    0xADE682D1, 0x2B3E6C1F, 0xFB41BD6B, 0x137E2179
+];
+
+/**
+ * Initializes the SHA-512 hash state as an Array<int> of 8 64-bit values.
+ *
+ * @return 8-element array of 64-bit initial hash values
+ */
+fn sha512_init_state(): Array<int> {
+    let state: Array<int> = [];
+    let i = 0;
+    while (i < 8) {
+        state.push(u64(SHA512_H0_HI.get(i), SHA512_H0_LO.get(i)));
+        i = i + 1;
+    }
+    return state;
+}
+
+/**
+ * Pads input data for SHA-512 processing per RFC 6234.
+ *
+ * Appends 0x80, pads zeros until length ≡ 112 (mod 128),
+ * then appends the 128-bit big-endian message length in bits
+ * (upper 64 bits first, then lower 64 bits).
+ *
+ * @param data Input byte array
+ * @param bitLen Original message length in bits (as 128-bit, passed as upper/lower)
+ * @return Padded byte array with length a multiple of 128
+ */
+fn sha512_pad(data: Array<int>): Array<int> {
+    let padded: Array<int> = copyArray(data);
+    let origLen = data.length();
+
+    // Append 0x80
+    padded.push(0x80);
+
+    // Pad with zeros until length ≡ 112 (mod 128)
+    while (padded.length() % 128 !== 112) {
+        padded.push(0);
+    }
+
+    // Compute total bit length
+    let bitLen = origLen * 8;
+
+    // Append 128-bit big-endian length (for messages < 2^64 bits, upper 64 bits are 0)
+    // Upper 64 bits (all zero for practical message sizes)
+    let k = 0;
+    while (k < 8) {
+        padded.push(0);
+        k = k + 1;
+    }
+    // Lower 64 bits — big-endian
+    padded.push((bitLen >> 56) & 0xFF);
+    padded.push((bitLen >> 48) & 0xFF);
+    padded.push((bitLen >> 40) & 0xFF);
+    padded.push((bitLen >> 32) & 0xFF);
+    padded.push((bitLen >> 24) & 0xFF);
+    padded.push((bitLen >> 16) & 0xFF);
+    padded.push((bitLen >> 8) & 0xFF);
+    padded.push(bitLen & 0xFF);
+
+    return padded;
+}
+
+/**
+ * Processes a single 128-byte SHA-512 block (1024 bits).
+ *
+ * Expands 16 64-bit words into the 80-entry message schedule W,
+ * then performs 80 rounds of compression.
+ *
+ * @param state Current 8-word hash state (modified in place)
+ * @param block 128-byte block to process
+ */
+fn sha512_compress(state: Array<int>, block: Array<int>) {
+    let w: Array<int> = zeroArray(80);
+
+    // First 16 words: pack 8 bytes each big-endian
+    let j = 0;
+    while (j < 16) {
+        let offset = j * 8;
+        let word = u64(
+            (block.get(offset) << 24) | (block.get(offset + 1) << 16) |
+            (block.get(offset + 2) << 8) | block.get(offset + 3),
+            (block.get(offset + 4) << 24) | (block.get(offset + 5) << 16) |
+            (block.get(offset + 6) << 8) | block.get(offset + 7)
+        );
+        w.set(j, word);
+        j = j + 1;
+    }
+
+    // Extend to 80 words
+    j = 16;
+    while (j < 80) {
+        let s0 = sha512_sigma0(w.get(j - 15));
+        let s1 = sha512_sigma1(w.get(j - 2));
+        w.set(j, w.get(j - 16) + s0 + w.get(j - 7) + s1);
+        j = j + 1;
+    }
+
+    // Initialize working variables
+    let a = state.get(0);
+    let b = state.get(1);
+    let c = state.get(2);
+    let d = state.get(3);
+    let e = state.get(4);
+    let f = state.get(5);
+    let g = state.get(6);
+    let h = state.get(7);
+
+    // 80 rounds
+    let round = 0;
+    while (round < 80) {
+        let ki = u64(SHA512_K_HI.get(round), SHA512_K_LO.get(round));
+        let t1 = h + sha512_Sigma1(e) + sha512_ch(e, f, g) + ki + w.get(round);
+        let t2 = sha512_Sigma0(a) + sha512_maj(a, b, c);
+
+        h = g;
+        g = f;
+        f = e;
+        e = d + t1;
+        d = c;
+        c = b;
+        b = a;
+        a = t1 + t2;
+
+        round = round + 1;
+    }
+
+    // Update hash state
+    state.set(0, state.get(0) + a);
+    state.set(1, state.get(1) + b);
+    state.set(2, state.get(2) + c);
+    state.set(3, state.get(3) + d);
+    state.set(4, state.get(4) + e);
+    state.set(5, state.get(5) + f);
+    state.set(6, state.get(6) + g);
+    state.set(7, state.get(7) + h);
+}
+
+/**
+ * Computes the raw SHA-512 hash of a byte array.
+ *
+ * @param data Input byte array
+ * @return 64-byte raw SHA-512 hash
+ */
+export fn sha512Raw(data: Array<int>): Array<int> {
+    let padded = sha512_pad(data);
+    let state = sha512_init_state();
+
+    let offset = 0;
+    let tlen = padded.length();
+    while (offset < tlen) {
+        let block: Array<int> = [];
+        let k = 0;
+        while (k < 128) {
+            block.push(padded.get(offset + k));
+            k = k + 1;
+        }
+        sha512_compress(state, block);
+        offset = offset + 128;
+    }
+
+    // Pack 64-bit state words → 64 bytes (big-endian)
+    let result: Array<int> = [];
+    let i = 0;
+    while (i < 8) {
+        let val = state.get(i);
+        result.push((val >> 56) & 0xFF);
+        result.push((val >> 48) & 0xFF);
+        result.push((val >> 40) & 0xFF);
+        result.push((val >> 32) & 0xFF);
+        result.push((val >> 24) & 0xFF);
+        result.push((val >> 16) & 0xFF);
+        result.push((val >> 8) & 0xFF);
+        result.push(val & 0xFF);
+        i = i + 1;
+    }
+    return result;
+}
+
+/**
+ * Computes the SHA-512 hash of a string and returns the hex digest.
+ *
+ * @param data Input string
+ * @return 128-character lowercase hex string
+ */
+export fn sha512(data: string): string {
+    let bytes = stringToBytes(data);
+    let hash = sha512Raw(bytes);
+    return bytesToHex(hash);
+}
+
+/**
+ * Computes the SHA-512 hash of a string and returns the raw 64-byte array.
+ *
+ * @param data Input string
+ * @return 64-element byte array
+ */
+export fn sha512Bytes(data: string): Array<int> {
+    let bytes = stringToBytes(data);
+    return sha512Raw(bytes);
+}
+
+// ============================================================
+// SHA-1 (RFC 3174)
+// ============================================================
+
+/**
+ * SHA-1 round constants for the 4 stages of 20 rounds each.
+ */
+const SHA1_K1: int = 0x5A827999;
+const SHA1_K2: int = 0x6ED9EBA1;
+const SHA1_K3: int = 0x8F1BBCDC;
+const SHA1_K4: int = 0xCA62C1D6;
+
+/**
+ * SHA-1 initial hash values (5 × 32-bit words).
+ */
+const SHA1_H0: Array<int> = [
+    0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0
+];
+
+/**
+ * SHA-1 left rotation (circular). Only used with 32-bit masked values.
+ */
+fn sha1_rotl(x: int, n: int): int {
+    let masked = x & 0xFFFFFFFF;
+    return ((masked << n) | (masked >>> (32 - n))) & 0xFFFFFFFF;
+}
+
+/**
+ * SHA-1 f0(t, b, c, d): rounds 0-19 — Ch(b, c, d)
+ */
+fn sha1_f0(b: int, c: int, d: int): int {
+    return (b & c) ^ (((~b) & 0xFFFFFFFF) & d);
+}
+
+/**
+ * SHA-1 f1(t, b, c, d): rounds 20-39 — Parity
+ */
+fn sha1_f1(b: int, c: int, d: int): int {
+    return b ^ c ^ d;
+}
+
+/**
+ * SHA-1 f2(t, b, c, d): rounds 40-59 — Maj(b, c, d)
+ */
+fn sha1_f2(b: int, c: int, d: int): int {
+    return (b & c) ^ (b & d) ^ (c & d);
+}
+
+/**
+ * SHA-1 f3(t, b, c, d): rounds 60-79 — Parity
+ */
+fn sha1_f3(b: int, c: int, d: int): int {
+    return b ^ c ^ d;
+}
+
+/**
+ * Pads input data for SHA-1 processing.
+ * Same format as SHA-256: append 0x80, pad zeros until length ≡ 56 (mod 64),
+ * append 64-bit big-endian bit length.
+ *
+ * @param data Input byte array
+ * @param bitLen Original message length in bits
+ * @return Padded byte array
+ */
+fn sha1_pad(data: Array<int>, bitLen: int): Array<int> {
+    let padded: Array<int> = copyArray(data);
+    padded.push(0x80);
+    while (padded.length() % 64 !== 56) {
+        padded.push(0);
+    }
+    // 64-bit big-endian bit length
+    padded.push((bitLen >> 56) & 0xFF);
+    padded.push((bitLen >> 48) & 0xFF);
+    padded.push((bitLen >> 40) & 0xFF);
+    padded.push((bitLen >> 32) & 0xFF);
+    padded.push((bitLen >> 24) & 0xFF);
+    padded.push((bitLen >> 16) & 0xFF);
+    padded.push((bitLen >> 8) & 0xFF);
+    padded.push(bitLen & 0xFF);
+    return padded;
+}
+
+/**
+ * Processes a single 64-byte SHA-1 block.
+ *
+ * Expands 16 words into 80 via XOR recurrence, then performs
+ * 80 rounds of compression across 4 stages.
+ *
+ * @param state Current 5-word hash state (modified in place)
+ * @param block 64-byte block to process
+ */
+fn sha1_compress(state: Array<int>, block: Array<int>) {
+    let w: Array<int> = zeroArray(80);
+
+    // Pack first 16 words big-endian
+    let j = 0;
+    while (j < 16) {
+        let offset = j * 4;
+        w.set(j,
+            ((block.get(offset) & 0xFF) << 24) |
+            ((block.get(offset + 1) & 0xFF) << 16) |
+            ((block.get(offset + 2) & 0xFF) << 8) |
+            (block.get(offset + 3) & 0xFF)
+        );
+        j = j + 1;
+    }
+
+    // Extend to 80 words
+    j = 16;
+    while (j < 80) {
+        w.set(j, sha1_rotl(w.get(j - 3) ^ w.get(j - 8) ^ w.get(j - 14) ^ w.get(j - 16), 1));
+        j = j + 1;
+    }
+
+    let a = state.get(0);
+    let b = state.get(1);
+    let c = state.get(2);
+    let d = state.get(3);
+    let e = state.get(4);
+
+    // 80 rounds in 4 stages of 20
+    let round = 0;
+    while (round < 20) {
+        let temp = (sha1_rotl(a, 5) + sha1_f0(b, c, d) + e + w.get(round) + SHA1_K1) & 0xFFFFFFFF;
+        e = d;
+        d = c;
+        c = sha1_rotl(b, 30);
+        b = a;
+        a = temp;
+        round = round + 1;
+    }
+    while (round < 40) {
+        let temp = (sha1_rotl(a, 5) + sha1_f1(b, c, d) + e + w.get(round) + SHA1_K2) & 0xFFFFFFFF;
+        e = d;
+        d = c;
+        c = sha1_rotl(b, 30);
+        b = a;
+        a = temp;
+        round = round + 1;
+    }
+    while (round < 60) {
+        let temp = (sha1_rotl(a, 5) + sha1_f2(b, c, d) + e + w.get(round) + SHA1_K3) & 0xFFFFFFFF;
+        e = d;
+        d = c;
+        c = sha1_rotl(b, 30);
+        b = a;
+        a = temp;
+        round = round + 1;
+    }
+    while (round < 80) {
+        let temp = (sha1_rotl(a, 5) + sha1_f3(b, c, d) + e + w.get(round) + SHA1_K4) & 0xFFFFFFFF;
+        e = d;
+        d = c;
+        c = sha1_rotl(b, 30);
+        b = a;
+        a = temp;
+        round = round + 1;
+    }
+
+    state.set(0, (state.get(0) + a) & 0xFFFFFFFF);
+    state.set(1, (state.get(1) + b) & 0xFFFFFFFF);
+    state.set(2, (state.get(2) + c) & 0xFFFFFFFF);
+    state.set(3, (state.get(3) + d) & 0xFFFFFFFF);
+    state.set(4, (state.get(4) + e) & 0xFFFFFFFF);
+}
+
+/**
+ * Computes the raw SHA-1 hash of a byte array.
+ *
+ * @param data Input byte array
+ * @return 20-byte raw SHA-1 hash
+ */
+export fn sha1Raw(data: Array<int>): Array<int> {
+    let bitLen = data.length() * 8;
+    let padded = sha1_pad(data, bitLen);
+    let state = copyArray(SHA1_H0);
+
+    let offset = 0;
+    let tlen = padded.length();
+    while (offset < tlen) {
+        let block: Array<int> = [];
+        let k = 0;
+        while (k < 64) {
+            block.push(padded.get(offset + k));
+            k = k + 1;
+        }
+        sha1_compress(state, block);
+        offset = offset + 64;
+    }
+
+    let result: Array<int> = [];
+    let i = 0;
+    while (i < 5) {
+        let val = state.get(i);
+        result.push((val >> 24) & 0xFF);
+        result.push((val >> 16) & 0xFF);
+        result.push((val >> 8) & 0xFF);
+        result.push(val & 0xFF);
+        i = i + 1;
+    }
+    return result;
+}
+
+/**
+ * Computes the SHA-1 hash of a string and returns the hex digest.
+ *
+ * @param data Input string
+ * @return 40-character lowercase hex string
+ */
+export fn sha1(data: string): string {
+    let bytes = stringToBytes(data);
+    let hash = sha1Raw(bytes);
+    return bytesToHex(hash);
+}
+
+/**
+ * Computes the SHA-1 hash of a string and returns the raw 20-byte array.
+ *
+ * @param data Input string
+ * @return 20-element byte array
+ */
+export fn sha1Bytes(data: string): Array<int> {
+    let bytes = stringToBytes(data);
+    return sha1Raw(bytes);
+}
+
+// ============================================================
+// MD5 (RFC 1321)
+// ============================================================
+
+/**
+ * MD5 T constants: floor(2^32 × |sin(i+1)|) for i = 0..63.
+ * Used in the 64 rounds of MD5 compression.
+ */
+const MD5_T: Array<int> = [
+    0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee,
+    0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
+    0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be,
+    0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
+    0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa,
+    0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
+    0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed,
+    0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a,
+    0xfffa3942, 0x8771f681, 0x6d9d6122, 0xfde5380c,
+    0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70,
+    0x289b7ec6, 0xeaa127fa, 0xd4ef3085, 0x04881d05,
+    0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665,
+    0xf4292244, 0x432aff97, 0xab9423a7, 0xfc93a039,
+    0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
+    0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1,
+    0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391
+];
+
+/**
+ * MD5 shift amounts: each row is repeated 4 times across rounds.
+ * Round 1: 7,12,17,22 · 4  |  Round 2: 5,9,14,20 · 4
+ * Round 3: 4,11,16,23 · 4  |  Round 4: 6,10,15,21 · 4
+ */
+const MD5_S: Array<int> = [
+    7, 12, 17, 22,  7, 12, 17, 22,  7, 12, 17, 22,  7, 12, 17, 22,
+    5,  9, 14, 20,  5,  9, 14, 20,  5,  9, 14, 20,  5,  9, 14, 20,
+    4, 11, 16, 23,  4, 11, 16, 23,  4, 11, 16, 23,  4, 11, 16, 23,
+    6, 10, 15, 21,  6, 10, 15, 21,  6, 10, 15, 21,  6, 10, 15, 21
+];
+
+/**
+ * MD5 initial state values.
+ */
+const MD5_A0: int = 0x67452301;
+const MD5_B0: int = 0xefcdab89;
+const MD5_C0: int = 0x98badcfe;
+const MD5_D0: int = 0x10325476;
+
+/**
+ * MD5 auxiliary function F(B, C, D): (B & C) | ((~B) & D)
+ */
+fn md5_f(b: int, c: int, d: int): int {
+    return (b & c) | (((~b) & 0xFFFFFFFF) & d);
+}
+
+/**
+ * MD5 auxiliary function G(B, C, D): (B & D) | (C & (~D))
+ */
+fn md5_g(b: int, c: int, d: int): int {
+    return (b & d) | (c & ((~d) & 0xFFFFFFFF));
+}
+
+/**
+ * MD5 auxiliary function H(B, C, D): B ^ C ^ D
+ */
+fn md5_h(b: int, c: int, d: int): int {
+    return b ^ c ^ d;
+}
+
+/**
+ * MD5 auxiliary function I(B, C, D): C ^ (B | (~D))
+ */
+fn md5_i(b: int, c: int, d: int): int {
+    return c ^ (b | ((~d) & 0xFFFFFFFF));
+}
+
+/**
+ * MD5 32-bit left rotation.
+ */
+fn md5_rotl(x: int, n: int): int {
+    let masked = x & 0xFFFFFFFF;
+    return ((masked << n) | (masked >>> (32 - n))) & 0xFFFFFFFF;
+}
+
+/**
+ * Pads input data for MD5 processing per RFC 1321.
+ *
+ * Appends 0x80, pad zeros until length ≡ 56 (mod 64), then append
+ * the 64-bit LITTLE-ENDIAN original message length in bits.
+ *
+ * @param data Input byte array
+ * @param bitLen Original message length in bits
+ * @return Padded byte array
+ */
+fn md5_pad(data: Array<int>, bitLen: int): Array<int> {
+    let padded: Array<int> = copyArray(data);
+    padded.push(0x80);
+    while (padded.length() % 64 !== 56) {
+        padded.push(0);
+    }
+    // 64-bit LITTLE-ENDIAN bit length
+    padded.push(bitLen & 0xFF);
+    padded.push((bitLen >> 8) & 0xFF);
+    padded.push((bitLen >> 16) & 0xFF);
+    padded.push((bitLen >> 24) & 0xFF);
+    padded.push((bitLen >> 32) & 0xFF);
+    padded.push((bitLen >> 40) & 0xFF);
+    padded.push((bitLen >> 48) & 0xFF);
+    padded.push((bitLen >> 56) & 0xFF);
+    return padded;
+}
+
+/**
+ * Processes a single 64-byte MD5 block.
+ *
+ * Extracts 16 32-bit words (little-endian), then performs
+ * 64 rounds across 4 rounds using functions F, G, H, I.
+ *
+ * @param state Current 4-word hash state (modified in place)
+ * @param block 64-byte block to process
+ */
+fn md5_compress(state: Array<int>, block: Array<int>) {
+    // Unpack 16 little-endian 32-bit words
+    let x: Array<int> = zeroArray(16);
+    let j = 0;
+    while (j < 16) {
+        let offset = j * 4;
+        x.set(j,
+            (block.get(offset) & 0xFF) |
+            ((block.get(offset + 1) & 0xFF) << 8) |
+            ((block.get(offset + 2) & 0xFF) << 16) |
+            ((block.get(offset + 3) & 0xFF) << 24)
+        );
+        j = j + 1;
+    }
+
+    let a = state.get(0);
+    let b = state.get(1);
+    let c = state.get(2);
+    let d = state.get(3);
+
+    // Round 1: F function — indices 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+    let round = 0;
+    while (round < 16) {
+        let fval = md5_f(b, c, d);
+        let g = round;
+        let temp = (a + fval + x.get(g) + MD5_T.get(round)) & 0xFFFFFFFF;
+        a = d;
+        d = c;
+        c = b;
+        b = (b + md5_rotl(temp, MD5_S.get(round))) & 0xFFFFFFFF;
+        round = round + 1;
+    }
+
+    // Round 2: G function — indices 1,6,11,0,5,10,15,4,9,14,3,8,13,2,7,12
+    while (round < 32) {
+        let fval = md5_g(b, c, d);
+        let g = (5 * round + 1) % 16;
+        let temp = (a + fval + x.get(g) + MD5_T.get(round)) & 0xFFFFFFFF;
+        a = d;
+        d = c;
+        c = b;
+        b = (b + md5_rotl(temp, MD5_S.get(round))) & 0xFFFFFFFF;
+        round = round + 1;
+    }
+
+    // Round 3: H function — indices 5,8,11,14,1,4,7,10,13,0,3,6,9,12,15,2
+    while (round < 48) {
+        let fval = md5_h(b, c, d);
+        let g = (3 * round + 5) % 16;
+        let temp = (a + fval + x.get(g) + MD5_T.get(round)) & 0xFFFFFFFF;
+        a = d;
+        d = c;
+        c = b;
+        b = (b + md5_rotl(temp, MD5_S.get(round))) & 0xFFFFFFFF;
+        round = round + 1;
+    }
+
+    // Round 4: I function — indices 0,7,14,5,12,3,10,1,8,15,6,13,4,11,2,9
+    while (round < 64) {
+        let fval = md5_i(b, c, d);
+        let g = (7 * round) % 16;
+        let temp = (a + fval + x.get(g) + MD5_T.get(round)) & 0xFFFFFFFF;
+        a = d;
+        d = c;
+        c = b;
+        b = (b + md5_rotl(temp, MD5_S.get(round))) & 0xFFFFFFFF;
+        round = round + 1;
+    }
+
+    state.set(0, (state.get(0) + a) & 0xFFFFFFFF);
+    state.set(1, (state.get(1) + b) & 0xFFFFFFFF);
+    state.set(2, (state.get(2) + c) & 0xFFFFFFFF);
+    state.set(3, (state.get(3) + d) & 0xFFFFFFFF);
+}
+
+/**
+ * Computes the raw MD5 hash of a byte array.
+ *
+ * MD5 output is 128 bits (16 bytes), each 32-bit word stored
+ * in little-endian order per RFC 1321.
+ *
+ * @param data Input byte array
+ * @return 16-byte raw MD5 hash
+ */
+export fn md5Raw(data: Array<int>): Array<int> {
+    let bitLen = data.length() * 8;
+    let padded = md5_pad(data, bitLen);
+    let state: Array<int> = [];
+    state.push(MD5_A0);
+    state.push(MD5_B0);
+    state.push(MD5_C0);
+    state.push(MD5_D0);
+
+    let offset = 0;
+    let tlen = padded.length();
+    while (offset < tlen) {
+        let block: Array<int> = [];
+        let k = 0;
+        while (k < 64) {
+            block.push(padded.get(offset + k));
+            k = k + 1;
+        }
+        md5_compress(state, block);
+        offset = offset + 64;
+    }
+
+    // Output each word in little-endian byte order
+    let result: Array<int> = [];
+    let i = 0;
+    while (i < 4) {
+        let val = state.get(i);
+        result.push(val & 0xFF);
+        result.push((val >> 8) & 0xFF);
+        result.push((val >> 16) & 0xFF);
+        result.push((val >> 24) & 0xFF);
+        i = i + 1;
+    }
+    return result;
+}
+
+/**
+ * Computes the MD5 hash of a string and returns the hex digest.
+ *
+ * @param data Input string
+ * @return 32-character lowercase hex string
+ */
+export fn md5(data: string): string {
+    let bytes = stringToBytes(data);
+    let hash = md5Raw(bytes);
+    return bytesToHex(hash);
+}
+
+/**
+ * Computes the MD5 hash of a string and returns the raw 16-byte array.
+ *
+ * @param data Input string
+ * @return 16-element byte array
+ */
+export fn md5Bytes(data: string): Array<int> {
+    let bytes = stringToBytes(data);
+    return md5Raw(bytes);
+}

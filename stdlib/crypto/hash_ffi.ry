@@ -1,0 +1,37 @@
+/**
+ * Ruyi Standard Library — Hash (FFI-accelerated)
+ *
+ * Hardware-accelerated SHA hashing via RustCrypto FFI.
+ * Use these for speed-critical paths; pure Ruyi implementations
+ * in hash.ry remain available as reference.
+ *
+ * Usage:
+ *   import { sha256, sha512, sha1 } from "./hash_ffi";
+ *   sha256("hello");  // "2cf24dba..."
+ *
+ * @author Ruyi Team
+ * @date 2026-07-24
+ */
+
+/**
+ * SHA-256 hash of a string, returned as 64-char lowercase hex.
+ */
+export fn sha256(data: string): string {
+    return __crypto_sha256(data);
+}
+
+/**
+ * SHA-512 hash of a string, returned as 128-char lowercase hex.
+ */
+export fn sha512(data: string): string {
+    return __crypto_sha512(data);
+}
+
+/**
+ * SHA-1 hash of a string, returned as 40-char lowercase hex.
+ *
+ * SHA-1 is cryptographically broken — use SHA-256 for security.
+ */
+export fn sha1(data: string): string {
+    return __crypto_sha1(data);
+}

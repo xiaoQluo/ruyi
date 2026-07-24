@@ -3,11 +3,25 @@ use std::alloc::{alloc, Layout};
 use std::ffi::CStr;
 use std::sync::atomic::{AtomicPtr, Ordering};
 
+/// Deprecated pending exception pointer.
+///
+/// Since `ruyi_throw` now connects to `_Unwind_RaiseException`, exceptions
+/// no longer flow through this atomic pointer.  Retained for ABI compatibility
+/// — codegen still emits calls to `ruyi_get_pending_exception` /
+/// `ruyi_clear_pending_exception` in legacy `call`-based code paths.
 static PENDING_EXCEPTION: AtomicPtr<i8> = AtomicPtr::new(std::ptr::null_mut());
 
 #[no_mangle]
 pub extern "C" fn ruyi_throw(msg: *const i8) {
-    PENDING_EXCEPTION.store(msg as *mut i8, Ordering::SeqCst);
+    unsafe {
+        let c_str = CStr::from_ptr(msg);
+        let message = c_str.to_string_lossy().into_owned();
+        let exc = crate::exception::RuyiException::new(
+            crate::exception::builtin_type_ids::ERROR,
+            message,
+        );
+        crate::exception::throw_exception(exc);
+    }
 }
 
 #[no_mangle]

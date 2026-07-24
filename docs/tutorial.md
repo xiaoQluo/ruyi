@@ -2070,25 +2070,26 @@ import { readLine } from "std::io";
 |----------|-----------|-------------|
 | `readLine` | `fn readLine(): string?` | Read line from stdin |
 
-**File Class:**
+**File System (`std::fs`):**
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `File.readText` | `static fn readText(path: string): string` | Read entire file |
-| `File.readTextAsync` | `static async fn readTextAsync(path: string): Future<string>` | Read file (async) |
-| `File.writeText` | `static fn writeText(path: string, content: string): void` | Write string to file |
-| `File.writeTextAsync` | `static async fn writeTextAsync(path: string, content: string): Future<void>` | Write file (async) |
-| `File.readLines` | `static fn readLines(path: string): Array<string>` | Read as lines |
-| `File.readLinesAsync` | `static async fn readLinesAsync(path: string): Future<Array<string>>` | Read lines (async) |
-| `File.writeLines` | `static fn writeLines(path: string, lines: Array<string>): void` | Write lines to file |
-| `File.writeLinesAsync` | `static async fn writeLinesAsync(path: string, lines: Array<string>): Future<void>` | Write lines (async) |
-| `File.exists` | `static fn exists(path: string): bool` | Check if path exists |
-| `File.isDirectory` | `static fn isDirectory(path: string): bool` | Check if directory |
-| `File.isFile` | `static fn isFile(path: string): bool` | Check if file |
-| `File.delete` | `static fn delete(path: string): void` | Delete file |
-| `File.deleteAsync` | `static async fn deleteAsync(path: string): Future<void>` | Delete file (async) |
-| `File.mkdir` | `static fn mkdir(path: string, recursive: bool = false): void` | Create directory |
-| `File.mkdirAsync` | `static async fn mkdirAsync(path: string, recursive: bool = false): Future<void>` | Create directory (async) |
+File system operations have moved to the `fs` module. Import from `"std::fs"`:
+
+```ruyi
+import { readFile, writeFile, exists, mkdir } from "std::fs";
+```
+
+Key functions (all with `*Async` variants):
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `readFile` | `fn readFile(path: string): string` | Read entire file |
+| `writeFile` | `fn writeFile(path: string, content: string): void` | Write string to file |
+| `exists` | `fn exists(path: string): bool` | Check if path exists |
+| `isFile` | `fn isFile(path: string): bool` | Check if regular file |
+| `isDir` | `fn isDir(path: string): bool` | Check if directory |
+| `mkdir` | `fn mkdir(path: string, recursive: bool = false): void` | Create directory |
+| `deleteFile` | `fn deleteFile(path: string): void` | Delete file |
+
 
 #### Collections Module (`std::collections`)
 

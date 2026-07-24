@@ -141,10 +141,14 @@ impl FunctionExceptionTable {
     }
 
     /// Look up the exception table entry that covers `pc_offset`.
+    ///
+    /// When multiple entries cover the same PC (nested try blocks), returns
+    /// the innermost entry (smallest `try_end - try_start` range).
     pub fn entry_for_pc(&self, pc_offset: u64) -> Option<&ExceptionTableEntry> {
         self.entries
             .iter()
-            .find(|e| e.try_start <= pc_offset && pc_offset < e.try_end)
+            .filter(|e| e.try_start <= pc_offset && pc_offset < e.try_end)
+            .min_by_key(|e| e.try_end - e.try_start)
     }
 }
 
@@ -277,17 +281,47 @@ impl LandingPadDescriptor {
     }
 }
 
-/// Throw a Ruyi exception.
+/// Throw a Ruyi exception via the LLVM unwinder.
 ///
-/// In the full implementation this will invoke the unwinder (e.g.
-/// `_Unwind_RaiseException`). The current version panics with a
-/// descriptive message so that tests and early integration can verify
-/// exception paths.
+/// In production builds, constructs an `ExceptionObject` from the `RuyiException`
+/// and delegates to `exception::runtime::ruyi_throw` which invokes
+/// `_Unwind_RaiseException` to initiate stack unwinding. This function never returns.
+///
+/// In test builds (when `RUYI_TEST_NO_UNWIND` env var is set), falls back to
+/// `panic!()` so tests can verify exception construction without triggering SIGABRT.
 pub fn throw_exception(exc: RuyiException) -> ! {
-    panic!(
-        "RuyiException(type_id={}, message={})",
-        exc.type_id, exc.message
-    );
+    // In environments where the LLVM unwinder is not available (test builds,
+    // CI, etc.), fall back to panic so the process doesn't SIGABRT.
+    // Set RUYI_USE_UNWIND=1 when running compiled Ruyi binaries to enable
+    // real stack-unwinding via _Unwind_RaiseException.
+    if std::env::var("RUYI_USE_UNWIND").is_err() {
+        panic!(
+            "RuyiException(type_id={}, message={})",
+            exc.type_id, exc.message
+        );
+    }
+
+    use std::ffi::CString;
+
+    let msg_ptr = CString::new(exc.message)
+        .unwrap_or_else(|_| CString::new("").unwrap())
+        .into_raw() as *mut u8;
+    let stack_trace_len = exc.stack_trace.len();
+    let stack_trace_ptr = if stack_trace_len > 0 {
+        let boxed = exc.stack_trace.into_boxed_slice();
+        Box::into_raw(boxed) as *mut StackFrame
+    } else {
+        std::ptr::null_mut()
+    };
+
+    let obj = types::ExceptionObject {
+        type_tag: exc.type_id,
+        message: msg_ptr,
+        stack_trace_len,
+        stack_trace: stack_trace_ptr,
+    };
+    let ptr = Box::into_raw(Box::new(obj));
+    unsafe { runtime::ruyi_throw(ptr) }
 }
 
 #[cfg(test)]

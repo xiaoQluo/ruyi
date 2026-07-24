@@ -1,6 +1,6 @@
 # Ruyi 发展路线图
 
-> **版本**: 0.5.8 | **日期**: 2026-07-12 | **状态**: 即将发布
+> **版本**: 0.5.9 | **日期**: 2026-07-18 | **状态**: 已发布（stdlib Phase 1–4 完成）
 >
 > [English](roadmap.md)
 
@@ -61,8 +61,23 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 | `process.ry` | 509 | ✅ 完整 | 进程管理 + 环境变量 |
 | `path.ry` | 262 | ✅ 完整 | 路径操作（含异步变体） |
 | `collections.ry` | 529 | ⚠️ 部分 | **SetIterator.next() 为损坏的存根**；缺 sort/contains/indexOf/first/last |
+| `encoding.ry` | 803 | ✅ 完整 | Base64/Base64URL/Hex/URL 编解码（全部纯 .ry） |
+| `bigint.ry` | 638 | ✅ 完整 | 大整数类型，基本算术运算 |
+| `random.ry` | 120 | ✅ 完整 | Xorshift 伪随机包装（已对接 `random_ffi`） |
+| `json.ry` | 149 | ✅ 完整 | JSON 解析与序列化 |
+| `uuid.ry` | 155 | ✅ 完整 | UUID v4 生成（依赖 `random.ry`） |
+| `datetime.ry` | 983 | ✅ 完整 | Date 类 + 日期时间工具函数（依赖 `time` FFI） |
+| `sort.ry` | 526 | ✅ 完整 | 纯 .ry 排序算法（快速排序/插入排序/归并排序） |
+| `buffer.ry` | 1,392 | ✅ 完整 | Buffer 类: 端序读写/UTF-8/Base64/Hex/浮点（纯 .ry） |
+| `fs.ry` | 1,329 | ✅ 完整 | 文件系统模块: 70 个导出，walkDir/copyDir/ensureDir |
+| `crypto.ry` | 1,782 | ✅ 完整 | SHA-256/512/1 + MD5 + HMAC + PBKDF2 + CSPRNG（1 extern FFI） |
+| `net.ry` | 253 | ✅ 完整 | TCPSocket/TCPServer/UDPSocket：TCP 客户端/服务端 + UDP（15 extern FFI） |
+| `regex.ry` | 390 | ✅ 完整 | 正则引擎：Thompson NFA、捕获组、量词、字符类（纯 .ry） |
+| `fmt.ry` | 120 | ✅ 完整 | 格式化字符串 |
+| `test.ry` | 180 | ✅ 完整 | 内建测试框架：@test 属性 + 断言工具 |
 
-**关键缺失模块**: `math`、`time/datetime`、`json`、`regex`、`random`、`fmt`、`net`、`buffer`、`test`
+**已补齐模块**: `math`、`datetime`、`json`、`random`、`fmt`、`test`、`encoding`、`bigint`、`uuid`、`sort`、`buffer`、`fs`、`crypto`、`net`、`regex`
+**关键缺失模块**: `http`（HTTP/HTTPS 客户端）
 
 ### 测试基础设施
 
@@ -146,18 +161,40 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 
 | # | 任务 | 描述 | 优先级 |
 |---|------|------|--------|
-| 4.1 | **修复 SetIterator** | `SetIterator.next()` 当前始终返回 `None`——实现正确的集合迭代 | P0 |
-| 4.2 | **`math.ry`** | Pi、E、sqrt、pow、sin、cos、tan、asin、acos、atan、log、log10、exp、abs、min、max | P0 |
-| 4.3 | **`time.ry`** | Duration、Timestamp、sleep（同步+异步）、日期格式化 | P0 |
-| 4.4 | **`json.ry`** | JSON.parse、JSON.stringify 含类型安全反序列化 | P0 |
+| 4.1 | **修复 SetIterator** | `SetIterator.next()` 当前始终返回 `None`——实现正确的集合迭代 | P0 ✅ |
+| 4.2 | **`math.ry`** | Pi、E、sqrt、pow、sin、cos、tan、asin、acos、atan、log、log10、exp、abs、min、max | P0 ✅ |
+| 4.3 | **`time.ry`** | Duration、Timestamp、sleep（同步+异步）、日期格式化 | P0 ✅ |
+| 4.4 | **`json.ry`** | JSON.parse、JSON.stringify 含类型安全反序列化 | P0 ✅ |
 | 4.5 | **`random.ry`** | Random.nextInt、nextFloat、nextBool、nextBytes、seed | P1 ✅ (v0.5.7) |
 | 4.6 | **`fmt.ry`** | 格式化字符串：`fmt.format("{} 今年 {} 岁", name, age)` | P1 ✅ (v0.5.7) |
-| 4.7 | **`regex.ry`** | Regex 类：match、replace、split | P2 |
+| 4.7 | **`regex.ry`** | Regex 类：match、replace、split（Thompson NFA，纯 .ry） | P2 ✅ (v0.5.9 Phase 6) |
 | 4.8 | **`test.ry`** | 内建测试框架：`@test` 属性、assert、assertEq、assertThrows | P1 ✅ (v0.5.7) |
 | 4.9 | **扩展 `collections.ry`** | Array.sort、.contains、.indexOf、.first、.last、.slice、.concat；Iterator.takeWhile、.skipWhile、.chain、.enumerate、.zip、.sum、.product、.any、.all | P1 ✅ (v0.5.7) |
 | 4.10 | **合并 `core.ry` + `string.ry`** | 重复的 String 方法；合并为一个模块 | P2 |
-| 4.11 | **`buffer.ry`** | Buffer/ByteArray 类型用于二进制数据 | P2 |
-| 4.12 | **`net.ry`** | TCPClient、TCPServer（基本套接字 I/O） | P2 |
+| 4.11 | **`buffer.ry`** | Buffer/ByteArray 类型用于二进制数据 | P2 ✅ (v0.5.9 Phase 3) |
+| 4.12 | **`net.ry`** | TCPClient、TCPServer（基本套接字 I/O） | P2 ✅ (v0.5.9 Phase 5) |
+| 4.13 | **`encoding.ry`** | Base64/Base64URL/Hex/URL 编解码 | P2 ✅ (v0.5.9 Phase 2) |
+| 4.14 | **`fs.ry`** | 文件系统操作（目录遍历/元数据/递归操作） | P2 ✅ (v0.5.9 Phase 3) |
+| 4.15 | **`sort.ry`** | 纯 .ry 排序算法 | P2 ✅ (v0.5.9 Phase 2) |
+| 4.16 | **`datetime.ry`** | Date 类 + 日期时间工具 | P2 ✅ (v0.5.9 Phase 2) |
+| 4.17 | **`crypto.ry`** | SHA-256/512/1 + MD5 + HMAC + PBKDF2 + CSPRNG | P2 ✅ (v0.5.9 Phase 4) |
+| 4.18 | **`uuid.ry`** | UUID v4 生成 | P2 ✅ (v0.5.9 Phase 1) |
+| 4.19 | **`bigint.ry`** | 大整数类型 | P2 ✅ (v0.5.9 Phase 1) |
+
+### v0.5+ — 密码学扩展（HTTPS/TLS 前置）
+
+以下模块为支持 HTTPS/TLS 所需的后续密码学工作，按依赖顺序排列：
+
+| # | 模块 | 描述 | 依赖 | 行数估算 |
+|---|------|------|------|----------|
+| C1 | **`crypto-aes.ry`** | AES-128/256 加密解密 + GCM/CBC 模式（纯 .ry S-box 查表） | 无 | ~800 |
+| C2 | **`crypto-hkdf.ry`** | HKDF 密钥派生（RFC 5869），基于 HMAC-SHA256 | `crypto.ry` | ~200 |
+| C3 | **`crypto-bigint.ry`** | 大整数运算增强：模幂、蒙哥马利乘法、Miller-Rabin 素数检测 | `bigint.ry` | ~500 |
+| C4 | **`crypto-ecc.ry`** | 椭圆曲线 (secp256r1/Curve25519)：有限域点加/倍乘、ECDH 密钥交换 | `crypto-bigint.ry` | ~1,200 |
+| C5 | **`crypto-rsa.ry`** | RSA 密钥生成/加密/签名（PKCS#1 v1.5 / OAEP / PSS） | `crypto-bigint.ry` | ~800 |
+| C6 | **`tls.ry`** | TLS 1.3 协议：握手状态机、Record Layer、证书链验证、X.509/ASN.1 解析 | 以上全部 + `net.ry` | ~2,500+ |
+
+**合计新增**: ~6,000 行纯 .ry，零新 FFI（全部基于已有原语）。
 
 ---
 

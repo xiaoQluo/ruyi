@@ -35,6 +35,11 @@ impl ArcClassRegistry {
         }
     }
 
+    /// Register a single class name as ARC-managed.
+    pub fn register(&mut self, name: &str) {
+        self.arc_classes.insert(name.to_string());
+    }
+
     fn scan_declaration(&mut self, decl: &crate::parser::ast::Declaration) {
         use crate::parser::ast::Declaration;
         match decl {

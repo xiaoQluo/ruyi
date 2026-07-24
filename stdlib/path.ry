@@ -20,10 +20,11 @@ export class Path {
     /**
      * Joins multiple path segments together.
      * Automatically handles separators between segments.
-     * @param paths Path segments to join
+     *
+     * @param paths Path segments
      * @return Joined path string
      */
-    static fn join(paths: ...string): string {
+    static fn join(...paths: string): string {
         return __path_join(paths);
     }
 
@@ -246,7 +247,8 @@ export fn hasExt(path: string, ext: string): bool {
 export fn getExts(path: string): string {
     let base = Path.basename(path);
     let dotIndex = base.indexOf(".");
-    if (dotIndex === null) {
+    // indexOf 返回 -1 表示未找到, 而非 null; 此前误用 `=== null` 永远为假
+    if (dotIndex < 0) {
         return "";
     }
     return base.substring(dotIndex);

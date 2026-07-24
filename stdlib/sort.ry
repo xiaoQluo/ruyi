@@ -1,0 +1,549 @@
+/**
+ * Ruyi Standard Library — Sort & Search Utility Module
+ *
+ * Provides generic, reusable sorting and searching functions:
+ * - Custom-comparator sorting (ascending / descending)
+ * - Key-based sorting (numeric and string keys)
+ * - Binary search / insertion-point search
+ * - Linear search (find / findIndex)
+ * - Sorted-array validation
+ * - Min / Max extraction by key or comparator
+ * - Array utility helpers (reverse, copy)
+ *
+ * All functions are pure: input arrays are NEVER mutated;
+ * results are always returned as new Array instances.
+ *
+ * @author Ruyi Team
+ * @date 2026-07-17
+ */
+
+// ============================================================
+// Internal Helpers
+// ============================================================
+
+/**
+ * Lexicographic string comparison using charCodeAt.
+ * Returns -1 when a < b, 0 when a === b, 1 when a > b.
+ *
+ * @param a First string
+ * @param b Second string
+ * @return Comparison result (-1, 0, or 1)
+ */
+fn compareStrings(a: string, b: string): int {
+    let la = a.length();
+    let lb = b.length();
+    let minLen = la;
+    if (lb < minLen) {
+        minLen = lb;
+    }
+    let i = 0;
+    while (i < minLen) {
+        let ca = a.charCodeAt(i);
+        let cb = b.charCodeAt(i);
+        if (ca < cb) {
+            return -1;
+        }
+        if (ca > cb) {
+            return 1;
+        }
+        i = i + 1;
+    }
+    if (la < lb) {
+        return -1;
+    }
+    if (la > lb) {
+        return 1;
+    }
+    return 0;
+}
+
+/**
+ * Internal quicksort — copies the source array, sorts in-place,
+ * and returns the sorted copy. Uses Hoare partition scheme with
+ * last-element pivot for average O(n log n) performance.
+ *
+ * @param arr Source array (not mutated)
+ * @param comparator Comparison function returning -1, 0, or 1
+ * @return New sorted array
+ */
+export fn quickSort<T>(arr: Array<T>, comparator: fn(T, T) -> int): Array<T> {
+    let result = arr.slice(0, arr.length());
+    let n = result.length();
+    if (n <= 1) {
+        return result;
+    }
+    quickSortRange(result, 0, n - 1, comparator);
+    return result;
+}
+
+fn quickSortRange<T>(arr: Array<T>, lo: int, hi: int, comparator: fn(T, T) -> int): void {
+    if (lo >= hi) {
+        return;
+    }
+    let pivotIdx = partition(arr, lo, hi, comparator);
+    if (pivotIdx - lo < hi - pivotIdx) {
+        quickSortRange(arr, lo, pivotIdx - 1, comparator);
+        quickSortRange(arr, pivotIdx + 1, hi, comparator);
+    } else {
+        quickSortRange(arr, pivotIdx + 1, hi, comparator);
+        quickSortRange(arr, lo, pivotIdx - 1, comparator);
+    }
+}
+
+fn partition<T>(arr: Array<T>, lo: int, hi: int, comparator: fn(T, T) -> int): int {
+    let pivot = arr.get(hi);
+    let i = lo - 1;
+    let j = lo;
+    while (j < hi) {
+        if (comparator(arr.get(j), pivot) <= 0) {
+            i = i + 1;
+            swap(arr, i, j);
+        }
+        j = j + 1;
+    }
+    swap(arr, i + 1, hi);
+    return i + 1;
+}
+
+fn swap<T>(arr: Array<T>, a: int, b: int): void {
+    let temp = arr.get(a);
+    arr.set(a, arr.get(b));
+    arr.set(b, temp);
+}
+
+/**
+ * Internal binary search shared by `binarySearch` and `binarySearchInsert`.
+ * When insertMode is true, returns the insertion index (lower bound);
+ * when false, returns the matching index or -1.
+ *
+ * @param arr Sorted source array
+ * @param target Element to locate
+ * @param comparator Comparison function returning -1, 0, or 1
+ * @param insertMode Whether to compute insertion point
+ * @return Index or -1
+ */
+fn binarySearchImpl<T>(arr: Array<T>, target: T, comparator: fn(T, T) -> int, insertMode: bool): int {
+    let lo = 0;
+    let hi = arr.length();
+    while (lo < hi) {
+        let mid = (lo + hi) / 2;
+        let cmp = comparator(arr.get(mid), target);
+        if (cmp < 0) {
+            lo = mid + 1;
+        } else if (cmp > 0) {
+            hi = mid;
+        } else {
+            return mid;
+        }
+    }
+    if (insertMode) {
+        return lo;
+    }
+    return -1;
+}
+
+// ============================================================
+// Core Sorting
+// ============================================================
+
+/**
+ * Sorts an array using a custom comparator function.
+ * The comparator must return -1, 0, or 1 to indicate
+ * less-than, equal, or greater-than respectively.
+ *
+ * @param arr Source array (not mutated)
+ * @param comparator Custom comparison function
+ * @return New sorted array in ascending order per comparator
+ */
+export fn sortBy<T>(arr: Array<T>, comparator: fn(T, T) -> int): Array<T> {
+    return quickSort(arr, comparator);
+}
+
+/**
+ * Sorts an array in descending order using a custom comparator.
+ * Equivalent to `sortBy` with the comparator result negated.
+ *
+ * @param arr Source array (not mutated)
+ * @param comparator Custom comparison function
+ * @return New sorted array in descending order per comparator
+ */
+export fn sortByDesc<T>(arr: Array<T>, comparator: fn(T, T) -> int): Array<T> {
+    return quickSort(arr, (a, b) => -comparator(a, b));
+}
+
+/**
+ * Sorts an array in ascending order by a numeric key extracted
+ * from each element via `keyFn`.
+ *
+ * @param arr Source array (not mutated)
+ * @param keyFn Function that extracts a float key from an element
+ * @return New array sorted by key ascending
+ */
+export fn sortByKey<T>(arr: Array<T>, keyFn: fn(T) -> float): Array<T> {
+    return quickSort(arr, keyCmpAsc(keyFn));
+}
+
+/**
+ * Sorts an array in descending order by a numeric key extracted
+ * from each element via `keyFn`.
+ *
+ * @param arr Source array (not mutated)
+ * @param keyFn Function that extracts a float key from an element
+ * @return New array sorted by key descending
+ */
+export fn sortByKeyDesc<T>(arr: Array<T>, keyFn: fn(T) -> float): Array<T> {
+    return quickSort(arr, keyCmpDesc(keyFn));
+}
+
+/**
+ * Sorts an array in ascending order by a string key extracted
+ * from each element via `keyFn`, using lexicographic comparison.
+ *
+ * @param arr Source array (not mutated)
+ * @param keyFn Function that extracts a string key from an element
+ * @return New array sorted by string key ascending
+ */
+export fn sortByStringKey<T>(arr: Array<T>, keyFn: fn(T) -> string): Array<T> {
+    return quickSort(arr, (a, b) => compareStrings(keyFn(a), keyFn(b)));
+}
+
+/**
+ * Sorts an array in descending order by a string key extracted
+ * from each element via `keyFn`, using lexicographic comparison.
+ *
+ * @param arr Source array (not mutated)
+ * @param keyFn Function that extracts a string key from an element
+ * @return New array sorted by string key descending
+ */
+export fn sortByStringKeyDesc<T>(arr: Array<T>, keyFn: fn(T) -> string): Array<T> {
+    return quickSort(arr, (a, b) => -compareStrings(keyFn(a), keyFn(b)));
+}
+
+/**
+ * Returns an ascending comparator that orders elements by the float key
+ * extracted via `keyFn`. Internal helper for `sortByKey`.
+ */
+fn keyCmpAsc<T>(keyFn: fn(T) -> float): fn(T, T) -> int {
+    return (a, b) => floatCompare(keyFn(a), keyFn(b));
+}
+
+/**
+ * Returns a descending comparator that orders elements by the float key
+ * extracted via `keyFn`. Internal helper for `sortByKeyDesc`.
+ */
+fn keyCmpDesc<T>(keyFn: fn(T) -> float): fn(T, T) -> int {
+    return (a, b) => floatCompare(keyFn(b), keyFn(a));
+}
+
+/**
+ * Compares two floats: returns -1 if a < b, 1 if a > b, 0 if equal.
+ */
+fn floatCompare(a: float, b: float): int {
+    if (a < b) { return -1; }
+    if (a > b) { return 1; }
+    return 0;
+}
+
+// ============================================================
+// Searching
+// ============================================================
+
+/**
+ * Performs a binary search on a sorted array using a custom comparator.
+ * Returns the index of the target element, or -1 if not found.
+ *
+ * @param arr Sorted source array
+ * @param target Element to locate
+ * @param comparator Comparison function returning -1, 0, or 1
+ * @return Found index, or -1
+ */
+export fn binarySearch<T>(arr: Array<T>, target: T, comparator: fn(T, T) -> int): int {
+    return binarySearchImpl(arr, target, comparator, false);
+}
+
+/**
+ * Finds the insertion index for a target element in a sorted array
+ * using a custom comparator. The returned index is the position
+ * where the target should be inserted to maintain sorted order.
+ *
+ * @param arr Sorted source array
+ * @param target Element to locate
+ * @param comparator Comparison function returning -1, 0, or 1
+ * @return Insertion index
+ */
+export fn binarySearchInsert<T>(arr: Array<T>, target: T, comparator: fn(T, T) -> int): int {
+    return binarySearchImpl(arr, target, comparator, true);
+}
+
+/**
+ * Performs a linear search, returning the index of the first element
+ * that satisfies the predicate, or -1 if none match.
+ *
+ * @param arr Source array
+ * @param predicate Predicate function
+ * @return First matching index, or -1
+ */
+export fn findIndex<T>(arr: Array<T>, predicate: fn(T) -> bool): int {
+    let n = arr.length();
+    let i = 0;
+    while (i < n) {
+        if (predicate(arr.get(i))) {
+            return i;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+/**
+ * Performs a linear search, returning the first element that satisfies
+ * the predicate, or null if none match.
+ *
+ * @param arr Source array
+ * @param predicate Predicate function
+ * @return First matching element, or null
+ */
+export fn find<T>(arr: Array<T>, predicate: fn(T) -> bool): T? {
+    let n = arr.length();
+    let i = 0;
+    while (i < n) {
+        let elem = arr.get(i);
+        if (predicate(elem)) {
+            return elem;
+        }
+        i = i + 1;
+    }
+    return null;
+}
+
+/**
+ * Checks whether an array is sorted according to a custom comparator.
+ * Returns true for empty and single-element arrays.
+ *
+ * @param arr Source array
+ * @param comparator Comparison function returning -1, 0, or 1
+ * @return true if the array is sorted per comparator
+ */
+export fn isSorted<T>(arr: Array<T>, comparator: fn(T, T) -> int): bool {
+    let n = arr.length();
+    let i = 1;
+    while (i < n) {
+        if (comparator(arr.get(i - 1), arr.get(i)) > 0) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return true;
+}
+
+// ============================================================
+// Min / Max by Numeric Key
+// ============================================================
+
+/**
+ * Finds the element with the minimum numeric key extracted via `keyFn`.
+ * Returns null for an empty array.
+ *
+ * @param arr Source array
+ * @param keyFn Function that extracts a float key from an element
+ * @return Element with minimum key, or null
+ */
+export fn minBy<T>(arr: Array<T>, keyFn: fn(T) -> float): T? {
+    let n = arr.length();
+    if (n === 0) {
+        return null;
+    }
+    let best = arr.get(0);
+    let bestKey = keyFn(best);
+    let i = 1;
+    while (i < n) {
+        let elem = arr.get(i);
+        let k = keyFn(elem);
+        if (k < bestKey) {
+            best = elem;
+            bestKey = k;
+        }
+        i = i + 1;
+    }
+    return best;
+}
+
+/**
+ * Finds the element with the maximum numeric key extracted via `keyFn`.
+ * Returns null for an empty array.
+ *
+ * @param arr Source array
+ * @param keyFn Function that extracts a float key from an element
+ * @return Element with maximum key, or null
+ */
+export fn maxBy<T>(arr: Array<T>, keyFn: fn(T) -> float): T? {
+    let n = arr.length();
+    if (n === 0) {
+        return null;
+    }
+    let best = arr.get(0);
+    let bestKey = keyFn(best);
+    let i = 1;
+    while (i < n) {
+        let elem = arr.get(i);
+        let k = keyFn(elem);
+        if (k > bestKey) {
+            best = elem;
+            bestKey = k;
+        }
+        i = i + 1;
+    }
+    return best;
+}
+
+// ============================================================
+// Min / Max by String Key
+// ============================================================
+
+/**
+ * Finds the element with the minimum string key extracted via `keyFn`,
+ * using lexicographic comparison. Returns null for an empty array.
+ *
+ * @param arr Source array
+ * @param keyFn Function that extracts a string key from an element
+ * @return Element with minimum string key, or null
+ */
+export fn minByString<T>(arr: Array<T>, keyFn: fn(T) -> string): T? {
+    let n = arr.length();
+    if (n === 0) {
+        return null;
+    }
+    let best = arr.get(0);
+    let bestKey = keyFn(best);
+    let i = 1;
+    while (i < n) {
+        let elem = arr.get(i);
+        let k = keyFn(elem);
+        if (compareStrings(k, bestKey) < 0) {
+            best = elem;
+            bestKey = k;
+        }
+        i = i + 1;
+    }
+    return best;
+}
+
+/**
+ * Finds the element with the maximum string key extracted via `keyFn`,
+ * using lexicographic comparison. Returns null for an empty array.
+ *
+ * @param arr Source array
+ * @param keyFn Function that extracts a string key from an element
+ * @return Element with maximum string key, or null
+ */
+export fn maxByString<T>(arr: Array<T>, keyFn: fn(T) -> string): T? {
+    let n = arr.length();
+    if (n === 0) {
+        return null;
+    }
+    let best = arr.get(0);
+    let bestKey = keyFn(best);
+    let i = 1;
+    while (i < n) {
+        let elem = arr.get(i);
+        let k = keyFn(elem);
+        if (compareStrings(k, bestKey) > 0) {
+            best = elem;
+            bestKey = k;
+        }
+        i = i + 1;
+    }
+    return best;
+}
+
+// ============================================================
+// Min / Max by Custom Comparator
+// ============================================================
+
+/**
+ * Finds the minimum element using a custom comparator.
+ * The comparator must return -1, 0, or 1 (a < b, a == b, a > b).
+ * Returns null for an empty array.
+ *
+ * @param arr Source array
+ * @param comparator Comparison function returning -1, 0, or 1
+ * @return Minimum element per comparator, or null
+ */
+export fn minWith<T>(arr: Array<T>, comparator: fn(T, T) -> int): T? {
+    let n = arr.length();
+    if (n === 0) {
+        return null;
+    }
+    let best = arr.get(0);
+    let i = 1;
+    while (i < n) {
+        let elem = arr.get(i);
+        if (comparator(elem, best) < 0) {
+            best = elem;
+        }
+        i = i + 1;
+    }
+    return best;
+}
+
+/**
+ * Finds the maximum element using a custom comparator.
+ * The comparator must return -1, 0, or 1 (a < b, a == b, a > b).
+ * Returns null for an empty array.
+ *
+ * @param arr Source array
+ * @param comparator Comparison function returning -1, 0, or 1
+ * @return Maximum element per comparator, or null
+ */
+export fn maxWith<T>(arr: Array<T>, comparator: fn(T, T) -> int): T? {
+    let n = arr.length();
+    if (n === 0) {
+        return null;
+    }
+    let best = arr.get(0);
+    let i = 1;
+    while (i < n) {
+        let elem = arr.get(i);
+        if (comparator(elem, best) > 0) {
+            best = elem;
+        }
+        i = i + 1;
+    }
+    return best;
+}
+
+// ============================================================
+// Array Utility Helpers
+// ============================================================
+
+/**
+ * Returns a new array with elements in reverse order.
+ * The source array is not mutated.
+ *
+ * @param arr Source array (not mutated)
+ * @return New reversed array
+ */
+export fn reverse<T>(arr: Array<T>): Array<T> {
+    let n = arr.length();
+    let result = arr.slice(0, n);
+    let i = 0;
+    let half = n / 2;
+    while (i < half) {
+        let temp = result.get(i);
+        result.set(i, result.get(n - 1 - i));
+        result.set(n - 1 - i, temp);
+        i = i + 1;
+    }
+    return result;
+}
+
+/**
+ * Returns a shallow copy of the array.
+ * Equivalent to `arr.slice(0, arr.length())`.
+ *
+ * @param arr Source array
+ * @return New copy of the array
+ */
+export fn copy<T>(arr: Array<T>): Array<T> {
+    return arr.slice(0, arr.length());
+}

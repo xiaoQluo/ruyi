@@ -3749,7 +3749,8 @@ If `RUYI_HOME` is not set, the compiler falls back to looking for a local `stdli
 
 ```ruyi
 // Import stdlib modules by their file name
-import { File } from "./io";
+import { readLine } from "./io";
+import { readFile, writeFile } from "./fs";
 import { Path } from "./path";
 import { Process, getEnv } from "./process";
 import { assert, assertNotNull } from "./error";

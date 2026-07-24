@@ -1,0 +1,71 @@
+/**
+ * Ruyi Standard Library - Serialization Traits
+ *
+ * Defines `Serialize` and `Deserialize` traits for converting values
+ * to and from string representations. These traits form the foundation
+ * for JSON, CSV, and other data-format modules to work with arbitrary
+ * user-defined types.
+ *
+ * Usage:
+ *   import { Serialize, Deserialize } from "./serialize";
+ *
+ *   class Point {
+ *       x: float;
+ *       y: float;
+ *   }
+ *
+ *   impl Serialize for Point {
+ *       fn serialize(self): string {
+ *           return "(" + self.x + "," + self.y + ")";
+ *       }
+ *   }
+ *
+ *   impl Deserialize for Point {
+ *       static fn deserialize(data: string): Point? {
+ *           // parse and return Point, or null on failure
+ *           return null;
+ *       }
+ *   }
+ *
+ * @author Ruyi Team
+ * @date 2026-07-24
+ */
+
+// ============================================================
+// Serialize Trait
+// ============================================================
+
+/**
+ * Types that can be serialized to a string.
+ *
+ * Implementations MUST produce output that, when passed to the
+ * corresponding `Deserialize::deserialize`, reconstructs an
+ * equivalent value.
+ */
+export trait Serialize {
+    /**
+     * Serializes the value to its string representation.
+     * @return String representation of self
+     */
+    fn serialize(self): string;
+}
+
+// ============================================================
+// Deserialize Trait
+// ============================================================
+
+/**
+ * Types that can be deserialized from a string.
+ *
+ * Implementations SHOULD return `null` for malformed input rather
+ * than throwing — callers can use `Option` combinators to handle
+ * parse failures.
+ */
+export trait Deserialize {
+    /**
+     * Attempts to reconstruct a value from its string representation.
+     * @param data Serialized string
+     * @return The deserialized value, or null on failure
+     */
+    static fn deserialize(data: string): Self?;
+}

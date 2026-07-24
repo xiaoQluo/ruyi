@@ -1,0 +1,173 @@
+/**
+ * Ruyi Standard Library - CSV Module
+ *
+ * Comma-Separated Values parser and stringifier.
+ *
+ * Supports custom delimiters, quoted fields (double-quote escaping),
+ * and configurable behavior for empty lines and trailing newlines.
+ *
+ * Usage:
+ *   import { parse, stringify } from "./csv";
+ *   let rows = parse("a,b,c\n1,2,3");
+ *   let csv = stringify(rows);
+ *
+ * @author Ruyi Team
+ * @date 2026-07-24
+ */
+
+// Type alias to avoid lexer `>>` issue with nested generics.
+type StringArray = Array<string>;
+
+// ============================================================
+// Internal Helpers
+// ============================================================
+
+/**
+ * Splits a raw CSV line into fields, respecting quoted fields
+ * and double-quote escaping.
+ */
+fn splitLine(line: string, delimiter: string): Array<string> {
+    let fields: Array<string> = [];
+    let current = "";
+    let inQuote = false;
+    let i = 0;
+    let len = line.length();
+
+    while (i < len) {
+        let c = line.charAt(i);
+        if (inQuote) {
+            if (c === "\"") {
+                // Check for escaped quote ("" → ")
+                if (i + 1 < len && line.charAt(i + 1) === "\"") {
+                    current = current + "\"";
+                    i = i + 1;
+                } else {
+                    inQuote = false;
+                }
+            } else {
+                current = current + c;
+            }
+        } else {
+            if (c === "\"") {
+                inQuote = true;
+            } else if (c === delimiter) {
+                fields.push(current);
+                current = "";
+            } else {
+                current = current + c;
+            }
+        }
+        i = i + 1;
+    }
+    fields.push(current);
+    return fields;
+}
+
+/**
+ * Escapes a field value for CSV output. Wraps in double-quotes
+ * if the value contains the delimiter, a double-quote, or a newline.
+ */
+fn escapeField(field: string, delimiter: string): string {
+    let needsQuote = false;
+    let i = 0;
+    let len = field.length();
+    while (i < len) {
+        let c = field.charAt(i);
+        if (c === delimiter || c === "\"" || c === "\n" || c === "\r") {
+            needsQuote = true;
+        }
+        i = i + 1;
+    }
+    if (!needsQuote) {
+        return field;
+    }
+    // Escape " → "" and wrap
+    let escaped = "";
+    i = 0;
+    while (i < len) {
+        let c = field.charAt(i);
+        if (c === "\"") {
+            escaped = escaped + "\"\"";
+        } else {
+            escaped = escaped + c;
+        }
+        i = i + 1;
+    }
+    return "\"" + escaped + "\"";
+}
+
+// ============================================================
+// Public API
+// ============================================================
+
+/**
+ * Parses a CSV string into rows of string fields.
+ *
+ * Handles quoted fields, double-quote escaping, and custom
+ * delimiters. Empty lines are skipped.
+ *
+ * @param csv Raw CSV string
+ * @param delimiter Field delimiter (default: ",")
+ * @return Array of rows, each row is an array of field strings
+ */
+export fn parse(csv: string, delimiter: string = ","): Array<StringArray> {
+    let rows: Array<StringArray> = [];
+    let currentLine = "";
+    let i = 0;
+    let len = csv.length();
+    let inQuote = false;
+
+    while (i < len) {
+        let c = csv.charAt(i);
+        if (c === "\"") {
+            inQuote = !inQuote;
+            currentLine = currentLine + c;
+        } else if (c === "\n" && !inQuote) {
+            if (currentLine !== "") {
+                rows.push(splitLine(currentLine, delimiter));
+                currentLine = "";
+            }
+        } else if (c === "\r") {
+            // Skip \r (handle \r\n)
+        } else {
+            currentLine = currentLine + c;
+        }
+        i = i + 1;
+    }
+    // Don't forget the last line
+    if (currentLine !== "") {
+        rows.push(splitLine(currentLine, delimiter));
+    }
+    return rows;
+}
+
+/**
+ * Converts rows of string fields into a CSV string.
+ *
+ * Fields containing the delimiter, double-quotes, or newlines
+ * are automatically escaped.
+ *
+ * @param rows Array of rows to stringify
+ * @param delimiter Field delimiter (default: ",")
+ * @return CSV-formatted string
+ */
+export fn stringify(rows: Array<StringArray>, delimiter: string = ","): string {
+    let result = "";
+    let i = 0;
+    let rowCount = rows.length();
+    while (i < rowCount) {
+        let row = rows.get(i);
+        let j = 0;
+        let colCount = row.length();
+        while (j < colCount) {
+            if (j > 0) {
+                result = result + delimiter;
+            }
+            result = result + escapeField(row.get(j), delimiter);
+            j = j + 1;
+        }
+        result = result + "\n";
+        i = i + 1;
+    }
+    return result;
+}

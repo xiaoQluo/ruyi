@@ -36,10 +36,21 @@ export fn stringify(value: dyn): string {
 /**
  * Checks if a string is valid JSON.
  *
+ * 该实现借助 `parse` → `stringify` roundtrip 来判断合法性:
+ *   - 合法 JSON (包括字面量 `"null"`) 解析成功后 stringify 返回非 null 的字符串
+ *   - 非法 JSON (`__json_parse` 失败) 解析结果为 ruyi 的 null 值,
+ *     再经 `__json_stringify(null)` 仍返回 ruyi null 值
+ *
+ * 此前的实现 `result !== null` 存在两处缺陷:
+ *   1. 当 `result: dyn` 与 `null` 比较时, codegen 抛 `Invalid operands for !==`
+ *      - 即 `isValid` 一旦被 import 即无法编译
+ *   2. 合法 JSON `"null"` 解析后即为 ruyi null 值, 与解析失败的 null 值无法区分
+ *      - 误将 `"null"` 判定为非法
+ *
  * @param json_string The string to check
  * @return true if the string is valid JSON, false otherwise
  */
 export fn isValid(json_string: string): bool {
-    let result = parse(json_string);
-    return result != null;
+    let roundtripped = stringify(parse(json_string));
+    return roundtripped !== null;
 }

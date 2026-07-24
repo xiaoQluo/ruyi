@@ -1,0 +1,308 @@
+/**
+ * MQTT 3.1.1 — Client & Server implementation
+ *
+ * Pure Ruyi stdlib over raw TCP. Conforms to OASIS MQTT v3.1.1.
+ *
+ * Usage (client):
+ *   import { MQTTClient } from "./mqtt";
+ *   let client = MQTTClient.connect("localhost", 1883, "my-id", 60, null, null, true);
+ *   client.publish("sensors/temp", "23.5", 0, false);
+ *   client.subscribe("cmd/#", 0);
+ *   client.disconnect();
+ *
+ * Usage (server):
+ *   import { MQTTServer } from "./mqtt";
+ *   let server = MQTTServer.listen("0.0.0.0", 1883);
+ *   let conn = server.accept();
+ *   conn.publish("greeting", "hello from server!", 0, false);
+ *   server.close();
+ *
+ * @author Ruyi Team
+ * @date 2026-07-24
+ */
+
+import { TCPSocket, TCPServer } from "./net";
+import { Buffer } from "./buffer";
+
+let CONNECT: int     = 1;
+let CONNACK: int     = 2;
+let PUBLISH: int     = 3;
+let PUBACK: int      = 4;
+let PUBREC: int      = 5;
+let PUBREL: int      = 6;
+let PUBCOMP: int     = 7;
+let SUBSCRIBE: int   = 8;
+let SUBACK: int      = 9;
+let UNSUBSCRIBE: int = 10;
+let UNSUBACK: int    = 11;
+let PINGREQ: int     = 12;
+let PINGRESP: int    = 13;
+let DISCONNECT: int  = 14;
+
+// ── Variable-length integer (MQTT §1.5.5) ──
+
+fn encodeRemainingLength(len: int): Buffer {
+    let buf = Buffer.alloc(4);
+    let pos = 0;
+    let remaining = len;
+    loop {
+        let byte = remaining % 128;
+        remaining = remaining / 128;
+        if (remaining > 0) { buf.writeUInt8(pos, byte | 128); }
+        else { buf.writeUInt8(pos, byte); }
+        pos = pos + 1;
+        if (remaining <= 0) { break; }
+    }
+    return buf.slice(0, pos);
+}
+
+fn decodeRemainingLength(buf: Buffer, offset: int): {len: int, used: int} {
+    let multiplier = 1;
+    let value = 0;
+    let pos = offset;
+    loop {
+        if (pos - offset >= 4) { break; }
+        let byte = buf.readUInt8(pos);
+        value = value + (byte & 127) * multiplier;
+        pos = pos + 1;
+        if ((byte & 128) === 0) { break; }
+        multiplier = multiplier * 128;
+    }
+    return {len: value, used: pos - offset};
+}
+
+// ── String encoding: 2-byte length prefix + UTF-8 (MQTT §1.5.3) ──
+
+fn encodeStr(s: string): Buffer {
+    let maxBytes = s.length() * 4;
+    let buf = Buffer.alloc(2 + maxBytes);
+    let written = buf.writeString(2, s);
+    buf.writeUInt8(0, (written >> 8) & 255);
+    buf.writeUInt8(1, written & 255);
+    return buf.slice(0, 2 + written);
+}
+
+fn decodeStr(buf: Buffer, offset: int): {value: string, used: int} {
+    let len = (buf.readUInt8(offset) << 8) | buf.readUInt8(offset + 1);
+    let value = buf.readString(offset + 2, len);
+    return {value: value, used: 2 + len};
+}
+
+// ── Fixed header + packet building ──
+
+fn makePacket(packetType: int, flags: int, body: Buffer): Buffer {
+    let rl = encodeRemainingLength(body.length());
+    let header = Buffer.alloc(1 + rl.length());
+    header.writeUInt8(0, (packetType << 4) | (flags & 15));
+    for (let i = 0; i < rl.length(); i = i + 1) {
+        header.writeUInt8(1 + i, rl.readUInt8(i));
+    }
+    return Buffer.concat([header, body]);
+}
+
+fn parseHeader(buf: Buffer, offset: int): {type: int, flags: int, remainingLen: int, used: int} {
+    let b0 = buf.readUInt8(offset);
+    let t = b0 >> 4;
+    let f = b0 & 15;
+    let rl = decodeRemainingLength(buf, offset + 1);
+    return {type: t, flags: f, remainingLen: rl.len, used: 1 + rl.used};
+}
+
+// ── CONNECT variable header ──
+
+fn buildConnect(
+    clientId: string, username: string?, password: string?,
+    keepAlive: int, cleanSession: bool
+): Buffer {
+    let protocol = encodeStr("MQTT");
+    let level = Buffer.alloc(1);
+    level.writeUInt8(0, 4);
+    let flagValue = 0;
+    if (cleanSession) { flagValue = flagValue | 2; }
+    if (username !== null) { flagValue = flagValue | 128; }
+    if (password !== null) { flagValue = flagValue | 64; }
+    let flags = Buffer.alloc(1);
+    flags.writeUInt8(0, flagValue);
+    let ka = Buffer.alloc(2);
+    ka.writeUInt8(0, (keepAlive >> 8) & 255);
+    ka.writeUInt8(1, keepAlive & 255);
+    let cid = encodeStr(clientId);
+    let parts: Array<Buffer> = [protocol, level, flags, ka, cid];
+    if (username !== null) { parts.push(encodeStr(username)); }
+    if (password !== null) { parts.push(encodeStr(password)); }
+    return Buffer.concat(parts);
+}
+
+// ── SUBSCRIBE / UNSUBSCRIBE payload ──
+
+fn buildSubscribePayload(packetId: int, topic: string, qos: int): Buffer {
+    let pid = Buffer.alloc(2);
+    pid.writeUInt8(0, (packetId >> 8) & 255);
+    pid.writeUInt8(1, packetId & 255);
+    let tf = encodeStr(topic);
+    let qb = Buffer.alloc(1);
+    qb.writeUInt8(0, qos & 3);
+    return Buffer.concat([pid, tf, qb]);
+}
+
+fn buildUnsubscribePayload(packetId: int, topic: string): Buffer {
+    let pid = Buffer.alloc(2);
+    pid.writeUInt8(0, (packetId >> 8) & 255);
+    pid.writeUInt8(1, packetId & 255);
+    return Buffer.concat([pid, encodeStr(topic)]);
+}
+
+// ── Receive a full MQTT packet from a socket ──
+
+fn readPacket(sock: TCPSocket): Buffer? {
+    let hbuf = sock.readRaw(5);
+    if (hbuf.length() < 2) { return null; }
+    let rl = decodeRemainingLength(hbuf, 1);
+    let headerUsed = 1 + rl.used;
+    let body = sock.readRaw(rl.len);
+    let total = headerUsed + rl.len;
+    let full = Buffer.alloc(total);
+    for (let i = 0; i < headerUsed; i = i + 1) {
+        full.writeUInt8(i, hbuf.readUInt8(i));
+    }
+    for (let i = 0; i < body.length(); i = i + 1) {
+        full.writeUInt8(headerUsed + i, body.readUInt8(i));
+    }
+    return full;
+}
+
+// ============================================================
+// MQTTClient
+// ============================================================
+
+export class MQTTClient {
+    _sock: TCPSocket;
+    _id: string;
+    _seq: int;
+
+    fn new() { self._seq = 1; return self; }
+
+    static fn connect(
+        host: string, port: int, clientId: string,
+        keepAlive: int, username: string?, password: string?, clean: bool
+    ): MQTTClient? {
+        let sock = TCPSocket.connect(host, port);
+        if (!sock.isValid()) { return null; }
+        let c = MQTTClient.new();
+        c._sock = sock;
+        c._id = clientId;
+        let body = buildConnect(clientId, username, password, keepAlive, clean);
+        sock.writeRaw(makePacket(CONNECT, 0, body));
+        let resp = readPacket(sock);
+        if (resp === null) { sock.close(); return null; }
+        let hdr = parseHeader(resp, 0);
+        if (hdr.type !== CONNACK || hdr.remainingLen < 2) { sock.close(); return null; }
+        let returnCode = resp.readUInt8(hdr.used + 1);
+        if (returnCode !== 0) { sock.close(); return null; }
+        return c;
+    }
+
+    fn publish(topic: string, payload: string, qos: int, retain: bool): void {
+        let flags = (qos & 3) << 1;
+        if (retain) { flags = flags | 1; }
+        let tf = encodeStr(topic);
+        let body: Buffer;
+        if (qos > 0) {
+            let id = self._seq;
+            self._seq = id + 1;
+            let pid = Buffer.alloc(2);
+            pid.writeUInt8(0, (id >> 8) & 255);
+            pid.writeUInt8(1, id & 255);
+            body = Buffer.concat([tf, pid, Buffer.fromString(payload)]);
+        } else {
+            body = Buffer.concat([tf, Buffer.fromString(payload)]);
+        }
+        self._sock.writeRaw(makePacket(PUBLISH, flags, body));
+        if (qos === 1) { readPacket(self._sock); }
+    }
+
+    fn subscribe(topic: string, qos: int): void {
+        let id = self._seq;
+        self._seq = id + 1;
+        let body = buildSubscribePayload(id, topic, qos);
+        self._sock.writeRaw(makePacket(SUBSCRIBE, 2, body));
+        readPacket(self._sock);
+    }
+
+    fn unsubscribe(topic: string): void {
+        let id = self._seq;
+        self._seq = id + 1;
+        let body = buildUnsubscribePayload(id, topic);
+        self._sock.writeRaw(makePacket(UNSUBSCRIBE, 2, body));
+        readPacket(self._sock);
+    }
+
+    fn ping(): void {
+        self._sock.writeRaw(makePacket(PINGREQ, 0, Buffer.alloc(0)));
+        readPacket(self._sock);
+    }
+
+    fn disconnect(): void {
+        self._sock.writeRaw(makePacket(DISCONNECT, 0, Buffer.alloc(0)));
+        self._sock.close();
+    }
+
+    fn isValid(): bool { return self._sock.isValid(); }
+    fn close(): void { self._sock.close(); }
+}
+
+// ============================================================
+// MQTTServer
+// ============================================================
+
+export class MQTTServer {
+    _server: TCPServer;
+
+    static fn listen(host: string, port: int): MQTTServer {
+        let s = MQTTServer.new();
+        s._server = TCPServer.listen(host, port);
+        return s;
+    }
+
+    fn accept(): MQTTClient? {
+        let tcp = self._server.accept();
+        if (!tcp.isValid()) { return null; }
+        let packet = readPacket(tcp);
+        if (packet === null) { tcp.close(); return null; }
+        let hdr = parseHeader(packet, 0);
+        if (hdr.type !== CONNECT) { tcp.close(); return null; }
+        let pos = hdr.used;
+        let protocol = decodeStr(packet, pos);
+        pos = pos + protocol.used;
+        let level = packet.readUInt8(pos);
+        pos = pos + 1;
+        let flags = packet.readUInt8(pos);
+        pos = pos + 1;
+        let keepAlive = (packet.readUInt8(pos) << 8) | packet.readUInt8(pos + 1);
+        pos = pos + 2;
+        let cid = decodeStr(packet, pos);
+        pos = pos + cid.used;
+        let username: string? = null;
+        let password: string? = null;
+        if ((flags & 128) !== 0) {
+            let un = decodeStr(packet, pos);
+            username = un.value;
+            pos = pos + un.used;
+        }
+        if ((flags & 64) !== 0) {
+            let pw = decodeStr(packet, pos);
+            password = pw.value;
+        }
+        let ackVar = Buffer.alloc(2);
+        ackVar.writeUInt8(0, 0);
+        ackVar.writeUInt8(1, 0);
+        tcp.writeRaw(makePacket(CONNACK, 0, ackVar));
+        let client = MQTTClient.new();
+        client._sock = tcp;
+        client._id = cid.value;
+        return client;
+    }
+
+    fn close(): void { self._server.close(); }
+    fn isValid(): bool { return self._server.isValid(); }
+}

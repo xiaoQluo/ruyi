@@ -30,6 +30,8 @@ pub enum Type {
     Never,
     /// BigInt type (arbitrary precision integer)
     BigInt,
+    /// Byte type — 8-bit unsigned integer (`byte`)
+    Byte,
     /// Nullable type `T?` = T | null
     Nullable(Box<Type>),
     /// Array type `Array<T>`
@@ -165,7 +167,7 @@ impl Type {
         match self {
             Type::Bool | Type::Null => true,
             Type::Nullable(inner) => inner.requires_exhaustive_match(),
-            Type::Int | Type::BigInt | Type::Float | Type::String => false,
+            Type::Int | Type::BigInt | Type::Byte | Type::Float | Type::String => false,
             _ => false,
         }
     }
@@ -206,6 +208,10 @@ impl Type {
         match (self, other) {
             // int <: float (widening coercion)
             (Type::Int, Type::Float) => true,
+            // byte <: int (widening coercion)
+            (Type::Byte, Type::Int) => true,
+            // byte <: float (transitive widening: byte <: int <: float)
+            (Type::Byte, Type::Float) => true,
 
             (Type::Null, Type::Nullable(_)) => true,
 
@@ -376,6 +382,20 @@ impl Type {
             return Type::Float;
         }
 
+        // byte + int = int, byte + float = float
+        if matches!(
+            (self, other),
+            (Type::Byte, Type::Int) | (Type::Int, Type::Byte)
+        ) {
+            return Type::Int;
+        }
+        if matches!(
+            (self, other),
+            (Type::Byte, Type::Float) | (Type::Float, Type::Byte)
+        ) {
+            return Type::Float;
+        }
+
         // Subtyping: lub(T, U) = U if T <: U
         if self.is_subtype_of(other) {
             return other.clone();
@@ -448,6 +468,7 @@ impl Type {
                 "float" => Type::Float,
                 "bool" => Type::Bool,
                 "string" => Type::String,
+                "byte" => Type::Byte,
                 _ => Type::Named(name.clone(), vec![]),
             },
             crate::parser::ast::TypeAnnotation::Identifier(name) => match name.as_str() {
@@ -455,6 +476,7 @@ impl Type {
                 "float" => Type::Float,
                 "bool" => Type::Bool,
                 "string" => Type::String,
+                "byte" => Type::Byte,
                 "null" => Type::Null,
                 "void" => Type::Void,
                 "never" => Type::Never,
@@ -527,6 +549,7 @@ impl fmt::Display for Type {
             Type::Void => write!(f, "void"),
             Type::Never => write!(f, "never"),
             Type::BigInt => write!(f, "bigint"),
+            Type::Byte => write!(f, "byte"),
             Type::Nullable(inner) => write!(f, "{}?", inner),
             Type::Array(elem) => write!(f, "Array<{}>", elem),
             Type::Tuple(types) => {

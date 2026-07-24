@@ -1,0 +1,28 @@
+# .spec-superflow.yaml — lightweight state machine
+# Derived data. Always rebuildable from artifacts.
+
+# === Core state ===
+state: specifying
+workflow: full
+
+# === Metadata ===
+change_name: fix-batch-low-risk-defects
+last_transition: 2026-07-16T00:00:00.000Z
+last_transition_from: exploring
+last_transition_to: specifying
+
+# === Decision points ===
+dp_0_decisions: 变更名: fix-batch-low-risk-defects; 意图: 批量修复优先级 2-5 的低风险缺陷; 范围: ① allow_partial_codegen 限定为 stdlib-only (driver.rs:576) ② 修复 pending-issues.md 中 3 个测试断言错误 (checker.rs:172 的 test_check_match_statement / patterns.rs:266 的 test_bool_patterns_with_wildcard / types.rs:652 的 test_from_annotation_generic) ③ 实施 codegen/expr.rs 中全部 12 条 not-yet-supported 错误路径 (匿名函数/异步箭头/嵌套成员访问/间接调用/spread参数x4/复合赋值/复杂赋值/复杂new/decl.rs复杂模式) ④ 更新 roadmap.md + roadmap-zh.md 标记 v0.5.5-v0.5.9 已完成项; 非目标: 不迁移 Mutex、不建 CI/CD、不补打 tag、不添加 proptest (优先级 6 全部排除); 成功标准: (1) allow_partial_codegen 仅 stdlib 编译时为 true; (2) 3 个测试断言修复且通过; (3) 12 条 codegen 路径不再返回 not-yet-supported 错误; (4) 路线图文档中 v0.5.5-v0.5.9 已完成项标记 ✅; (5) make check 通过零新增 clippy 警告
+dp_0_result: confirmed
+dp_0_confirmed: true
+dp_0_timestamp: 2026-07-16T08:00:00Z
+dp_1_result: "confirmed: Change B 低风险缺陷批量修复（优先级 2-5）。范围: allow_partial_codegen stdlib-only + 3 个测试断言修复 + 12 条 codegen not-yet-supported 路径 + 路线图更新。非目标: Mutex/CI/CD/tag/proptest。"
+dp_1_timestamp: 2026-07-16T08:10:00Z
+dp_2_result: "approved: 4 planning artifacts validated. proposal.md (4 defect categories / Scope In explicit / Out 6 items). specs/ (2 files: driver-partial-codegen.md 2 MODIFIED, codegen-unsupported-paths.md 9 ADDED+1 MODIFIED, 19 WHEN/THEN scenarios total). design.md (12 decisions: D1-D12, each with Choice+Rationale+Alternatives, 4 risks with mitigation). tasks.md (20 tasks across 4 parallel batches: Test Fixes∥Driver∥Codegen∥Roadmap, 5 FV gates, sub-batch dependency 3a.3→3b, all TDD 5-step, exact file paths, zero placeholders). Cross-artifact consistency verified. Cross-change dependency: Change B Task 3b.3 (complex new) unblocks Change A try_catch_invoke tests. State transitioned to specifying at 2026-07-16T09:00:00Z. Ready for DP-3 contract builder."
+dp_2_timestamp: 2026-07-16T09:00:00Z
+dp_3_result: "approved: execution-contract.md validated. Intent Lock captures 4 defect categories + scope fence. Approved Behavior maps all 10 spec Requirements (R1-R10) plus 6 acceptance criteria. Design Constraints declare 4 parallel batches + spread unified function + non-invasive stdlib_item_count. Task Batches: Batch 1 (4 tests) ∥ Batch 2 (2 driver) ∥ Batch 3a-d (13 codegen) ∥ Batch 4 (2 docs). Test Obligations enforce TDD 5-step with codegen/typechecker regression areas. Review Gates define 5 mandatory gates. Escalation Rules define 3 tiers. All guard artifacts-exist/schema-valid PASSED."
+dp_3_timestamp: 2026-07-16T09:15:00Z
+dp_4_result: "SDD: 20 tasks across 4 modules (typechecker/driver/codegen/docs), cross-module dependencies, codegen IR correctness risk. Inline threshold=3. SDD selected per execution contract Batch structure."
+dp_4_timestamp: 2026-07-16T09:20:00Z
+execution_mode: SDD
+batches_completed: 0

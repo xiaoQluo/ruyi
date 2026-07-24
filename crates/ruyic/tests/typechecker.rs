@@ -792,9 +792,9 @@ fn test_check_try_catch() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_match_statement() {
-    let result = check_program("match (x) { 1 => { let y = 1; } }");
+    let result = check_program("let x = 1; match (x) { 1 => { let y = 1; } }");
     assert_no_errors(&result);
 }
 
@@ -869,16 +869,16 @@ fn test_check_function_no_return() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_for_of() {
-    let result = check_program("for (let item of list) { }");
+    let result = check_program("let list = [1, 2, 3]; for (let item of list) { }");
     assert_no_errors(&result);
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_for_in() {
-    let result = check_program("for (let key in obj) { }");
+    let result = check_program("let obj = { a: 1, b: 2 }; for (let key in obj) { }");
     assert_no_errors(&result);
 }
 
@@ -928,9 +928,9 @@ fn test_check_nullish_coalescing() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_optional_member() {
-    let result = check_program("let x = obj?.prop;");
+    let result = check_program("let obj = { prop: 1 }; let x = obj?.prop;");
     assert_no_errors(&result);
 }
 
@@ -989,30 +989,30 @@ fn test_check_unary_tilde() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_instanceof() {
-    let result = check_program("let x = obj instanceof MyClass;");
+    let result = check_program("class MyClass { } let obj = {}; let x = obj instanceof MyClass;");
     assert_no_errors(&result);
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_in_operator() {
-    let result = check_program("let x = \"key\" in obj;");
+    let result = check_program("let obj = { key: 1 }; let x = \"key\" in obj;");
     assert_no_errors(&result);
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_delete() {
-    let result = check_program("let x = delete obj.prop;");
+    let result = check_program("let obj = { prop: 1 }; let x = delete obj.prop;");
     assert_no_errors(&result);
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_new_expression() {
-    let result = check_program("let x = new Point;");
+    let result = check_program("class Point { } let x = new Point;");
     assert_no_errors(&result);
 }
 
@@ -1059,16 +1059,16 @@ fn test_check_compound_assignment() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_member_access() {
-    let result = check_program("let x = obj.prop;");
+    let result = check_program("let obj = { prop: 1 }; let x = obj.prop;");
     assert_no_errors(&result);
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_index_access() {
-    let result = check_program("let x = arr[0];");
+    let result = check_program("let arr = [1, 2, 3]; let x = arr[0];");
     assert_no_errors(&result);
 }
 
@@ -1085,23 +1085,25 @@ fn test_check_class_expression() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_match_expression() {
-    let result = check_program("let x = match (val) { 1 => one, 2 => two };");
+    let result = check_program(
+        "let val = 1; let one = 10; let two = 20; let x = match (val) { 1 => one, 2 => two };",
+    );
     assert_no_errors(&result);
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_if_expression() {
-    let result = check_program("let x = if (cond) { 1; } else { 2; };");
+    let result = check_program("let cond = true; let x = if (cond) { 1; } else { 2; };");
     assert_no_errors(&result);
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_await_expression_simple() {
-    let result = check_program("let x = await promise;");
+    let result = check_program("let promise: dyn = null; let x = await promise;");
     assert_no_errors(&result);
 }
 
@@ -1112,7 +1114,7 @@ fn test_check_grouping() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_nested_function() {
     let result = check_program("fn outer() { fn inner() { return 1; } return inner(); }");
     assert_no_errors(&result);
@@ -1275,44 +1277,44 @@ fn test_check_generic_function() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_if_let() {
-    let result = check_program("if let x = maybe { }");
+    let result = check_program("let maybe: int? = null; if let x = maybe { }");
     assert_no_errors(&result);
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_while_let() {
-    let result = check_program("while let v = iter { }");
+    let result = check_program("let iter: int? = null; while let v = iter { }");
     assert_no_errors(&result);
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_for_of_async() {
-    let result = check_program("for (let item of async gen) { }");
+    let result = check_program("let gen: dyn = null; for (let item of async gen) { }");
     assert_no_errors(&result);
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_object_destructure() {
-    let result = check_program("const { x, y } = point;");
+    let result = check_program("let point = { x: 1, y: 2 }; const { x, y } = point;");
     assert_no_errors(&result);
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_array_destructure() {
-    let result = check_program("let [head, ...tail] = list;");
+    let result = check_program("let list = [1, 2, 3]; let [head, ...tail] = list;");
     assert_no_errors(&result);
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_spread_in_array() {
-    let result = check_program("let x = [...arr];");
+    let result = check_program("let arr = [1, 2]; let x = [...arr];");
     assert_no_errors(&result);
 }
 
@@ -1329,14 +1331,14 @@ fn test_check_object_shorthand() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_computed_property() {
-    let result = check_program("let x = { [key]: value };");
+    let result = check_program("let key = \"name\"; let value = 42; let x = { [key]: value };");
     assert_no_errors(&result);
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_nullish_assign() {
     let result = check_program("let x = null; x ??= 42;");
     assert_no_errors(&result);
@@ -1376,23 +1378,23 @@ fn test_check_nested_scopes() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_match_with_guard() {
-    let result = check_program("match (n) { x if (x > 0) => { } }");
+    let result = check_program("let n = 1; match (n) { x if (x > 0) => { } }");
     assert_no_errors(&result);
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_match_wildcard() {
-    let result = check_program("match (val) { _ => { } }");
+    let result = check_program("let val = 1; match (val) { _ => { } }");
     assert_no_errors(&result);
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_match_literal_pattern() {
-    let result = check_program("match (x) { 1 => { } }");
+    let result = check_program("let x = 1; match (x) { 1 => { } }");
     assert_no_errors(&result);
 }
 
@@ -1433,9 +1435,9 @@ fn test_check_multiple_statements() {
 }
 
 #[test]
-#[ignore] // Parser/type checker limitation
+
 fn test_check_const_destructure() {
-    let result = check_program("const { x, y } = point;");
+    let result = check_program("let point = { x: 1, y: 2 }; const { x, y } = point;");
     assert_no_errors(&result);
 }
 

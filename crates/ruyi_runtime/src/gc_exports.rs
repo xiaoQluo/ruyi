@@ -92,7 +92,7 @@ pub extern "C" fn ruyi_gc_collect() {
 /// # Safety
 /// `ptr` must point to the payload of a valid GC object.
 #[no_mangle]
-pub extern "C" fn ruyi_gc_add_root(ptr: *mut u8) {
+pub unsafe extern "C" fn ruyi_gc_add_root(ptr: *mut u8) {
     CURRENT_COLLECTOR.with(|collector| {
         let collector = collector.borrow_mut();
         unsafe {
@@ -106,7 +106,7 @@ pub extern "C" fn ruyi_gc_add_root(ptr: *mut u8) {
 /// # Safety
 /// `ptr` must have been previously passed to `ruyi_gc_add_root`.
 #[no_mangle]
-pub extern "C" fn ruyi_gc_remove_root(ptr: *mut u8) {
+pub unsafe extern "C" fn ruyi_gc_remove_root(ptr: *mut u8) {
     CURRENT_COLLECTOR.with(|collector| {
         let collector = collector.borrow_mut();
         unsafe {
@@ -121,7 +121,7 @@ pub extern "C" fn ruyi_gc_remove_root(ptr: *mut u8) {
 /// `parent` must point to the payload of a valid GC object.
 /// `field` may be null or a valid GC payload pointer.
 #[no_mangle]
-pub extern "C" fn ruyi_gc_write_barrier(parent: *mut u8, field: *mut u8) {
+pub unsafe extern "C" fn ruyi_gc_write_barrier(parent: *mut u8, field: *mut u8) {
     CURRENT_COLLECTOR.with(|collector| {
         let collector = collector.borrow_mut();
         unsafe {

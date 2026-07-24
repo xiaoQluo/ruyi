@@ -1,0 +1,56 @@
+/**
+ * Ruyi Standard Library — AES-256-GCM
+ *
+ * Authenticated encryption via RustCrypto FFI.
+ * All I/O is hex-encoded for safe string transport.
+ *
+ * Key:   64-char hex (32 bytes)
+ * Nonce: 24-char hex (12 bytes) — MUST be unique per encryption
+ *
+ * Usage:
+ *   import { Aes256Gcm } from "./aes";
+ *   let key = Aes256Gcm.generateKey();
+ *   let nonce = Aes256Gcm.generateNonce();
+ *   let cipher = Aes256Gcm.encrypt(key, nonce, "hello");
+ *   let plain = Aes256Gcm.decrypt(key, nonce, cipher);
+ *
+ * @author Ruyi Team
+ * @date 2026-07-24
+ */
+
+export class Aes256Gcm {
+    /**
+     * Encrypts plaintext with AES-256-GCM.
+     *
+     * The ciphertext and authentication tag are concatenated
+     * in the return value (hex-encoded).
+     *
+     * @param key 64-char hex key
+     * @param nonce 24-char hex nonce (12 bytes)
+     * @param plain Hex-encoded plaintext string
+     * @return Hex-encoded ciphertext+tag (combined), or null on error
+     */
+    static fn encrypt(key: string, nonce: string, plain: string): string? {
+        let result = __crypto_aes_gcm_encrypt_hex(key, nonce, plain);
+        if (result === "") {
+            return null;
+        }
+        return result;
+    }
+
+    /**
+     * Decrypts AES-256-GCM ciphertext.
+     *
+     * @param key 64-char hex key
+     * @param nonce 24-char hex nonce
+     * @param cipher Hex-encoded ciphertext+tag (combined, as returned by encrypt)
+     * @return Hex-encoded plaintext, or null on authentication failure
+     */
+    static fn decrypt(key: string, nonce: string, cipher: string): string? {
+        let result = __crypto_aes_gcm_decrypt_hex(key, nonce, cipher);
+        if (result === "") {
+            return null;
+        }
+        return result;
+    }
+}

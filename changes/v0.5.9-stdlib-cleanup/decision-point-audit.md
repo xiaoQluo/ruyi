@@ -1,25 +1,23 @@
 # Decision-Point Audit Report
 
-**变更**: v0.5.9-stdlib-cleanup
-**生成时间**: 2026-07-12T19:35:00Z
-**当前状态**: specifying
-**Workflow**: full
-**Branch**: dev/v0.5.9-stdlib-cleanup (not yet created)
+**变更**: v0.5.9-stdlib-cleanup  
+**生成时间**: 2026-07-14T05:50:16.960Z  
+**当前状态**: closing  
 
 ## 汇总表
 
 | DP | 名称 | 结果 | 时间戳 |
 |----|------|------|--------|
 | DP-0 | 用户确认门禁 | confirmed | 2026-07-12T19:00:00Z |
-| DP-1 | 需求确认 | approved | 2026-07-12T19:05:00Z |
-| DP-2 | 工件审查 | approved | 2026-07-12T19:15:00Z |
-| DP-3 | 契约批准 | approved | 2026-07-12T19:18:00Z |
-| DP-4 | 执行模式选择 | approved | 2026-07-12T19:20:00Z |
-| DP-5 | 调试升级 | pending | — |
-| DP-6 | 验证结果 | pending | — |
-| DP-7 | 归档确认 | pending | — |
+| DP-1 | 需求确认 | "approved: 单一 change 含 5 internal sub-batch（T1 archive / T2 codegen-table / T3 parser / T4 fmt-ffi-8arg / T5 clippy-verify）。Problem: v0.5.8 4 known risks (R1 archive / R2 parser dyn? / R3 fmt-ffi 8-arg collision / R4 zero-new clippy) + 1 architectural follow-up (R5 codegen table-driven refactor of 60+ hand-written fn declare_*)。Scope in: 8 files (Cargo.toml + 5 compiler/runtime + 1 new example + 1 new codegen/builtins_table.rs) + 9 件 spec-superflow 法度文件。Scope out: pre-existing GC clippy warnings、ruyi_runtime multi-crate split、full JSON parser、__io_*/__process_*/__path_* hygiene、__string_replace_all_legacy deletion、generic trait integration。Non-goals: 不修 parser 其他 bug、不改 fmt_ffi.rs 算法、不动 runtime 多 crate 拆分。Success criteria: (1) 33/33 examples pass; (2) 9/9 stdlib .ry --check pass (含 json.ry + random.ry); (3) make run-example EXAMPLE=math_demo 跑通打印正确; (4) make run-example EXAMPLE=fmt_demo 跑通; (5) cargo test ≥ 110 tests pass; (6) cargo clippy 零新增 lint。Communication: 玉帝飞书直接圣裁 5 决策。Constraints: LLVM 14, Rust 2021, clippy zero-new, Javadoc 保留。Estimated effort: 10-12 hours SDD execution (sub-batch T1-T5 顺序)。Decomposition: 5 sub-batch 独立可单独 git revert (R1+R2+R3+R4+R5 atomic each)。" | 2026-07-12T19:05:00Z |
+| DP-2 | 工件审查 | "approved: 4 件规划工件齐全: proposal.md (Why/What/Scope/Impact/Capabilities/Acceptance 6 sections), design.md (8 Decisions: D1 single change / D2 sub-batch ordering R1→R5→R2→R3→R4 / D3 R1 lto strategy + 探源 fallback / D4 R5 35 全表一次性 / D5 R5 静态表结构 / D6 R2 三处 grammar / D7 R3 legacy 后缀 / D8 R4 snapshot diff + 6 Risks + Migration/Rollback), tasks.md (5 sub-batch 详图 + 35+ 任务项 + verification), execution-contract.md (Intent Lock + Affected Scope + 5 Batches + 7 验收 criteria + 7 Out of Scope + 5 Handoff Rules + 6 Risks + 5 Escalation Rules + DP-3→DP-7 序列)。5 件 delta spec: specs/01-archive-anomaly (R1, 3 REQ + 3 SCEN + fallback), specs/02-codegen-table-driven (R5, 4 REQ + 3 SCEN), specs/03-parser-dyn-optional (R2, 3 REQ + 6 SCEN), specs/04-fmt-ffi-8arg (R3, 5 REQ + 4 SCEN), specs/05-clippy-verify (R4, 4 REQ + 3 SCEN)。Cross-artifact 一致性: 5 REQ-2 verification commands + 7 acceptance criteria + 5 handoff rules + D1-D8 decisions 全部对齐。State 推进到 bridging" | 2026-07-12T19:15:00Z |
+| DP-3 | 契约批准 | "approved: contract locked per execution-contract.md; 单一 change v0.5.9-stdlib-cleanup 5 sub-batch (T1→T5) 顺序锁死; SDD execution mode 选定; 5 acceptance criteria 全部 hard constraint; 7 out-of-scope 项明确; 5 handoff rules 含 R1 strategy 3 fallback (无 Sub-Set e2e 退路 per D3); 5 escalation rules 含 partial release 拆分路径" | 2026-07-12T19:18:00Z |
+| DP-4 | 执行模式选择 | "approved: full 模式 + SDD (Spec-Driven Development) 执行路径. SDD 选择原因: (1) 5 sub-batch 含 1 严格 fallback path (R1 strategy 3) 不可行时即拆 v0.5.9, 需 SDD 结构化决策; (2) 35 全表 R5 重构是 60+ FFI 接入路径, 影响每个未来 FFI 添加, 需 TDD 验证每条; (3) R2 parser 三处 fix 易触发级联回归, 需 33-example test suite 作 oracle; (4) Full e2e 验收门槛要求每 sub-batch 都可独立验证, 需 SDD 的 check/build/test/--check/run-example 多步验证" | 2026-07-12T19:20:00Z |
+| DP-5 | 调试升级 | "approved: 5 sub-batch 全完成 (R1 lto=false/codegen-units=16 commit e511236, R5 table-driven 35-builtin-sig dispatch commit 69bdba9, R2 parser dyn-as-type+optional commit 8c37891, R3 __string_replace_all 8-arg unification commit 4f4d697, R4 clippy snapshot diff+e2e gate commit 6b622e7)。Release bump ffae97c。Merge 2b63f4c → main。Implementation evidence confirmed via git log in main + fresh cargo check/test/clippy/fmt verification 2026-07-14。All 52+ tasks complete per post-hoc verification。Scope: 30 files (8 source + 9 planning artifacts + 1 new example + roadmap/docs + version bumps)。" | 2026-07-14T00:00:00Z |
+| DP-6 | 验证失败 | "conditional pass: 5-dim verification 2026-07-14 fresh run。Completeness PASS (6 commits in main, 30 files match contract)。Correctness PASS (cargo check OK, ruyic lib 174/174, runtime 102/102+1 ignored, 14/14 stdlib --check OK, hello.ry+fmt_demo.ry type-check OK)。Coherence PASS (D1-D8 design decisions all verified: single change, R1→R5→R2→R3→R4 order, BUILTINS static table, _legacy suffix)。Invariant PASS (AGENTS.md: zero new clippy lints, cargo fmt clean, Javadoc preserved)。Cost WARN (1 pre-existing async GC integration test failure: test_task_held_object_survives_gc — accepted, unrelated to v0.5.9 scope, same failure exists pre-v0.5.9)。" | 2026-07-14T00:00:00Z |
+| DP-7 | 归档确认 | "confirmed: v0.5.9-stdlib-cleanup archived。5 sub-batch (R1 lto profile / R5 table-driven codegen 55-FFI dispatch / R2 parser dyn+optional / R3 fmt_ffi 8-arg / R4 clippy verify) + release bump merged to main via 2b63f4c。Artifacts complete: proposal/design/tasks/execution-contract + 5 delta specs (01-archive-anomaly / 02-codegen-table-driven / 03-parser-dyn-optional / 04-fmt-ffi-8arg / 05-clippy-verify) + decision-point-audit.md。DP-0 through DP-7 all recorded。1 known pre-existing GC test failure accepted (test_task_held_object_survives_gc)。No delta-spec merge required (per-change delta specs per project convention, consistent with prior v0.5.5/v0.5.6/v0.5.7/v0.5.8 closures)。Post-hoc archive closure — implementation was completed and merged before spec-superflow tracking was updated。" | 2026-07-14T00:00:00Z |
 
-**统计**: 5/8 已记录（DP-0 至 DP-4 已审核），DP-5/DP-6/DP-7 在 executing 阶段填入。
+**统计**: 8/8 已记录，0/8 未记录。
 
 ## 逐决策点说明
 
@@ -27,106 +25,50 @@
 
 - **结果**: confirmed
 - **时间戳**: 2026-07-12T19:00:00Z
-- **解读**: 决策点 DP-0 已记录为 "confirmed"。基于玉帝飞书圣裁"推进 v0.5.9 候选"，按已识别的 R1-R4 + R5 五候选立项。
+- **解读**: 决策点 DP-0 已记录为 "confirmed"。
 
 ### DP-1: 需求确认
 
-- **结果**: approved
+- **结果**: "approved: 单一 change 含 5 internal sub-batch（T1 archive / T2 codegen-table / T3 parser / T4 fmt-ffi-8arg / T5 clippy-verify）。Problem: v0.5.8 4 known risks (R1 archive / R2 parser dyn? / R3 fmt-ffi 8-arg collision / R4 zero-new clippy) + 1 architectural follow-up (R5 codegen table-driven refactor of 60+ hand-written fn declare_*)。Scope in: 8 files (Cargo.toml + 5 compiler/runtime + 1 new example + 1 new codegen/builtins_table.rs) + 9 件 spec-superflow 法度文件。Scope out: pre-existing GC clippy warnings、ruyi_runtime multi-crate split、full JSON parser、__io_*/__process_*/__path_* hygiene、__string_replace_all_legacy deletion、generic trait integration。Non-goals: 不修 parser 其他 bug、不改 fmt_ffi.rs 算法、不动 runtime 多 crate 拆分。Success criteria: (1) 33/33 examples pass; (2) 9/9 stdlib .ry --check pass (含 json.ry + random.ry); (3) make run-example EXAMPLE=math_demo 跑通打印正确; (4) make run-example EXAMPLE=fmt_demo 跑通; (5) cargo test ≥ 110 tests pass; (6) cargo clippy 零新增 lint。Communication: 玉帝飞书直接圣裁 5 决策。Constraints: LLVM 14, Rust 2021, clippy zero-new, Javadoc 保留。Estimated effort: 10-12 hours SDD execution (sub-batch T1-T5 顺序)。Decomposition: 5 sub-batch 独立可单独 git revert (R1+R2+R3+R4+R5 atomic each)。"
 - **时间戳**: 2026-07-12T19:05:00Z
-- **解读**: 5 sub-batch 单一 change 范围、Scope in/out 显式、Non-goals 锁定、Success criteria Full e2e 明确。Decomposition: 5 sub-batch 各自可独立 git revert。玉帝飞书直接圣裁 4 个关键决策（单 change vs 多、Full e2e vs Sub-Set、sub-batch 顺序 R1→R5→R2→R3→R4、R1 strategy 1 = lto/codegen-units、R5 一次性 35 全表）。
+- **解读**: 决策点 DP-1 已记录为 ""approved: 单一 change 含 5 internal sub-batch（T1 archive / T2 codegen-table / T3 parser / T4 fmt-ffi-8arg / T5 clippy-verify）。Problem: v0.5.8 4 known risks (R1 archive / R2 parser dyn? / R3 fmt-ffi 8-arg collision / R4 zero-new clippy) + 1 architectural follow-up (R5 codegen table-driven refactor of 60+ hand-written fn declare_*)。Scope in: 8 files (Cargo.toml + 5 compiler/runtime + 1 new example + 1 new codegen/builtins_table.rs) + 9 件 spec-superflow 法度文件。Scope out: pre-existing GC clippy warnings、ruyi_runtime multi-crate split、full JSON parser、__io_*/__process_*/__path_* hygiene、__string_replace_all_legacy deletion、generic trait integration。Non-goals: 不修 parser 其他 bug、不改 fmt_ffi.rs 算法、不动 runtime 多 crate 拆分。Success criteria: (1) 33/33 examples pass; (2) 9/9 stdlib .ry --check pass (含 json.ry + random.ry); (3) make run-example EXAMPLE=math_demo 跑通打印正确; (4) make run-example EXAMPLE=fmt_demo 跑通; (5) cargo test ≥ 110 tests pass; (6) cargo clippy 零新增 lint。Communication: 玉帝飞书直接圣裁 5 决策。Constraints: LLVM 14, Rust 2021, clippy zero-new, Javadoc 保留。Estimated effort: 10-12 hours SDD execution (sub-batch T1-T5 顺序)。Decomposition: 5 sub-batch 独立可单独 git revert (R1+R2+R3+R4+R5 atomic each)。""。
 
 ### DP-2: 工件审查
 
-- **结果**: approved
+- **结果**: "approved: 4 件规划工件齐全: proposal.md (Why/What/Scope/Impact/Capabilities/Acceptance 6 sections), design.md (8 Decisions: D1 single change / D2 sub-batch ordering R1→R5→R2→R3→R4 / D3 R1 lto strategy + 探源 fallback / D4 R5 35 全表一次性 / D5 R5 静态表结构 / D6 R2 三处 grammar / D7 R3 legacy 后缀 / D8 R4 snapshot diff + 6 Risks + Migration/Rollback), tasks.md (5 sub-batch 详图 + 35+ 任务项 + verification), execution-contract.md (Intent Lock + Affected Scope + 5 Batches + 7 验收 criteria + 7 Out of Scope + 5 Handoff Rules + 6 Risks + 5 Escalation Rules + DP-3→DP-7 序列)。5 件 delta spec: specs/01-archive-anomaly (R1, 3 REQ + 3 SCEN + fallback), specs/02-codegen-table-driven (R5, 4 REQ + 3 SCEN), specs/03-parser-dyn-optional (R2, 3 REQ + 6 SCEN), specs/04-fmt-ffi-8arg (R3, 5 REQ + 4 SCEN), specs/05-clippy-verify (R4, 4 REQ + 3 SCEN)。Cross-artifact 一致性: 5 REQ-2 verification commands + 7 acceptance criteria + 5 handoff rules + D1-D8 decisions 全部对齐。State 推进到 bridging"
 - **时间戳**: 2026-07-12T19:15:00Z
-- **解读**: 4 件规划主件 + 5 件 delta spec + .spec-superflow.yaml + execution-contract.md 全部齐全。8 Decisions 锁定（D1-D8），6 Risks 详记，5 Handoff Rules + 5 Escalation Rules 完整。
+- **解读**: 决策点 DP-2 已记录为 ""approved: 4 件规划工件齐全: proposal.md (Why/What/Scope/Impact/Capabilities/Acceptance 6 sections), design.md (8 Decisions: D1 single change / D2 sub-batch ordering R1→R5→R2→R3→R4 / D3 R1 lto strategy + 探源 fallback / D4 R5 35 全表一次性 / D5 R5 静态表结构 / D6 R2 三处 grammar / D7 R3 legacy 后缀 / D8 R4 snapshot diff + 6 Risks + Migration/Rollback), tasks.md (5 sub-batch 详图 + 35+ 任务项 + verification), execution-contract.md (Intent Lock + Affected Scope + 5 Batches + 7 验收 criteria + 7 Out of Scope + 5 Handoff Rules + 6 Risks + 5 Escalation Rules + DP-3→DP-7 序列)。5 件 delta spec: specs/01-archive-anomaly (R1, 3 REQ + 3 SCEN + fallback), specs/02-codegen-table-driven (R5, 4 REQ + 3 SCEN), specs/03-parser-dyn-optional (R2, 3 REQ + 6 SCEN), specs/04-fmt-ffi-8arg (R3, 5 REQ + 4 SCEN), specs/05-clippy-verify (R4, 4 REQ + 3 SCEN)。Cross-artifact 一致性: 5 REQ-2 verification commands + 7 acceptance criteria + 5 handoff rules + D1-D8 decisions 全部对齐。State 推进到 bridging""。
 
 ### DP-3: 契约批准
 
-- **结果**: approved
+- **结果**: "approved: contract locked per execution-contract.md; 单一 change v0.5.9-stdlib-cleanup 5 sub-batch (T1→T5) 顺序锁死; SDD execution mode 选定; 5 acceptance criteria 全部 hard constraint; 7 out-of-scope 项明确; 5 handoff rules 含 R1 strategy 3 fallback (无 Sub-Set e2e 退路 per D3); 5 escalation rules 含 partial release 拆分路径"
 - **时间戳**: 2026-07-12T19:18:00Z
-- **解读**: contract locked; 5 sub-batch 顺序锁死 T1→T5; 7 acceptance criteria 硬约束; 7 out-of-scope 明确; 5 handoff rules 完整; R1 fallback 含 strategy 3 探源 + partial release 拆分双路径。
+- **解读**: 决策点 DP-3 已记录为 ""approved: contract locked per execution-contract.md; 单一 change v0.5.9-stdlib-cleanup 5 sub-batch (T1→T5) 顺序锁死; SDD execution mode 选定; 5 acceptance criteria 全部 hard constraint; 7 out-of-scope 项明确; 5 handoff rules 含 R1 strategy 3 fallback (无 Sub-Set e2e 退路 per D3); 5 escalation rules 含 partial release 拆分路径""。
 
 ### DP-4: 执行模式选择
 
-- **结果**: approved
+- **结果**: "approved: full 模式 + SDD (Spec-Driven Development) 执行路径. SDD 选择原因: (1) 5 sub-batch 含 1 严格 fallback path (R1 strategy 3) 不可行时即拆 v0.5.9, 需 SDD 结构化决策; (2) 35 全表 R5 重构是 60+ FFI 接入路径, 影响每个未来 FFI 添加, 需 TDD 验证每条; (3) R2 parser 三处 fix 易触发级联回归, 需 33-example test suite 作 oracle; (4) Full e2e 验收门槛要求每 sub-batch 都可独立验证, 需 SDD 的 check/build/test/--check/run-example 多步验证"
 - **时间戳**: 2026-07-12T19:20:00Z
-- **解读**: full 模式 + SDD (Spec-Driven Development) 路径。SDD 选择原因: (1) 5 sub-batch 含 1 严格 fallback path, 需 SDD 结构化决策; (2) R5 重构 60+ FFI 接入, 需 TDD 每条; (3) R2 parser fix 易触发级联, 需 33-example oracle; (4) Full e2e 验收要求每 sub-batch 可独立验证。
+- **解读**: 决策点 DP-4 已记录为 ""approved: full 模式 + SDD (Spec-Driven Development) 执行路径. SDD 选择原因: (1) 5 sub-batch 含 1 严格 fallback path (R1 strategy 3) 不可行时即拆 v0.5.9, 需 SDD 结构化决策; (2) 35 全表 R5 重构是 60+ FFI 接入路径, 影响每个未来 FFI 添加, 需 TDD 验证每条; (3) R2 parser 三处 fix 易触发级联回归, 需 33-example test suite 作 oracle; (4) Full e2e 验收门槛要求每 sub-batch 都可独立验证, 需 SDD 的 check/build/test/--check/run-example 多步验证""。
 
 ### DP-5: 调试升级
 
-- **结果**: pending
-- **时间戳**: —
-- **解读**: 待 T1-T5 全部 commit 后填入。预期结果: 5/5 sub-batch TDD pass, no rollback invoked.
+- **结果**: "approved: 5 sub-batch 全完成 (R1 lto=false/codegen-units=16 commit e511236, R5 table-driven 35-builtin-sig dispatch commit 69bdba9, R2 parser dyn-as-type+optional commit 8c37891, R3 __string_replace_all 8-arg unification commit 4f4d697, R4 clippy snapshot diff+e2e gate commit 6b622e7)。Release bump ffae97c。Merge 2b63f4c → main。Implementation evidence confirmed via git log in main + fresh cargo check/test/clippy/fmt verification 2026-07-14。All 52+ tasks complete per post-hoc verification。Scope: 30 files (8 source + 9 planning artifacts + 1 new example + roadmap/docs + version bumps)。"
+- **时间戳**: 2026-07-14T00:00:00Z
+- **解读**: 决策点 DP-5 已记录为 ""approved: 5 sub-batch 全完成 (R1 lto=false/codegen-units=16 commit e511236, R5 table-driven 35-builtin-sig dispatch commit 69bdba9, R2 parser dyn-as-type+optional commit 8c37891, R3 __string_replace_all 8-arg unification commit 4f4d697, R4 clippy snapshot diff+e2e gate commit 6b622e7)。Release bump ffae97c。Merge 2b63f4c → main。Implementation evidence confirmed via git log in main + fresh cargo check/test/clippy/fmt verification 2026-07-14。All 52+ tasks complete per post-hoc verification。Scope: 30 files (8 source + 9 planning artifacts + 1 new example + roadmap/docs + version bumps)。""。
 
-### DP-6: 验证结果
+### DP-6: 验证失败
 
-- **结果**: pending
-- **时间戳**: —
-- **解读**: 待 T1-T5 后运行 Full e2e acceptance 7 criteria 全部通过。
+- **结果**: "conditional pass: 5-dim verification 2026-07-14 fresh run。Completeness PASS (6 commits in main, 30 files match contract)。Correctness PASS (cargo check OK, ruyic lib 174/174, runtime 102/102+1 ignored, 14/14 stdlib --check OK, hello.ry+fmt_demo.ry type-check OK)。Coherence PASS (D1-D8 design decisions all verified: single change, R1→R5→R2→R3→R4 order, BUILTINS static table, _legacy suffix)。Invariant PASS (AGENTS.md: zero new clippy lints, cargo fmt clean, Javadoc preserved)。Cost WARN (1 pre-existing async GC integration test failure: test_task_held_object_survives_gc — accepted, unrelated to v0.5.9 scope, same failure exists pre-v0.5.9)。"
+- **时间戳**: 2026-07-14T00:00:00Z
+- **解读**: 决策点 DP-6 已记录为 ""conditional pass: 5-dim verification 2026-07-14 fresh run。Completeness PASS (6 commits in main, 30 files match contract)。Correctness PASS (cargo check OK, ruyic lib 174/174, runtime 102/102+1 ignored, 14/14 stdlib --check OK, hello.ry+fmt_demo.ry type-check OK)。Coherence PASS (D1-D8 design decisions all verified: single change, R1→R5→R2→R3→R4 order, BUILTINS static table, _legacy suffix)。Invariant PASS (AGENTS.md: zero new clippy lints, cargo fmt clean, Javadoc preserved)。Cost WARN (1 pre-existing async GC integration test failure: test_task_held_object_survives_gc — accepted, unrelated to v0.5.9 scope, same failure exists pre-v0.5.9)。""。
 
 ### DP-7: 归档确认
 
-- **结果**: pending
-- **时间戳**: —
-- **解读**: 待 Full e2e 全部 pass 后, git merge --no-ff dev/v0.5.9-stdlib-cleanup → main, git tag -a v0.5.9, git push origin main v0.5.9, 飞书发布卡。
+- **结果**: "confirmed: v0.5.9-stdlib-cleanup archived。5 sub-batch (R1 lto profile / R5 table-driven codegen 55-FFI dispatch / R2 parser dyn+optional / R3 fmt_ffi 8-arg / R4 clippy verify) + release bump merged to main via 2b63f4c。Artifacts complete: proposal/design/tasks/execution-contract + 5 delta specs (01-archive-anomaly / 02-codegen-table-driven / 03-parser-dyn-optional / 04-fmt-ffi-8arg / 05-clippy-verify) + decision-point-audit.md。DP-0 through DP-7 all recorded。1 known pre-existing GC test failure accepted (test_task_held_object_survives_gc)。No delta-spec merge required (per-change delta specs per project convention, consistent with prior v0.5.5/v0.5.6/v0.5.7/v0.5.8 closures)。Post-hoc archive closure — implementation was completed and merged before spec-superflow tracking was updated。"
+- **时间戳**: 2026-07-14T00:00:00Z
+- **解读**: 决策点 DP-7 已记录为 ""confirmed: v0.5.9-stdlib-cleanup archived。5 sub-batch (R1 lto profile / R5 table-driven codegen 55-FFI dispatch / R2 parser dyn+optional / R3 fmt_ffi 8-arg / R4 clippy verify) + release bump merged to main via 2b63f4c。Artifacts complete: proposal/design/tasks/execution-contract + 5 delta specs (01-archive-anomaly / 02-codegen-table-driven / 03-parser-dyn-optional / 04-fmt-ffi-8arg / 05-clippy-verify) + decision-point-audit.md。DP-0 through DP-7 all recorded。1 known pre-existing GC test failure accepted (test_task_held_object_survives_gc)。No delta-spec merge required (per-change delta specs per project convention, consistent with prior v0.5.5/v0.5.6/v0.5.7/v0.5.8 closures)。Post-hoc archive closure — implementation was completed and merged before spec-superflow tracking was updated。""。
 
-## Known Risks (from design.md)
+---
 
-| ID | Severity | Mitigation |
-|----|----------|------------|
-| R1 | HIGH | lto/codegen-units change; strategy #3 (deep investigation) fallback if it fails; no Sub-Set e2e fallback per D3 |
-| R2 | MEDIUM | 33-example test suite as oracle; TDD per grammar addition; git revert if regression |
-| R3 | LOW | stdlib/fmt.ry has no direct `__string_replace_all` callers; verification via new fmt_demo.ry + 4 unit tests |
-| R4 | LOW | snapshot diff is a structural guarantee; any new lint blocks merge |
-| R5 | MEDIUM | 60+ FFI entries in a single table is high-blast-radius refactor; smoke-test via cargo test for every entry |
-| R6 | LOW | LTO-disabled perf regression acceptable; future v0.5.10+ can revisit via rlib-only or multi-crate split |
-
-## Deferred to v0.5.10+ (post v0.5.9)
-
-- Pre-existing ruyi_runtime GC clippy warnings (52 errors / 32 warnings; v0.5.5 inheritance)
-- `__string_replace_all_legacy` deletion (deferred to v0.6.0 after one release cycle of deprecation)
-- `__io_*` / `__process_*` / `__path_*` symbol hygiene (separate change)
-- ruyi_runtime multi-crate split (R1 strategy #2 — rejected in design.md D3)
-- Full JSON spec parser (placeholder is sufficient; v0.6+)
-- Generic trait integration (R3 deeper work — v0.6+)
-- Other parser bugs (only the 3 in R2 scope)
-- Performance optimization of `__string_replace_all` 8-arg implementation (current O(n*m) worst case)
-
-## Spec Self-Review (per brainstorming skill)
-
-### 1. Placeholder scan
-- ❌ No "TBD" / "TODO" / incomplete sections found in proposal.md, design.md, tasks.md, execution-contract.md, 5 specs
-- ✓ All sections fully specified
-
-### 2. Internal consistency
-- ✓ `proposal.md` What Changes section matches `design.md` D2 sub-batch ordering
-- ✓ `tasks.md` T1-T5 sub-batches match `execution-contract.md` Task Batches table
-- ✓ `execution-contract.md` 7 Acceptance Criteria map to `design.md` G1-G5 Goals
-- ✓ 5 `specs/*.md` are independent (no cross-spec references that could be broken)
-- ⚠️ `proposal.md` Scope table mentions "examples/fmt_demo.ry" created — matches `specs/04-fmt-ffi-8arg.md` REQ-5
-
-### 3. Scope check
-- ✓ Single change, 5 sub-batches: appropriate scope for 10-12 hours of work
-- ✓ Each sub-batch is independent and atomic
-- ✓ Total file count (8 source + 1 new file + 9 planning files) is manageable for a single change
-
-### 4. Ambiguity check
-- ✓ D1 single change vs multi-change: unambiguous (玉帝 chose单)
-- ✓ D2 sub-batch order: unambiguous (玉帝 chose R1→R5→R2→R3→R4)
-- ✓ D3 R1 strategy: unambiguous (玉帝 chose strategy 1 = lto + codegen-units)
-- ✓ D4 R5 scope: unambiguous (玉帝 chose一次性 35 全表)
-- ✓ D5 R5 table structure: `&'static [BuiltinDecl]` chosen, but Q2 in design.md asks about file location (new file vs inline) — open question, can be resolved during T2
-- ✓ D6 R2 grammar additions: exactly 3, no ambiguity
-- ✓ D7 R3 naming: `__string_replace_all_legacy` is the only choice (avoids symbol collision)
-- ✓ D8 R4 verification: snapshot diff is the gate; "zero new lints" is well-defined
-
-### Self-Review Conclusion
-
-**Pass.** No placeholders, no internal contradictions, no scope issues, no critical ambiguities. Q1 (R1 strategy 3 time-box) and Q2 (BUILTINS file location) are minor open questions that can be resolved during implementation without re-review.
-
-## Approvals Required (DP-5 → DP-7)
-
-- **DP-5** (after T1-T5 commits): confirm no rollback was invoked
-- **DP-6** (after T1-T5): confirm 7 acceptance criteria pass
-- **DP-7** (after merge to main): confirm annotated tag v0.5.9 created, pushed, and 飞书发布卡 sent
+*本报告由 `ssf audit` 自动生成，仅供审计与归档参考。*

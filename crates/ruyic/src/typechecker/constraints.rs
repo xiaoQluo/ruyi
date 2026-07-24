@@ -267,6 +267,10 @@ fn unify(t1: &Type, t2: &Type, subst: &mut HashMap<u32, Type>) -> Result<(), Str
         (Type::Object(fields1), Type::Object(fields2)) => unify_objects(fields1, fields2, subst),
         // int unifies with float (widening)
         (Type::Int, Type::Float) | (Type::Float, Type::Int) => Ok(()),
+        // byte unifies with int (widening)
+        (Type::Byte, Type::Int) | (Type::Int, Type::Byte) => Ok(()),
+        // byte unifies with float (transitive widening)
+        (Type::Byte, Type::Float) | (Type::Float, Type::Byte) => Ok(()),
         // Never unifies with anything
         (Type::Never, _) | (_, Type::Never) => Ok(()),
         _ => Err(format!("Cannot unify {} with {}", t1, t2)),
