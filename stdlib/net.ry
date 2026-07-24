@@ -1,0 +1,288 @@
+/**
+ * TCP networking module — TCPSocket / TCPServer
+ *
+ * Provides basic TCP client and server functionality, based on `__net_tcp_*` FFI primitives.
+ *
+ * @author Ruyi Team
+ * @date 2026-07-18
+ */
+
+import { Buffer } from "./buffer";
+
+// ============================================================
+// TCPSocket — TCP Client Socket
+// ============================================================
+
+/**
+ * TCP client socket.
+ *
+ * Example:
+ * ```
+ * let sock = TCPSocket.connect("example.com", 80);
+ * sock.write("GET / HTTP/1.0\r\nHost: example.com\r\n\r\n");
+ * let resp = sock.read(4096);
+ * sock.close();
+ * ```
+ */
+export class TCPSocket {
+    /// Underlying FFI handle (positive values are valid, negative values indicate errors)
+    _fd: int;
+
+    /**
+     * Connect to a remote host {host}:{port}, blocking until the connection is established.
+     *
+     * @param host Hostname or IP address
+     * @param port Port number
+     * @return The connected TCPSocket instance
+     */
+    static fn connect(host: string, port: int): TCPSocket {
+        let s = TCPSocket.new();
+        let fd = __net_tcp_connect(host, port);
+        s._fd = fd;
+        return s;
+    }
+
+    /**
+     * Read up to {maxBytes} bytes from the socket.
+     *
+     * @param maxBytes Maximum number of bytes to read
+     * @return The data read as a string (may be empty)
+     */
+    fn read(maxBytes: int): string {
+        return __net_tcp_read(self._fd, maxBytes);
+    }
+
+    /**
+     * Write data to the socket.
+     *
+     * @param data The string data to send
+     * @return The number of bytes actually written, -1 on error
+     */
+    fn write(data: string): int {
+        return __net_tcp_write(self._fd, data);
+    }
+
+    /**
+     * Write raw binary data to the socket (no null-byte truncation).
+     *
+     * @param data Buffer containing the raw bytes to send
+     * @return The number of bytes actually written, -1 on error
+     */
+    fn writeRaw(data: Buffer): int {
+        return __net_tcp_write_raw(self._fd, data.data);
+    }
+
+    /**
+     * Read raw binary data from the socket into a Buffer.
+     *
+     * @param size Maximum number of bytes to read
+     * @return Buffer containing up to `size` bytes, or empty on EOF/error
+     */
+    fn readRaw(size: int): Buffer {
+        let buf = Buffer.alloc(size);
+        let n = __net_tcp_read_raw(self._fd, buf.data);
+        if (n <= 0) { return Buffer.alloc(0); }
+        return buf;
+    }
+
+    /**
+     * Set the socket read/write timeout in milliseconds. 0 means infinite blocking.
+     *
+     * @param timeoutMs Timeout in milliseconds
+     * @return 0 on success, -1 on failure
+     */
+    fn setTimeout(timeoutMs: int): int {
+        return __net_tcp_set_timeout(self._fd, timeoutMs);
+    }
+
+    /**
+     * Check if the connection is valid.
+     *
+     * @return true if the handle is valid
+     */
+    fn isValid(): bool {
+        return self._fd >= 0;
+    }
+
+    /**
+     * Close the socket connection.
+     */
+    fn close(): void {
+        __net_tcp_close(self._fd);
+        self._fd = -1;
+    }
+}
+
+// ============================================================
+// TCPServer — TCP Server
+// ============================================================
+
+/**
+ * TCP server (listening socket).
+ *
+ * Example:
+ * ```
+ * let server = TCPServer.listen("0.0.0.0", 8080);
+ * let client = server.accept();
+ * let data = client.read(1024);
+ * client.write("Hello from Ruyi!\n");
+ * client.close();
+ * server.close();
+ * ```
+ */
+export class TCPServer {
+    _fd: int;
+
+    /**
+     * Bind to {host}:{port} and start listening.
+     *
+     * @param host The bind address (e.g., "0.0.0.0" for all network interfaces)
+     * @param port Port number
+     * @return The bound TCPServer instance
+     */
+    static fn listen(host: string, port: int): TCPServer {
+        let s = TCPServer.new();
+        let fd = __net_tcp_listen(host, port);
+        s._fd = fd;
+        return s;
+    }
+
+    /**
+     * Accept a new client connection (blocking).
+     *
+     * @return The newly connected TCPSocket instance
+     */
+    fn accept(): TCPSocket {
+        let fd = __net_tcp_accept(self._fd);
+        let sock = TCPSocket.new();
+        sock._fd = fd;
+        return sock;
+    }
+
+    /**
+     * Check if the server is valid.
+     *
+     * @return true if the handle is valid
+     */
+    fn isValid(): bool {
+        return self._fd >= 0;
+    }
+
+    /**
+     * Close the server, stop accepting new connections. Existing connections are not affected.
+     */
+    fn close(): void {
+        __net_tcp_server_close(self._fd);
+        self._fd = -1;
+    }
+}
+
+// ============================================================
+// UDPSocket — UDP Datagram Socket
+// ============================================================
+
+/**
+ * UDP datagram socket (connectionless).
+ *
+ * Example:
+ * ```
+ * // Sender
+ * let sock = UDPSocket.new();
+ * sock.sendTo("127.0.0.1", 9999, "Hello UDP!");
+ * sock.close();
+ *
+ * // Receiver
+ * let sock = UDPSocket.new();
+ * sock.bind("0.0.0.0", 9999);
+ * let data = sock.recvFrom(1024);
+ * print("from " + sock.senderHost() + ":" + sock.senderPort());
+ * print("data: " + data);
+ * sock.close();
+ * ```
+ */
+export class UDPSocket {
+    _fd: int;
+
+    /**
+     * Create a new UDP socket (unbound).
+     *
+     * Implementation note: Same pattern as `Random.new` — initialize fields directly
+     * on `self` then `return self;`. Never call `UDPSocket.new()` inside `new()`
+     * (this would cause infinite recursion, leading to a codegen type mismatch panic).
+     *
+     * @return A new UDPSocket instance
+     */
+    static fn new(): UDPSocket {
+        self._fd = __net_udp_socket();
+        return self;
+    }
+
+    /**
+     * Bind to local address {host}:{port}, preparing to receive data.
+     *
+     * @param host Local address
+     * @param port Local port
+     * @return 0 on success, -1 on failure
+     */
+    fn bind(host: string, port: int): int {
+        return __net_udp_bind(self._fd, host, port);
+    }
+
+    /**
+     * Send a datagram to {host}:{port}.
+     *
+     * @param host Target host
+     * @param port Target port
+     * @param data Data to send
+     * @return The number of bytes actually sent, -1 on error
+     */
+    fn sendTo(host: string, port: int, data: string): int {
+        return __net_udp_send_to(self._fd, host, port, data);
+    }
+
+    /**
+     * Receive a datagram (blocking). Up to {maxBytes} bytes are read.
+     * Sender information can be obtained via senderHost() / senderPort().
+     *
+     * @param maxBytes Maximum number of bytes to receive
+     * @return The received data as a string
+     */
+    fn recvFrom(maxBytes: int): string {
+        return __net_udp_recv_from(self._fd, maxBytes);
+    }
+
+    /**
+     * Get the sender's host address of the most recent datagram received via recvFrom().
+     *
+     * @return The sender's IP address string
+     */
+    fn senderHost(): string {
+        return __net_udp_sender_host(self._fd);
+    }
+
+    /**
+     * Get the sender's port of the most recent datagram received via recvFrom().
+     *
+     * @return The sender's port number
+     */
+    fn senderPort(): int {
+        return __net_udp_sender_port(self._fd);
+    }
+
+    /**
+     * Check if the socket is valid.
+     *
+     * @return true if the handle is valid
+     */
+    fn isValid(): bool {
+        return self._fd >= 0;
+    }
+
+    /**
+     * Close the UDP socket.
+     */
+    fn close(): void {
+        __net_udp_close(self._fd);
+        self._fd = -1;
+    }
+}

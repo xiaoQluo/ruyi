@@ -3,19 +3,26 @@ pub mod arc;
 pub mod async_exports;
 pub mod async_gc_roots;
 pub mod async_runtime;
+pub mod atomic_ffi;
 pub mod builtins;
 mod c_exports;
+pub mod compress_ffi;
+pub mod crypto_ffi;
 pub mod exception;
 pub mod fmt_ffi;
+pub mod float_ffi;
 pub mod gc;
 pub mod gc_exports;
 pub mod io_ffi;
 pub mod json_ffi;
 pub mod math_ffi;
+pub mod mutex_ffi;
+pub mod net_ffi;
 pub mod path_ffi;
 pub mod process_ffi;
 pub mod random_ffi;
 pub mod time_ffi;
+pub mod tls_ffi;
 
 pub use alloc::{
     allocate, deallocate, reallocate, ruyi_alloc, ruyi_dealloc, ruyi_realloc, GcObjectHeader, Heap,
@@ -34,7 +41,7 @@ pub use builtins::{
     ruyi_array_alloc, ruyi_array_get, ruyi_array_length, ruyi_array_pop, ruyi_array_push,
     ruyi_array_set, ruyi_bigint_eq, ruyi_bigint_from_str, ruyi_bool_to_string,
     ruyi_float_to_string, ruyi_int_to_string, ruyi_member_access, ruyi_object_alloc,
-    ruyi_random_bool, ruyi_random_bytes, ruyi_random_float, ruyi_random_int, ruyi_random_new,
+    __random_bool, __random_bytes, __random_float, __random_int, __random_new,
     ruyi_string_concat,
 };
 pub use c_exports::cc_alloc;
@@ -76,6 +83,8 @@ pub enum RuyiType {
     Void,
     Dyn,
     Never,
+    /// 8-bit unsigned integer (`byte`)
+    Byte,
     /// A user-defined or generic type identified by name.
     Named(&'static str),
     /// An async future wrapping a value type.
@@ -121,6 +130,7 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: RuyiType) -> BasicTyp
             // void cannot be represented as BasicTypeEnum; use i8 as placeholder.
             BasicTypeEnum::IntType(context.i8_type())
         }
+        RuyiType::Byte => BasicTypeEnum::IntType(context.i8_type()),
         RuyiType::Named(_) => {
             // Opaque pointer for user-defined types in the baseline.
             BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))

@@ -67,6 +67,11 @@ pub enum Declaration {
         name: String,
         rules: Vec<MacroRule>,
     },
+    ExternFn {
+        name: String,
+        params: Vec<Param>,
+        return_type: Option<TypeAnnotation>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

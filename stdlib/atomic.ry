@@ -1,0 +1,211 @@
+/**
+ * Ruyi Standard Library — Atomic Types
+ *
+ * Thread-safe primitives built on std::sync::atomic via FFI:
+ *   - AtomicInt   — 64-bit signed integer (native AtomicI64)
+ *   - AtomicBool  — boolean flag (backed by AtomicInt, 0=false 1=true)
+ *   - AtomicFloat — 64-bit float (backed by AtomicInt + f64_to_bits/from_bits)
+ *
+ * Usage:
+ *   import { AtomicInt, AtomicBool, AtomicFloat } from "./atomic";
+ *
+ *   let counter = AtomicInt.new(0);
+ *   counter.fetchAdd(1);
+ *
+ *   let flag = AtomicBool.new(false);
+ *   flag.store(true);
+ *
+ *   let f = AtomicFloat.new(3.14);
+ *   f.fetchAdd(1.0);
+ *
+ * @author Ruyi Team
+ * @date 2026-07-24
+ */
+
+export class AtomicInt {
+    _ptr: dyn;
+
+    /**
+     * Creates a new AtomicInt initialised to the given value.
+     * Returns an AtomicInt that MUST be freed with free() when done.
+     */
+    static fn new(value: int): AtomicInt {
+        let a = new AtomicInt();
+        a._ptr = __atomic_i64_new(value);
+        return a;
+    }
+
+    /** Atomically read the current value. */
+    fn load(): int {
+        return __atomic_i64_load(self._ptr);
+    }
+
+    /** Atomically write a new value. */
+    fn store(value: int): void {
+        __atomic_i64_store(self._ptr, value);
+    }
+
+    /** Compare-and-swap: if current == expected, set to desired.
+     *  Returns the OLD value (== expected on success). */
+    fn compareExchange(expected: int, desired: int): int {
+        return __atomic_i64_cas(self._ptr, expected, desired);
+    }
+
+    /** Atomically add value. Returns the OLD value. */
+    fn fetchAdd(value: int): int {
+        return __atomic_i64_fetch_add(self._ptr, value);
+    }
+
+    /** Atomically subtract value. Returns the OLD value. */
+    fn fetchSub(value: int): int {
+        return __atomic_i64_fetch_sub(self._ptr, value);
+    }
+
+    /** Atomically swap value. Returns the OLD value. */
+    fn swap(value: int): int {
+        return __atomic_i64_swap(self._ptr, value);
+    }
+
+    /** Deallocate the underlying atomic. Undefined behaviour if used after. */
+    fn free(): void {
+        __atomic_i64_free(self._ptr);
+    }
+}
+
+// ============================================================
+// AtomicBool
+// ============================================================
+
+/**
+ * Thread-safe boolean flag.
+ *
+ * Backed by an `AtomicInt` internally (0 = false, 1 = true) so no
+ * additional FFI functions are required.
+ */
+export class AtomicBool {
+    _inner: AtomicInt;
+
+    /** Creates a new AtomicBool initialised to the given value. */
+    static fn new(value: bool): AtomicBool {
+        let a = new AtomicBool();
+        let initial = 0;
+        if (value) {
+            initial = 1;
+        }
+        a._inner = AtomicInt.new(initial);
+        return a;
+    }
+
+    /** Atomically read the current value. */
+    fn load(): bool {
+        return self._inner.load() !== 0;
+    }
+
+    /** Atomically write a new value. */
+    fn store(value: bool): void {
+        let v = 0;
+        if (value) {
+            v = 1;
+        }
+        self._inner.store(v);
+    }
+
+    /** Compare-and-swap. Returns the OLD value (== expected on success). */
+    fn compareExchange(expected: bool, desired: bool): bool {
+        let e = 0; if (expected) { e = 1; }
+        let d = 0; if (desired) { d = 1; }
+        let old = self._inner.compareExchange(e, d);
+        return old !== 0;
+    }
+
+    /** Atomically swap. Returns the OLD value. */
+    fn swap(value: bool): bool {
+        let v = 0; if (value) { v = 1; }
+        let old = self._inner.swap(v);
+        return old !== 0;
+    }
+
+    fn free(): void {
+        self._inner.free();
+    }
+}
+
+// ============================================================
+// AtomicFloat
+// ============================================================
+
+/**
+ * Thread-safe 64-bit float.
+ *
+ * Backed by an `AtomicInt` storing the IEEE 754 bit pattern.
+ * Conversions use `__f64_to_bits` / `__f64_from_bits`.
+ *
+ * Note: `fetchAdd` uses a CAS retry loop — it is lock-free but
+ * not wait-free, and may spin under high contention.
+ */
+export class AtomicFloat {
+    _inner: AtomicInt;
+
+    /** Creates a new AtomicFloat initialised to the given value. */
+    static fn new(value: float): AtomicFloat {
+        let a = new AtomicFloat();
+        a._inner = AtomicInt.new(__f64_to_bits(value));
+        return a;
+    }
+
+    /** Atomically read the current value. */
+    fn load(): float {
+        return __f64_from_bits(self._inner.load());
+    }
+
+    /** Atomically write a new value. */
+    fn store(value: float): void {
+        self._inner.store(__f64_to_bits(value));
+    }
+
+    /**
+     * Compare-and-swap on the IEEE 754 bit pattern.
+     * Returns the OLD value (bit-identical to `expected` on success).
+     *
+     * Bit-level comparison means -0.0 and 0.0 are treated as
+     * distinct, and NaN CAS requires exact bit pattern match.
+     */
+    fn compareExchange(expected: float, desired: float): float {
+        let oldBits = self._inner.compareExchange(
+            __f64_to_bits(expected), __f64_to_bits(desired));
+        return __f64_from_bits(oldBits);
+    }
+
+    /**
+     * Atomically add `value` to the stored float.
+     * Returns the OLD value (before addition).
+     *
+     * Implemented via CAS retry loop.
+     */
+    fn fetchAdd(value: float): float {
+        while (true) {
+            let oldBits = self._inner.load();
+            let oldVal = __f64_from_bits(oldBits);
+            let newBits = __f64_to_bits(oldVal + value);
+            let actual = self._inner.compareExchange(oldBits, newBits);
+            if (actual === oldBits) {
+                return oldVal;
+            }
+        }
+    }
+
+    /** Atomically subtract. Returns the OLD value. */
+    fn fetchSub(value: float): float {
+        return self.fetchAdd(-value);
+    }
+
+    /** Atomically swap. Returns the OLD value. */
+    fn swap(value: float): float {
+        let oldBits = self._inner.swap(__f64_to_bits(value));
+        return __f64_from_bits(oldBits);
+    }
+
+    fn free(): void {
+        self._inner.free();
+    }
+}

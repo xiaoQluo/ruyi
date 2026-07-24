@@ -1,0 +1,139 @@
+/**
+ * Ruyi Standard Library - Logging Module
+ *
+ * Provides a simple leveled logger for application diagnostics.
+ * Four levels: DEBUG (0) < INFO (1) < WARN (2) < ERROR (3).
+ *
+ * Usage:
+ *   import { Logger, info, error } from "./log";
+ *   let log = Logger.new(DEBUG, "myapp");
+ *   log.info("server started");
+ *   info("hello");           // uses global default logger
+ *
+ * @author Ruyi Team
+ * @date 2026-07-24
+ */
+
+// ============================================================
+// Level Constants
+// ============================================================
+
+/** Debug-level messages (most verbose). */
+export const DEBUG: int = 0;
+/** Informational messages. */
+export const INFO: int = 1;
+/** Warning messages. */
+export const WARN: int = 2;
+/** Error messages (least verbose). */
+export const ERROR: int = 3;
+
+// ============================================================
+// Logger Class
+// ============================================================
+
+/**
+ * Configurable logger with minimum-level filtering and optional prefix.
+ */
+export class Logger {
+    _minLevel: int;
+    _prefix: string;
+
+    /**
+     * Creates a new logger.
+     * @param minLevel Minimum level to output (default: INFO)
+     * @param prefix Optional prefix for log lines (e.g. "myapp")
+     */
+    fn new(minLevel: int = INFO, prefix: string = "") {
+        self._minLevel = minLevel;
+        self._prefix = prefix;
+    }
+
+    /**
+     * Sets the minimum log level. Messages below this level are suppressed.
+     * @param level One of DEBUG, INFO, WARN, ERROR
+     */
+    fn setLevel(level: int): void {
+        self._minLevel = level;
+    }
+
+    /**
+     * Logs a debug message. Suppressed when minLevel > DEBUG.
+     * @param msg Message to log
+     */
+    fn debug(msg: string): void {
+        if (self._minLevel <= DEBUG) {
+            print(self._format("DEBUG", msg));
+        }
+    }
+
+    /**
+     * Logs an info message. Suppressed when minLevel > INFO.
+     * @param msg Message to log
+     */
+    fn info(msg: string): void {
+        if (self._minLevel <= INFO) {
+            print(self._format("INFO", msg));
+        }
+    }
+
+    /**
+     * Logs a warning message. Suppressed when minLevel > WARN.
+     * @param msg Message to log
+     */
+    fn warn(msg: string): void {
+        if (self._minLevel <= WARN) {
+            print(self._format("WARN", msg));
+        }
+    }
+
+    /**
+     * Logs an error message. Always output.
+     * @param msg Message to log
+     */
+    fn error(msg: string): void {
+        if (self._minLevel <= ERROR) {
+            print(self._format("ERROR", msg));
+        }
+    }
+
+    // ── Internal ────────────────────────────────────────────
+
+    fn _format(level: string, msg: string): string {
+        if (self._prefix === "") {
+            return "[" + level + "] " + msg;
+        }
+        return "[" + self._prefix + "] [" + level + "] " + msg;
+    }
+}
+
+// ============================================================
+// Global Default Logger
+// ============================================================
+
+let _logger: Logger = Logger.new();
+
+/**
+ * Convenience: log debug via global logger.
+ */
+export fn debug(msg: string): void { _logger.debug(msg); }
+
+/**
+ * Convenience: log info via global logger.
+ */
+export fn info(msg: string): void { _logger.info(msg); }
+
+/**
+ * Convenience: log warn via global logger.
+ */
+export fn warn(msg: string): void { _logger.warn(msg); }
+
+/**
+ * Convenience: log error via global logger.
+ */
+export fn error(msg: string): void { _logger.error(msg); }
+
+/**
+ * Set the global logger's minimum level.
+ * @param level One of DEBUG, INFO, WARN, ERROR
+ */
+export fn setLevel(level: int): void { _logger.setLevel(level); }

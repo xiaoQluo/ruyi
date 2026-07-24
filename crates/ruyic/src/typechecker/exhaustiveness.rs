@@ -98,6 +98,7 @@ fn variant_name(ty: &Type) -> String {
     match ty {
         Type::Named(name, _) => name.clone(),
         Type::Generic { base, .. } => base.clone(),
+        Type::Byte => "byte".to_string(),
         other => format!("{:?}", other),
     }
 }

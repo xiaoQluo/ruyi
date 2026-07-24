@@ -19,6 +19,7 @@ use inkwell::targets::{
 };
 use inkwell::values::{BasicValueEnum, FunctionValue};
 use inkwell::OptimizationLevel;
+use ruyi_exception::landing_pad::LandingPadGenerator;
 
 fn opt_level_to_inkwell(level: OptLevel) -> OptimizationLevel {
     match level {
@@ -36,6 +37,7 @@ use super::types::{function_type_from_ruyi, ruyi_type_to_llvm};
 use crate::parser::ast::Program;
 use crate::typechecker::generics::MonomorphizationTracker;
 use crate::typechecker::types::Type;
+use crate::typechecker::ArcClassRegistry;
 
 /// Extract a `Declaration` reference from a `ModuleItem`, handling both
 /// direct declarations and exported declarations.
@@ -101,6 +103,8 @@ pub struct CodegenContext<'ctx, 'm, 'env> {
     pub class_extends: HashMap<String, String>,
     /// Counter for generating unique anonymous arrow function names.
     pub arrow_counter: u64,
+    pub anon_counter: u64,
+    pub async_arrow_counter: u64,
     pub function_types: HashMap<String, Type>,
     /// Maps function name to (rest_param_index, element_type) for rest parameter handling.
     pub rest_params: HashMap<String, (usize, Type)>,
@@ -120,6 +124,9 @@ pub struct CodegenContext<'ctx, 'm, 'env> {
     /// Active GC mode (`stub` or `real`) used by `GcAllocFn::for_mode`
     /// to choose between `call @cc_alloc` and `call @ruyi_gc_alloc`.
     pub(crate) gc_mode: GcMode,
+    /// Registry of `@arc`-annotated class names. Consulted by `compile_new`
+    /// to decide whether to emit `ruyi_arc_alloc` instead of GC allocation.
+    pub(crate) arc_registry: ArcClassRegistry,
 }
 
 impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
@@ -165,6 +172,8 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
             enum_struct_types: HashMap::new(),
             class_extends: HashMap::new(),
             arrow_counter: 0,
+            anon_counter: 0,
+            async_arrow_counter: 0,
             function_types: HashMap::new(),
             rest_params: HashMap::new(),
             current_return_type: None,
@@ -173,6 +182,7 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
             type_environment,
             pending_loop_label: None,
             gc_mode,
+            arc_registry: ArcClassRegistry::new(),
         }
     }
 
@@ -485,6 +495,9 @@ pub struct CodeGenerator<'ctx> {
     builder: Builder<'ctx>,
     pub allow_partial_codegen: bool,
     pub gc_mode: GcMode,
+    /// Number of stdlib ModuleItems prepended before user code. Items at index
+    /// `< stdlib_item_count` are treated as stdlib and tolerate partial codegen.
+    pub stdlib_item_count: usize,
 }
 
 impl<'ctx> CodeGenerator<'ctx> {
@@ -501,6 +514,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             builder,
             allow_partial_codegen: false,
             gc_mode,
+            stdlib_item_count: 0,
         }
     }
 
@@ -568,9 +582,21 @@ impl<'ctx> CodeGenerator<'ctx> {
 
         let llvm_main_name = "main";
         let i32_ty = self.context.i32_type();
+        use inkwell::attributes::{Attribute, AttributeLoc};
         let main_fn = ctx
             .module
             .add_function(llvm_main_name, i32_ty.fn_type(&[], false), None);
+
+        // Set personality and uwtable on main — required so the platform
+        // unwinder can find landingpad handlers when throw originates from
+        // a callee (e.g. innerThrow → ruyi_throw → _Unwind_RaiseException).
+        let lp_gen = LandingPadGenerator::new(&ctx.context, &ctx.module, ctx.builder());
+        main_fn.set_personality_function(lp_gen.get_personality_function());
+        let uwtable_id = Attribute::get_named_enum_kind_id("uwtable");
+        main_fn.add_attribute(
+            AttributeLoc::Function,
+            ctx.context.create_enum_attribute(uwtable_id, 0),
+        );
         let entry_bb = ctx.context.append_basic_block(main_fn, "entry");
         ctx.builder().position_at_end(entry_bb);
         ctx.set_current_function(Some(main_fn));
@@ -697,7 +723,76 @@ impl<'ctx> CodeGenerator<'ctx> {
             }
         }
 
+        // Register @arc classes and generate per-class TypeInfo globals.
+        // The TypeInfo struct layout matches ruyi_runtime::alloc::TypeInfo:
+        //   { i64 type_id, i8* type_name, i8* destructor, i8* trace_fn }
+        // ARC classes skip GC tracing (destructor and trace_fn are null).
+        let mut arc_type_id: u64 = 1000;
+        let i64_ty = ctx.context.i64_type();
+        let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
+        let type_info_struct = ctx.context.struct_type(
+            &[
+                i64_ty.into(),
+                i8_ptr.into(),
+                i8_ptr.into(),
+                i8_ptr.into(),
+            ],
+            false,
+        );
+
         for item in &program.items {
+            if let crate::parser::ast::ModuleItem::Declaration(
+                crate::parser::ast::Declaration::Class {
+                    name, annotations, ..
+                },
+            ) = item
+            {
+                if annotations.iter().any(|a| a == "arc") {
+                    ctx.arc_registry.register(name);
+
+                    // Create a constant string global for the class name.
+                    // build_global_string_ptr generates a runtime GEP instruction
+                    // that cannot appear in a global initializer; therefore we
+                    // build the global and the const GEP by hand.
+                    let str_bytes = name.as_bytes();
+                    let str_len = str_bytes.len() as u32 + 1;
+                    let str_array_ty = ctx.context.i8_type().array_type(str_len);
+                    let str_global = ctx.module.add_global(
+                        str_array_ty,
+                        None,
+                        &format!("ti_str_{}", name),
+                    );
+                    str_global.set_initializer(
+                        &ctx.context.const_string(str_bytes, true),
+                    );
+                    str_global.set_linkage(inkwell::module::Linkage::Private);
+
+                    // const GEP via const_cast: bitcast [N x i8]* to i8*
+                    // Both addresses are identical; const_cast emits LLVMConstBitCast.
+                    let str_ptr = str_global
+                        .as_pointer_value()
+                        .const_cast(i8_ptr);
+
+                    let type_id = arc_type_id;
+                    arc_type_id += 1;
+
+                    let global_name = format!("ruyi_type_info_{}", name);
+                    let global = ctx.module.add_global(type_info_struct, None, &global_name);
+                    global.set_linkage(inkwell::module::Linkage::Internal);
+                    global.set_initializer(&type_info_struct.const_named_struct(&[
+                        i64_ty.const_int(type_id, false).into(),
+                        str_ptr.into(),
+                        i8_ptr.const_null().into(),
+                        i8_ptr.const_null().into(),
+                    ]));
+                }
+            }
+        }
+
+        for (i, item) in program.items.iter().enumerate() {
+            ctx.set_allow_partial_codegen(
+                self.allow_partial_codegen || i < self.stdlib_item_count,
+            );
             match item {
                 crate::parser::ast::ModuleItem::Declaration(decl) => {
                     if let crate::parser::ast::Declaration::Function { name, is_async, .. } = decl {
@@ -781,6 +876,9 @@ impl<'ctx> CodeGenerator<'ctx> {
                     }
                     Type::Bool => {
                         BasicValueEnum::IntValue(ctx.context.bool_type().const_int(0, false))
+                    }
+                    Type::Byte => {
+                        BasicValueEnum::IntValue(ctx.context.i8_type().const_int(0, false))
                     }
                     _ => BasicValueEnum::PointerValue(
                         ctx.context
@@ -1014,6 +1112,11 @@ fn compile_monomorphized_function<'ctx>(
                 ctx.builder()
                     .build_return(Some(&BasicValueEnum::IntValue(zero)));
             }
+            Type::Byte => {
+                let zero = ctx.context.i8_type().const_int(0, false);
+                ctx.builder()
+                    .build_return(Some(&BasicValueEnum::IntValue(zero)));
+            }
             _ => {
                 let null_ptr = ctx
                     .context
@@ -1135,6 +1238,7 @@ fn ruyi_type_to_zero<'ctx>(
         Type::Int => BasicValueEnum::IntValue(context.i64_type().const_int(0, false)),
         Type::Float => BasicValueEnum::FloatValue(context.f64_type().const_float(0.0)),
         Type::Bool => BasicValueEnum::IntValue(context.bool_type().const_int(0, false)),
+        Type::Byte => BasicValueEnum::IntValue(context.i8_type().const_int(0, false)),
         Type::Null => BasicValueEnum::IntValue(context.i64_type().const_int(0, false)),
         _ => BasicValueEnum::IntValue(context.i64_type().const_int(0, false)),
     }

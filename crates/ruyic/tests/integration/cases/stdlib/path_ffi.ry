@@ -16,7 +16,7 @@ fn main() {
         print("OK extname");
     }
 
-    let joined = Path.join("/home", "user", "docs");
+    let joined = Path.join(["/home", "user", "docs"]);
     if (joined === "/home/user/docs") {
         print("OK join");
     }

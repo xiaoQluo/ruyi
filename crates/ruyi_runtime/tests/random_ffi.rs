@@ -10,41 +10,41 @@
  */
 use ruyi_runtime::*;
 
-/// `ruyi_random_int(seed, min, max)` MUST return values in the closed
+/// `__random_int(seed, min, max)` MUST return values in the closed
 /// interval `[min, max]` for any non-degenerate range.
 #[test]
-fn test_ruyi_random_int_range() {
+fn test_random_int_range() {
     let seed: i64 = 12345;
     for _ in 0..1000 {
-        let v = unsafe { ruyi_random_int(seed, 5, 10) };
+        let v = __random_int(seed, 5, 10);
         assert!(
             v >= 5 && v <= 10,
-            "ruyi_random_int(seed, 5, 10) returned out-of-range value: {}",
+            "__random_int(seed, 5, 10) returned out-of-range value: {}",
             v
         );
     }
 }
 
-/// `ruyi_random_int(seed, min, max)` MUST return `min` when `min === max`,
+/// `__random_int(seed, min, max)` MUST return `min` when `min === max`,
 /// regardless of how many times it is called.
 #[test]
-fn test_ruyi_random_int_min_eq_max() {
+fn test_random_int_min_eq_max() {
     let seed: i64 = 12345;
     for _ in 0..100 {
-        let v = unsafe { ruyi_random_int(seed, 5, 5) };
+        let v = __random_int(seed, 5, 5);
         assert_eq!(v, 5, "min==max must collapse to min");
     }
 }
 
-/// `ruyi_random_float(seed)` MUST return values in `[0.0, 1.0)`.
+/// `__random_float(seed)` MUST return values in `[0.0, 1.0)`.
 #[test]
-fn test_ruyi_random_float() {
+fn test_random_float() {
     let seed: i64 = 12345;
     for _ in 0..1000 {
-        let v = unsafe { ruyi_random_float(seed) };
+        let v = __random_float(seed);
         assert!(
             v >= 0.0 && v < 1.0,
-            "ruyi_random_float(seed) returned out-of-range value: {}",
+            "__random_float(seed) returned out-of-range value: {}",
             v
         );
     }

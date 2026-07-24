@@ -1,0 +1,521 @@
+/**
+ * Ruyi Standard Library - WebSocket Client & Server
+ *
+ * RFC 6455 WebSocket implementation on top of `TCPSocket` / `TCPServer`.
+ * Supports ws:// (plain) and wss:// (TLS) for both client and server.
+ *
+ * Dependencies:
+ *   - net.ry  → TCPSocket, TCPServer
+ *   - crypto/hash.ry  → sha1Raw
+ *   - encoding.ry  → base64Encode
+ *
+ * Usage (client):
+ *   import { WebSocket } from "./websocket";
+ *   let ws = WebSocket.connect("wss://echo.websocket.org");
+ *   ws.send("Hello!");
+ *   let msg = ws.recv();
+ *   ws.close();
+ *
+ * Usage (server TLS):
+ *   import { WebSocketServer } from "./websocket";
+ *   import { TlsServer } from "./tls";
+ *   let cfg = TlsServer.loadConfig(certPem, keyPem);
+ *   let server = WebSocketServer.listenTls("0.0.0.0", 443, cfg);
+ *   let ws = server.accept();
+ *
+ * @author Ruyi Team
+ * @date 2026-07-24
+ */
+
+import { TCPSocket, TCPServer } from "./net";
+import { TlsSocket, TlsServer, TlsServerConfig } from "./tls";
+import { sha1Raw } from "./crypto/hash";
+import { base64Encode } from "./encoding";
+import { Deflate } from "./compress";
+import { Buffer } from "./buffer";
+
+// ============================================================
+// Constants
+// ============================================================
+
+/** Magic GUID for WebSocket handshake per RFC 6455 §4.2.2. */
+const WS_GUID: string = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+// ============================================================
+// Internal — URL Parsing
+// ============================================================
+
+fn parseWsUrl(url: string): { host: string, port: int, path: string, secure: bool } {
+    let secure = false;
+    let host = "";
+    let port = 80;
+    let path = "/";
+    let rest = url;
+
+    let schemeEnd = rest.indexOf("://");
+    if (schemeEnd !== -1) {
+        let scheme = rest.substring(0, schemeEnd);
+        if (scheme === "wss") { secure = true; port = 443; }
+        rest = rest.substring(schemeEnd + 3);
+    }
+
+    let pathStart = rest.indexOf("/");
+    let hostPart = rest;
+    if (pathStart !== -1) {
+        hostPart = rest.substring(0, pathStart);
+        path = rest.substring(pathStart);
+    }
+
+    let colon = hostPart.indexOf(":");
+    if (colon !== -1) {
+        host = hostPart.substring(0, colon);
+        let portStr = hostPart.substring(colon + 1);
+        port = _parseInt(portStr);
+    } else {
+        host = hostPart;
+    }
+    if (host === "") { host = "localhost"; }
+    return { host: host, port: port, path: path, secure: secure };
+}
+
+fn _parseInt(s: string): int {
+    let value = 0; let i = 0;
+    while (i < s.length()) {
+        let c = s.charCodeAt(i);
+        if (c >= 48 && c <= 57) { value = value * 10 + (c - 48); i = i + 1; }
+        else { break; }
+    }
+    return value;
+}
+
+// ============================================================
+// Internal — Handshake
+// ============================================================
+
+fn generateKey(): string {
+    let bytes = __io_read_random(16);
+    let keyBytes: Array<byte> = [];
+    let i = 0;
+    while (i < 16) {
+        keyBytes.push(bytes.charCodeAt(i));
+        i = i + 1;
+    }
+    // Convert bytes → string for base64Encode
+    let keyStr = "";
+    i = 0;
+    while (i < 16) {
+        keyStr = keyStr + _fromCode(keyBytes.get(i));
+        i = i + 1;
+    }
+    return base64Encode(keyStr);
+}
+
+fn _fromCode(c: int): string {
+    // Minimal fromCharCode substitute
+    if (c < 128) {
+        if (c === 0) { return "\0"; }
+        let s = ""; s = s + "\0"; return s;
+    }
+    // For non-ASCII, delegate to the runtime's string::fromCharCode
+    return _builtinFromCharCode(c);
+}
+
+fn _builtinFromCharCode(c: int): string {
+    return __string_from_char_code(c);
+}
+
+fn computeAccept(key: string): string {
+    let combined = key + WS_GUID;
+    let bytes: Array<byte> = [];
+    let i = 0;
+    while (i < combined.length()) {
+        bytes.push(combined.charCodeAt(i));
+        i = i + 1;
+    }
+    let hash = sha1Raw(bytes);
+    // Convert hash bytes → string for base64Encode
+    let hashStr = "";
+    i = 0;
+    while (i < hash.length()) {
+        hashStr = hashStr + __string_from_char_code(hash.get(i));
+        i = i + 1;
+    }
+    return base64Encode(hashStr);
+}
+
+// ============================================================
+// Internal — Frame Encoding / Decoding
+// ============================================================
+
+fn encodeFrame(opcode: int, payload: string, rsv1: bool = false): string {
+    // opcode: 1=text, 2=binary, 8=close, 9=ping, 10=pong
+    let frame = "";
+    let b0 = 0x80 | (opcode & 0x0F);  // FIN=1
+    if (rsv1) { b0 = b0 | 0x40; }
+    frame = frame + __string_from_char_code(b0);
+
+    let plen = payload.length();
+    if (plen < 126) {
+        frame = frame + __string_from_char_code(plen);
+    } else if (plen < 65536) {
+        frame = frame + __string_from_char_code(126);
+        frame = frame + __string_from_char_code((plen >> 8) & 0xFF);
+        frame = frame + __string_from_char_code(plen & 0xFF);
+    } else {
+        frame = frame + __string_from_char_code(127);
+        let k = 7;
+        while (k >= 0) {
+            frame = frame + __string_from_char_code((plen >> (k * 8)) & 0xFF);
+            k = k - 1;
+        }
+    }
+
+    frame = frame + payload;
+    return frame;
+}
+
+fn decodeFrame(data: string): { opcode: int, payload: string, fin: bool, rsv1: bool } {
+    if (data.length() < 2) {
+        return { opcode: 0, payload: "", fin: false, rsv1: false };
+    }
+
+    let b0 = data.charCodeAt(0);
+    let b1 = data.charCodeAt(1);
+    let fin = (b0 & 0x80) !== 0;
+    let rsv1 = (b0 & 0x40) !== 0;
+    let opcode = b0 & 0x0F;
+    let masked = (b1 & 0x80) !== 0;
+    let plen = b1 & 0x7F;
+
+    let offset = 2;
+
+    if (plen === 126) {
+        if (data.length() < 4) { return { opcode: 0, payload: "", fin: false, rsv1: false }; }
+        plen = (data.charCodeAt(2) << 8) | data.charCodeAt(3);
+        offset = 4;
+    } else if (plen === 127) {
+        if (data.length() < 10) { return { opcode: 0, payload: "", fin: false, rsv1: false }; }
+        plen = 0;
+        let k = 0;
+        while (k < 8) {
+            plen = (plen << 8) | data.charCodeAt(2 + k);
+            k = k + 1;
+        }
+        offset = 10;
+    }
+
+    let mask: Array<byte> = [];
+    if (masked) {
+        if (data.length() < offset + 4) { return { opcode: 0, payload: "", fin: false, rsv1: false }; }
+        let k = 0;
+        while (k < 4) {
+            mask.push(data.charCodeAt(offset + k));
+            k = k + 1;
+        }
+        offset = offset + 4;
+    }
+
+    let payload = "";
+    let i = 0;
+    while (i < plen && offset + i < data.length()) {
+        let b = data.charCodeAt(offset + i);
+        if (masked) {
+            b = b ^ mask.get(i % 4);
+        }
+        payload = payload + __string_from_char_code(b);
+        i = i + 1;
+    }
+
+    return { opcode: opcode, payload: payload, fin: fin, rsv1: rsv1 };
+}
+
+// ============================================================
+// WebSocket Class
+// ============================================================
+
+fn readFromSocket(sock: dyn): string {
+    let buffer = "";
+    let chunk = sock.read(65536);
+    while (chunk !== "") {
+        buffer = buffer + chunk;
+        chunk = sock.read(65536);
+    }
+    return buffer;
+}
+
+/**
+ * WebSocket client connection.
+ *
+ * Supports ws:// (plain TCP) and wss:// (TLS) connections.
+ * Text frames (opcode 1) are used for send/recv.
+ * Control frames (close, ping, pong) are handled automatically.
+ */
+export class WebSocket {
+    _sock: dyn;
+    _deflate: bool;
+
+    /**
+     * Connects to a WebSocket server and performs the upgrade handshake.
+     *
+     * @param url WebSocket URL (ws://host:port/path)
+     * @return Connected WebSocket instance
+     */
+    static fn connect(url: string): WebSocket {
+        let info = parseWsUrl(url);
+        let ws = new WebSocket();
+        if (info.secure) {
+            let tls = TlsSocket.connect(info.host, info.port);
+            if (tls === null) {
+                let dummy = new WebSocket();
+                return dummy;
+            }
+            ws._sock = tls;
+        } else {
+            ws._sock = TCPSocket.connect(info.host, info.port);
+        }
+
+        // Perform upgrade handshake
+        let key = generateKey();
+        let req = "GET " + info.path + " HTTP/1.1\r\n";
+        req = req + "Host: " + info.host + "\r\n";
+        req = req + "Upgrade: websocket\r\n";
+        req = req + "Connection: Upgrade\r\n";
+        req = req + "Sec-WebSocket-Key: " + key + "\r\n";
+        req = req + "Sec-WebSocket-Version: 13\r\n";
+        req = req + "Sec-WebSocket-Extensions: permessage-deflate\r\n";
+        req = req + "\r\n";
+
+        ws._sock.write(req);
+
+        // Read response
+        let resp = "";
+        let chunk = ws._sock.read(4096);
+        while (chunk !== "") {
+            resp = resp + chunk;
+            chunk = ws._sock.read(4096);
+        }
+
+        if (resp.toLowerCase().indexOf("sec-websocket-extensions:") !== -1) {
+            ws._deflate = true;
+        }
+
+        return ws;
+    }
+
+    /**
+     * Sends a text message.
+     * @param data Text payload
+     */
+    fn send(data: string): void {
+        let payload = data;
+        let rsv1 = false;
+        if (self._deflate) {
+            let buf = Deflate.compress(Buffer.from(data));
+            payload = buf.toString();
+            rsv1 = true;
+        }
+        let frame = encodeFrame(1, payload, rsv1);
+        self._sock.write(frame);
+    }
+
+    /**
+     * Receives a message. Blocks until a complete text frame arrives.
+     * Control frames (ping/pong/close) are handled internally.
+     * @return Message text, or null if connection is closed
+     */
+    fn recv(): string? {
+        let buffer = readFromSocket(self._sock);
+        if (buffer === "") { return null; }
+
+        let decoded = decodeFrame(buffer);
+
+        if (decoded.opcode === 8) {
+            let closeFrame = encodeFrame(8, decoded.payload);
+            self._sock.write(closeFrame);
+            return null;
+        }
+        if (decoded.opcode === 9) {
+            let pongFrame = encodeFrame(10, decoded.payload);
+            self._sock.write(pongFrame);
+            return self.recv();
+        }
+        if (decoded.opcode === 10) {
+            return self.recv();
+        }
+
+        if (decoded.opcode === 1 || decoded.opcode === 2) {
+            let result = decoded.payload;
+            if (decoded.rsv1 && self._deflate) {
+                let buf = Deflate.decompress(Buffer.from(result));
+                result = buf.toString();
+            }
+            return result;
+        }
+
+        return null;
+    }
+
+    /**
+     * Closes the WebSocket connection gracefully.
+     */
+    fn close(): void {
+        let frame = encodeFrame(8, "");
+        self._sock.write(frame);
+        self._sock.close();
+    }
+
+    /**
+     * Returns true if the underlying TCP connection is valid.
+     * @return true if connected
+     */
+    fn isValid(): bool {
+        return self._sock.isValid();
+    }
+}
+
+// ============================================================
+// WebSocketServer — Server-Side
+// ============================================================
+
+/**
+ * WebSocket server.
+ *
+ * Listens on a TCP port and upgrades incoming HTTP connections
+ * to the WebSocket protocol per RFC 6455 §4.2.2.
+ *
+ * Each accepted connection returns a `WebSocket` instance that
+ * can be used for bidirectional text messaging.
+ */
+export class WebSocketServer {
+    _server: TCPServer;
+    _tlsServer: TlsServer?;
+
+    static fn listen(host: string, port: int): WebSocketServer {
+        let srv = new WebSocketServer();
+        srv._server = TCPServer.listen(host, port);
+        return srv;
+    }
+
+    static fn listenTls(host: string, port: int, config: TlsServerConfig): WebSocketServer {
+        let srv = new WebSocketServer();
+        srv._tlsServer = TlsServer.listen(host, port, config);
+        return srv;
+    }
+
+    /**
+     * Accepts an incoming connection and performs the WebSocket
+     * upgrade handshake. Blocks until a client connects.
+     *
+     * On success, returns a `WebSocket` ready for messaging.
+     * On handshake failure, returns a WebSocket whose `isValid()`
+     * reports false — the caller should check before using it.
+     *
+     * @return Upgraded WebSocket connection
+     */
+    fn accept(): WebSocket {
+        let client: dyn;
+        if (self._tlsServer !== null) {
+            let tls = self._tlsServer.accept();
+            if (tls === null) { let dummy = new WebSocket(); return dummy; }
+            client = tls;
+        } else {
+            client = self._server.accept();
+        }
+        let ws = new WebSocket();
+        ws._sock = client;
+
+        // Read the HTTP upgrade request
+        let raw = "";
+        let chunk = ws._sock.read(4096);
+        while (chunk !== "") {
+            raw = raw + chunk;
+            // Stop reading when we have the blank line (end of headers)
+            if (raw.indexOf("\r\n\r\n") !== -1) {
+                break;
+            }
+            chunk = ws._sock.read(4096);
+        }
+
+        // Extract Sec-WebSocket-Key
+        let key = _extractHeader(raw, "Sec-WebSocket-Key");
+        if (key === "") {
+            ws._sock.close();
+            return ws;
+        }
+
+        // Check for permessage-deflate extension
+        let extensions = _extractHeader(raw, "Sec-WebSocket-Extensions");
+        if (extensions !== "" && extensions.toLowerCase().indexOf("permessage-deflate") !== -1) {
+            ws._deflate = true;
+        }
+
+        // Compute accept and send 101 response
+        let accept = computeAccept(key);
+        let resp = "HTTP/1.1 101 Switching Protocols\r\n";
+        resp = resp + "Upgrade: websocket\r\n";
+        resp = resp + "Connection: Upgrade\r\n";
+        resp = resp + "Sec-WebSocket-Accept: " + accept + "\r\n";
+        if (ws._deflate) {
+            resp = resp + "Sec-WebSocket-Extensions: permessage-deflate\r\n";
+        }
+        resp = resp + "\r\n";
+        ws._sock.write(resp);
+
+        return ws;
+    }
+
+    /**
+     * Closes the server. Existing connections are not affected.
+     */
+    fn close(): void {
+        if (self._tlsServer !== null) {
+            self._tlsServer.close();
+        } else {
+            self._server.close();
+        }
+    }
+
+    /**
+     * Returns true if the server is valid.
+     * @return true if listening
+     */
+    fn isValid(): bool {
+        if (self._tlsServer !== null) {
+            return self._tlsServer.isValid();
+        }
+        return self._server.isValid();
+    }
+}
+
+// ============================================================
+// Internal — Header Parsing
+// ============================================================
+
+/**
+ * Extracts a case-insensitive header value from raw HTTP text.
+ */
+fn _extractHeader(raw: string, name: string): string {
+    let lowerName = name.toLowerCase();
+    let lines = raw;
+    let pos = 0;
+    let len = lines.length();
+    while (pos < len) {
+        let nl = lines.indexOf("\r\n", pos);
+        let line: string;
+        if (nl !== -1) {
+            line = lines.substring(pos, nl);
+            pos = nl + 2;
+        } else {
+            line = lines.substring(pos);
+            pos = len;
+        }
+        let colon = line.indexOf(":");
+        if (colon !== -1) {
+            let key = line.substring(0, colon).trim().toLowerCase();
+            if (key === lowerName) {
+                return line.substring(colon + 1).trim();
+            }
+        }
+    }
+    return "";
+}

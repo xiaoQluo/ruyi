@@ -1,0 +1,17 @@
+// Test basic byte type support
+fn main() {
+    let a: byte = 42;
+    let b: byte = 100;
+    let c: byte = 255;
+
+    // byte arithmetic promotes to int
+    let sum: int = a + b; // 142
+
+    // byte <: int <: float
+    let f: float = c; // 255.0
+
+    // typeof narrow
+    let flag = typeof a === "byte";
+
+    print("byte test passed!");
+}

@@ -1,0 +1,607 @@
+/**
+ * Ruyi Standard Library - HTTP Client & Server
+ *
+ * Thin HTTP/1.1 implementation built on top of `TCPSocket` / `TCPServer`
+ * from `net.ry`. Supports GET and POST with configurable headers and
+ * automatic request/response parsing.
+ *
+ * HTTPS (TLS) is supported via `tls.ry`.
+ *
+ * Usage (client):
+ *   import { get, post } from "./http";
+ *   let resp = get("https://example.com/");
+ *   print(resp.body);
+ *
+ * Usage (server):
+ *   import { HttpServer } from "./http";
+ *   let server = HttpServer.listen("0.0.0.0", 8080);
+ *   let req = server.accept();
+ *   server.sendResponse(req, 200, "OK");
+ *   server.close();
+ *
+ * @author Ruyi Team
+ * @date 2026-07-24
+ */
+
+import { TCPSocket, TCPServer } from "./net";
+import { TlsSocket, TlsServer, TlsServerConfig } from "./tls";
+import { Gzip, Deflate } from "./compress";
+import { Buffer } from "./buffer";
+
+// ============================================================
+// HttpResponse
+// ============================================================
+
+/**
+ * Parsed HTTP response.
+ */
+export class HttpResponse {
+    /** HTTP status code (e.g. 200, 404). */
+    status: int;
+    /** Response headers, lower-cased keys. */
+    headers: Map<string, string>;
+    /** Response body as a string. */
+    body: string;
+
+    /**
+     * Checks whether the response indicates success (2xx).
+     * @return true for 200-299 status codes
+     */
+    fn isSuccess(): bool {
+        return self.status >= 200 && self.status < 300;
+    }
+}
+
+// ============================================================
+// Internal — URL Parsing
+// ============================================================
+
+fn parseUrl(url: string): { host: string, port: int, path: string, scheme: string } {
+    // Defaults
+    let scheme = "http";
+    let host = "";
+    let port = 80;
+    let path = "/";
+
+    let rest = url;
+
+    // Extract scheme
+    let schemeEnd = rest.indexOf("://");
+    if (schemeEnd !== -1) {
+        scheme = rest.substring(0, schemeEnd);
+        rest = rest.substring(schemeEnd + 3);
+    }
+
+    // Extract host:port
+    let pathStart = rest.indexOf("/");
+    let hostPart = rest;
+    if (pathStart !== -1) {
+        hostPart = rest.substring(0, pathStart);
+        path = rest.substring(pathStart);
+    }
+
+    // Split host:port
+    let colon = hostPart.indexOf(":");
+    if (colon !== -1) {
+        host = hostPart.substring(0, colon);
+        let portStr = hostPart.substring(colon + 1);
+        port = _parseInt(portStr);
+    } else {
+        host = hostPart;
+        if (scheme === "https") {
+            port = 443;
+        }
+    }
+
+    if (host === "") {
+        host = "localhost";
+    }
+
+    return { host: host, port: port, path: path, scheme: scheme };
+}
+
+fn _parseInt(s: string): int {
+    let value = 0;
+    let i = 0;
+    while (i < s.length()) {
+        let c = s.charCodeAt(i);
+        if (c >= 48 && c <= 57) {
+            value = value * 10 + (c - 48);
+            i = i + 1;
+        } else {
+            break;
+        }
+    }
+    return value;
+}
+
+// ============================================================
+// Internal — Response Parsing
+// ============================================================
+
+fn parseResponse(raw: string): HttpResponse {
+    let resp = new HttpResponse();
+    resp.status = 0;
+    resp.headers = Map.new();
+    resp.body = "";
+
+    // Split headers from body at first \r\n\r\n
+    let headerEnd = raw.indexOf("\r\n\r\n");
+    let headerSection: string;
+    if (headerEnd !== -1) {
+        headerSection = raw.substring(0, headerEnd);
+        resp.body = raw.substring(headerEnd + 4);
+    } else {
+        headerSection = raw;
+    }
+
+    // Parse status line
+    let firstNewline = headerSection.indexOf("\r\n");
+    let statusLine: string;
+    if (firstNewline !== -1) {
+        statusLine = headerSection.substring(0, firstNewline);
+    } else {
+        statusLine = headerSection;
+    }
+
+    // "HTTP/1.1 200 OK"
+    let sp1 = statusLine.indexOf(" ");
+    if (sp1 !== -1) {
+        let sp2 = statusLine.indexOf(" ", sp1 + 1);
+        let codeStr: string;
+        if (sp2 !== -1) {
+            codeStr = statusLine.substring(sp1 + 1, sp2);
+        } else {
+            codeStr = statusLine.substring(sp1 + 1);
+        }
+        resp.status = _parseInt(codeStr.trim());
+    }
+
+    // Parse headers
+    if (firstNewline !== -1) {
+        let headersRaw = headerSection.substring(firstNewline + 2);
+        let pos = 0;
+        let len = headersRaw.length();
+        while (pos < len) {
+            let nl = headersRaw.indexOf("\r\n", pos);
+            let line: string;
+            if (nl !== -1) {
+                line = headersRaw.substring(pos, nl);
+                pos = nl + 2;
+            } else {
+                line = headersRaw.substring(pos);
+                pos = len;
+            }
+            if (line === "") {
+                break;
+            }
+            let colon = line.indexOf(":");
+            if (colon !== -1) {
+                let key = line.substring(0, colon).toLowerCase().trim();
+                let value = line.substring(colon + 1).trim();
+                resp.headers.set(key, value);
+            }
+        }
+    }
+
+    return resp;
+}
+
+// ============================================================
+// Internal — Request Building
+// ============================================================
+
+fn buildRequest(method: string, path: string, host: string, headers: Map<string, string>, body: string): string {
+    let req = method + " " + path + " HTTP/1.1\r\n";
+    req = req + "Host: " + host + "\r\n";
+
+    // User headers
+    let i = 0;
+    let keys = headers.keys();
+    while (i < keys.length()) {
+        let key = keys.get(i);
+        let val = headers.get(key);
+        if (val !== null) {
+            req = req + key + ": " + val + "\r\n";
+        }
+        i = i + 1;
+    }
+
+    // Content-Length for body
+    if (body !== "") {
+        req = req + "Content-Length: " + body.length().toString() + "\r\n";
+    }
+
+    req = req + "Connection: close\r\n";
+    req = req + "\r\n";
+    req = req + body;
+
+    return req;
+}
+
+// ============================================================
+// HttpClient
+// ============================================================
+
+/**
+ * Configurable HTTP client for making requests.
+ *
+ * Supports custom headers and request body. Responses are parsed
+ * into HttpResponse objects with status, headers, and body fields.
+ */
+export class HttpClient {
+    /**
+     * Sends an HTTP request and returns the parsed response.
+     *
+     * @param method HTTP method ("GET", "POST", etc.)
+     * @param url Full URL (http://host:port/path)
+     * @param body Request body (default: "")
+     * @param headers Additional request headers
+     * @return Parsed HttpResponse
+     */
+    static fn request(method: string, url: string, body: string = "", headers: Map<string, string>? = null): HttpResponse {
+        let urlInfo = parseUrl(url);
+
+        let hdrs = headers !== null ? headers : Map.new();
+        hdrs.set("accept-encoding", "gzip, deflate");
+
+        if (urlInfo.scheme === "https") {
+            let port = 443;
+            if (urlInfo.port > 0) {
+                port = urlInfo.port;
+            }
+            let tls = TlsSocket.connect(urlInfo.host, port);
+            if (tls === null) {
+                let resp = new HttpResponse();
+                resp.status = 0;
+                resp.headers = Map.new();
+                resp.body = "TLS handshake failed";
+                return resp;
+            }
+
+            // Build request
+            let req = buildRequest(method, urlInfo.path, urlInfo.host, hdrs, body);
+            tls.write(req);
+
+            // Read response
+            let raw = "";
+            let chunk = tls.read(4096);
+            while (chunk !== "" && chunk !== null) {
+                raw = raw + chunk;
+                chunk = tls.read(4096);
+            }
+            tls.close();
+            return _decodeResponse(parseResponse(raw));
+        }
+
+        // Build request
+        let req = buildRequest(method, urlInfo.path, urlInfo.host, hdrs, body);
+
+        // Connect and send
+        let sock = TCPSocket.connect(urlInfo.host, urlInfo.port);
+        let writeErr = sock.write(req);
+        if (writeErr < 0) {
+            sock.close();
+            let resp = new HttpResponse();
+            resp.status = 0;
+            resp.headers = Map.new();
+            resp.body = "write error";
+            return resp;
+        }
+
+        // Read response
+        let raw = "";
+        let chunk = sock.read(4096);
+        while (chunk !== "") {
+            raw = raw + chunk;
+            chunk = sock.read(4096);
+        }
+        sock.close();
+
+        return _decodeResponse(parseResponse(raw));
+    }
+}
+
+fn _decodeResponse(resp: HttpResponse): HttpResponse {
+    let enc = resp.headers.get("content-encoding");
+    if (enc === null || enc === "") { return resp; }
+    let buf = Buffer.from(resp.body);
+    if (enc.indexOf("gzip") !== -1) {
+        resp.body = Gzip.decompress(buf).toString();
+    } else if (enc.indexOf("deflate") !== -1) {
+        resp.body = Deflate.decompress(buf).toString();
+    }
+    return resp;
+}
+
+// ============================================================
+// Convenience Functions
+// ============================================================
+
+/**
+ * HTTP GET request.
+ * @param url Target URL
+ * @return Parsed HttpResponse
+ */
+export fn get(url: string): HttpResponse {
+    return HttpClient.request("GET", url);
+}
+
+/**
+ * HTTP POST request.
+ * @param url Target URL
+ * @param body Request body string
+ * @param contentType Content-Type header value (default: "text/plain")
+ * @return Parsed HttpResponse
+ */
+export fn post(url: string, body: string, contentType: string = "text/plain"): HttpResponse {
+    let headers = Map.new();
+    headers.set("Content-Type", contentType);
+    return HttpClient.request("POST", url, body, headers);
+}
+
+// ============================================================
+// HttpRequest — Parsed Incoming Request
+// ============================================================
+
+/**
+ * Parsed HTTP request received by the server.
+ */
+export class HttpRequest {
+    /** HTTP method (e.g. "GET", "POST"). */
+    method: string;
+    /** Request path (e.g. "/index.html"). */
+    path: string;
+    /** Request headers, lower-cased keys. */
+    headers: Map<string, string>;
+    /** Request body as a string. */
+    body: string;
+    /** Internal: underlying TCP socket (set by HttpServer). */
+    _sock: TCPSocket;
+
+    /**
+     * Returns the value of a specific header, or null if not present.
+     * @param name Header name (case-insensitive)
+     * @return Header value or null
+     */
+    fn getHeader(name: string): string? {
+        return self.headers.get(name.toLowerCase());
+    }
+}
+
+// ============================================================
+// Internal — Request Parsing
+// ============================================================
+
+fn parseRequest(raw: string): HttpRequest {
+    let req = new HttpRequest();
+    req.method = "";
+    req.path = "/";
+    req.headers = Map.new();
+    req.body = "";
+
+    let headerEnd = raw.indexOf("\r\n\r\n");
+    let headerSection: string;
+    if (headerEnd !== -1) {
+        headerSection = raw.substring(0, headerEnd);
+        req.body = raw.substring(headerEnd + 4);
+    } else {
+        headerSection = raw;
+    }
+
+    // Parse request line: METHOD PATH HTTP/1.1
+    let firstNl = headerSection.indexOf("\r\n");
+    let requestLine: string;
+    if (firstNl !== -1) {
+        requestLine = headerSection.substring(0, firstNl);
+    } else {
+        requestLine = headerSection;
+    }
+
+    let sp1 = requestLine.indexOf(" ");
+    if (sp1 !== -1) {
+        req.method = requestLine.substring(0, sp1);
+        let sp2 = requestLine.indexOf(" ", sp1 + 1);
+        if (sp2 !== -1) {
+            req.path = requestLine.substring(sp1 + 1, sp2);
+        } else {
+            req.path = requestLine.substring(sp1 + 1);
+        }
+    }
+
+    // Parse headers
+    if (firstNl !== -1) {
+        let headersRaw = headerSection.substring(firstNl + 2);
+        let pos = 0;
+        let len = headersRaw.length();
+        while (pos < len) {
+            let nl = headersRaw.indexOf("\r\n", pos);
+            let line: string;
+            if (nl !== -1) {
+                line = headersRaw.substring(pos, nl);
+                pos = nl + 2;
+            } else {
+                line = headersRaw.substring(pos);
+                pos = len;
+            }
+            if (line === "") { break; }
+            let colon = line.indexOf(":");
+            if (colon !== -1) {
+                let key = line.substring(0, colon).toLowerCase().trim();
+                let value = line.substring(colon + 1).trim();
+                req.headers.set(key, value);
+            }
+        }
+    }
+
+    return req;
+}
+
+// ============================================================
+// HttpServer
+// ============================================================
+
+/**
+ * HTTP/1.1 server.
+ *
+ * Listens on a TCP port and parses incoming HTTP requests.
+ * Responses are sent via `sendResponse()`.
+ */
+export class HttpServer {
+    _server: TCPServer;
+    _tlsServer: TlsServer?;
+
+    /**
+     * Binds to {host}:{port} and starts listening (plain HTTP).
+     */
+    static fn listen(host: string, port: int): HttpServer {
+        let srv = new HttpServer();
+        srv._server = TCPServer.listen(host, port);
+        return srv;
+    }
+
+    /**
+     * Binds to {host}:{port} with TLS. Requires a config from TlsServer.loadConfig().
+     */
+    static fn listenTls(host: string, port: int, config: TlsServerConfig): HttpServer {
+        let srv = new HttpServer();
+        srv._tlsServer = TlsServer.listen(host, port, config);
+        return srv;
+    }
+
+    /**
+     * Accepts an incoming connection and parses the HTTP request.
+     * Blocks until a client connects and sends a complete request.
+     *
+     * @return Parsed HttpRequest
+     */
+    fn accept(): HttpRequest {
+        let client: dyn;
+        if (self._tlsServer !== null) {
+            let tls = self._tlsServer.accept();
+            if (tls === null) {
+                let req = new HttpRequest();
+                req.method = "";
+                req.path = "/";
+                req.headers = Map.new();
+                req.body = "";
+                return req;
+            }
+            client = tls;
+        } else {
+            client = self._server.accept();
+        }
+
+        // Read request
+        let raw = "";
+        let chunk = client.read(4096);
+        while (chunk !== "") {
+            raw = raw + chunk;
+            // Stop at end of headers for GET, or read body
+            if (raw.indexOf("\r\n\r\n") !== -1) {
+                // Check for Content-Length to decide if we need more
+                let req = parseRequest(raw);
+                let clen = req.getHeader("content-length");
+                if (clen !== null) {
+                    let expected = _parseIntLen(clen);
+                    if (req.body.length() >= expected) {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            chunk = client.read(4096);
+        }
+
+        let request = parseRequest(raw);
+        // Stash the client socket so sendResponse can use it
+        request._sock = client;
+        return request;
+    }
+
+    /**
+     * Sends an HTTP response back to the client.
+     *
+     * @param req The HttpRequest to respond to (from accept())
+     * @param status HTTP status code (e.g. 200, 404)
+     * @param body Response body string
+     * @param contentType Content-Type header value (default: "text/plain")
+     */
+    fn sendResponse(req: HttpRequest, status: int, body: string, contentType: string = "text/plain"): void {
+        let acceptEnc = req.getHeader("accept-encoding");
+        let canGzip = acceptEnc !== null && acceptEnc.indexOf("gzip") !== -1;
+
+        let respBody = body;
+        let contentEnc = "";
+        if (canGzip && body.length() > 256) {
+            let buf = Gzip.compress(Buffer.from(body));
+            respBody = buf.toString();
+            contentEnc = "gzip";
+        }
+
+        let resp = "HTTP/1.1 " + status.toString() + " " + _statusText(status) + "\r\n";
+        resp = resp + "Content-Type: " + contentType + "\r\n";
+        resp = resp + "Content-Length: " + respBody.length().toString() + "\r\n";
+        if (contentEnc !== "") {
+            resp = resp + "Content-Encoding: " + contentEnc + "\r\n";
+            resp = resp + "Vary: Accept-Encoding\r\n";
+        }
+        resp = resp + "Connection: close\r\n";
+        resp = resp + "\r\n";
+        resp = resp + respBody;
+
+        req._sock.write(resp);
+        req._sock.close();
+    }
+
+    /**
+     * Closes the server. Existing connections are not affected.
+     */
+    fn close(): void {
+        if (self._tlsServer !== null) {
+            self._tlsServer.close();
+        } else {
+            self._server.close();
+        }
+    }
+
+    /**
+     * Returns true if the server is valid.
+     * @return true if listening
+     */
+    fn isValid(): bool {
+        if (self._tlsServer !== null) {
+            return self._tlsServer.isValid();
+        }
+        return self._server.isValid();
+    }
+}
+
+// ── Internal helpers (add fields to HttpRequest at runtime) ──
+
+fn _parseIntLen(s: string): int {
+    let value = 0; let i = 0;
+    while (i < s.length()) {
+        let c = s.charCodeAt(i);
+        if (c >= 48 && c <= 57) { value = value * 10 + (c - 48); i = i + 1; }
+        else { break; }
+    }
+    return value;
+}
+
+fn _statusText(status: int): string {
+    if (status === 200) { return "OK"; }
+    if (status === 201) { return "Created"; }
+    if (status === 204) { return "No Content"; }
+    if (status === 301) { return "Moved Permanently"; }
+    if (status === 302) { return "Found"; }
+    if (status === 304) { return "Not Modified"; }
+    if (status === 400) { return "Bad Request"; }
+    if (status === 401) { return "Unauthorized"; }
+    if (status === 403) { return "Forbidden"; }
+    if (status === 404) { return "Not Found"; }
+    if (status === 405) { return "Method Not Allowed"; }
+    if (status === 500) { return "Internal Server Error"; }
+    return "Unknown";
+}

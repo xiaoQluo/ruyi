@@ -1,6 +1,6 @@
 # Ruyi Roadmap
 
-> **Version**: 0.5.4 | **Date**: 2026-07-07 | **Status**: Released
+> **Version**: 0.5.9 | **Date**: 2026-07-18 | **Status**: Released (stdlib Phase 1–4 complete)
 >
 > [中文版](roadmap-zh.md)
 
@@ -42,7 +42,7 @@ Ruyi is a compiled programming language targeting native code via LLVM. This roa
 | **Lexer** | ~95% | Doc comments not specially handled |
 | **Parser** | ~65% | Match guards, computed property names, generic syntax need verification |
 | **Typechecker** | ~95% | Trait bounds enforced (v0.5.5); supertraits unchecked; `impl Trait for Type` basic support (v0.5.5) |
-| **Codegen** | ~75% | Member access, array/object literals, template strings, for-loops, try/catch, break, class layout supported (pre-v0.5.5); BigInt not yet supported |
+| **Codegen** | ~82% | Member access, array/object literals, template strings, for-loops, try/catch, break, class layout supported; compound assignment (5 ops), anonymous functions, async arrows, complex new (.new pattern), array index assignment supported; BigInt, indirect calls, spread arguments not yet supported |
 | **Macro Expand** | ~60% | Complex repetition patterns, hygiene edge cases |
 | **Driver** | ~85% | Runtime statically linked (v0.5.5); module system inlines rather than proper imports |
 | **GC** | ~85% (compiler) / 100% (runtime) | Dual mode: --gc=stub (default) + --gc=real (v0.5.5) |
@@ -61,8 +61,23 @@ Ruyi is a compiled programming language targeting native code via LLVM. This roa
 | `process.ry` | 509 | ✅ Complete | Process management + environment |
 | `path.ry` | 262 | ✅ Complete | Path manipulation with async variants |
 | `collections.ry` | 529 | ⚠️ Partial | **SetIterator.next() is a broken stub**; missing sort/contains/indexOf/first/last |
+| `encoding.ry` | 803 | ✅ Complete | Base64/Base64URL/Hex/URL encode/decode (all pure .ry) |
+| `bigint.ry` | 638 | ✅ Complete | Big integer type with basic arithmetic |
+| `random.ry` | 120 | ✅ Complete | Xorshift PRNG wrapper (wired to `random_ffi`) |
+| `json.ry` | 149 | ✅ Complete | JSON parse and serialization |
+| `uuid.ry` | 155 | ✅ Complete | UUID v4 generation (depends on `random.ry`) |
+| `datetime.ry` | 983 | ✅ Complete | Date class + datetime utilities (depends on `time` FFI) |
+| `sort.ry` | 526 | ✅ Complete | Pure .ry sorting algorithms (quicksort/insertion/merge) |
+| `buffer.ry` | 1,392 | ✅ Complete | Buffer class: endian read/write, UTF-8, Base64/Hex, float (pure .ry) |
+| `fs.ry` | 1,329 | ✅ Complete | File system module: 70 exports, walkDir/copyDir/ensureDir |
+| `crypto.ry` | 1,782 | ✅ Complete | SHA-256/512/1 + MD5 + HMAC + PBKDF2 + CSPRNG (1 extern FFI) |
+| `net.ry` | 253 | ✅ Complete | TCPSocket/TCPServer/UDPSocket: TCP client/server + UDP (15 extern FFI) |
+| `regex.ry` | 390 | ✅ Complete | Regex engine: Thompson NFA, capture groups, quantifiers, char classes (pure .ry) |
+| `fmt.ry` | 120 | ✅ Complete | Format strings |
+| `test.ry` | 180 | ✅ Complete | Built-in test framework: @test attribute + assertion helpers |
 
-**Critical Missing Modules**: `math`, `time/datetime`, `json`, `regex`, `random`, `fmt`, `net`, `buffer`, `test`
+**Completed modules**: `math`, `datetime`, `json`, `random`, `fmt`, `test`, `encoding`, `bigint`, `uuid`, `sort`, `buffer`, `fs`, `crypto`
+**Critical Missing Modules**: `http` (HTTP/HTTPS client)
 
 ### Test Infrastructure
 
@@ -98,7 +113,7 @@ Make Ruyi capable of writing real programs end-to-end: classes work, exceptions 
 | 1.4 | **String concatenation** | `+` operator for strings (currently only numeric `+` works) | P0 ✅ |
 | 1.5 | **For loop codegen** | C-style `for`, `for-in`, `for-of` (all currently unsupported) | P0 ✅ |
 | 1.6 | **Break/continue** | Already have `loop_stack`, just need codegen | P1 ✅ |
-| 1.7 | **Try/catch/finally** | Landing pad support exists in `ruyi_runtime`; wire it into codegen | P0 |
+| 1.7 | **Try/catch/finally** | Landing pad support exists in `ruyi_runtime`; wire it into codegen | P0 ✅ |
 | 1.8 | **Throw expression** | Map to runtime `throw_exception` call | P1 ✅ |
 | 1.9 | **Match statement** | Compile match to chained if-else or switch | P1 ✅ |
 | 1.10 | **Template literals** | Compile `` `Hello ${name}` `` to string concatenation | P1 ✅ |
@@ -155,18 +170,40 @@ Net result: 1.8 Throw / 1.9 Match / 1.10 Template are FULL in `crates/ruyic/src/
 
 | # | Task | Description | Priority |
 |---|------|-------------|----------|
-| 4.1 | **Fix SetIterator** | `SetIterator.next()` currently returns `None` always — implement proper set iteration | P0 |
-| 4.2 | **`math.ry`** | Pi, E, sqrt, pow, sin, cos, tan, asin, acos, atan, log, log10, exp, abs, min, max | P0 |
-| 4.3 | **`time.ry`** | Duration, Timestamp, sleep (sync + async), Date formatting | P0 |
-| 4.4 | **`json.ry`** | JSON.parse, JSON.stringify with type-safe deserialization | P0 |
+| 4.1 | **Fix SetIterator** | `SetIterator.next()` — implement proper set iteration (fixed in v0.5.9) | P0 ✅ |
+| 4.2 | **`math.ry`** | Pi, E, sqrt, pow, sin, cos, tan, asin, acos, atan, log, log10, exp, abs, min, max | P0 ✅ |
+| 4.3 | **`time.ry`** | Duration, Timestamp, sleep (sync + async), Date formatting | P0 ✅ |
+| 4.4 | **`json.ry`** | JSON.parse, JSON.stringify with type-safe deserialization | P0 ✅ |
 | 4.5 | **`random.ry`** | Random.nextInt, nextFloat, nextBool, nextBytes, seed | P1 ✅ (v0.5.7) |
 | 4.6 | **`fmt.ry`** | Format strings: `fmt.format("{} is {} years old", name, age)` | P1 ✅ (v0.5.7) |
-| 4.7 | **`regex.ry`** | Regex class with match, replace, split | P2 |
+| 4.7 | **`regex.ry`** | Regex class with match, replace, split (Thompson NFA, pure .ry) | P2 ✅ (v0.5.9 Phase 6) |
 | 4.8 | **`test.ry`** | Built-in test framework: `@test` attribute, assert, assertEq, assertThrows | P1 ✅ (v0.5.7) |
 | 4.9 | **Expand `collections.ry`** | Array.sort, .contains, .indexOf, .first, .last, .slice, .concat; Iterator.takeWhile, .skipWhile, .chain, .enumerate, .zip, .sum, .product, .any, .all | P1 ✅ (v0.5.7) |
 | 4.10 | **Merge `core.ry` + `string.ry`** | Duplicate String methods; consolidate into one module | P2 |
-| 4.11 | **`buffer.ry`** | Buffer/ByteArray type for binary data | P2 |
-| 4.12 | **`net.ry`** | TCPClient, TCPServer (basic socket I/O) | P2 |
+| 4.11 | **`buffer.ry`** | Buffer/ByteArray type for binary data | P2 ✅ (v0.5.9 Phase 3) |
+| 4.12 | **`net.ry`** | TCPClient, TCPServer (basic socket I/O) | P2 ✅ (v0.5.9 Phase 5) |
+| 4.13 | **`encoding.ry`** | Base64/Base64URL/Hex/URL encode/decode | P2 ✅ (v0.5.9 Phase 2) |
+| 4.14 | **`fs.ry`** | File system operations (directory listing, metadata, recursive ops) | P2 ✅ (v0.5.9 Phase 3) |
+| 4.15 | **`sort.ry`** | Pure .ry sorting algorithms | P2 ✅ (v0.5.9 Phase 2) |
+| 4.16 | **`datetime.ry`** | Date class + datetime utilities | P2 ✅ (v0.5.9 Phase 2) |
+| 4.17 | **`crypto.ry`** | SHA-256/512/1 + MD5 + HMAC + PBKDF2 + CSPRNG | P2 ✅ (v0.5.9 Phase 4) |
+| 4.18 | **`uuid.ry`** | UUID v4 generation | P2 ✅ (v0.5.9 Phase 1) |
+| 4.19 | **`bigint.ry`** | Big integer type | P2 ✅ (v0.5.9 Phase 1) |
+
+### v0.5+ — Cryptography Expansion (HTTPS/TLS Prerequisites)
+
+The following modules are required for HTTPS/TLS support, listed in dependency order:
+
+| # | Module | Description | Depends On | Est. LOC |
+|---|--------|-------------|------------|----------|
+| C1 | **`crypto-aes.ry`** | AES-128/256 encrypt/decrypt + GCM/CBC modes (pure .ry S-box table) | — | ~800 |
+| C2 | **`crypto-hkdf.ry`** | HKDF key derivation (RFC 5869), based on HMAC-SHA256 | `crypto.ry` | ~200 |
+| C3 | **`crypto-bigint.ry`** | Big integer enhancements: modular exponentiation, Montgomery multiplication, Miller-Rabin primality testing | `bigint.ry` | ~500 |
+| C4 | **`crypto-ecc.ry`** | Elliptic curves (secp256r1/Curve25519): finite-field point addition/doubling, ECDH key exchange | `crypto-bigint.ry` | ~1,200 |
+| C5 | **`crypto-rsa.ry`** | RSA key generation/encryption/signing (PKCS#1 v1.5 / OAEP / PSS) | `crypto-bigint.ry` | ~800 |
+| C6 | **`tls.ry`** | TLS 1.3 protocol: handshake state machine, Record Layer, certificate chain validation, X.509/ASN.1 parsing | All above + `net.ry` | ~2,500+ |
+
+**Total estimated**: ~6,000 lines of pure .ry, zero new FFI (all built on existing primitives).
 
 ---
 

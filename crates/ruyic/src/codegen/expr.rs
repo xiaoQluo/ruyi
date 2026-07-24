@@ -307,7 +307,14 @@ pub fn compile_expr<'ctx>(
     expr: &Expr,
 ) -> Result<ExprResult<'ctx>, String> {
     match expr {
-        Expr::IntLiteral(n) => compile_int_literal(ctx, *n),
+        Expr::IntLiteral(n) => {
+            // Byte literals: when the expected type is Byte, produce an i8 constant
+            if matches!(ctx.expected_expr_type(), Some(Type::Byte)) {
+                compile_byte_from_int(ctx, *n)
+            } else {
+                compile_int_literal(ctx, *n)
+            }
+        }
         Expr::FloatLiteral(n) => compile_float_literal(ctx, *n),
         Expr::BooleanLiteral(b) => compile_bool_literal(ctx, *b),
         Expr::StringLiteral(s) => compile_string_literal(ctx, s),
@@ -374,7 +381,32 @@ pub fn compile_expr<'ctx>(
                     ))
                 }
             } else {
-                Err("Anonymous functions not yet supported".to_string())
+                let anon_name = format!("__anon_{}", ctx.anon_counter);
+                ctx.anon_counter += 1;
+                let decl = crate::parser::ast::Declaration::Function {
+                    name: anon_name.clone(),
+                    type_params: type_params.clone(),
+                    params: params.clone(),
+                    return_type: return_type.clone(),
+                    body: body.clone(),
+                    is_async: *is_async,
+                    annotations: Vec::new(),
+                };
+                super::decl::compile_declaration(ctx, &decl)?;
+                if let Some(func) = ctx.module.get_function(&anon_name) {
+                    Ok(ExprResult::new(
+                        BasicValueEnum::PointerValue(func.as_global_value().as_pointer_value()),
+                        Type::Function {
+                            params: vec![],
+                            return_type: Box::new(Type::Dynamic),
+                        },
+                    ))
+                } else {
+                    Err(format!(
+                        "Function not found after compilation: {}",
+                        anon_name
+                    ))
+                }
             }
         }
         Expr::ArrowFunction {
@@ -384,7 +416,35 @@ pub fn compile_expr<'ctx>(
             is_async,
         } => {
             if *is_async {
-                return Err("Async arrow functions not yet supported".to_string());
+                let async_arrow_name = format!("__async_arrow_{}", ctx.async_arrow_counter);
+                ctx.async_arrow_counter += 1;
+                let body_stmts = match body {
+                    ArrowBody::Expr(expr) => vec![Statement::Return(Some(expr.clone()))],
+                    ArrowBody::Block(stmts) => stmts.clone(),
+                };
+                super::async_codegen::compile_async_function(
+                    ctx,
+                    &async_arrow_name,
+                    params,
+                    return_type.as_ref(),
+                    &body_stmts,
+                )?;
+                let func_ptr = ctx
+                    .module
+                    .get_function(&async_arrow_name)
+                    .map(|f| {
+                        BasicValueEnum::PointerValue(f.as_global_value().as_pointer_value())
+                    })
+                    .ok_or_else(|| {
+                        format!("Async arrow function not found: {}", async_arrow_name)
+                    })?;
+                return Ok(ExprResult::new(
+                    func_ptr,
+                    Type::Function {
+                        params: vec![],
+                        return_type: Box::new(Type::Dynamic),
+                    },
+                ));
             }
             let name = format!("__arrow_{}", ctx.arrow_counter);
             ctx.arrow_counter += 1;
@@ -471,6 +531,14 @@ fn compile_int_literal<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     let val = ctx.context.i64_type().const_int(n as u64, true);
     Ok(ExprResult::new(BasicValueEnum::IntValue(val), Type::Int))
+}
+
+fn compile_byte_from_int<'ctx>(
+    ctx: &CodegenContext<'ctx, '_, '_>,
+    n: i64,
+) -> Result<ExprResult<'ctx>, String> {
+    let val = ctx.context.i8_type().const_int((n & 0xFF) as u64, false);
+    Ok(ExprResult::new(BasicValueEnum::IntValue(val), Type::Byte))
 }
 
 fn compile_float_literal<'ctx>(
@@ -644,9 +712,6 @@ fn compile_member_access<'ctx>(
         crate::parser::ast::MemberProperty::Expr(key_expr) => {
             let obj_result = compile_expr(ctx, object)?;
             if let Type::Array(_) = &obj_result.ty {
-                // Array layout: [len: i64][cap: i64][data: i64[cap]].
-                // __builtin_array_get gives O(1) bounds-checked access versus the
-                // generic ruyi_obj_get path which treats arrays as opaque objects.
                 let arr_ptr = value_to_i8_ptr(ctx, &obj_result.value)?;
                 let index_val = match key_expr.as_ref() {
                     crate::parser::ast::Expr::IntLiteral(idx) => {
@@ -666,49 +731,57 @@ fn compile_member_access<'ctx>(
                     arr_ptr,
                     index_val,
                 );
-                Ok(ExprResult::new(
+                return Ok(ExprResult::new(
                     BasicValueEnum::IntValue(elem_val),
                     Type::Int,
-                ))
-            } else if let (Type::Object(fields), crate::parser::ast::Expr::StringLiteral(key)) =
-                (&obj_result.ty, key_expr.as_ref())
-            {
-                let field = fields
-                    .iter()
-                    .find(|f| f.name == key.as_str())
-                    .ok_or_else(|| format!("Unknown field: {} in object", key))?;
-                let obj_ptr = value_to_i8_ptr(ctx, &obj_result.value)?;
-                let offset = ctx.context.i32_type().const_int(
-                    (fields.iter().position(|f| f.name == field.name).unwrap() * 8) as u64,
-                    false,
-                );
-                let field_ptr = unsafe {
-                    ctx.builder()
-                        .build_gep(obj_ptr, &[offset], &format!("{}_ptr", field.name))
-                };
-                let typed_ptr = ctx.builder().build_pointer_cast(
-                    field_ptr,
-                    ruyi_type_to_llvm(ctx.context, &field.ty).ptr_type(Default::default()),
-                    &format!("{}_typed", field.name),
-                );
-                let field_val = ctx.builder().build_load(typed_ptr, &field.name);
-                Ok(ExprResult::new(field_val, field.ty.clone()))
-            } else {
-                // Non-array object: fall back to generic ruyi_obj_get (dict lookup).
-                let key_result = compile_expr(ctx, key_expr)?;
-                let obj_ptr = value_to_i8_ptr(ctx, &obj_result.value)?;
-                let key_ptr = value_to_i8_ptr(ctx, &key_result.value)?;
-                let result = super::builtins::build_ruyi_obj_get(
-                    ctx.builder(),
-                    &ctx.module,
-                    obj_ptr,
-                    key_ptr,
-                );
-                Ok(ExprResult::new(
-                    BasicValueEnum::PointerValue(result),
-                    Type::Dynamic,
-                ))
+                ));
             }
+
+            if let crate::parser::ast::Expr::StringLiteral(key_str) = key_expr.as_ref() {
+                if let Some(class_name) = resolve_class_from_type(&obj_result.ty) {
+                    let obj_ptr = value_to_i8_ptr(ctx, &obj_result.value)?;
+                    let (field_ptr, field_ty) =
+                        class_field_access(ctx, obj_ptr, &class_name, key_str)?;
+                    let value = ctx.builder().build_load(field_ptr, key_str);
+                    return Ok(ExprResult::new(value, field_ty));
+                }
+                if let Type::Object(fields) = &obj_result.ty {
+                    let field = fields
+                        .iter()
+                        .find(|f| f.name == key_str.as_str())
+                        .ok_or_else(|| format!("Unknown field: {} in object", key_str))?;
+                    let obj_ptr = value_to_i8_ptr(ctx, &obj_result.value)?;
+                    let offset = ctx.context.i32_type().const_int(
+                        (fields.iter().position(|f| f.name == field.name).unwrap() * 8) as u64,
+                        false,
+                    );
+                    let field_ptr = unsafe {
+                        ctx.builder()
+                            .build_gep(obj_ptr, &[offset], &format!("{}_ptr", field.name))
+                    };
+                    let typed_ptr = ctx.builder().build_pointer_cast(
+                        field_ptr,
+                        ruyi_type_to_llvm(ctx.context, &field.ty).ptr_type(Default::default()),
+                        &format!("{}_typed", field.name),
+                    );
+                    let field_val = ctx.builder().build_load(typed_ptr, &field.name);
+                    return Ok(ExprResult::new(field_val, field.ty.clone()));
+                }
+            }
+
+            let key_result = compile_expr(ctx, key_expr)?;
+            let obj_ptr = value_to_i8_ptr(ctx, &obj_result.value)?;
+            let key_ptr = value_to_i8_ptr(ctx, &key_result.value)?;
+            let result = super::builtins::build_ruyi_obj_get(
+                ctx.builder(),
+                &ctx.module,
+                obj_ptr,
+                key_ptr,
+            );
+            Ok(ExprResult::new(
+                BasicValueEnum::PointerValue(result),
+                Type::Dynamic,
+            ))
         }
         crate::parser::ast::MemberProperty::Ident(field_name) => {
             if optional {
@@ -796,116 +869,126 @@ fn compile_tuple_field_access<'ctx>(
     Ok(ExprResult::new(field_val, field_ty))
 }
 
+/// Extract class name from a type, unwrapping `Type::Nullable` and
+/// handling `Type::Named`, `Type::Array`, and `Type::Generic` variants.
+/// Used by field access and `?.` paths to determine which class's field
+/// table to query.
+fn resolve_class_from_type(obj_ty: &Type) -> Option<String> {
+    match obj_ty {
+        Type::Named(n, _) => Some(n.clone()),
+        Type::Array(_) => Some("Array".to_string()),
+        Type::Generic { base, .. } => Some(base.clone()),
+        Type::Nullable(inner) => resolve_class_from_type(inner),
+        _ => None,
+    }
+}
+
+/// Perform GEP-based field access on a class instance.
+///
+/// Given a class name and field name, looks up the field index and type
+/// from `ctx.class_fields`, gets the LLVM struct type from
+/// `ctx.class_struct_types`, casts the object pointer, and computes
+/// the GEP to the field.
+///
+/// Returns the field pointer (ready for load/store) and the field type.
+fn class_field_access<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
+    obj_ptr: inkwell::values::PointerValue<'ctx>,
+    class_name: &str,
+    field_name: &str,
+) -> Result<(inkwell::values::PointerValue<'ctx>, Type), String> {
+    let fields = ctx
+        .class_fields
+        .get(class_name)
+        .ok_or_else(|| format!("Unknown class: {}", class_name))?;
+    let field_ty = fields
+        .iter()
+        .find(|(n, _)| n == field_name)
+        .map(|(_, ty)| ty.clone())
+        .ok_or_else(|| format!("Unknown field: {} in class {}", field_name, class_name))?;
+    let struct_type = ctx
+        .class_struct_types
+        .get(class_name)
+        .ok_or_else(|| format!("No struct type for class: {}", class_name))?;
+    let struct_ptr = ctx.builder().build_pointer_cast(
+        obj_ptr,
+        struct_type.ptr_type(Default::default()),
+        &format!("{}_cast", class_name),
+    );
+    let field_index = fields
+        .iter()
+        .position(|(n, _)| n == field_name)
+        .unwrap();
+    let i32_ty = ctx.context.i32_type();
+    let field_ptr = unsafe {
+        ctx.builder().build_gep(
+            struct_ptr,
+            &[
+                i32_ty.const_int(0, false),
+                i32_ty.const_int(field_index as u64, false),
+            ],
+            &format!("{}_ptr", field_name),
+        )
+    };
+    Ok((field_ptr, field_ty))
+}
+
 fn compile_simple_member_access<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_, '_>,
     object: &Expr,
     field_name: &str,
 ) -> Result<ExprResult<'ctx>, String> {
-    let (var_ptr, field_ty, field_index) = match object {
-        Expr::Identifier(name) => {
-            let (ptr, ty) = ctx
-                .variables
-                .get(name)
-                .ok_or_else(|| format!("Undefined variable: {}", name))?;
-            match ty {
-                Type::Named(class_name, _) => {
-                    let class_name = class_name.clone();
-                    let fields = ctx
-                        .class_fields
-                        .get(&class_name)
-                        .ok_or_else(|| format!("Unknown class: {}", class_name))?;
-                    let field_ty = fields
-                        .iter()
-                        .find(|(n, _)| n == field_name)
-                        .map(|(_, ty)| ty.clone())
-                        .ok_or_else(|| {
-                            format!("Unknown field: {} in class {}", field_name, class_name)
-                        })?;
-                    let field_index = fields.iter().position(|(n, _)| n == field_name).unwrap();
-                    (*ptr, field_ty, field_index)
-                }
-                Type::Array(_) => {
-                    let class_name = "Array".to_string();
-                    let fields = ctx
-                        .class_fields
-                        .get(&class_name)
-                        .ok_or_else(|| format!("Unknown class: {}", class_name))?;
-                    let field_ty = fields
-                        .iter()
-                        .find(|(n, _)| n == field_name)
-                        .map(|(_, ty)| ty.clone())
-                        .ok_or_else(|| {
-                            format!("Unknown field: {} in class {}", field_name, class_name)
-                        })?;
-                    let field_index = fields.iter().position(|(n, _)| n == field_name).unwrap();
-                    (*ptr, field_ty, field_index)
-                }
-                Type::Generic { base, .. } => {
-                    let class_name = base.clone();
-                    let fields = ctx
-                        .class_fields
-                        .get(&class_name)
-                        .ok_or_else(|| format!("Unknown class: {}", class_name))?;
-                    let field_ty = fields
-                        .iter()
-                        .find(|(n, _)| n == field_name)
-                        .map(|(_, ty)| ty.clone())
-                        .ok_or_else(|| {
-                            format!("Unknown field: {} in class {}", field_name, class_name)
-                        })?;
-                    let field_index = fields.iter().position(|(n, _)| n == field_name).unwrap();
-                    (*ptr, field_ty, field_index)
-                }
-                Type::Object(fields) => {
-                    let field = fields
-                        .iter()
-                        .find(|f| f.name == field_name)
-                        .ok_or_else(|| format!("Unknown field: {} in object", field_name))?;
-                    let field_index = fields.iter().position(|f| f.name == field_name).unwrap();
-                    (*ptr, field.ty.clone(), field_index)
-                }
-                _ => return Err(format!("Cannot access field on type: {:?}", ty)),
-            }
-        }
-        Expr::SelfExpr => {
-            let (ptr, ty) = ctx
-                .variables
-                .get("self")
-                .ok_or_else(|| "self not in scope".to_string())?;
-            let class_name = match ty {
-                Type::Named(n, _) => n.clone(),
-                Type::Array(_) => "Array".to_string(),
-                Type::Generic { base, .. } => base.clone(),
-                _ => return Err(format!("Cannot access field on type: {:?}", ty)),
-            };
-            let fields = ctx
-                .class_fields
-                .get(&class_name)
-                .ok_or_else(|| format!("Unknown class: {}", class_name))?;
-            let field_ty = fields
-                .iter()
-                .find(|(n, _)| n == field_name)
-                .map(|(_, ty)| ty.clone())
-                .ok_or_else(|| format!("Unknown field: {} in class {}", field_name, class_name))?;
-            let field_index = fields.iter().position(|(n, _)| n == field_name).unwrap();
-            (*ptr, field_ty, field_index)
-        }
-        _ => return Err("Member access only supported on identifiers".to_string()),
-    };
+    let obj_result = compile_expr(ctx, object)?;
 
-    let obj_ptr = ctx
-        .builder()
-        .build_load(var_ptr, "obj")
-        .into_pointer_value();
+    // Object literal types have inline fields, not class-based struct types
+    if let Type::Object(fields) = &obj_result.ty {
+        let obj_ptr = obj_result.value.into_pointer_value();
+        let field_index = fields
+            .iter()
+            .position(|f| f.name == field_name)
+            .ok_or_else(|| format!("Unknown field: {} in object", field_name))?;
+        let field_ty = &fields[field_index].ty;
+        let offset = ctx
+            .context
+            .i32_type()
+            .const_int((field_index * 8) as u64, false);
+        let field_ptr = unsafe {
+            ctx.builder()
+                .build_gep(obj_ptr, &[offset], &format!("{}_ptr", field_name))
+        };
+        let llvm_ty = ruyi_type_to_llvm(ctx.context, field_ty);
+        let typed_ptr = ctx.builder().build_pointer_cast(
+            field_ptr,
+            llvm_ty.ptr_type(Default::default()),
+            "field_typed_ptr",
+        );
+        let value = ctx.builder().build_load(typed_ptr, field_name);
+        return Ok(ExprResult::new(value, field_ty.clone()));
+    }
 
-    let offset = ctx
-        .context
-        .i32_type()
-        .const_int((field_index * 8) as u64, false);
-    let field_ptr = unsafe {
-        ctx.builder()
-            .build_gep(obj_ptr, &[offset], &format!("{}_ptr", field_name))
-    };
+    // Primitive-typed receiver: bare `.method` (no parens) should dispatch
+    // as a zero-arg method call via the same FFI plumbing compile_call uses
+    // for the `obj.method(args)` form. We re-route by building a synthetic
+    // `Expr::Member` callee and dispatching through compile_call with an
+    // empty arg list — this re-uses the existing primitive FFI table
+    // (`__string_<snake>`, `__builtin_array_<method>`, etc.).
+    if matches!(
+        obj_result.ty,
+        Type::String | Type::Int | Type::Float | Type::Bool | Type::Array(_)
+    ) {
+        let synthetic_callee = Expr::Member {
+            object: Box::new(object.clone()),
+            property: crate::parser::ast::MemberProperty::Ident(field_name.to_string()),
+            optional: false,
+        };
+        return compile_call(ctx, &synthetic_callee, &[]);
+    }
+
+    let class_name = resolve_class_from_type(&obj_result.ty)
+        .ok_or_else(|| format!("Cannot access field on type: {:?}", obj_result.ty))?;
+    let obj_ptr = obj_result.value.into_pointer_value();
+    let (field_ptr, field_ty) =
+        class_field_access(ctx, obj_ptr, &class_name, field_name)?;
 
     let value = match field_ty {
         Type::Float => {
@@ -951,28 +1034,10 @@ fn compile_optional_member_access<'ctx>(
     let obj_result = compile_expr(ctx, object)?;
     let obj_ptr = obj_result.value.into_pointer_value();
 
-    let class_name = match &obj_result.ty {
-        Type::Named(n, _) => n.clone(),
-        Type::Array(_) => "Array".to_string(),
-        Type::Generic { base, .. } => base.clone(),
-        Type::Nullable(inner) => match inner.as_ref() {
-            Type::Named(n, _) => n.clone(),
-            Type::Array(_) => "Array".to_string(),
-            Type::Generic { base, .. } => base.clone(),
-            _ => return Err("Optional chaining only supported on class instances".to_string()),
-        },
-        _ => return Err("Optional chaining only supported on class instances".to_string()),
-    };
-
-    let fields = ctx
-        .class_fields
-        .get(&class_name)
-        .ok_or_else(|| format!("Unknown class: {}", class_name))?;
-    let field_ty = fields
-        .iter()
-        .find(|(n, _)| n == field_name)
-        .map(|(_, ty)| ty.clone())
-        .ok_or_else(|| format!("Unknown field: {} in class {}", field_name, class_name))?;
+    let class_name = resolve_class_from_type(&obj_result.ty)
+        .ok_or_else(|| "Optional chaining only supported on class instances".to_string())?;
+    let (field_ptr, field_ty) =
+        class_field_access(ctx, obj_ptr, &class_name, field_name)?;
 
     let func = ctx.current_function().ok_or("No current function")?;
     let i64_ty = ctx.context.i64_type();
@@ -997,27 +1062,6 @@ fn compile_optional_member_access<'ctx>(
     ctx.builder().build_unconditional_branch(merge_bb);
 
     ctx.builder().position_at_end(non_null_bb);
-    let struct_type = ctx
-        .class_struct_types
-        .get(&class_name)
-        .ok_or_else(|| format!("No struct type for class: {}", class_name))?;
-    let struct_ptr = ctx.builder().build_pointer_cast(
-        obj_ptr,
-        struct_type.ptr_type(Default::default()),
-        &format!("{}_cast", class_name),
-    );
-    let field_index = fields.iter().position(|(n, _)| n == field_name).unwrap();
-    let i32_ty = ctx.context.i32_type();
-    let field_ptr = unsafe {
-        ctx.builder().build_gep(
-            struct_ptr,
-            &[
-                i32_ty.const_int(0, false),
-                i32_ty.const_int(field_index as u64, false),
-            ],
-            &format!("{}_ptr", field_name),
-        )
-    };
     let value = ctx.builder().build_load(field_ptr, field_name);
     ctx.builder().build_unconditional_branch(merge_bb);
     let non_null_bb_end = ctx.builder().get_insert_block().unwrap();
@@ -2108,6 +2152,89 @@ fn build_call_or_invoke<'ctx>(
     }
 }
 
+fn emit_spread_args<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
+    args: &[crate::parser::ast::Argument],
+    arg_values: &mut Vec<inkwell::values::BasicMetadataValueEnum<'ctx>>,
+) -> Result<(), String> {
+    for arg in args {
+        match arg {
+            crate::parser::ast::Argument::Expr(e) => {
+                let result = compile_expr(ctx, e)?;
+                arg_values.push(result.value.into());
+            }
+            crate::parser::ast::Argument::Spread(expr) => {
+                let spread_result = compile_expr(ctx, expr)?;
+                let arr_ptr = match spread_result.value {
+                    BasicValueEnum::PointerValue(p) => p,
+                    _ => return Err("Spread argument must be an array".to_string()),
+                };
+                let len_fn = ctx
+                    .module
+                    .get_function("__builtin_array_length")
+                    .ok_or("__builtin_array_length not declared")?;
+                let len_val = ctx
+                    .builder()
+                    .build_call(len_fn, &[arr_ptr.into()], "spread_len")
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+                    .into_int_value();
+                let get_fn = ctx
+                    .module
+                    .get_function("__builtin_array_get")
+                    .ok_or("__builtin_array_get not declared")?;
+                let zero = ctx.context.i64_type().const_int(0, false);
+                let one = ctx.context.i64_type().const_int(1, false);
+                let idx_ptr = ctx.builder().build_alloca(ctx.context.i64_type(), "spread_idx");
+                ctx.builder().build_store(idx_ptr, zero);
+                let loop_bb = ctx.context.append_basic_block(
+                    ctx.current_function.ok_or("No current function")?,
+                    "spread_loop",
+                );
+                let done_bb = ctx.context.append_basic_block(
+                    ctx.current_function.ok_or("No current function")?,
+                    "spread_done",
+                );
+                ctx.builder().build_unconditional_branch(loop_bb);
+                ctx.builder().position_at_end(loop_bb);
+                let idx = ctx
+                    .builder()
+                    .build_load(idx_ptr, "idx")
+                    .into_int_value();
+                let at_end = ctx.builder().build_int_compare(
+                    inkwell::IntPredicate::UGE,
+                    idx,
+                    len_val,
+                    "at_end",
+                );
+                ctx.builder()
+                    .build_conditional_branch(at_end, done_bb, loop_bb);
+                let body_bb = ctx.context.append_basic_block(
+                    ctx.current_function.ok_or("No current function")?,
+                    "spread_body",
+                );
+                ctx.builder().position_at_end(body_bb);
+                let elem = ctx
+                    .builder()
+                    .build_call(get_fn, &[arr_ptr.into(), idx.into()], "spread_elem")
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+                    .into_int_value();
+                arg_values.push(elem.into());
+                let next_idx = ctx
+                    .builder()
+                    .build_int_add(idx, one, "next_idx");
+                ctx.builder().build_store(idx_ptr, next_idx);
+                ctx.builder().build_unconditional_branch(loop_bb);
+                ctx.builder().position_at_end(done_bb);
+            }
+        }
+    }
+    Ok(())
+}
+
 fn compile_call<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_, '_>,
     callee: &Expr,
@@ -2156,6 +2283,7 @@ fn compile_call<'ctx>(
                             Type::Int => "Int".to_string(),
                             Type::Float => "Float".to_string(),
                             Type::Bool => "Bool".to_string(),
+                            Type::Byte => "Byte".to_string(),
                             Type::String => "String".to_string(),
                             Type::Nullable(inner) => match inner.as_ref() {
                                 Type::Named(n, _) => n.clone(),
@@ -2164,6 +2292,7 @@ fn compile_call<'ctx>(
                                 Type::Int => "Int".to_string(),
                                 Type::Float => "Float".to_string(),
                                 Type::Bool => "Bool".to_string(),
+                                Type::Byte => "Byte".to_string(),
                                 Type::String => "String".to_string(),
                                 _ => return Err(format!("Cannot call method on type: {:?}", ty)),
                             },
@@ -2188,6 +2317,7 @@ fn compile_call<'ctx>(
                         Type::Int => "Int".to_string(),
                         Type::Float => "Float".to_string(),
                         Type::Bool => "Bool".to_string(),
+                        Type::Byte => "Byte".to_string(),
                         Type::String => "String".to_string(),
                         Type::Nullable(inner) => match inner.as_ref() {
                             Type::Named(n, _) => n.clone(),
@@ -2196,6 +2326,7 @@ fn compile_call<'ctx>(
                             Type::Int => "Int".to_string(),
                             Type::Float => "Float".to_string(),
                             Type::Bool => "Bool".to_string(),
+                            Type::Byte => "Byte".to_string(),
                             Type::String => "String".to_string(),
                             _ => return Err(format!("Cannot call method on type: {:?}", ty)),
                         },
@@ -2313,6 +2444,8 @@ fn compile_call<'ctx>(
                     let result = compile_call(ctx, inner_callee, inner_args)?;
                     let class_name = match &result.ty {
                         Type::Named(n, _) => n.clone(),
+                        Type::String => "String".to_string(),
+                        Type::Array(_) => "Array".to_string(),
                         _ => {
                             return Err(format!(
                                 "Cannot call method on call result type: {:?}",
@@ -2357,6 +2490,8 @@ fn compile_call<'ctx>(
                         })
                         .collect::<String>();
                     format!("__string_{}", snake_name)
+                } else if class_name == "Array" {
+                    format!("__builtin_array_{}", method_name)
                 } else {
                     // Trait impl pattern: {method}_{trait}_for_{type}
                     // Also try: {method}_for_{type} for simpler cases
@@ -2438,15 +2573,7 @@ fn compile_call<'ctx>(
                 let func_ptr = func_ptr_val.into_pointer_value();
 
                 let mut arg_values: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> = Vec::new();
-                for arg in args {
-                    match arg {
-                        crate::parser::ast::Argument::Expr(e) => {
-                            let result = compile_expr(ctx, e)?;
-                            arg_values.push(result.value.into());
-                        }
-                        _ => return Err("Spread arguments not yet supported".to_string()),
-                    }
-                }
+                emit_spread_args(ctx, args, &mut arg_values)?;
 
                 let fn_type = function_type_from_ruyi(ctx.context, &fn_params, &fn_ret);
                 let fn_ptr_type = fn_type.ptr_type(Default::default());
@@ -2535,7 +2662,75 @@ fn compile_call<'ctx>(
                 };
                 arg_values.push(adjusted_value);
             }
-            _ => return Err("Spread arguments not yet supported".to_string()),
+            crate::parser::ast::Argument::Spread(spread_expr) => {
+                let spread_result = compile_expr(ctx, spread_expr)?;
+                let arr_ptr = match spread_result.value {
+                    BasicValueEnum::PointerValue(p) => p,
+                    _ => return Err("Spread argument must be an array".to_string()),
+                };
+                let get_fn = ctx
+                    .module
+                    .get_function("__builtin_array_get")
+                    .ok_or("__builtin_array_get not declared")?;
+                let len_fn = ctx
+                    .module
+                    .get_function("__builtin_array_length")
+                    .ok_or("__builtin_array_length not declared")?;
+                let len_val = ctx
+                    .builder()
+                    .build_call(len_fn, &[arr_ptr.into()], "spread_len")
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+                    .into_int_value();
+                let zero = ctx.context.i64_type().const_int(0, false);
+                let one = ctx.context.i64_type().const_int(1, false);
+                let idx_ptr = ctx
+                    .builder()
+                    .build_alloca(ctx.context.i64_type(), "spread_idx2");
+                ctx.builder().build_store(idx_ptr, zero);
+                let loop_bb = ctx.context.append_basic_block(
+                    ctx.current_function.ok_or("No current function")?,
+                    "spread_loop2",
+                );
+                let done_bb = ctx.context.append_basic_block(
+                    ctx.current_function.ok_or("No current function")?,
+                    "spread_done2",
+                );
+                ctx.builder().build_unconditional_branch(loop_bb);
+                ctx.builder().position_at_end(loop_bb);
+                let idx = ctx
+                    .builder()
+                    .build_load(idx_ptr, "idx2")
+                    .into_int_value();
+                let at_end = ctx.builder().build_int_compare(
+                    inkwell::IntPredicate::UGE,
+                    idx,
+                    len_val,
+                    "at_end2",
+                );
+                ctx.builder()
+                    .build_conditional_branch(at_end, done_bb, loop_bb);
+                let body_bb = ctx.context.append_basic_block(
+                    ctx.current_function.ok_or("No current function")?,
+                    "spread_body2",
+                );
+                ctx.builder().position_at_end(body_bb);
+                let elem = ctx
+                    .builder()
+                    .build_call(get_fn, &[arr_ptr.into(), idx.into()], "spread_elem2")
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+                    .into_int_value();
+                arg_values.push(elem.into());
+                let next_idx = ctx
+                    .builder()
+                    .build_int_add(idx, one, "next_idx2");
+                ctx.builder().build_store(idx_ptr, next_idx);
+                ctx.builder().build_unconditional_branch(loop_bb);
+                ctx.builder().position_at_end(done_bb);
+            }
         }
     }
 
@@ -2600,16 +2795,31 @@ fn compile_assignment<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     let right_result = compile_expr(ctx, right)?;
 
-    match op {
-        crate::parser::ast::AssignOp::Assign => {}
+    let effective = match op {
+        crate::parser::ast::AssignOp::Assign => right_result,
+        crate::parser::ast::AssignOp::PlusAssign => {
+            compile_binary(ctx, &BinaryOp::Plus, left, right)?
+        }
+        crate::parser::ast::AssignOp::MinusAssign => {
+            compile_binary(ctx, &BinaryOp::Minus, left, right)?
+        }
+        crate::parser::ast::AssignOp::StarAssign => {
+            compile_binary(ctx, &BinaryOp::Star, left, right)?
+        }
+        crate::parser::ast::AssignOp::SlashAssign => {
+            compile_binary(ctx, &BinaryOp::Slash, left, right)?
+        }
+        crate::parser::ast::AssignOp::PercentAssign => {
+            compile_binary(ctx, &BinaryOp::Percent, left, right)?
+        }
         _ => return Err(format!("Compound assignment not yet supported: {:?}", op)),
-    }
+    };
 
     match left {
         Expr::Identifier(name) => {
             if let Some((ptr, _)) = ctx.lookup_variable(name) {
-                ctx.builder().build_store(ptr, right_result.value);
-                Ok(right_result)
+                ctx.builder().build_store(ptr, effective.value);
+                Ok(effective)
             } else {
                 Err(format!("Undefined variable: {}", name))
             }
@@ -2617,119 +2827,77 @@ fn compile_assignment<'ctx>(
         Expr::Member {
             object, property, ..
         } => {
-            let field_name = match property {
-                crate::parser::ast::MemberProperty::Ident(n) => n.clone(),
-                _ => return Err("Only simple field assignments supported".to_string()),
-            };
+            match property {
+                crate::parser::ast::MemberProperty::Ident(field_name) => {
+                    let obj_result = compile_expr(ctx, object)?;
 
-            let (var_ptr, class_name, is_object) = match object.as_ref() {
-                Expr::Identifier(name) => {
-                    let (ptr, ty) = ctx
-                        .variables
-                        .get(name)
-                        .ok_or_else(|| format!("Undefined variable: {}", name))?;
-                    match ty {
-                        Type::Named(n, _) => (*ptr, n.clone(), false),
-                        Type::Array(_) => (*ptr, "Array".to_string(), false),
-                        Type::Generic { base, .. } => (*ptr, base.clone(), false),
-                        Type::Object(_) => (*ptr, String::new(), true),
-                        _ => return Err(format!("Cannot access field on type: {:?}", ty)),
+                    // Object literal types: inline fields, flat offset GEP
+                    if let Type::Object(fields) = &obj_result.ty {
+                        let obj_ptr = obj_result.value.into_pointer_value();
+                        let field_index = fields
+                            .iter()
+                            .position(|f| f.name == *field_name)
+                            .ok_or_else(|| format!("Unknown field: {} in object", field_name))?;
+                        let field_ty = &fields[field_index].ty;
+                        let offset = ctx
+                            .context
+                            .i32_type()
+                            .const_int((field_index * 8) as u64, false);
+                        let field_ptr = unsafe {
+                            ctx.builder()
+                                .build_gep(obj_ptr, &[offset], &format!("{}_ptr", field_name))
+                        };
+                        let typed_ptr = ctx.builder().build_pointer_cast(
+                            field_ptr,
+                            ruyi_type_to_llvm(ctx.context, field_ty)
+                                .ptr_type(Default::default()),
+                            &format!("{}_typed", field_name),
+                        );
+                        ctx.builder().build_store(typed_ptr, effective.value);
+                        return Ok(effective);
                     }
-                }
-                Expr::SelfExpr => {
-                    let (ptr, ty) = ctx
-                        .variables
-                        .get("self")
-                        .ok_or_else(|| "self not in scope".to_string())?;
-                    let class_name = match ty {
-                        Type::Named(n, _) => n.clone(),
-                        Type::Array(_) => "Array".to_string(),
-                        Type::Generic { base, .. } => base.clone(),
-                        _ => return Err(format!("Cannot access field on type: {:?}", ty)),
-                    };
-                    (*ptr, class_name, false)
-                }
-                _ => return Err("Member assignment only supported on identifiers".to_string()),
-            };
 
-            if is_object {
-                let (_, ty) = ctx
-                    .variables
-                    .get(match object.as_ref() {
-                        Expr::Identifier(n) => n.as_str(),
-                        _ => "",
-                    })
-                    .ok_or("Undefined variable")?;
-                if let Type::Object(fields) = ty {
-                    let field_index = fields
-                        .iter()
-                        .position(|f| f.name == field_name)
-                        .ok_or_else(|| format!("Unknown field: {} in object", field_name))?;
-                    let field_ty = &fields[field_index].ty;
-                    let obj_ptr = ctx
-                        .builder()
-                        .build_load(var_ptr, "obj")
-                        .into_pointer_value();
-                    let offset = ctx
-                        .context
-                        .i32_type()
-                        .const_int((field_index * 8) as u64, false);
-                    let field_ptr = unsafe {
-                        ctx.builder()
-                            .build_gep(obj_ptr, &[offset], &format!("{}_ptr", field_name))
+                    let class_name = resolve_class_from_type(&obj_result.ty)
+                        .ok_or_else(|| {
+                            format!("Cannot write field on type: {:?}", obj_result.ty)
+                        })?;
+                    let obj_ptr = obj_result.value.into_pointer_value();
+                    let (field_ptr, _field_ty) =
+                        class_field_access(ctx, obj_ptr, &class_name, field_name)?;
+
+                    ctx.builder().build_store(field_ptr, effective.value);
+                    Ok(effective)
+                }
+                crate::parser::ast::MemberProperty::Expr(key_expr) => {
+                    let obj_result = compile_expr(ctx, object)?;
+                    let key_result = compile_expr(ctx, key_expr)?;
+                    let obj_ptr = obj_result.value.into_pointer_value();
+                    let index_val = match key_result.value {
+                        BasicValueEnum::IntValue(v) => v,
+                        _ => return Err("Array index must be an integer".to_string()),
                     };
-                    let field_val = right_result.value;
-                    let typed_ptr = ctx.builder().build_pointer_cast(
-                        field_ptr,
-                        ruyi_type_to_llvm(ctx.context, field_ty).ptr_type(Default::default()),
-                        &format!("{}_typed", field_name),
+                    let effective_val = match effective.value {
+                        BasicValueEnum::IntValue(v) => v,
+                        BasicValueEnum::FloatValue(v) => {
+                            ctx.builder()
+                                .build_float_to_signed_int(v, ctx.context.i64_type(), "f2i")
+                        }
+                        _ => {
+                            return Err(
+                                "Unsupported element type for array assignment".to_string()
+                            )
+                        }
+                    };
+                    super::builtins::build_builtin_array_set(
+                        ctx.builder(),
+                        &ctx.module,
+                        obj_ptr,
+                        index_val,
+                        effective_val,
                     );
-                    ctx.builder().build_store(typed_ptr, field_val);
-                    return Ok(right_result);
+                    Ok(effective)
                 }
-                return Err("Expected object type".to_string());
             }
-
-            let obj_ptr = ctx
-                .builder()
-                .build_load(var_ptr, "obj")
-                .into_pointer_value();
-
-            let struct_type = ctx
-                .class_struct_types
-                .get(&class_name)
-                .ok_or_else(|| format!("No struct type for class: {}", class_name))?;
-
-            let struct_ptr = ctx.builder().build_pointer_cast(
-                obj_ptr,
-                struct_type.ptr_type(Default::default()),
-                &format!("{}_cast", class_name),
-            );
-
-            let fields = ctx
-                .class_fields
-                .get(&class_name)
-                .ok_or_else(|| format!("Unknown class: {}", class_name))?;
-
-            let field_index = fields
-                .iter()
-                .position(|(n, _)| n == &field_name)
-                .ok_or_else(|| format!("Unknown field: {} in class {}", field_name, class_name))?;
-
-            let i32_ty = ctx.context.i32_type();
-            let field_ptr = unsafe {
-                ctx.builder().build_gep(
-                    struct_ptr,
-                    &[
-                        i32_ty.const_int(0, false),
-                        i32_ty.const_int(field_index as u64, false),
-                    ],
-                    &format!("{}_ptr", field_name),
-                )
-            };
-
-            ctx.builder().build_store(field_ptr, right_result.value);
-            Ok(right_result)
         }
         _ => Err("Complex assignments not yet supported".to_string()),
     }
@@ -3084,6 +3252,37 @@ pub(crate) fn compile_new<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     let class_name = match callee {
         crate::parser::ast::Expr::Identifier(name) => name.clone(),
+        crate::parser::ast::Expr::Call { callee: call_callee, args: call_args } => {
+            match call_callee.as_ref() {
+                crate::parser::ast::Expr::Identifier(name)
+                    if name.chars().next().map_or(false, |c| c.is_uppercase()) =>
+                {
+                    return compile_new(
+                        ctx,
+                        &crate::parser::ast::Expr::Identifier(name.clone()),
+                        call_args,
+                    );
+                }
+                _ => {
+                    return Err(
+                        "Complex new expressions not yet supported".to_string()
+                    )
+                }
+            }
+        }
+        crate::parser::ast::Expr::Member { object, property, .. } => {
+            match (object.as_ref(), property) {
+                (
+                    crate::parser::ast::Expr::Identifier(name),
+                    crate::parser::ast::MemberProperty::Ident(method),
+                ) if method == "new" => name.clone(),
+                _ => {
+                    return Err(
+                        "Complex new expressions not yet supported".to_string()
+                    )
+                }
+            }
+        }
         _ => return Err("Complex new expressions not yet supported".to_string()),
     };
 
@@ -3094,20 +3293,22 @@ pub(crate) fn compile_new<'ctx>(
     let total_size = struct_ty
         .size_of()
         .ok_or_else(|| format!("compile_new: class '{}' has no size", class_name))?;
-    let ptr = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), &ctx.module, total_size);
+    let ptr = if ctx.arc_registry.is_arc_class(&class_name) {
+        let type_info_name = format!("ruyi_type_info_{}", class_name);
+        let type_info_global = ctx
+            .module
+            .get_global(&type_info_name)
+            .ok_or_else(|| format!("compile_new: ARC type info '{}' not found for '{}'", type_info_name, class_name))?;
+        let type_info_ptr = type_info_global.as_pointer_value();
+        super::arc_ops::emit_arc_alloc(ctx, total_size, type_info_ptr)
+    } else {
+        GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), &ctx.module, total_size)
+    };
 
     let ctor_name = format!("{}_new", class_name);
     if let Some(ctor) = ctx.module.get_function(&ctor_name) {
         let mut arg_values = vec![ptr.into()];
-        for arg in args {
-            match arg {
-                crate::parser::ast::Argument::Expr(e) => {
-                    let result = compile_expr(ctx, e)?;
-                    arg_values.push(result.value.into());
-                }
-                _ => return Err("Spread arguments not yet supported".to_string()),
-            }
-        }
+        emit_spread_args(ctx, args, &mut arg_values)?;
         ctx.builder().build_call(ctor, &arg_values, "ctor_call");
     }
 
@@ -3148,15 +3349,7 @@ fn compile_super_new<'ctx>(
     if let Some(ctor) = ctx.module.get_function(&ctor_name) {
         let self_loaded = ctx.builder().build_load(self_ptr_copy, "super_self");
         let mut arg_values = vec![self_loaded.into()];
-        for arg in args {
-            match arg {
-                crate::parser::ast::Argument::Expr(e) => {
-                    let result = compile_expr(ctx, e)?;
-                    arg_values.push(result.value.into());
-                }
-                _ => return Err("Spread arguments not yet supported".to_string()),
-            }
-        }
+        emit_spread_args(ctx, args, &mut arg_values)?;
         ctx.builder()
             .build_call(ctor, &arg_values, "super_ctor_call");
     }

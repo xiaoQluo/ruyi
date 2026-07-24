@@ -3721,7 +3721,8 @@ Ruyi 使用 `RUYI_HOME` 环境变量定位安装目录：
 
 ```ruyi
 // 通过文件名导入 stdlib 模块
-import { File } from "./io";
+import { readLine } from "./io";
+import { readFile, writeFile } from "./fs";
 import { Path } from "./path";
 import { Process, getEnv } from "./process";
 import { assert, assertNotNull } from "./error";

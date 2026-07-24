@@ -303,12 +303,20 @@ pub fn allocate(layout: Layout) -> *mut u8 {
 }
 
 /// Deallocate a raw buffer.
-pub fn deallocate(ptr: *mut u8, layout: Layout) {
+///
+/// # Safety
+/// `ptr` must be a valid, non-null pointer previously returned by [`allocate`]
+/// with the same `layout`.
+pub unsafe fn deallocate(ptr: *mut u8, layout: Layout) {
     unsafe { System.dealloc(ptr, layout) }
 }
 
 /// Reallocate a raw buffer.
-pub fn reallocate(ptr: *mut u8, old_layout: Layout, new_layout: Layout) -> *mut u8 {
+///
+/// # Safety
+/// `ptr` must be a valid, non-null pointer previously returned by [`allocate`]
+/// with `old_layout`. The original buffer is deallocated on success.
+pub unsafe fn reallocate(ptr: *mut u8, old_layout: Layout, new_layout: Layout) -> *mut u8 {
     if new_layout.size() <= old_layout.size() {
         return ptr;
     }

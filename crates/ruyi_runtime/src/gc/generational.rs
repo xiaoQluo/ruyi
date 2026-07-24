@@ -412,7 +412,10 @@ impl GenerationalCollector {
         self.full_collections.load(Ordering::Relaxed)
     }
 
-    pub fn write_barrier(&self, obj: *mut GcObjectHeader, field: *mut *mut u8, new_value: *mut u8) {
+    /// # Safety
+    /// `obj` must be a valid, non-null pointer to a `GcObjectHeader`.
+    /// `new_value` must be a valid pointer or null.
+    pub unsafe fn write_barrier(&self, obj: *mut GcObjectHeader, field: *mut *mut u8, new_value: *mut u8) {
         unsafe { self.barrier.write_field(obj, new_value) };
         if !field.is_null() {
             unsafe { *field = new_value };

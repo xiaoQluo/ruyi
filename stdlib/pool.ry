@@ -1,0 +1,228 @@
+/**
+ * Ruyi Standard Library — Buffer Pool Allocator
+ *
+ * Implements Netty-style buffer pooling with size-based buckets and
+ * reuse of `Array<byte>` backing stores. Pooling eliminates repeated
+ * allocation/deallocation in network I/O hot paths.
+ *
+ * Each `PooledAllocator` is NOT thread-safe by design — Netty assigns
+ * one allocator per EventLoop, and Ruyi's async tasks within a single
+ * worker follow the same discipline.
+ *
+ * Buckets (match Netty's PooledByteBufAllocator):
+ *   tiny:   0 – 512 B     (headers, small payloads)
+ *   small:  512 B – 8 KB  (typical message frames)
+ *   normal: 8 KB – 16 MB  (large payloads, file transfers)
+ *   huge:   > 16 MB        (never pooled — direct alloc/free)
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { Buffer } from "./buffer";
+
+// ============================================================
+// Constants
+// ============================================================
+
+/** Upper bound for tiny bucket (512 B). */
+const TINY_MAX: int = 512;
+
+/** Upper bound for small bucket (8 KB). */
+const SMALL_MAX: int = 8192;
+
+/** Upper bound for normal bucket (16 MB). */
+const NORMAL_MAX: int = 16777216;
+
+/** Max buffers retained per bucket to prevent memory hoarding. */
+const MAX_PER_BUCKET: int = 64;
+
+// ============================================================
+// PooledAllocator
+// ============================================================
+
+/**
+ * Size-bucketed buffer pool.
+ *
+ * Usage:
+ *   let alloc = PooledAllocator();
+ *   let buf = alloc.acquire(1024);   // get 1 KB buffer
+ *   // ... use buf ...
+ *   releaseTo(buf, alloc);           // return to pool
+ */
+class PooledAllocator {
+    /** Arrays available in the tiny bucket (≤ 512 B). */
+    tinyPool: Array<Array<byte>>;
+
+    /** Arrays available in the small bucket (512 B – 8 KB). */
+    smallPool: Array<Array<byte>>;
+
+    /** Arrays available in the normal bucket (8 KB – 16 MB). */
+    normalPool: Array<Array<byte>>;
+
+    _acquires: int;
+    _releases: int;
+    _poolHits: int;
+
+    fn new() {
+        self.tinyPool = [];
+        self.smallPool = [];
+        self.normalPool = [];
+        self._acquires = 0;
+        self._releases = 0;
+        self._poolHits = 0;
+    }
+
+    /**
+     * Acquire a Buffer with at least `size` bytes.
+     *
+     * Searches the appropriate bucket for a reusable backing array.
+     * If none is found, allocates a new zero-filled Buffer.
+     * Huge allocations (> 16 MB) are never pooled.
+     *
+     * @param size Minimum capacity in bytes
+     * @return Buffer backed by a pooled or newly-allocated array
+     */
+    fn acquire(size: int): Buffer {
+        self._acquires = self._acquires + 1;
+
+        let bucket = self._getBucket(size);
+
+        // Huge: direct allocation, never pooled
+        if (bucket == 3) {
+            return Buffer.alloc(size);
+        }
+
+        let pool = self._getPool(bucket);
+        let idx = 0;
+        while (idx < pool.length()) {
+            if (pool.get(idx).length() >= size) {
+                let arr = pool.get(idx);
+                pool.remove(idx);
+                self._poolHits = self._poolHits + 1;
+                return Buffer(arr);
+            }
+            idx = idx + 1;
+        }
+
+        // Pool miss: allocate new
+        return Buffer.alloc(size);
+    }
+
+    /**
+     * Return a backing array to the pool.
+     *
+     * The array is zero-filled before pooling to prevent information
+     * leaks. Huge arrays are discarded immediately.
+     *
+     * @param data Byte array to pool
+     */
+    fn release(data: Array<byte>) {
+        self._releases = self._releases + 1;
+
+        let size = data.length();
+        if (size == 0) { return; }
+
+        let bucket = self._getBucket(size);
+
+        // Huge: don't pool — let GC collect
+        if (bucket == 3) { return; }
+
+        let pool = self._getPool(bucket);
+        if (pool.length() >= MAX_PER_BUCKET) { return; }
+
+        // Zero-fill to prevent information leaks
+        let i = 0;
+        while (i < size) {
+            data.set(i, 0);
+            i = i + 1;
+        }
+        pool.push(data);
+    }
+
+    /**
+     * Return pool statistics.
+     *
+     * @return PoolStats snapshot
+     */
+    fn stats(): PoolStats {
+        return PoolStats(self._acquires, self._releases, self._poolHits);
+    }
+
+    /**
+     * Clear all pooled arrays, freeing their memory.
+     */
+    fn clear() {
+        self.tinyPool = [];
+        self.smallPool = [];
+        self.normalPool = [];
+    }
+
+    // ── private helpers ──
+
+    fn _getBucket(size: int): int {
+        if (size <= TINY_MAX) { return 0; }
+        if (size <= SMALL_MAX) { return 1; }
+        if (size <= NORMAL_MAX) { return 2; }
+        return 3;
+    }
+
+    fn _getPool(bucket: int): Array<Array<byte>> {
+        if (bucket == 0) { return self.tinyPool; }
+        if (bucket == 1) { return self.smallPool; }
+        return self.normalPool;
+    }
+}
+
+// ============================================================
+// Standalone helpers
+// ============================================================
+
+/**
+ * Return a Buffer's backing array to the pool and detach it from the Buffer.
+ *
+ * After this call the Buffer is empty (zero-length). The backing
+ * `Array<byte>` is zero-filled and placed in the appropriate bucket.
+ *
+ * @param buf  Buffer whose data to pool
+ * @param allocator  Target pool
+ */
+export fn releaseTo(buf: Buffer, allocator: PooledAllocator) {
+    let data = buf.data;
+    buf.data = [];
+    allocator.release(data);
+}
+
+// ============================================================
+// PoolStats
+// ============================================================
+
+/**
+ * Snapshot of pool utilization metrics.
+ */
+class PoolStats {
+    /** Total acquire() calls. */
+    acquires: int;
+
+    /** Total release() calls. */
+    releases: int;
+
+    /** Number of acquires that found a reusable buffer in the pool. */
+    poolHits: int;
+
+    fn new(acquires: int, releases: int, poolHits: int) {
+        self.acquires = acquires;
+        self.releases = releases;
+        self.poolHits = poolHits;
+    }
+
+    /**
+     * Fraction of acquires served from the pool.
+     *
+     * @return Hit rate between 0.0 and 1.0
+     */
+    fn hitRate(): float {
+        if (self.acquires == 0) { return 0.0; }
+        return float(self.poolHits) / float(self.acquires);
+    }
+}

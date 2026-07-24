@@ -13,7 +13,7 @@
  * The typecheck layer collapses these to `Type::Bool` via the
  * `builtin_sig_to_type` helper in `inference.rs`.
  *
- * Order: array (6) → map (7) → set (4) → string (18) → math (14) → time (4) → json (2) → path (8) → io (17) → process (20).
+ * Order: array (6) → map (7) → set (4) → string (18) → math (28) → time (4) → json (2) → path (8) → io (17) → process (20).
  *
  * @author Ruyi Team
  * @date 2026-07-12
@@ -32,6 +32,8 @@ pub enum BuiltinSig {
     Float,
     /// `i1` — boolean predicate.
     Bool,
+    /// `i8` — unsigned byte.
+    Byte,
     /// `*mut i8` — null-terminated C string (UTF-8 text input/output).
     String,
     /// `*mut i8` — opaque pointer (collections, refs, FFI handles).
@@ -48,7 +50,7 @@ pub struct BuiltinDecl {
     pub params: &'static [BuiltinSig],
 }
 
-/// All 55 FFI entries known to the compiler.
+/// All 115 FFI entries known to the compiler.
 ///
 /// Each entry mirrors the body of the corresponding `fn declare_xxx` that
 /// previously lived in `codegen/builtins.rs`; the LLVM ABI must be identical.
@@ -258,7 +260,7 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         params: &[BuiltinSig::Ptr, BuiltinSig::Ptr],
     },
     // ============================================================
-    // __math_* (14)
+    // __math_* (28)
     // ============================================================
     BuiltinDecl {
         name: "__math_pi",
@@ -327,6 +329,81 @@ pub static BUILTINS: &[BuiltinDecl] = &[
     },
     BuiltinDecl {
         name: "__math_round",
+        ret: BuiltinSig::Float,
+        params: &[BuiltinSig::Float],
+    },
+    // Inverse trigonometric
+    BuiltinDecl {
+        name: "__math_acos",
+        ret: BuiltinSig::Float,
+        params: &[BuiltinSig::Float],
+    },
+    BuiltinDecl {
+        name: "__math_asin",
+        ret: BuiltinSig::Float,
+        params: &[BuiltinSig::Float],
+    },
+    BuiltinDecl {
+        name: "__math_atan",
+        ret: BuiltinSig::Float,
+        params: &[BuiltinSig::Float],
+    },
+    BuiltinDecl {
+        name: "__math_atan2",
+        ret: BuiltinSig::Float,
+        params: &[BuiltinSig::Float, BuiltinSig::Float],
+    },
+    // Logarithmic and exponential
+    BuiltinDecl {
+        name: "__math_log2",
+        ret: BuiltinSig::Float,
+        params: &[BuiltinSig::Float],
+    },
+    BuiltinDecl {
+        name: "__math_log10",
+        ret: BuiltinSig::Float,
+        params: &[BuiltinSig::Float],
+    },
+    BuiltinDecl {
+        name: "__math_exp",
+        ret: BuiltinSig::Float,
+        params: &[BuiltinSig::Float],
+    },
+    // Sign and truncation
+    BuiltinDecl {
+        name: "__math_sign",
+        ret: BuiltinSig::Float,
+        params: &[BuiltinSig::Float],
+    },
+    BuiltinDecl {
+        name: "__math_trunc",
+        ret: BuiltinSig::Float,
+        params: &[BuiltinSig::Float],
+    },
+    // Hyperbolic
+    BuiltinDecl {
+        name: "__math_sinh",
+        ret: BuiltinSig::Float,
+        params: &[BuiltinSig::Float],
+    },
+    BuiltinDecl {
+        name: "__math_cosh",
+        ret: BuiltinSig::Float,
+        params: &[BuiltinSig::Float],
+    },
+    BuiltinDecl {
+        name: "__math_tanh",
+        ret: BuiltinSig::Float,
+        params: &[BuiltinSig::Float],
+    },
+    // Miscellaneous
+    BuiltinDecl {
+        name: "__math_hypot",
+        ret: BuiltinSig::Float,
+        params: &[BuiltinSig::Float, BuiltinSig::Float],
+    },
+    BuiltinDecl {
+        name: "__math_cbrt",
         ret: BuiltinSig::Float,
         params: &[BuiltinSig::Float],
     },
@@ -410,7 +487,7 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         params: &[BuiltinSig::String, BuiltinSig::String],
     },
     // ============================================================
-    // __io_* (17)
+    // __io_* (24)
     // ============================================================
     // Sync (9)
     BuiltinDecl {
@@ -498,6 +575,43 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         name: "__io_mkdir_async",
         ret: BuiltinSig::Ptr,
         params: &[BuiltinSig::String, BuiltinSig::Bool],
+    },
+    // __io_* (6) — extended
+    BuiltinDecl {
+        name: "__io_read_dir",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__io_file_size",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__io_file_mtime",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__io_rename",
+        ret: BuiltinSig::Bool,
+        params: &[BuiltinSig::String, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__io_remove_dir",
+        ret: BuiltinSig::Bool,
+        params: &[BuiltinSig::String, BuiltinSig::Bool],
+    },
+    BuiltinDecl {
+        name: "__io_file_append_text",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::String, BuiltinSig::String],
+    },
+    // __io_read_random (1)
+    BuiltinDecl {
+        name: "__io_read_random",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Int],
     },
     // ============================================================
     // __process_* (20)
@@ -617,6 +731,498 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         ret: BuiltinSig::Bool,
         params: &[BuiltinSig::Int],
     },
+    // ============================================================
+    // __net_tcp_* (9)
+    // ============================================================
+    BuiltinDecl {
+        name: "__net_tcp_connect",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::String, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__net_tcp_read",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::Int, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__net_tcp_write",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__net_tcp_write_raw",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int, BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__net_tcp_read_raw",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__net_tcp_close",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__net_tcp_set_timeout",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__net_tcp_listen",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::String, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__net_tcp_accept",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__net_tcp_server_close",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Int],
+    },
+    // __net_udp_* (7)
+    BuiltinDecl {
+        name: "__net_udp_socket",
+        ret: BuiltinSig::Int,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__net_udp_bind",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int, BuiltinSig::String, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__net_udp_send_to",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int, BuiltinSig::String, BuiltinSig::Int, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__net_udp_recv_from",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::Int, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__net_udp_sender_host",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__net_udp_sender_port",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__net_udp_close",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Int],
+    },
+    // ============================================================
+    // __random_* (5) — added for stdlib/random.ry and stdlib/uuid.ry
+    // ============================================================
+    BuiltinDecl {
+        name: "__random_new",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__random_int",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int, BuiltinSig::Int, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__random_float",
+        ret: BuiltinSig::Float,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__random_bool",
+        ret: BuiltinSig::Bool,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__random_bytes",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Int, BuiltinSig::Int],
+    },
+    // ============================================================
+    // float_ffi (2) — f64 bit-level conversion
+    // ============================================================
+    BuiltinDecl {
+        name: "__f64_to_bits",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Float],
+    },
+    BuiltinDecl {
+        name: "__f64_from_bits",
+        ret: BuiltinSig::Float,
+        params: &[BuiltinSig::Int],
+    },
+    // ============================================================
+    // atomic_ffi (8) — thread-safe AtomicI64
+    // ============================================================
+    BuiltinDecl {
+        name: "__atomic_i64_new",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__atomic_i64_load",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__atomic_i64_store",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__atomic_i64_cas",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Int, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__atomic_i64_fetch_add",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__atomic_i64_fetch_sub",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__atomic_i64_swap",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__atomic_i64_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    // ============================================================
+    // mutex_ffi (5) — std::sync::Mutex<()>
+    // ============================================================
+    BuiltinDecl {
+        name: "__mutex_new",
+        ret: BuiltinSig::Ptr,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__mutex_lock",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__mutex_unlock",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__mutex_try_lock",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__mutex_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    // ============================================================
+    // crypto_ffi (14) — SHA/HMAC/AES-GCM/X25519
+    // ============================================================
+    BuiltinDecl {
+        name: "__crypto_sha256",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__crypto_sha512",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__crypto_sha1",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__crypto_hmac_sha256",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__crypto_aes_gcm_encrypt_hex",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String, BuiltinSig::String, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__crypto_aes_gcm_decrypt_hex",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String, BuiltinSig::String, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__crypto_x25519_keypair_hex",
+        ret: BuiltinSig::String,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__crypto_x25519_dh_hex",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__crypto_x25519_pubkey_hex",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__crypto_aes_gcm_encrypt_raw",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr, BuiltinSig::Ptr, BuiltinSig::Int, BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__crypto_aes_gcm_decrypt_raw",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr, BuiltinSig::Ptr, BuiltinSig::Int, BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__crypto_x25519_keypair_raw",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__crypto_x25519_dh_raw",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__crypto_x25519_pubkey_raw",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    // ============================================================
+    // tls_ffi (5) — rustls TLS sessions
+    // ============================================================
+    BuiltinDecl {
+        name: "__tls_connect",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Int, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__tls_read_cstr",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__tls_write",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__tls_write_raw",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__tls_read_raw",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__tls_close",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__tls_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    // ============================================================
+    // tls server (7) — rustls ServerConnection
+    // ============================================================
+    BuiltinDecl {
+        name: "__tls_server_config_new",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::String, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__tls_server_accept",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__tls_server_read_cstr",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__tls_server_write",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__tls_server_write_raw",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__tls_server_read_raw",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__tls_server_close",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__tls_server_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__tls_config_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    // ============================================================
+    // compress_ffi (6) — gzip / zlib / raw deflate (base64 bridge)
+    // ============================================================
+    BuiltinDecl {
+        name: "__compress_gzip",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__decompress_gzip",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__compress_zlib",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__decompress_zlib",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__compress_deflate",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__decompress_deflate",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String],
+    },
+    // ============================================================
+    // compress streaming (6) — new / write / finish × 2
+    // ============================================================
+    BuiltinDecl {
+        name: "__compress_new",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__compress_write",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::Ptr, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__compress_finish",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__decompress_new",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__decompress_write",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::Ptr, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__decompress_finish",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::Ptr],
+    },
+    // ============================================================
+    // file streaming (8) — open / close / read_raw / write_raw / seek / tell / flush
+    // ============================================================
+    BuiltinDecl {
+        name: "__fs_open_read",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__fs_open_write",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__fs_open_append",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__fs_close",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__fs_read_raw",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__fs_write_raw",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__fs_seek",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int, BuiltinSig::Int, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__fs_tell",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    // ============================================================
+    // stdio streaming (3) — stdin_read / stdout_write / flush
+    // ============================================================
+    BuiltinDecl {
+        name: "__io_read_raw",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__io_write_raw",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__io_write_stderr_raw",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__io_flush",
+        ret: BuiltinSig::Int,
+        params: &[],
+    },
 ];
 
 /// Resolve a `BuiltinSig` to its inkwell `BasicTypeEnum` representation.
@@ -633,6 +1239,7 @@ pub fn sig_to_basic_type<'ctx>(
         BuiltinSig::Int => context.i64_type().as_basic_type_enum(),
         BuiltinSig::Float => context.f64_type().as_basic_type_enum(),
         BuiltinSig::Bool => context.bool_type().as_basic_type_enum(),
+        BuiltinSig::Byte => context.i8_type().as_basic_type_enum(),
         BuiltinSig::String | BuiltinSig::Ptr => context
             .i8_type()
             .ptr_type(inkwell::AddressSpace::default())
@@ -657,11 +1264,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builtins_count_is_101() {
+    fn builtins_count_is_213() {
         assert_eq!(
             BUILTINS.len(),
-            101,
-            "expected exactly 101 FFI entries (56 base + path 8 + io 17 + process 20)"
+            213,
+            "expected exactly 213 FFI entries (210 + 3 read_raw)"
         );
     }
 

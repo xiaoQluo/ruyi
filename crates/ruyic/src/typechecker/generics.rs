@@ -127,6 +127,7 @@ fn mangle_type(ty: &Type) -> String {
         Type::Void => "void".to_string(),
         Type::Never => "never".to_string(),
         Type::BigInt => "bigint".to_string(),
+        Type::Byte => "byte".to_string(),
         Type::Dynamic => "dyn".to_string(),
         Type::Nullable(inner) => format!("{}__opt", mangle_type(inner)),
         Type::Array(elem) => format!("Array__{}", mangle_type(elem)),

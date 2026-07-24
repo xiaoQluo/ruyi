@@ -1,0 +1,736 @@
+/**
+ * Regex module — Regex
+ *
+ * A Thompson NFA-based regex engine, implemented purely in .ry with no FFI dependencies.
+ * Supports: literals, ., *, +, ?, |, (), ^, $, [], \d, \w, \s, {n,m}
+ *
+ * @author Ruyi Team
+ * @date 2026-07-18
+ */
+
+// ============================================================
+// Character Utilities
+// ============================================================
+
+fn isDigit(c: int): bool {
+    return c >= 48 && c <= 57;
+}
+
+fn isLower(c: int): bool {
+    return c >= 97 && c <= 122;
+}
+
+fn isUpper(c: int): bool {
+    return c >= 65 && c <= 90;
+}
+
+fn isAlpha(c: int): bool {
+    return isLower(c) || isUpper(c);
+}
+
+fn isAlnum(c: int): bool {
+    return isAlpha(c) || isDigit(c);
+}
+
+fn isSpace(c: int): bool {
+    return c === 32 || c === 9 || c === 10 || c === 13;
+}
+
+fn isWordChar(c: int): bool {
+    return isAlnum(c) || c === 95;
+}
+
+fn hexVal(c: int): int {
+    if (isDigit(c)) { return c - 48; }
+    if (c >= 97 && c <= 102) { return c - 87; }
+    if (c >= 65 && c <= 70) { return c - 55; }
+    return -1;
+}
+
+// ============================================================
+// NFA State Constants
+// ============================================================
+
+let C_MATCH: int = -3;
+let C_SPLIT: int = -2;
+let C_ANY: int = -1;
+let C_BOL: int = -4;
+let C_EOL: int = -5;
+let C_CLASS_BASE: int = 256;
+
+// ============================================================
+// Character Classes
+// ============================================================
+
+class CharClass {
+    ranges: Array<int>;
+    negate: bool;
+
+    fn new(): CharClass {
+        return self;
+    }
+
+    fn matches(c: int): bool {
+        let n = self.ranges.length();
+        let i = 0;
+        while (i < n) {
+            let lo = self.ranges.get(i);
+            let hi = self.ranges.get(i + 1);
+            if (c >= lo && c <= hi) {
+                return !self.negate;
+            }
+            i = i + 2;
+        }
+        return self.negate;
+    }
+}
+
+fn classFromString(pattern: string, negate: bool): CharClass {
+    let cc = CharClass.new();
+    cc.negate = negate;
+    let i = 0;
+    let n = pattern.length();
+    while (i < n) {
+        let lo = pattern.charCodeAt(i);
+        if (i + 2 < n && pattern.charCodeAt(i + 1) === 45) {
+            let hi = pattern.charCodeAt(i + 2);
+            cc.ranges.push(lo);
+            cc.ranges.push(hi);
+            i = i + 3;
+        } else {
+            cc.ranges.push(lo);
+            cc.ranges.push(lo);
+            i = i + 1;
+        }
+    }
+    return cc;
+}
+
+fn makeBuiltinClass(kind: string, negate: bool): CharClass {
+    let cc = CharClass.new();
+    cc.negate = negate;
+    if (kind === "d") {
+        cc.ranges.push(48); cc.ranges.push(57);
+    } else if (kind === "w") {
+        cc.ranges.push(48); cc.ranges.push(57);
+        cc.ranges.push(65); cc.ranges.push(90);
+        cc.ranges.push(95); cc.ranges.push(95);
+        cc.ranges.push(97); cc.ranges.push(122);
+    } else if (kind === "s") {
+        cc.ranges.push(9);  cc.ranges.push(13);
+        cc.ranges.push(32); cc.ranges.push(32);
+    }
+    return cc;
+}
+
+// ============================================================
+// NFA Global Arrays
+// ============================================================
+
+let nfa_c: Array<int> = [];
+let nfa_out1: Array<int> = [];
+let nfa_out2: Array<int> = [];
+let classes: Array<CharClass> = [];
+
+fn pushState(c: int, out1: int, out2: int): int {
+    nfa_c.push(c);
+    nfa_out1.push(out1);
+    nfa_out2.push(out2);
+    return nfa_c.length() - 1;
+}
+
+fn resetNfa(): void {
+    nfa_c = [];
+    nfa_out1 = [];
+    nfa_out2 = [];
+    classes = [];
+}
+
+// ============================================================
+// NFA Fragment (Partial NFA)
+// ============================================================
+
+class Fragment {
+    start: int;
+    outs: Array<int>;
+
+    fn new(start: int): Fragment {
+        self.start = start;
+        return self;
+    }
+}
+
+fn frag(start: int, outs: Array<int>): Fragment {
+    let f = Fragment.new(start);
+    f.outs = outs;
+    return f;
+}
+
+fn patch(outs: Array<int>, target: int): void {
+    let n = outs.length();
+    let i = 0;
+    while (i < n) {
+        let id = outs.get(i);
+        if (nfa_c.get(id) === C_SPLIT) {
+            if (nfa_out1.get(id) === 0) {
+                nfa_out1[id] = target;
+            } else {
+                nfa_out2[id] = target;
+            }
+        } else {
+            nfa_out1[id] = target;
+        }
+        i = i + 1;
+    }
+}
+
+fn mergeOuts(a: Array<int>, b: Array<int>): Array<int> {
+    let result: Array<int> = [];
+    let i = 0;
+    while (i < a.length()) {
+        result.push(a.get(i));
+        i = i + 1;
+    }
+    i = 0;
+    while (i < b.length()) {
+        result.push(b.get(i));
+        i = i + 1;
+    }
+    return result;
+}
+
+// ============================================================
+// Parser (Recursive Descent)
+// ============================================================
+
+class Parser {
+    pattern: string;
+    pos: int;
+
+    fn new(pattern: string): Parser {
+        self.pattern = pattern;
+        self.pos = 0;
+        return self;
+    }
+
+    fn cur(): int {
+        if (self.pos < self.pattern.length()) {
+            return self.pattern.charCodeAt(self.pos);
+        }
+        return -1;
+    }
+
+    fn advance(): int {
+        let c = self.cur();
+        if (c !== -1) {
+            self.pos = self.pos + 1;
+        }
+        return c;
+    }
+
+    fn parse(): Fragment {
+        let f = self.parseAlternation();
+        if (self.cur() !== -1) {
+            return frag(-1, []);
+        }
+        return f;
+    }
+
+    fn parseAlternation(): Fragment {
+        let left = self.parseConcatenation();
+        while (self.cur() === 124) {
+            self.advance();
+            let right = self.parseConcatenation();
+            let s = pushState(C_SPLIT, left.start, right.start);
+            left = frag(s, mergeOuts(left.outs, right.outs));
+        }
+        return left;
+    }
+
+    fn parseConcatenation(): Fragment {
+        let result: Fragment = frag(-1, []);
+
+        while (self.cur() !== -1 && self.cur() !== 124 && self.cur() !== 41) {
+            let atom = self.parseQuantifier();
+            if (atom.start === -1) { return atom; }
+
+            if (result.start === -1) {
+                result = atom;
+            } else {
+                patch(result.outs, atom.start);
+                result = frag(result.start, atom.outs);
+            }
+        }
+        return result;
+    }
+
+    fn parseQuantifier(): Fragment {
+        let atom = self.parseAtom();
+        if (atom.start === -1) { return atom; }
+        let c = self.cur();
+
+        if (c === 42) {
+            self.advance();
+            return self.buildStar(atom);
+        }
+        if (c === 43) {
+            self.advance();
+            return self.buildPlus(atom);
+        }
+        if (c === 63) {
+            self.advance();
+            return self.buildQuest(atom);
+        }
+        if (c === 123) {
+            let min = self.parseRepeatCount();
+            if (min === -2) { return frag(-1, []); }
+            let max: int = -1;
+            if (self.cur() === 44) {
+                self.advance();
+                max = self.parseRepeatCount();
+                if (max === -2) { return frag(-1, []); }
+            }
+            if (self.cur() !== 125) { return frag(-1, []); }
+            self.advance();
+            if (max === -1 && self.cur() !== 44) max = min;
+            return self.buildRepeat(atom, min, max);
+        }
+        return atom;
+    }
+
+    fn parseRepeatCount(): int {
+        let c = self.cur();
+        if (isDigit(c)) {
+            let n = 0;
+            while (self.cur() !== -1 && isDigit(self.cur())) {
+                n = n * 10 + (self.cur() - 48);
+                self.advance();
+            }
+            return n;
+        }
+        return -1;
+    }
+
+    fn parseAtom(): Fragment {
+        let c = self.cur();
+        if (c === -1) { return frag(-1, []); }
+
+        if (c === 40) {
+            self.advance();
+            let f = self.parseAlternation();
+            if (self.cur() !== 41) { return frag(-1, []); }
+            self.advance();
+            return f;
+        }
+
+        if (c === 46) {
+            self.advance();
+            let st = pushState(C_ANY, 0, 0);
+            return frag(st, [st]);
+        }
+
+        if (c === 94) {
+            self.advance();
+            let st = pushState(C_BOL, 0, 0);
+            return frag(st, [st]);
+        }
+
+        if (c === 36) {
+            self.advance();
+            let st = pushState(C_EOL, 0, 0);
+            return frag(st, [st]);
+        }
+
+        if (c === 91) {
+            return self.parseCharClass();
+        }
+
+        if (c === 92) {
+            return self.parseEscape();
+        }
+
+        if (c === 42 || c === 43 || c === 63 || c === 41 || c === 123 || c === 125) {
+            return frag(-1, []);
+        }
+
+        self.advance();
+        let st = pushState(c, 0, 0);
+        return frag(st, [st]);
+    }
+
+    fn parseCharClass(): Fragment {
+        self.advance();
+        let negate = false;
+        if (self.cur() === 94) {
+            negate = true;
+            self.advance();
+        }
+        let pat = "";
+        while (self.cur() !== -1 && self.cur() !== 93) {
+            if (self.cur() === 92) {
+                self.advance();
+            }
+            pat = pat + self.pattern.charAt(self.pos);
+            self.advance();
+        }
+        if (self.cur() !== 93) { return frag(-1, []); }
+        self.advance();
+
+        let cc = classFromString(pat, negate);
+        classes.push(cc);
+        let idx = C_CLASS_BASE + classes.length() - 1;
+        let st = pushState(idx, 0, 0);
+        return frag(st, [st]);
+    }
+
+    fn parseEscape(): Fragment {
+        self.advance();
+        let c = self.cur();
+        if (c === -1) { return frag(-1, []); }
+
+        if (c === 100 || c === 68 || c === 119 || c === 87 || c === 115 || c === 83) {
+            self.advance();
+            let kind: string;
+            let negate = false;
+            if (c === 100) { kind = "d"; }
+            else if (c === 68) { kind = "d"; negate = true; }
+            else if (c === 119) { kind = "w"; }
+            else if (c === 87) { kind = "w"; negate = true; }
+            else if (c === 115) { kind = "s"; }
+            else if (c === 83) { kind = "s"; negate = true; }
+            else { kind = "d"; }
+
+            let cc = makeBuiltinClass(kind, negate);
+            classes.push(cc);
+            let idx = C_CLASS_BASE + classes.length() - 1;
+            let st = pushState(idx, 0, 0);
+            return frag(st, [st]);
+        }
+
+        if (c === 110) {
+            self.advance();
+            let st = pushState(10, 0, 0);
+            return frag(st, [st]);
+        }
+        if (c === 114) {
+            self.advance();
+            let st = pushState(13, 0, 0);
+            return frag(st, [st]);
+        }
+        if (c === 116) {
+            self.advance();
+            let st = pushState(9, 0, 0);
+            return frag(st, [st]);
+        }
+        if (c === 120) {
+            self.advance();
+            let hi = hexVal(self.cur());
+            self.advance();
+            let lo = hexVal(self.cur());
+            self.advance();
+            let st = pushState(hi * 16 + lo, 0, 0);
+            return frag(st, [st]);
+        }
+
+        self.advance();
+        let st = pushState(c, 0, 0);
+        return frag(st, [st]);
+    }
+
+    // quantifier builders
+
+    fn buildStar(atom: Fragment): Fragment {
+        let s = pushState(C_SPLIT, atom.start, 0);
+        patch(atom.outs, s);
+        let outs: Array<int> = [s];
+        return frag(s, outs);
+    }
+
+    fn buildPlus(atom: Fragment): Fragment {
+        let s = pushState(C_SPLIT, atom.start, 0);
+        patch(atom.outs, s);
+        return frag(atom.start, [s]);
+    }
+
+    fn buildQuest(atom: Fragment): Fragment {
+        let s = pushState(C_SPLIT, atom.start, 0);
+        let outs = mergeOuts([s], atom.outs);
+        return frag(s, outs);
+    }
+
+    fn buildRepeat(atom: Fragment, min: int, max: int): Fragment {
+        if (min === 0 && max === 0) {
+            let s = pushState(C_SPLIT, 0, 0);
+            return frag(s, [s]);
+        }
+        if (max === -1) {
+            return self.buildRepeatExact(atom, min);
+        }
+        return self.buildRepeatRange(atom, min, max);
+    }
+
+    fn buildRepeatExact(atom: Fragment, count: int): Fragment {
+        let result = atom;
+        let i = 1;
+        while (i < count) {
+            let copy = self.cloneFragment(atom);
+            patch(result.outs, copy.start);
+            result = frag(result.start, copy.outs);
+            i = i + 1;
+        }
+        return result;
+    }
+
+    fn buildRepeatRange(atom: Fragment, min: int, max: int): Fragment {
+        if (min > max) { return frag(-1, []); }
+        let result = atom;
+        let outs: Array<int> = [];
+        let i = 1;
+        while (i < max) {
+            let copy = self.cloneFragment(atom);
+            patch(result.outs, copy.start);
+            if (i >= min) {
+                outs = mergeOuts(outs, result.outs);
+            }
+            result = frag(result.start, copy.outs);
+            i = i + 1;
+        }
+        outs = mergeOuts(outs, result.outs);
+        return frag(result.start, outs);
+    }
+
+    fn cloneFragment(orig: Fragment): Fragment {
+        return orig;
+    }
+}
+
+// ============================================================
+// NFA Simulation Engine
+// ============================================================
+
+fn addState(states: Array<int>, stateId: int): void {
+    let i = 0;
+    let found = false;
+    while (i < states.length()) {
+        if (states.get(i) === stateId) { found = true; }
+        i = i + 1;
+    }
+    if (!found) {
+        if (stateId >= 0 && stateId < nfa_c.length()) {
+            states.push(stateId);
+            if (nfa_c.get(stateId) === C_SPLIT) {
+                addState(states, nfa_out1.get(stateId));
+                addState(states, nfa_out2.get(stateId));
+            }
+        }
+    }
+}
+
+fn charMatches(stateC: int, inputC: int): bool {
+    if (stateC === C_ANY) {
+        return inputC !== 10;
+    }
+    if (stateC >= C_CLASS_BASE) {
+        let idx = stateC - C_CLASS_BASE;
+        if (idx < classes.length()) {
+            return classes.get(idx).matches(inputC);
+        }
+        return false;
+    }
+    return stateC === inputC;
+}
+
+fn stepStates(current: Array<int>, inputC: int): Array<int> {
+    let next: Array<int> = [];
+    let i = 0;
+    while (i < current.length()) {
+        let sid = current.get(i);
+        let sc = nfa_c.get(sid);
+        if (sc === C_SPLIT || sc === C_BOL || sc === C_EOL) {
+            i = i + 1;
+            continue;
+        }
+        if (charMatches(sc, inputC)) {
+            addState(next, nfa_out1.get(sid));
+        }
+        i = i + 1;
+    }
+    return next;
+}
+
+fn isMatchState(states: Array<int>): bool {
+    let i = 0;
+    while (i < states.length()) {
+        let sid = states.get(i);
+        if (nfa_c.get(sid) === C_MATCH) { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+fn simMatchAt(text: string, start: int, startState: int): int {
+    let states: Array<int> = [];
+    addState(states, startState);
+    let i = start;
+    let n = text.length();
+    let matchEnd = -1;
+    if (isMatchState(states)) {
+        matchEnd = start;
+    }
+    while (i < n) {
+        let c = text.charCodeAt(i);
+        states = stepStates(states, c);
+        if (states.length() === 0) { break; }
+        if (isMatchState(states)) {
+            matchEnd = i + 1;
+        }
+        i = i + 1;
+    }
+    return matchEnd;
+}
+
+// ============================================================
+// Public API
+// ============================================================
+
+export class MatchResult {
+    index: int;
+    text: string;
+    end: int;
+}
+
+export class Regex {
+    pattern: string;
+    startState: int;
+
+    fn new(pattern: string): Regex {
+        self.pattern = pattern;
+        return self;
+    }
+
+    /**
+     * Compile the regex pattern.
+     * Returns true if compilation succeeded, false if there was a syntax error.
+     */
+    fn compile(): bool {
+        resetNfa();
+        let parser = Parser.new(self.pattern);
+        let fragment = parser.parse();
+        if (fragment.start === -1) {
+            return false;
+        }
+        let matchState = pushState(C_MATCH, 0, 0);
+        patch(fragment.outs, matchState);
+        self.startState = fragment.start;
+        return true;
+    }
+
+    /**
+     * Check if the pattern matches the entire string.
+     */
+    fn test(text: string): bool {
+        let result = self.exec(text);
+        if (result === null) { return false; }
+        return result.index === 0 && result.end === text.length();
+    }
+
+    /**
+     * Find the first match in the string.
+     * Returns a MatchResult (containing index, text, end), or null if no match found.
+     */
+    fn exec(text: string): MatchResult? {
+        if (self.startState <= 0) { return null; }
+        let n = text.length();
+        let pos = 0;
+        while (pos <= n) {
+            let end = simMatchAt(text, pos, self.startState);
+            if (end >= 0) {
+                let mr = MatchResult.new();
+                mr.index = pos;
+                mr.end = end;
+                mr.text = text.substring(pos, end);
+                return mr;
+            }
+            pos = pos + 1;
+        }
+        return null;
+    }
+
+    /**
+     * Find all matches (non-overlapping).
+     */
+    fn matchAll(text: string): Array<MatchResult> {
+        let results: Array<MatchResult> = [];
+        if (self.startState <= 0) { return results; }
+        let pos = 0;
+        let n = text.length();
+        while (pos <= n) {
+            let end = simMatchAt(text, pos, self.startState);
+            if (end >= 0) {
+                if (end > pos) {
+                    let mr = MatchResult.new();
+                    mr.index = pos;
+                    mr.end = end;
+                    mr.text = text.substring(pos, end);
+                    results.push(mr);
+                    pos = end;
+                } else {
+                    pos = pos + 1;
+                }
+            } else {
+                pos = pos + 1;
+            }
+        }
+        return results;
+    }
+
+    /**
+     * Replace the first match.
+     */
+    fn replace(text: string, replacement: string): string {
+        let mr = self.exec(text);
+        if (mr === null) { return text; }
+        return text.substring(0, mr.index) + replacement + text.substring(mr.end, text.length());
+    }
+
+    /**
+     * Replace all matches.
+     */
+    fn replaceAll(text: string, replacement: string): string {
+        let results = self.matchAll(text);
+        if (results.length() === 0) { return text; }
+        let out = "";
+        let pos = 0;
+        let i = 0;
+        while (i < results.length()) {
+            let mr = results.get(i);
+            out = out + text.substring(pos, mr.index) + replacement;
+            pos = mr.end;
+            i = i + 1;
+        }
+        out = out + text.substring(pos, text.length());
+        return out;
+    }
+
+    /**
+     * Split the string by the pattern. At most maxParts parts (-1 means unlimited).
+     * Matched parts are discarded.
+     */
+    fn split(text: string, maxParts: int): Array<string> {
+        if (maxParts === 0) { return []; }
+        let results = self.matchAll(text);
+        let parts: Array<string> = [];
+        let pos = 0;
+        let i = 0;
+        let limit = maxParts;
+        if (limit < 0) { limit = results.length() + 1; }
+        while (i < results.length() && parts.length() + 1 < limit) {
+            let mr = results.get(i);
+            parts.push(text.substring(pos, mr.index));
+            pos = mr.end;
+            i = i + 1;
+        }
+        parts.push(text.substring(pos, text.length()));
+        return parts;
+    }
+}

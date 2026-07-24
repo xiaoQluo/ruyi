@@ -45,7 +45,7 @@ impl TestFunctionRegistry {
     /// carries the `@test` annotation. The `file` and `module` labels are
     /// stored verbatim on each entry.
     pub fn collect_from_program(&mut self, decls: &[Declaration], file: &str, module: &str) {
-        for decl in decls {
+        for (idx, decl) in decls.iter().enumerate() {
             if let Declaration::Function {
                 name, annotations, ..
             } = decl
@@ -54,7 +54,7 @@ impl TestFunctionRegistry {
                     self.register(TestFnEntry {
                         name: name.clone(),
                         file: file.to_string(),
-                        line: 0,
+                        line: idx,
                         module: module.to_string(),
                     });
                 }

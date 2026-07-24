@@ -1,0 +1,1068 @@
+/**
+ * Ruyi Standard Library - Binary Buffer Module
+ *
+ * A reference-counted binary buffer for byte-level read/write with endianness
+ * control, string encoding (UTF-8, ASCII, Hex), and encoding conversions
+ * (Base64, Base64URL, Hex). Uses `Array<byte>` as backing store; the `byte`
+ * type inherently constrains values to 0-255.
+ *
+ * Features:
+ *   - Constructor & Factory: alloc, fromArray, fromString, fromBase64,
+ *     fromHex, concat
+ *   - Basic Access: get, set, fill, slice, copy, toArray
+ *   - Comparison & Search: equals, indexOf, lastIndexOf, includes,
+ *     startsWith, endsWith
+ *   - Integer Read (Big/Little Endian): UInt8, Int16, Int32, UInt32
+ *   - Integer Write (Big/Little Endian): UInt8, Int16, Int32
+ *   - String Read/Write: UTF-8 encode/decode with multi-byte support
+ *   - Encoding Conversions: toString, toBase64, toHex, toBase64Url
+ *
+ * Encoding conversions (Base64, Base64URL, Hex) delegate to
+ * stdlib/encoding.ry — the single authority for these algorithms.
+ *
+ * @author Ruyi Team
+ * @date 2026-07-17
+ */
+
+import { base64EncodeBytes, base64UrlEncodeBytes, base64DecodeToBytes, bytesToHex } from "./encoding";
+
+// ============================================================
+// Constants
+// ============================================================
+
+/**
+ * Lowercase hexadecimal character set.
+ */
+const HEX_CHARS: string = "0123456789abcdef";
+
+// ============================================================
+// Internal Helpers
+// ============================================================
+
+/**
+ * Converts a single hex character to its integer value (0-15).
+ * Returns -1 for invalid characters (case-insensitive).
+ *
+ * @param c Single hex character
+ * @return Integer value 0-15, or -1 if invalid
+ */
+fn hexCharToValue(c: string): int {
+    let code = c.charCodeAt(0);
+    if (code >= 48 && code <= 57) { return code - 48; }
+    if (code >= 65 && code <= 70) { return code - 65 + 10; }
+    if (code >= 97 && code <= 102) { return code - 97 + 10; }
+    return -1;
+}
+
+/**
+ * Creates a new empty Array<byte> pre-filled with zeros.
+ *
+ * @param size Number of zero bytes
+ * @return New zero-filled array
+ */
+fn makeZeroArray(size: int): Array<byte> {
+    let arr = [];
+    let i = 0;
+    while (i < size) {
+        arr.push(0);
+        i = i + 1;
+    }
+    return arr;
+}
+
+/**
+ * Encodes a Unicode code point (0-0x10FFFF) to UTF-8 byte sequence.
+ * Appends the resulting bytes to the given array.
+ *
+ * @param arr Target byte array
+ * @param codePoint Unicode code point
+ */
+fn encodeUtf8CodePoint(arr: Array<byte>, codePoint: int) {
+    if (codePoint < 128) {
+        arr.push(codePoint);
+    } else if (codePoint < 2048) {
+        arr.push(192 | (codePoint >> 6));
+        arr.push(128 | (codePoint & 63));
+    } else if (codePoint < 65536) {
+        arr.push(224 | (codePoint >> 12));
+        arr.push(128 | ((codePoint >> 6) & 63));
+        arr.push(128 | (codePoint & 63));
+    } else {
+        arr.push(240 | (codePoint >> 18));
+        arr.push(128 | ((codePoint >> 12) & 63));
+        arr.push(128 | ((codePoint >> 6) & 63));
+        arr.push(128 | (codePoint & 63));
+    }
+}
+
+// ============================================================
+// Buffer Class
+// ============================================================
+
+/**
+ * Binary buffer backed by `Array<byte>`.
+ *
+ * Provides byte-level read/write with endianness control, string encoding,
+ * and conversion to/from Base64, Base64URL, and Hex formats.
+ *
+ * All byte values are inherently constrained to 0-255 by the `byte` type.
+ */
+@arc
+export class Buffer {
+    /** Internal byte storage. Each element holds a single byte (0-255). */
+    data: Array<byte>;
+
+    /**
+     * Creates a new Buffer from an existing byte array.
+     * The array is used directly (not copied) — use factory methods
+     * for safe construction.
+     *
+     * @param data Byte array backing this buffer
+     */
+    fn new(data: Array<byte>) {
+        self.data = data;
+    }
+
+    // ============================================================
+    // Properties
+    // ============================================================
+
+    /**
+     * Returns the number of bytes in this buffer.
+     *
+     * @return Buffer size in bytes
+     */
+    fn length(): int {
+        return self.data.length();
+    }
+
+    // ============================================================
+    // Factory Methods
+    // ============================================================
+
+    /**
+     * Allocates a new zero-filled buffer of the given size.
+     *
+     * @param size Number of bytes to allocate
+     * @return New zero-filled Buffer
+     */
+    static fn alloc(size: int): Buffer {
+        return Buffer(makeZeroArray(size));
+    }
+
+    /**
+     * Creates a Buffer from an array of byte values.
+     * Each value is automatically constrained to 0-255 by the `byte` type.
+     *
+     * @param arr Source integer array
+     * @return New Buffer with byte-clamped values
+     */
+    static fn fromArray(arr: Array<byte>): Buffer {
+        let len = arr.length();
+        let result = makeZeroArray(len);
+        let i = 0;
+        while (i < len) {
+            result.set(i, arr.get(i));
+            i = i + 1;
+        }
+        return Buffer(result);
+    }
+
+    /**
+     * Creates a Buffer by encoding a string.
+     *
+     * Supported encodings:
+     *   - "utf8" (default): Full UTF-8 encoding with multi-byte support
+     *   - "ascii": Encodes only characters 0-127, others are truncated to
+     *      low byte
+     *   - "hex": Decodes a hex string (e.g., "a1b2" → bytes [0xa1, 0xb2])
+     *
+     * @param s Input string
+     * @param encoding Encoding name ("utf8", "ascii", "hex")
+     * @return New Buffer containing encoded bytes
+     */
+    static fn fromString(s: string, encoding: string = "utf8"): Buffer {
+        let arr = [];
+        let len = s.length();
+
+        if (encoding === "hex") {
+            let i = 0;
+            while (i + 1 < len) {
+                let hi = hexCharToValue(s.charAt(i));
+                let lo = hexCharToValue(s.charAt(i + 1));
+                if (hi === -1 || lo === -1) {
+                    i = i + 1;
+                    continue;
+                }
+                arr.push((hi << 4) | lo);
+                i = i + 2;
+            }
+            return Buffer(arr);
+        }
+
+        if (encoding === "ascii") {
+            let i = 0;
+            while (i < len) {
+                arr.push(s.charCodeAt(i) & 127);
+                i = i + 1;
+            }
+            return Buffer(arr);
+        }
+
+        // Default: UTF-8
+        let i = 0;
+        while (i < len) {
+            encodeUtf8CodePoint(arr, s.charCodeAt(i));
+            i = i + 1;
+        }
+        return Buffer(arr);
+    }
+
+    /**
+     * Creates a Buffer by decoding a Base64-encoded string.
+     *
+     * Handles standard Base64 padding ('=') per RFC 4648.
+     * Invalid characters are skipped.
+     *
+     * @param s Base64-encoded string
+     * @return New Buffer containing decoded bytes
+     */
+    static fn fromBase64(s: string): Buffer {
+        return Buffer(base64DecodeToBytes(s));
+    }
+
+    /**
+     * Creates a Buffer by decoding a hexadecimal string.
+     *
+     * Supports both uppercase and lowercase hex digits.
+     * Odd-length strings have the final nibble interpreted as the low nibble
+     * of the last byte (high nibble set to 0). Leading/trailing whitespace
+     * is not stripped.
+     *
+     * @param s Hex-encoded string (e.g., "a1b2" or "A1B2")
+     * @return New Buffer containing decoded bytes
+     */
+    static fn fromHex(s: string): Buffer {
+        let arr = [];
+        let len = s.length();
+        let i = 0;
+        while (i + 1 < len) {
+            let hi = hexCharToValue(s.charAt(i));
+            let lo = hexCharToValue(s.charAt(i + 1));
+            if (hi === -1 || lo === -1) {
+                i = i + 1;
+                continue;
+            }
+            arr.push((hi << 4) | lo);
+            i = i + 2;
+        }
+        // Handle odd-length: last nibble as low nibble
+        if (i < len) {
+            let lo = hexCharToValue(s.charAt(i));
+            if (lo !== -1) {
+                arr.push(lo);
+            }
+        }
+        return Buffer(arr);
+    }
+
+    /**
+     * Concatenates multiple buffers into a single new Buffer.
+     *
+     * @param buffers Array of Buffer instances
+     * @return New Buffer containing the concatenated bytes
+     */
+    static fn concat(buffers: Array<Buffer>): Buffer {
+        let bufCount = buffers.length();
+
+        // Calculate total size
+        let totalSize = 0;
+        let i = 0;
+        while (i < bufCount) {
+            totalSize = totalSize + buffers.get(i).length();
+            i = i + 1;
+        }
+
+        let arr = makeZeroArray(totalSize);
+        let offset = 0;
+        i = 0;
+        while (i < bufCount) {
+            let buf = buffers.get(i);
+            let bufLen = buf.length();
+            let j = 0;
+            while (j < bufLen) {
+                arr.set(offset, buf.data.get(j));
+                offset = offset + 1;
+                j = j + 1;
+            }
+            i = i + 1;
+        }
+        return Buffer(arr);
+    }
+
+    // ============================================================
+    // Basic Access
+    // ============================================================
+
+    /**
+     * Gets the byte value at the given index.
+     * Returns 0 for out-of-bounds access.
+     *
+     * @param index Zero-based byte index
+     * @return Byte value (0-255), or 0 if out-of-bounds
+     */
+    fn get(index: int): int {
+        if (index < 0 || index >= self.length()) {
+            return 0;
+        }
+        return self.data.get(index);
+    }
+
+    /**
+     * Sets the byte value at the given index.
+     * The value is automatically masked to 0-255.
+     * Out-of-bounds writes are silently ignored.
+     *
+     * @param index Zero-based byte index
+     * @param value Byte value (masked to 0-255)
+     */
+    fn set(index: int, value: int): void {
+        if (index < 0 || index >= self.length()) {
+            return;
+        }
+        self.data.set(index, value);
+    }
+
+    /**
+     * Fills a range of this buffer with the given byte value.
+     * The value is masked to 0-255. Returns self for chaining.
+     *
+     * @param value Byte value to fill with (masked to 0-255)
+     * @param start Start index (inclusive), default 0
+     * @param end End index (exclusive), default -1 means to end
+     * @return This Buffer (for method chaining)
+     */
+    fn fill(value: int, start: int = 0, end: int = -1): Buffer {
+        let byte = value;
+        let actualEnd = end;
+        if (actualEnd < 0) {
+            actualEnd = self.length();
+        }
+        if (start < 0) {
+            start = 0;
+        }
+        if (actualEnd > self.length()) {
+            actualEnd = self.length();
+        }
+        let i = start;
+        while (i < actualEnd) {
+            self.data.set(i, byte);
+            i = i + 1;
+        }
+        return self;
+    }
+
+    /**
+     * Returns a new Buffer containing a slice of this buffer's bytes.
+     * Uses copy semantics — modifications to the slice do not affect
+     * the original.
+     *
+     * @param start Start index (inclusive), default 0
+     * @param end End index (exclusive), default -1 means to end
+     * @return New Buffer with the sliced bytes
+     */
+    fn slice(start: int = 0, end: int = -1): Buffer {
+        if (start < 0) {
+            start = 0;
+        }
+        let actualEnd = end;
+        if (actualEnd < 0) {
+            actualEnd = self.length();
+        }
+        if (actualEnd > self.length()) {
+            actualEnd = self.length();
+        }
+        if (start >= actualEnd) {
+            return Buffer([]);
+        }
+        let size = actualEnd - start;
+        let arr = makeZeroArray(size);
+        let i = 0;
+        while (i < size) {
+            arr.set(i, self.data.get(start + i));
+            i = i + 1;
+        }
+        return Buffer(arr);
+    }
+
+    /**
+     * Copies bytes from this buffer to a target buffer.
+     *
+     * @param target Destination Buffer
+     * @param targetStart Destination start index, default 0
+     * @param sourceStart Source start index, default 0
+     * @param sourceEnd Source end index (exclusive), default -1 means to end
+     * @return Number of bytes actually written
+     */
+    fn copy(target: Buffer, targetStart: int = 0, sourceStart: int = 0,
+             sourceEnd: int = -1): int {
+        let actualEnd = sourceEnd;
+        if (actualEnd < 0) {
+            actualEnd = self.length();
+        }
+        if (sourceStart < 0) {
+            sourceStart = 0;
+        }
+        if (actualEnd > self.length()) {
+            actualEnd = self.length();
+        }
+        if (sourceStart >= actualEnd) {
+            return 0;
+        }
+        let bytesToCopy = actualEnd - sourceStart;
+        let written = 0;
+        let i = 0;
+        while (i < bytesToCopy) {
+            let destIndex = targetStart + i;
+            if (destIndex >= 0 && destIndex < target.length()) {
+                target.data.set(destIndex, self.data.get(sourceStart + i));
+                written = written + 1;
+            }
+            i = i + 1;
+        }
+        return written;
+    }
+
+    /**
+     * Returns a copy of the internal byte array.
+     *
+     * @return New Array<byte> containing all buffer bytes
+     */
+    fn toArray(): Array<byte> {
+        let len = self.length();
+        let arr = makeZeroArray(len);
+        let i = 0;
+        while (i < len) {
+            arr.set(i, self.data.get(i));
+            i = i + 1;
+        }
+        return arr;
+    }
+
+    // ============================================================
+    // Comparison & Search
+    // ============================================================
+
+    /**
+     * Tests whether this buffer is byte-for-byte equal to another.
+     *
+     * @param other Other Buffer to compare against
+     * @return true if both buffers have identical contents
+     */
+    fn equals(other: Buffer): bool {
+        if (self.length() !== other.length()) {
+            return false;
+        }
+        let i = 0;
+        let len = self.length();
+        while (i < len) {
+            if (self.data.get(i) !== other.data.get(i)) {
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    /**
+     * Finds the first occurrence of a byte value, starting from the
+     * given index.
+     *
+     * @param value Byte value to search for (masked to 0-255)
+     * @param start Search start index, default 0
+     * @return Index of first occurrence, or -1 if not found
+     */
+    fn indexOf(value: int, start: int = 0): int {
+        let byte = value;
+        let len = self.length();
+        if (start < 0) {
+            start = 0;
+        }
+        let i = start;
+        while (i < len) {
+            if (self.data.get(i) === byte) {
+                return i;
+            }
+            i = i + 1;
+        }
+        return -1;
+    }
+
+    /**
+     * Finds the last occurrence of a byte value, searching backward
+     * from the given index.
+     *
+     * @param value Byte value to search for (masked to 0-255)
+     * @param start Search start index (backward), default -1 means from end
+     * @return Index of last occurrence, or -1 if not found
+     */
+    fn lastIndexOf(value: int, start: int = -1): int {
+        let byte = value;
+        let len = self.length();
+        if (len === 0) { return -1; }
+        let i = start;
+        if (i < 0 || i >= len) {
+            i = len - 1;
+        }
+        while (i >= 0) {
+            if (self.data.get(i) === byte) {
+                return i;
+            }
+            i = i - 1;
+        }
+        return -1;
+    }
+
+    /**
+     * Tests whether this buffer contains the given byte value.
+     *
+     * @param value Byte value to check (masked to 0-255)
+     * @return true if the byte value exists in the buffer
+     */
+    fn includes(value: int): bool {
+        return self.indexOf(value) !== -1;
+    }
+
+    /**
+     * Tests whether this buffer starts with the given prefix.
+     * An empty prefix always returns true.
+     *
+     * @param prefix Prefix Buffer
+     * @return true if this buffer starts with the prefix bytes
+     */
+    fn startsWith(prefix: Buffer): bool {
+        let prefixLen = prefix.length();
+        if (prefixLen === 0) { return true; }
+        if (self.length() < prefixLen) { return false; }
+        let i = 0;
+        while (i < prefixLen) {
+            if (self.data.get(i) !== prefix.data.get(i)) {
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    /**
+     * Tests whether this buffer ends with the given suffix.
+     * An empty suffix always returns true.
+     *
+     * @param suffix Suffix Buffer
+     * @return true if this buffer ends with the suffix bytes
+     */
+    fn endsWith(suffix: Buffer): bool {
+        let suffixLen = suffix.length();
+        if (suffixLen === 0) { return true; }
+        let selfLen = self.length();
+        if (selfLen < suffixLen) { return false; }
+        let offset = selfLen - suffixLen;
+        let i = 0;
+        while (i < suffixLen) {
+            if (self.data.get(offset + i) !==
+                suffix.data.get(i)) {
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    // ============================================================
+    // Integer Read
+    // ============================================================
+
+    /**
+     * Reads an unsigned 8-bit integer at the given offset.
+     *
+     * @param offset Byte offset
+     * @return Unsigned 8-bit value (0-255), or 0 if out-of-bounds
+     */
+    fn readUInt8(offset: int): int {
+        return self.get(offset);
+    }
+
+    /**
+     * Reads a signed 16-bit integer in big-endian byte order.
+     * Handles sign extension for negative values.
+     *
+     * @param offset Byte offset
+     * @return Signed 16-bit integer
+     */
+    fn readInt16BE(offset: int): int {
+        let hi = self.get(offset);
+        let lo = self.get(offset + 1);
+        let value = (hi << 8) | lo;
+        if (value & 32768) {
+            value = value - 65536;
+        }
+        return value;
+    }
+
+    /**
+     * Reads a signed 16-bit integer in little-endian byte order.
+     *
+     * @param offset Byte offset
+     * @return Signed 16-bit integer
+     */
+    fn readInt16LE(offset: int): int {
+        let lo = self.get(offset);
+        let hi = self.get(offset + 1);
+        let value = (hi << 8) | lo;
+        if (value & 32768) {
+            value = value - 65536;
+        }
+        return value;
+    }
+
+    /**
+     * Reads a signed 32-bit integer in big-endian byte order.
+     *
+     * @param offset Byte offset
+     * @return Signed 32-bit integer
+     */
+    fn readInt32BE(offset: int): int {
+        let b0 = self.get(offset);
+        let b1 = self.get(offset + 1);
+        let b2 = self.get(offset + 2);
+        let b3 = self.get(offset + 3);
+        let value = (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+        // Sign extension for 32-bit: if bit 31 is set, make negative
+        if (value & 2147483648) {
+            value = value - 4294967296;
+        }
+        return value;
+    }
+
+    /**
+     * Reads a signed 32-bit integer in little-endian byte order.
+     *
+     * @param offset Byte offset
+     * @return Signed 32-bit integer
+     */
+    fn readInt32LE(offset: int): int {
+        let b0 = self.get(offset);
+        let b1 = self.get(offset + 1);
+        let b2 = self.get(offset + 2);
+        let b3 = self.get(offset + 3);
+        let value = (b3 << 24) | (b2 << 16) | (b1 << 8) | b0;
+        if (value & 2147483648) {
+            value = value - 4294967296;
+        }
+        return value;
+    }
+
+    /**
+     * Reads an unsigned 32-bit integer in big-endian byte order.
+     *
+     * @param offset Byte offset
+     * @return Unsigned 32-bit integer (0 to 4294967295)
+     */
+    fn readUInt32BE(offset: int): int {
+        let b0 = self.get(offset);
+        let b1 = self.get(offset + 1);
+        let b2 = self.get(offset + 2);
+        let b3 = self.get(offset + 3);
+        return (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+    }
+
+    /**
+     * Reads an unsigned 32-bit integer in little-endian byte order.
+     *
+     * @param offset Byte offset
+     * @return Unsigned 32-bit integer (0 to 4294967295)
+     */
+    fn readUInt32LE(offset: int): int {
+        let b0 = self.get(offset);
+        let b1 = self.get(offset + 1);
+        let b2 = self.get(offset + 2);
+        let b3 = self.get(offset + 3);
+        return (b3 << 24) | (b2 << 16) | (b1 << 8) | b0;
+    }
+
+    // ============================================================
+    // Integer Write
+    // ============================================================
+
+    /**
+     * Writes an unsigned 8-bit integer at the given offset.
+     *
+     * @param offset Byte offset
+     * @param value Value to write (masked to 0-255)
+     */
+    fn writeUInt8(offset: int, value: int): void {
+        self.set(offset, value);
+    }
+
+    /**
+     * Writes a signed 16-bit integer in big-endian byte order.
+     *
+     * @param offset Byte offset
+     * @param value Value to write
+     */
+    fn writeInt16BE(offset: int, value: int): void {
+        self.set(offset, value >> 8);
+        self.set(offset + 1, value);
+    }
+
+    /**
+     * Writes a signed 16-bit integer in little-endian byte order.
+     *
+     * @param offset Byte offset
+     * @param value Value to write
+     */
+    fn writeInt16LE(offset: int, value: int): void {
+        self.set(offset, value);
+        self.set(offset + 1, value >> 8);
+    }
+
+    /**
+     * Writes a signed 32-bit integer in big-endian byte order.
+     *
+     * @param offset Byte offset
+     * @param value Value to write
+     */
+    fn writeInt32BE(offset: int, value: int): void {
+        self.set(offset, value >> 24);
+        self.set(offset + 1, value >> 16);
+        self.set(offset + 2, value >> 8);
+        self.set(offset + 3, value);
+    }
+
+    /**
+     * Writes a signed 32-bit integer in little-endian byte order.
+     *
+     * @param offset Byte offset
+     * @param value Value to write
+     */
+    fn writeInt32LE(offset: int, value: int): void {
+        self.set(offset, value);
+        self.set(offset + 1, value >> 8);
+        self.set(offset + 2, value >> 16);
+        self.set(offset + 3, value >> 24);
+    }
+
+    // ============================================================
+    // Float Read/Write — IEEE 754 double via __f64_to_bits / __f64_from_bits
+    // ============================================================
+
+    /**
+     * Reads a 64-bit float (IEEE 754 double) in big-endian byte order.
+     *
+     * @param offset Byte offset
+     * @return Exact float64 value with full bit fidelity
+     */
+    fn readFloat64BE(offset: int): float {
+        let b0 = self.get(offset);
+        let b1 = self.get(offset + 1);
+        let b2 = self.get(offset + 2);
+        let b3 = self.get(offset + 3);
+        let b4 = self.get(offset + 4);
+        let b5 = self.get(offset + 5);
+        let b6 = self.get(offset + 6);
+        let b7 = self.get(offset + 7);
+
+        let high = (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+        let low = (b4 << 24) | (b5 << 16) | (b6 << 8) | b7;
+        let bits = (high << 32) | low;
+        return __f64_from_bits(bits);
+    }
+
+    /**
+     * Reads a 64-bit float (IEEE 754 double) in little-endian byte order.
+     *
+     * @param offset Byte offset
+     * @return Exact float64 value with full bit fidelity
+     */
+    fn readFloat64LE(offset: int): float {
+        let b0 = self.get(offset);
+        let b1 = self.get(offset + 1);
+        let b2 = self.get(offset + 2);
+        let b3 = self.get(offset + 3);
+        let b4 = self.get(offset + 4);
+        let b5 = self.get(offset + 5);
+        let b6 = self.get(offset + 6);
+        let b7 = self.get(offset + 7);
+
+        let high = (b7 << 24) | (b6 << 16) | (b5 << 8) | b4;
+        let low = (b3 << 24) | (b2 << 16) | (b1 << 8) | b0;
+        let bits = (high << 32) | low;
+        return __f64_from_bits(bits);
+    }
+
+    /**
+     * Writes a 64-bit float in big-endian byte order.
+     *
+     * @param offset Byte offset
+     * @param value Float value to write
+     */
+    fn writeFloat64BE(offset: int, value: float): void {
+        let bits = __f64_to_bits(value);
+        let high = (bits >> 32) & 0xFFFFFFFF;
+        let low = bits & 0xFFFFFFFF;
+
+        self.set(offset, high >> 24);
+        self.set(offset + 1, high >> 16);
+        self.set(offset + 2, high >> 8);
+        self.set(offset + 3, high);
+        self.set(offset + 4, low >> 24);
+        self.set(offset + 5, low >> 16);
+        self.set(offset + 6, low >> 8);
+        self.set(offset + 7, low);
+    }
+
+    /**
+     * Writes a 64-bit float in little-endian byte order.
+     *
+     * @param offset Byte offset
+     * @param value Float value to write
+     */
+    fn writeFloat64LE(offset: int, value: float): void {
+        let bits = __f64_to_bits(value);
+        let high = (bits >> 32) & 0xFFFFFFFF;
+        let low = bits & 0xFFFFFFFF;
+
+        self.set(offset, low);
+        self.set(offset + 1, low >> 8);
+        self.set(offset + 2, low >> 16);
+        self.set(offset + 3, low >> 24);
+        self.set(offset + 4, high);
+        self.set(offset + 5, high >> 8);
+        self.set(offset + 6, high >> 16);
+        self.set(offset + 7, high >> 24);
+    }
+
+    // ============================================================
+    // String Read/Write
+    // ============================================================
+
+    /**
+     * Reads a range of bytes and decodes them as a UTF-8 string.
+     *
+     * Handles 1, 2, 3, and 4-byte UTF-8 sequences. Invalid sequences
+     * are replaced with the Unicode replacement character (U+FFFD).
+     *
+     * @param offset Start byte offset
+     * @param length Number of bytes to read
+     * @return Decoded UTF-8 string
+     */
+    fn readString(offset: int, length: int): string {
+        let result = "";
+        if (length <= 0) { return ""; }
+
+        let i = 0;
+        while (i < length) {
+            let pos = offset + i;
+            if (pos >= self.length()) { break; }
+
+            let b0 = self.data.get(pos);
+
+            if (b0 < 128) {
+                // Single byte (ASCII): 0xxxxxxx
+                result = result + fromCharCode(b0);
+                i = i + 1;
+            } else if ((b0 & 224) === 192) {
+                // Two bytes: 110xxxxx 10xxxxxx
+                if (i + 1 < length && pos + 1 < self.length()) {
+                    let b1 = self.data.get(pos + 1);
+                    if ((b1 & 192) === 128) {
+                        let code = ((b0 & 31) << 6) | (b1 & 63);
+                        result = result + fromCharCode(code);
+                        i = i + 2;
+                    } else {
+                        result = result + fromCharCode(65533);
+                        i = i + 1;
+                    }
+                } else {
+                    result = result + fromCharCode(65533);
+                    i = i + 1;
+                }
+            } else if ((b0 & 240) === 224) {
+                // Three bytes: 1110xxxx 10xxxxxx 10xxxxxx
+                if (i + 2 < length && pos + 2 < self.length()) {
+                    let b1 = self.data.get(pos + 1);
+                    let b2 = self.data.get(pos + 2);
+                    if ((b1 & 192) === 128 && (b2 & 192) === 128) {
+                        let code = ((b0 & 15) << 12) | ((b1 & 63) << 6) |
+                                   (b2 & 63);
+                        result = result + fromCharCode(code);
+                        i = i + 3;
+                    } else {
+                        result = result + fromCharCode(65533);
+                        i = i + 1;
+                    }
+                } else {
+                    result = result + fromCharCode(65533);
+                    i = i + 1;
+                }
+            } else if ((b0 & 248) === 240) {
+                // Four bytes: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+                if (i + 3 < length && pos + 3 < self.length()) {
+                    let b1 = self.data.get(pos + 1);
+                    let b2 = self.data.get(pos + 2);
+                    let b3 = self.data.get(pos + 3);
+                    if ((b1 & 192) === 128 && (b2 & 192) === 128 &&
+                        (b3 & 192) === 128) {
+                        let code = ((b0 & 7) << 18) | ((b1 & 63) << 12) |
+                                   ((b2 & 63) << 6) | (b3 & 63);
+                        result = result + fromCharCode(code);
+                        i = i + 4;
+                    } else {
+                        result = result + fromCharCode(65533);
+                        i = i + 1;
+                    }
+                } else {
+                    result = result + fromCharCode(65533);
+                    i = i + 1;
+                }
+            } else {
+                // Continuation byte or invalid lead byte
+                result = result + fromCharCode(65533);
+                i = i + 1;
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Writes a string at the given offset using the specified encoding.
+     * Returns the number of bytes written.
+     *
+     * Supported encodings:
+     *   - "utf8" (default): Full UTF-8 multi-byte encoding
+     *   - "ascii": Characters above 127 are truncated to low 7 bits
+     *
+     * @param offset Byte offset to start writing
+     * @param value String to encode
+     * @param encoding Encoding name ("utf8" or "ascii")
+     * @return Number of bytes written
+     */
+    fn writeString(offset: int, value: string, encoding: string = "utf8"): int {
+        let written = 0;
+        let len = value.length();
+        let bufLen = self.length();
+
+        if (encoding === "ascii") {
+            let i = 0;
+            while (i < len) {
+                if (offset + written >= bufLen) { break; }
+                self.set(offset + written, value.charCodeAt(i) & 127);
+                written = written + 1;
+                i = i + 1;
+            }
+            return written;
+        }
+
+        // UTF-8 encoding
+        let i = 0;
+        while (i < len) {
+            let code = value.charCodeAt(i);
+            if (code < 128) {
+                // Single byte
+                if (offset + written >= bufLen) { break; }
+                self.set(offset + written, code);
+                written = written + 1;
+            } else if (code < 2048) {
+                // Two bytes
+                if (offset + written + 1 >= bufLen) { break; }
+                self.set(offset + written, 192 | (code >> 6));
+                self.set(offset + written + 1, 128 | (code & 63));
+                written = written + 2;
+            } else if (code < 65536) {
+                // Three bytes
+                if (offset + written + 2 >= bufLen) { break; }
+                self.set(offset + written, 224 | (code >> 12));
+                self.set(offset + written + 1, 128 | ((code >> 6) & 63));
+                self.set(offset + written + 2, 128 | (code & 63));
+                written = written + 3;
+            } else {
+                // Four bytes
+                if (offset + written + 3 >= bufLen) { break; }
+                self.set(offset + written, 240 | (code >> 18));
+                self.set(offset + written + 1, 128 | ((code >> 12) & 63));
+                self.set(offset + written + 2, 128 | ((code >> 6) & 63));
+                self.set(offset + written + 3, 128 | (code & 63));
+                written = written + 4;
+            }
+            i = i + 1;
+        }
+        return written;
+    }
+
+    // ============================================================
+    // Encoding Conversions
+    // ============================================================
+
+    /**
+     * Converts the entire buffer to a string.
+     *
+     * Supported encodings: "utf8" (default), "ascii", "hex".
+     * For "hex", returns lowercase hex representation (e.g., "a1b2").
+     *
+     * @param encoding Encoding name
+     * @return String representation of the buffer
+     */
+    fn toString(encoding: string = "utf8"): string {
+        let len = self.length();
+
+        if (encoding === "hex") {
+            return bytesToHex(self.data);
+        }
+
+        if (encoding === "ascii") {
+            let result = "";
+            let i = 0;
+            while (i < len) {
+                result = result + fromCharCode(self.data.get(i) & 127);
+                i = i + 1;
+            }
+            return result;
+        }
+
+        // Default: UTF-8
+        return self.readString(0, len);
+    }
+
+    /**
+     * Encodes the buffer to a Base64 string per RFC 4648.
+     *
+     * Processes bytes in groups of 3, producing 4 Base64 characters
+     * per group. Padding '=' is added when the buffer length is not
+     * a multiple of 3.
+     *
+     * @return Base64-encoded string
+     */
+    fn toBase64(): string {
+        return base64EncodeBytes(self.data);
+    }
+
+    /**
+     * Encodes the buffer to a lowercase hexadecimal string.
+     * Delegates to encoding.bytesToHex.
+     *
+     * @return Hex-encoded string
+     */
+    fn toHex(): string {
+        return bytesToHex(self.data);
+    }
+
+    /**
+     * Encodes the buffer to a Base64URL string per RFC 4648.
+     * Delegates to encoding.base64UrlEncodeBytes.
+     *
+     * @return Base64URL-encoded string
+     */
+    fn toBase64Url(): string {
+        return base64UrlEncodeBytes(self.data);
+    }
+}

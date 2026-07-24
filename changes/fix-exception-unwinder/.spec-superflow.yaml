@@ -1,0 +1,28 @@
+# .spec-superflow.yaml — lightweight state machine
+# Derived data. Always rebuildable from artifacts.
+
+# === Core state ===
+state: specifying
+workflow: full
+
+# === Metadata ===
+change_name: fix-exception-unwinder
+last_transition: 2026-07-16T00:00:00.000Z
+last_transition_from: exploring
+last_transition_to: specifying
+
+# === Decision points ===
+dp_0_decisions: 变更名: fix-exception-unwinder; 意图: 实现异常 unwinder，将 throw/throw_exception 中的 panic!() 替换为真正的 LLVM landing pad 异常抛出; 范围: ruyi_runtime/src/exception.rs (throw_exception panic→_Unwind_RaiseException) + ruyic/src/runtime/exception.rs (Exception::throw panic→runtime 调用) + codegen try/catch/finally landing pad 连接验证 + 启用 exception_runtime.rs 中 4 个 #[ignore] 测试 + 新增端到端 .ry 集成测试 (throw→catch + 嵌套 try-catch-finally); 非目标: 不修改 GC、不修改 async、不涉及新语言特性、不修改 Mutex、不建 CI/CD; 成功标准: (1) exception_runtime 测试全部通过 (含 4 个 previously-ignored); (2) try_catch_invoke 测试全部通过; (3) 新增端到端 .ry 集成测试编译运行正确; (4) 编译的 Ruyi 程序中 throw 能被 catch 正常捕获不再 panic; (5) make check 通过零新增警告
+dp_0_result: confirmed
+dp_0_confirmed: true
+dp_0_timestamp: 2026-07-16T08:00:00Z
+dp_1_result: "confirmed: Change A 异常 unwinder 完整 LLVM landing pad 实现，验收标准为 Rust 单测 + .ry 集成测试。范围: runtime panic→unwinder 替换 + codegen landing pad 连接 + 4 个 #[ignore] 启用 + 端到端测试。非目标: GC/async/新语言特性/Mutex/CI/CD。"
+dp_1_timestamp: 2026-07-16T08:10:00Z
+dp_2_result: "approved: 4 planning artifacts validated. proposal.md (Why 双重断裂点修复/What 3处连接/Scope In包含5项Out排除4类). specs/ (1 file: exception-unwinder.md, 5 MODIFIED requirements, 12 WHEN/THEN scenarios). design.md (5 decisions: D1 throw_exception→ruyi_throw delegate, D2 C FFI build ExceptionObject, D3 two-phase compile_throw, D4 _URC_END_OF_STACK abort, D5 three-layer testing, each with Choice+Rationale+Alternatives). tasks.md (10 tasks across 3 batches: Runtime Connection→Compiler Update→Test Enablement, 6 FV gates, all with TDD 5-step, exact file paths, zero placeholders). Cross-artifact consistency verified. State transitioned to specifying at 2026-07-16T09:00:00Z. Ready for DP-3 contract builder."
+dp_2_timestamp: 2026-07-16T09:00:00Z
+dp_3_result: "approved: execution-contract.md validated. Intent Lock captures double-fracture fix + scope fence. Approved Behavior maps all 5 spec Requirements (R1-R5) plus 6 acceptance criteria. Design Constraints declare two-phase approach + throw_exception safe entry + divergent fn + PENDING_EXCEPTION deprecated. Task Batches: Batch 1 (3 runtime) → Batch 2 (2 compiler) → Batch 3 (5 test enablement). Test Obligations enforce TDD 5-step with runtime/codegen regression areas. Cross-change dependency: Change B Task 3b.3 unblocks try_catch_invoke tests. Review Gates define 5 mandatory gates. Escalation Rules define 3 tiers including blocked-by-Change-B. All guard artifacts-exist/schema-valid PASSED."
+dp_3_timestamp: 2026-07-16T09:15:00Z
+dp_4_result: "SDD: 10 tasks across 3 modules (runtime/compiler/tests), cross-module dependencies, _Unwind_RaiseException ABI risk. Inline threshold=3. SDD selected per execution contract Batch structure."
+dp_4_timestamp: 2026-07-16T10:00:00Z
+execution_mode: SDD
+batches_completed: 0

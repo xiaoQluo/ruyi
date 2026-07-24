@@ -1,8 +1,9 @@
 /**
  * Ruyi Standard Library - Math Module
  *
- * Provides mathematical functions and constants for numerical computations.
- * All functions operate on `float` (f64) values.
+ * Single source of truth for all mathematical functions and constants.
+ * Provides float operations (sqrt, pow, abs, min, max, sin, cos, etc.),
+ * int operations (absInt, minInt, maxInt), and math constants (PI, E).
  *
  * @author Ruyi Team
  * @date 2026-07-12
@@ -77,6 +78,42 @@ export fn min(a: float, b: float): float {
  */
 export fn max(a: float, b: float): float {
     return __math_max(a, b);
+}
+
+// ============================================================
+// Integer Math Functions
+// ============================================================
+
+/**
+ * Returns the smaller of two integers.
+ *
+ * @param a First value
+ * @param b Second value
+ * @return The smaller of a and b
+ */
+export fn minInt(a: int, b: int): int {
+    return if (a < b) { a } else { b };
+}
+
+/**
+ * Returns the larger of two integers.
+ *
+ * @param a First value
+ * @param b Second value
+ * @return The larger of a and b
+ */
+export fn maxInt(a: int, b: int): int {
+    return if (a > b) { a } else { b };
+}
+
+/**
+ * Returns the absolute value of an integer.
+ *
+ * @param x The value to compute the absolute value of
+ * @return The absolute value of x
+ */
+export fn absInt(x: int): int {
+    return if (x < 0) { -x } else { x };
 }
 
 // ============================================================
@@ -159,4 +196,166 @@ export fn floor(x: float): float {
  */
 export fn round(x: float): float {
     return __math_round(x);
+}
+
+// ============================================================
+// Inverse Trigonometric Functions
+// ============================================================
+
+/**
+ * Returns the arc-cosine (inverse cosine) of x.
+ *
+ * @param x The value to compute the arc-cosine of (range: -1 to 1)
+ * @return The arc-cosine of x in radians (range: 0 to π)
+ */
+export fn acos(x: float): float {
+    return __math_acos(x);
+}
+
+/**
+ * Returns the arc-sine (inverse sine) of x.
+ *
+ * @param x The value to compute the arc-sine of (range: -1 to 1)
+ * @return The arc-sine of x in radians (range: -π/2 to π/2)
+ */
+export fn asin(x: float): float {
+    return __math_asin(x);
+}
+
+/**
+ * Returns the arc-tangent (inverse tangent) of x.
+ *
+ * @param x The value to compute the arc-tangent of
+ * @return The arc-tangent of x in radians (range: -π/2 to π/2)
+ */
+export fn atan(x: float): float {
+    return __math_atan(x);
+}
+
+/**
+ * Returns the four-quadrant arc-tangent of y/x.
+ *
+ * @param y The y-coordinate
+ * @param x The x-coordinate
+ * @return The angle in radians (range: -π to π)
+ */
+export fn atan2(y: float, x: float): float {
+    return __math_atan2(y, x);
+}
+
+// ============================================================
+// Exponential and Logarithmic Functions
+// ============================================================
+
+/**
+ * Returns e raised to the power of x (the exponential function).
+ *
+ * @param x The exponent value
+ * @return e^x
+ */
+export fn exp(x: float): float {
+    return __math_exp(x);
+}
+
+/**
+ * Returns the base-2 logarithm of x.
+ *
+ * @param x The value to compute the logarithm of (must be positive)
+ * @return The base-2 logarithm of x
+ */
+export fn log2(x: float): float {
+    return __math_log2(x);
+}
+
+/**
+ * Returns the base-10 logarithm of x.
+ *
+ * @param x The value to compute the logarithm of (must be positive)
+ * @return The base-10 logarithm of x
+ */
+export fn log10(x: float): float {
+    return __math_log10(x);
+}
+
+// ============================================================
+// Sign and Truncation Functions
+// ============================================================
+
+/**
+ * Returns the sign of x: -1 for negative, 1 for positive, 0 for zero.
+ *
+ * @param x The value to check
+ * @return -1, 1, or 0
+ */
+export fn sign(x: float): float {
+    return __math_sign(x);
+}
+
+/**
+ * Returns the integer part of x by truncation toward zero.
+ *
+ * @param x The value to truncate
+ * @return The truncated integer value
+ */
+export fn trunc(x: float): float {
+    return __math_trunc(x);
+}
+
+// ============================================================
+// Hyperbolic Functions
+// ============================================================
+
+/**
+ * Returns the hyperbolic sine of x.
+ *
+ * @param x The value in radians
+ * @return The hyperbolic sine of x
+ */
+export fn sinh(x: float): float {
+    return __math_sinh(x);
+}
+
+/**
+ * Returns the hyperbolic cosine of x.
+ *
+ * @param x The value in radians
+ * @return The hyperbolic cosine of x
+ */
+export fn cosh(x: float): float {
+    return __math_cosh(x);
+}
+
+/**
+ * Returns the hyperbolic tangent of x.
+ *
+ * @param x The value in radians
+ * @return The hyperbolic tangent of x
+ */
+export fn tanh(x: float): float {
+    return __math_tanh(x);
+}
+
+// ============================================================
+// Miscellaneous Math Functions
+// ============================================================
+
+/**
+ * Returns the square root of x^2 + y^2 (the hypotenuse).
+ *
+ * @param x First value
+ * @param y Second value
+ * @return sqrt(x^2 + y^2)
+ */
+export fn hypot(x: float, y: float): float {
+    return __math_hypot(x, y);
+}
+
+/**
+ * Returns the cube root of x.
+ *
+ * @param x The value to compute the cube root of
+ * @return The cube root of x
+ */
+export fn cbrt(x: float): float {
+    return __math_cbrt(x);
 }

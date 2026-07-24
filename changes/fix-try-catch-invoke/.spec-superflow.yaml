@@ -12,7 +12,7 @@ contract_hash: sha256:a51489c8442eaa2bbbf8cfc9386e9a2cd50d35debdf525c4fbf5578a21
 # === Execution progress ===
 execution_mode: Batch Inline (SDD pattern: dispatched subagents per task)
 batches_completed: 11
-test_result: pass
+test_result: "pass; 2026-07-16 fresh verify: try_catch_invoke.ry → 'caught' Exit 0; invoke+landingpad verified; cargo check 0 warnings"
 
 # === Metadata ===
 change_name: fix-try-catch-invoke

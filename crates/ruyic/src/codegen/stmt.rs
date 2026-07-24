@@ -687,71 +687,97 @@ fn compile_return<'ctx>(
 }
 
 fn compile_throw<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>, expr: &Expr) -> Result<(), String> {
-    // Handle `throw ClassName(...)` as `throw new ClassName(...)`
-    let exc_result = match expr {
-        Expr::Call { callee, args } => {
-            if let Expr::Identifier(name) = callee.as_ref() {
-                // Check if it's a known class, or looks like one (starts with uppercase)
-                let is_class = ctx.class_struct_types.contains_key(name)
-                    || name
-                        .chars()
-                        .next()
-                        .map(|c| c.is_uppercase())
-                        .unwrap_or(false);
-                if is_class {
-                    let class_expr = Expr::Identifier(name.clone());
-                    super::expr::compile_new(ctx, &class_expr, args)?
-                } else {
-                    compile_expr(ctx, expr)?
+    // Handle both `throw ClassName(...)` and `throw new ClassName(...)` patterns.
+    // Extract the class name and argument list for downstream processing.
+    let (throw_class, args): (Option<String>, Vec<&crate::parser::ast::Argument>) = match expr {
+        Expr::New { callee, args } => {
+            match callee.as_ref() {
+                Expr::Identifier(n) => (Some(n.clone()), args.iter().collect()),
+                Expr::Call { callee: c, args: call_args } => {
+                    if let Expr::Identifier(n) = c.as_ref() {
+                        if args.is_empty() {
+                            return compile_throw(
+                                ctx,
+                                &Expr::Call {
+                                    callee: Box::new(Expr::Identifier(n.clone())),
+                                    args: call_args.clone(),
+                                },
+                            );
+                        }
+                    }
+                    return Err("throw new: unsupported callee".to_string());
                 }
-            } else {
-                compile_expr(ctx, expr)?
+                _ => return Err("throw new: unsupported callee".to_string()),
             }
         }
-        _ => compile_expr(ctx, expr)?,
-    };
-    let exc_ptr = match exc_result.value {
-        BasicValueEnum::PointerValue(v) => v,
-        _ => return Err("throw expression must evaluate to a pointer".to_string()),
-    };
-
-    let throw_fn = ctx
-        .module
-        .get_function("ruyi_throw")
-        .expect("ruyi_throw not declared");
-
-    if let Some(try_ctx) = ctx.current_try() {
-        ctx.builder()
-            .build_call(throw_fn, &[exc_ptr.into()], "throw");
-        ctx.builder().build_store(try_ctx.exception_ptr, exc_ptr);
-        if let Some(catch_bb) = try_ctx.catch_bb {
-            ctx.builder().build_unconditional_branch(catch_bb);
-        } else if let Some(finally_bb) = try_ctx.finally_bb {
-            ctx.builder().build_unconditional_branch(finally_bb);
-        } else {
-            ctx.builder().build_unconditional_branch(try_ctx.merge_bb);
-        }
-        // After branch, create unreachable block for subsequent code
-        if let Some(func) = ctx.current_function() {
-            let unreachable_bb = ctx.context.append_basic_block(func, "throw.unreachable");
-            ctx.builder().position_at_end(unreachable_bb);
-            ctx.builder().build_unreachable();
-        }
-    } else {
-        ctx.builder()
-            .build_call(throw_fn, &[exc_ptr.into()], "throw");
-        // ruyi_throw sets thread-local pending exception and returns.
-        // Emit a return so the caller's exception check (or invoke landing
-        // pad) can detect the pending exception and unwind properly.
-        if let Some(func) = ctx.current_function() {
-            // ruyi_throw set the pending exception; return immediately so the
-            // caller's exception check (or invoke landing pad) catches it.
-            if let Some(ret_type) = func.get_type().get_return_type() {
-                ctx.builder().build_return(Some(&ret_type.const_zero()));
-            } else {
-                ctx.builder().build_return(None);
+        Expr::Call { callee, args } => {
+            let name = match callee.as_ref() {
+                Expr::Identifier(n) => n.clone(),
+                Expr::Member { object, property, .. } => {
+                    match (object.as_ref(), property) {
+                        (
+                            Expr::Identifier(n),
+                            crate::parser::ast::MemberProperty::Ident(method),
+                        ) if method == "new" => n.clone(),
+                        _ => {
+                            return Err("throw: unsupported callee".to_string())
+                        }
+                    }
+                }
+                _ => return Err("throw: unsupported callee".to_string()),
+            };
+            let is_class = ctx.class_struct_types.contains_key(&name)
+                || name.chars().next().map_or(false, |c| c.is_uppercase());
+            if !is_class {
+                let exc_result = compile_expr(ctx, expr)?;
+                let exc_ptr = match exc_result.value {
+                    BasicValueEnum::PointerValue(v) => v,
+                    _ => return Err("throw expression must evaluate to a pointer".to_string()),
+                };
+                emit_throw_call(ctx, exc_ptr)?;
+                return Ok(());
             }
+            (Some(name.clone()), args.iter().collect())
         }
+        _ => {
+            let exc_result = compile_expr(ctx, expr)?;
+            let exc_ptr = match exc_result.value {
+                BasicValueEnum::PointerValue(v) => v,
+                _ => return Err("throw expression must evaluate to a pointer".to_string()),
+            };
+            emit_throw_call(ctx, exc_ptr)?;
+            return Ok(());
+        }
+    };
+
+    // At this point we have a class name + args. Extract the message string
+    // and pass it directly to ruyi_throw (the runtime creates RuyiException from
+    // the message, using the class name-derived type_id).
+    let msg = args
+        .first()
+        .ok_or("throw requires at least one argument (message)")?;
+    match msg {
+        crate::parser::ast::Argument::Expr(e) => match e.as_ref() {
+            Expr::StringLiteral(s) => {
+                let str_ptr = ctx.builder().build_global_string_ptr(s, "throw_msg");
+                let exc_ptr = str_ptr.as_pointer_value();
+                emit_throw_call(ctx, exc_ptr)?;
+            }
+            _ => {
+                let class_name = throw_class
+                    .ok_or("throw requires a class name for non-literal arguments")?;
+                let args_cloned: Vec<crate::parser::ast::Argument> =
+                    args.iter().map(|a| (*a).clone()).collect();
+                let exc_result =
+                    super::expr::compile_new(ctx, &Expr::Identifier(class_name), &args_cloned)?;
+                let exc_ptr = match exc_result.value {
+                    BasicValueEnum::PointerValue(v) => v,
+                    _ => return Err("throw expression must evaluate to a pointer".to_string()),
+                };
+                emit_throw_call(ctx, exc_ptr)?;
+            }
+        },
+        _ => return Err("throw class: argument must be an expression".to_string()),
     }
 
     Ok(())
@@ -963,6 +989,40 @@ fn compile_try<'ctx>(
     }
 
     ctx.builder().position_at_end(merge_bb);
+    Ok(())
+}
+
+fn emit_throw_call<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
+    exc_ptr: inkwell::values::PointerValue<'ctx>,
+) -> Result<(), String> {
+    let throw_fn = ctx
+        .module
+        .get_function("ruyi_throw")
+        .expect("ruyi_throw not declared");
+
+    if let Some(try_ctx) = ctx.current_try() {
+        ctx.builder()
+            .build_call(throw_fn, &[exc_ptr.into()], "throw");
+        ctx.builder().build_store(try_ctx.exception_ptr, exc_ptr);
+        if let Some(catch_bb) = try_ctx.catch_bb {
+            ctx.builder().build_unconditional_branch(catch_bb);
+        } else if let Some(finally_bb) = try_ctx.finally_bb {
+            ctx.builder().build_unconditional_branch(finally_bb);
+        } else {
+            ctx.builder().build_unconditional_branch(try_ctx.merge_bb);
+        }
+        if let Some(func) = ctx.current_function() {
+            let unreachable_bb = ctx.context.append_basic_block(func, "throw.unreachable");
+            ctx.builder().position_at_end(unreachable_bb);
+            ctx.builder().build_unreachable();
+        }
+    } else {
+        ctx.builder()
+            .build_call(throw_fn, &[exc_ptr.into()], "throw");
+        ctx.builder().build_unreachable();
+    }
+
     Ok(())
 }
 

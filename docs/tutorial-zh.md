@@ -2070,25 +2070,26 @@ import { readLine } from "std::io";
 |------|------|------|
 | `readLine` | `fn readLine(): string?` | 从 stdin 读取一行 |
 
-**File 类：**
+**文件系统（`std::fs`）：**
 
-| 方法 | 签名 | 说明 |
+文件系统操作已迁移至 `fs` 模块。从 `"std::fs"` 导入：
+
+```ruyi
+import { readFile, writeFile, exists, mkdir } from "std::fs";
+```
+
+主要函数（均提供 `*Async` 异步版本）：
+
+| 函数 | 签名 | 说明 |
 |------|------|------|
-| `File.readText` | `static fn readText(path: string): string` | 读取整个文件 |
-| `File.readTextAsync` | `static async fn readTextAsync(path: string): Future<string>` | 读取文件（异步） |
-| `File.writeText` | `static fn writeText(path: string, content: string): void` | 写入字符串到文件 |
-| `File.writeTextAsync` | `static async fn writeTextAsync(path: string, content: string): Future<void>` | 写入文件（异步） |
-| `File.readLines` | `static fn readLines(path: string): Array<string>` | 按行读取 |
-| `File.readLinesAsync` | `static async fn readLinesAsync(path: string): Future<Array<string>>` | 按行读取（异步） |
-| `File.writeLines` | `static fn writeLines(path: string, lines: Array<string>): void` | 写入多行到文件 |
-| `File.writeLinesAsync` | `static async fn writeLinesAsync(path: string, lines: Array<string>): Future<void>` | 写入多行（异步） |
-| `File.exists` | `static fn exists(path: string): bool` | 检查路径是否存在 |
-| `File.isDirectory` | `static fn isDirectory(path: string): bool` | 检查是否为目录 |
-| `File.isFile` | `static fn isFile(path: string): bool` | 检查是否为文件 |
-| `File.delete` | `static fn delete(path: string): void` | 删除文件 |
-| `File.deleteAsync` | `static async fn deleteAsync(path: string): Future<void>` | 删除文件（异步） |
-| `File.mkdir` | `static fn mkdir(path: string, recursive: bool = false): void` | 创建目录 |
-| `File.mkdirAsync` | `static async fn mkdirAsync(path: string, recursive: bool = false): Future<void>` | 创建目录（异步） |
+| `readFile` | `fn readFile(path: string): string` | 读取整个文件 |
+| `writeFile` | `fn writeFile(path: string, content: string): void` | 写入字符串到文件 |
+| `exists` | `fn exists(path: string): bool` | 检查路径是否存在 |
+| `isFile` | `fn isFile(path: string): bool` | 检查是否为文件 |
+| `isDir` | `fn isDir(path: string): bool` | 检查是否为目录 |
+| `mkdir` | `fn mkdir(path: string, recursive: bool = false): void` | 创建目录 |
+| `deleteFile` | `fn deleteFile(path: string): void` | 删除文件 |
+
 
 #### Collections 模块（`std::collections`）
 

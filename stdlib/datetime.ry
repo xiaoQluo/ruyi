@@ -1,0 +1,1001 @@
+/**
+ * Ruyi Standard Library - DateTime Module
+ *
+ * Provides a rich Date class and date utility functions for working with
+ * dates, times, and timestamps. Built entirely in pure .ry on top of the
+ * existing `time.ry` FFI (`__time_now`, `__time_timestamp`, `__time_format`,
+ * `__time_sleep`). No additional FFI is required.
+ *
+ * All timestamps are milliseconds since the Unix epoch (1970-01-01 00:00:00.000 UTC).
+ * Negative timestamps represent dates before 1970.
+ *
+ * @author Ruyi Team
+ * @date 2026-07-17
+ */
+
+import { nowMs, timestamp, format_time } from "./time";
+
+// ============================================================
+// Time Unit Constants (in milliseconds)
+// ============================================================
+
+/** Milliseconds in one day (24 * 60 * 60 * 1000). */
+export const DAY_MS: int = 86400000;
+
+/** Milliseconds in one day, returned via accessor function.
+ * Internal accessor for `dayMs()` because the ruyic typechecker currently
+ * cannot resolve `export const` symbols when referenced from within the
+ * same module that exports them. */
+fn dayMs(): int { return 86400000; }
+
+/** Milliseconds in one hour (60 * 60 * 1000). */
+export const HOUR_MS: int = 3600000;
+
+/** Milliseconds in one hour. Internal accessor — see `dayMs()`. */
+fn hourMs(): int { return 3600000; }
+
+/** Milliseconds in one minute (60 * 1000). */
+export const MINUTE_MS: int = 60000;
+
+/** Milliseconds in one minute. Internal accessor — see `dayMs()`. */
+fn minuteMs(): int { return 60000; }
+
+/** Milliseconds in one second. */
+export const SECOND_MS: int = 1000;
+
+/** Milliseconds in one second. Internal accessor — see `dayMs()`. */
+fn secondMs(): int { return 1000; }
+
+/** Milliseconds in one week (7 * 86400000). */
+export const WEEK_MS: int = 604800000;
+
+/** Milliseconds in one week. Internal accessor — see `dayMs()`. */
+fn weekMs(): int { return 604800000; }
+
+// ============================================================
+// Internal: Leap Year & Days-in-Month Helpers
+// ============================================================
+
+/**
+ * Determines whether the given year is a leap year in the Gregorian calendar.
+ *
+ * Leap year rules:
+ *   - Year divisible by 400 → leap year
+ *   - Year divisible by 100 → NOT a leap year
+ *   - Year divisible by 4   → leap year
+ *   - Otherwise             → NOT a leap year
+ *
+ * Uses astronomical year numbering: year 0 exists (1 BC), year -1 is 2 BC, etc.
+ * The rules apply backward symmetrically.
+ *
+ * @param year The year to check (can be negative for BC dates)
+ * @return true if the year is a leap year, false otherwise
+ */
+fn isLeapYearCalc(year: int): bool {
+    if (year % 400 === 0) {
+        return true;
+    }
+    if (year % 100 === 0) {
+        return false;
+    }
+    if (year % 4 === 0) {
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Returns the number of days in the given month (1-12) for the given year.
+ *
+ * @param year  The year (for leap year detection in February)
+ * @param month The month (1 = January, 12 = December)
+ * @return Number of days in the month (28, 29, 30, or 31)
+ */
+fn daysInMonthCalc(year: int, month: int): int {
+    if (month === 2) {
+        if (isLeapYearCalc(year)) {
+            return 29;
+        }
+        return 28;
+    }
+    // Months with 31 days: Jan(1), Mar(3), May(5), Jul(7), Aug(8), Oct(10), Dec(12)
+    // Months with 30 days: Apr(4), Jun(6), Sep(9), Nov(11)
+    if (month === 4 || month === 6 || month === 9 || month === 11) {
+        return 30;
+    }
+    return 31;
+}
+
+// ============================================================
+// Internal: String-to-Integer Parsing
+// ============================================================
+
+/**
+ * Parses a decimal integer from a string. Handles optional leading sign (+/-)
+ * and ignores leading whitespace. Parsing stops at the first non-digit character.
+ *
+ * @param s The string to parse
+ * @return The parsed integer value
+ */
+fn parseIntStr(s: string): int {
+    let result = 0;
+    let neg = false;
+    let i = 0;
+    let len = s.length();
+
+    // Skip leading whitespace
+    while (i < len && (s.charAt(i) === " " || s.charAt(i) === "\t")) {
+        i = i + 1;
+    }
+
+    // Handle sign
+    if (i < len) {
+        if (s.charAt(i) === "-") {
+            neg = true;
+            i = i + 1;
+        } else if (s.charAt(i) === "+") {
+            i = i + 1;
+        }
+    }
+
+    // Parse digits
+    while (i < len) {
+        let ch = s.charCodeAt(i);
+        if (ch >= 48 && ch <= 57) {
+            result = result * 10 + (ch - 48);
+            i = i + 1;
+        } else {
+            break;
+        }
+    }
+
+    if (neg) {
+        return -result;
+    }
+    return result;
+}
+
+// ============================================================
+// Internal: String Padding Helpers
+// ============================================================
+
+/**
+ * Zero-pads an integer to at least 2 digits.
+ *
+ * @param n The integer to pad
+ * @return A string of at least 2 characters, e.g. "05" or "12"
+ */
+fn pad2(n: int): string {
+    if (n < 10 && n > -10) {
+        if (n >= 0) {
+            return "0" + n.toString();
+        }
+        // Negative single-digit: "-1" → need to handle "-01"? No, just "-1"
+        return n.toString();
+    }
+    return n.toString();
+}
+
+/**
+ * Zero-pads a positive integer to at least 3 digits.
+ *
+ * @param n The positive integer to pad (expected 0-999)
+ * @return A string of at least 3 characters, e.g. "005" or "123"
+ */
+fn pad3(n: int): string {
+    if (n < 10) {
+        return "00" + n.toString();
+    }
+    if (n < 100) {
+        return "0" + n.toString();
+    }
+    return n.toString();
+}
+
+/**
+ * Zero-pads a positive integer to at least 4 digits.
+ *
+ * @param n The positive integer to pad (expected 0-9999)
+ * @return A string of at least 4 characters, e.g. "0026" or "2026"
+ */
+fn pad4(n: int): string {
+    if (n < 10) {
+        return "000" + n.toString();
+    }
+    if (n < 100) {
+        return "00" + n.toString();
+    }
+    if (n < 1000) {
+        return "0" + n.toString();
+    }
+    return n.toString();
+}
+
+// ============================================================
+// Internal: String Token Replacement
+// ============================================================
+
+/**
+ * Replaces the first occurrence of `token` in `s` with `replacement`.
+ * If the token is not found, returns the original string unchanged.
+ *
+ * @param s           The source string
+ * @param token       The token to search for
+ * @param replacement The replacement string
+ * @return The string with the first occurrence of token replaced
+ */
+fn replaceToken(s: string, token: string, replacement: string): string {
+    let idx = s.indexOf(token);
+    if (idx === -1) {
+        return s;
+    }
+    let before = s.substring(0, idx);
+    let after = s.substring(idx + token.length(), s.length());
+    return before + replacement + after;
+}
+
+// ============================================================
+// Internal: Core Date Conversion Functions
+// ============================================================
+
+/**
+ * Converts a Unix timestamp in milliseconds to day-of-week index.
+ * January 1, 1970 was a Thursday (day index 4).
+ *
+ * @param totalDays Days since Unix epoch (negative for dates before 1970)
+ * @return Day of week index (0 = Sunday, 6 = Saturday)
+ */
+fn totalDaysToDayOfWeek(totalDays: int): int {
+    // (totalDays + 4) % 7, adjusted for negative totalDays
+    let result = (totalDays + 4) % 7;
+    if (result < 0) {
+        result = result + 7;
+    }
+    return result;
+}
+
+/**
+ * Converts a Unix timestamp in milliseconds to its calendar components.
+ *
+ * Uses a pure integer algorithm that handles both positive and negative
+ * timestamps correctly, including dates before the Unix epoch.
+ *
+ * The algorithm:
+ *   1. Convert timestamp to total days + intra-day remainder
+ *   2. Find the year by iterating through 365/366 day blocks
+ *   3. Find the month by iterating through month day-count blocks
+ *   4. The remaining days give the day-of-month
+ *   5. The intra-day remainder gives hours, minutes, seconds, milliseconds
+ *
+ * @param tsMs Unix timestamp in milliseconds
+ * @return A struct with (year, month, day, hours, minutes, seconds, ms, totalDays, dayOfWeek)
+ */
+fn timestampToComponents(tsMs: int): {
+    year: int, month: int, day: int,
+    hours: int, minutes: int, seconds: int, ms: int,
+    totalDays: int, dayOfWeek: int
+} {
+    // Step 1: Split into whole days and intra-day remainder
+    let totalDays = tsMs / dayMs();
+    // For negative timestamps not on a day boundary, subtract an extra day
+    // Example: tsMs = -1 → totalDays = 0, but it should be day -1
+    if (tsMs < 0 && tsMs % dayMs() !== 0) {
+        totalDays = totalDays - 1;
+    }
+
+    // Step 2: Find the year
+    let year: int;
+    let daysRemaining = totalDays;
+
+    if (totalDays >= 0) {
+        year = 1970;
+        while (true) {
+            let daysInYear = isLeapYearCalc(year) ? 366 : 365;
+            if (daysRemaining < daysInYear) {
+                break;
+            }
+            daysRemaining = daysRemaining - daysInYear;
+            year = year + 1;
+        }
+    } else {
+        // For dates before 1970, iterate backward from 1969
+        year = 1969;
+        while (true) {
+            let daysInYear = isLeapYearCalc(year) ? 366 : 365;
+            daysRemaining = daysRemaining + daysInYear;
+            if (daysRemaining >= 0) {
+                break;
+            }
+            year = year - 1;
+        }
+    }
+
+    // Step 3: Find the month and day
+    let month = 1;
+    while (true) {
+        let dim = daysInMonthCalc(year, month);
+        if (daysRemaining < dim) {
+            break;
+        }
+        daysRemaining = daysRemaining - dim;
+        month = month + 1;
+    }
+    let day = daysRemaining + 1;
+
+    // Step 4: Extract time components from intra-day remainder
+    let remainder = tsMs % dayMs();
+    if (remainder < 0) {
+        remainder = remainder + dayMs();
+    }
+    let hours = remainder / hourMs();
+    remainder = remainder % hourMs();
+    let minutes = remainder / minuteMs();
+    remainder = remainder % minuteMs();
+    let seconds = remainder / secondMs();
+    let ms = remainder % secondMs();
+
+    // Day of week
+    let dow = totalDaysToDayOfWeek(totalDays);
+
+    return {
+        year: year, month: month, day: day,
+        hours: hours, minutes: minutes, seconds: seconds, ms: ms,
+        totalDays: totalDays, dayOfWeek: dow
+    };
+}
+
+/**
+ * Converts calendar date components to a Unix timestamp in milliseconds.
+ * This is the inverse of `timestampToComponents`.
+ *
+ * @param year    Calendar year (can be negative for BC dates)
+ * @param month   Month (1-12)
+ * @param day     Day of month (1-31)
+ * @param hours   Hours (0-23)
+ * @param minutes Minutes (0-59)
+ * @param seconds Seconds (0-59)
+ * @param ms      Milliseconds (0-999)
+ * @return Unix timestamp in milliseconds
+ */
+fn componentsToTimestamp(year: int, month: int, day: int, hours: int, minutes: int, seconds: int, ms: int): int {
+    let totalDays = 0;
+
+    // Count days from 1970 to the target year
+    if (year >= 1970) {
+        let y = 1970;
+        while (y < year) {
+            totalDays = totalDays + (isLeapYearCalc(y) ? 366 : 365);
+            y = y + 1;
+        }
+    } else {
+        // For years before 1970, count backward
+        let y = 1969;
+        while (y >= year) {
+            totalDays = totalDays - (isLeapYearCalc(y) ? 366 : 365);
+            y = y - 1;
+        }
+    }
+
+    // Add days for months before the target month
+    let m = 1;
+    while (m < month) {
+        totalDays = totalDays + daysInMonthCalc(year, m);
+        m = m + 1;
+    }
+
+    // Add days for the day of the month (day is 1-based, so subtract 1)
+    totalDays = totalDays + (day - 1);
+
+    // Convert to milliseconds and add time components
+    return totalDays * dayMs() + hours * hourMs() + minutes * minuteMs() + seconds * secondMs() + ms;
+}
+
+// ============================================================
+// Date Class
+// ============================================================
+
+/**
+ * Represents a specific instant in time with millisecond precision.
+ *
+ * All timestamps are stored as milliseconds since the Unix epoch
+ * (1970-01-01 00:00:00.000 UTC). The Date class is immutable —
+ * arithmetic operations (addDays, addMonths, etc.) return new Date
+ * instances without modifying the original.
+ *
+ * @example
+ *   let d = Date.new();                    // current time
+ *   let d2 = Date.fromParts(2026, 7, 17); // specific date
+ *   let d3 = Date.parse("2026-07-17T15:30:00.000Z");
+ *   print(d.toISOString());               // "2026-07-17T15:30:00.000Z"
+ */
+export class Date {
+    /**
+     * Unix timestamp in milliseconds since the epoch.
+     */
+    timestampMs: int;
+
+    // ── Constructor ─────────────────────────────────────────────
+
+    /**
+     * Creates a new Date instance.
+     *
+     * If no timestamp is provided, defaults to the current system time.
+     *
+     * @param ts Optional Unix timestamp in milliseconds (default: current time)
+     */
+    fn new(ts: int = -1) {
+        if (ts === -1) {
+            self.timestampMs = timestamp();
+        } else {
+            self.timestampMs = ts;
+        }
+    }
+
+    // ── Static Factory Methods ──────────────────────────────────
+
+    /**
+     * Creates a Date representing the current moment.
+     *
+     * @return A new Date instance set to the current system time
+     */
+    static fn now(): Date {
+        return Date.new();
+    }
+
+    /**
+     * Parses an ISO 8601 date-time string into a Date.
+     *
+     * Expected format: "YYYY-MM-DDThh:mm:ss.sssZ"
+     * The time component and milliseconds are optional.
+     * Examples:
+     *   - "2026-07-17"
+     *   - "2026-07-17T15:30:00"
+     *   - "2026-07-17T15:30:00.123Z"
+     *
+     * @param isoString An ISO 8601 formatted date-time string
+     * @return A new Date instance representing the parsed time
+     */
+    static fn parse(isoString: string): Date {
+        // Parse: YYYY-MM-DD[Thh:mm[:ss[.sss]][Z]]
+        let year = parseIntStr(isoString.substring(0, 4));
+        let month = parseIntStr(isoString.substring(5, 7));
+        let day = parseIntStr(isoString.substring(8, 10));
+
+        let hours = 0;
+        let minutes = 0;
+        let seconds = 0;
+        let ms = 0;
+
+        // Check for time component after 'T' or ' '
+        let len = isoString.length();
+        let tIdx = isoString.indexOf("T");
+        if (tIdx === -1) {
+            tIdx = isoString.indexOf(" ");
+        }
+        if (tIdx !== -1 && tIdx + 1 < len) {
+            // Parse hh:mm
+            if (tIdx + 3 <= len) {
+                hours = parseIntStr(isoString.substring(tIdx + 1, tIdx + 3));
+            }
+            if (tIdx + 6 <= len) {
+                minutes = parseIntStr(isoString.substring(tIdx + 4, tIdx + 6));
+            }
+            // Parse optional :ss
+            let colon2Idx = tIdx + 7;
+            if (colon2Idx < len && isoString.charAt(colon2Idx - 1) === ":") {
+                if (colon2Idx + 2 <= len) {
+                    seconds = parseIntStr(isoString.substring(colon2Idx, colon2Idx + 2));
+                }
+                // Parse optional .sss
+                if (colon2Idx + 2 < len && isoString.charAt(colon2Idx + 2) === ".") {
+                    let msStart = colon2Idx + 3;
+                    let msEnd = msStart;
+                    while (msEnd < len) {
+                        let ch = isoString.charCodeAt(msEnd);
+                        if (ch >= 48 && ch <= 57) {
+                            msEnd = msEnd + 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    if (msEnd > msStart) {
+                        ms = parseIntStr(isoString.substring(msStart, msEnd));
+                    }
+                }
+            }
+        }
+
+        let ts = componentsToTimestamp(year, month, day, hours, minutes, seconds, ms);
+        return Date.new(ts);
+    }
+
+    /**
+     * Creates a Date from individual date and time components.
+     *
+     * Time components default to 0 (midnight) if not specified.
+     *
+     * @param year    Calendar year (e.g., 2026)
+     * @param month   Month (1-12)
+     * @param day     Day of month (1-31)
+     * @param hours   Hours (0-23, default: 0)
+     * @param minutes Minutes (0-59, default: 0)
+     * @param seconds Seconds (0-59, default: 0)
+     * @param ms      Milliseconds (0-999, default: 0)
+     * @return A new Date instance for the specified date and time
+     */
+    static fn fromParts(year: int, month: int, day: int, hours: int = 0, minutes: int = 0, seconds: int = 0, ms: int = 0): Date {
+        let ts = componentsToTimestamp(year, month, day, hours, minutes, seconds, ms);
+        return Date.new(ts);
+    }
+
+    // ── Getter Methods ──────────────────────────────────────────
+
+    /**
+     * Returns the full year (e.g., 2026).
+     *
+     * @return The calendar year
+     */
+    fn year(self): int {
+        return timestampToComponents(self.timestampMs).year;
+    }
+
+    /**
+     * Returns the month (1 = January, 12 = December).
+     *
+     * @return Month number (1-12)
+     */
+    fn month(self): int {
+        return timestampToComponents(self.timestampMs).month;
+    }
+
+    /**
+     * Returns the day of the month (1-31).
+     *
+     * @return Day of month
+     */
+    fn day(self): int {
+        return timestampToComponents(self.timestampMs).day;
+    }
+
+    /**
+     * Returns the hour of the day (0-23).
+     *
+     * @return Hour (0-23)
+     */
+    fn hours(self): int {
+        return timestampToComponents(self.timestampMs).hours;
+    }
+
+    /**
+     * Returns the minutes past the hour (0-59).
+     *
+     * @return Minutes (0-59)
+     */
+    fn minutes(self): int {
+        return timestampToComponents(self.timestampMs).minutes;
+    }
+
+    /**
+     * Returns the seconds past the minute (0-59).
+     *
+     * @return Seconds (0-59)
+     */
+    fn seconds(self): int {
+        return timestampToComponents(self.timestampMs).seconds;
+    }
+
+    /**
+     * Returns the milliseconds past the second (0-999).
+     *
+     * @return Milliseconds (0-999)
+     */
+    fn milliseconds(self): int {
+        return timestampToComponents(self.timestampMs).ms;
+    }
+
+    /**
+     * Returns the day of the week.
+     *
+     * @return Day of week index (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
+     */
+    fn dayOfWeek(self): int {
+        return timestampToComponents(self.timestampMs).dayOfWeek;
+    }
+
+    /**
+     * Returns the day of the year (1-366).
+     *
+     * @return Day of year (1 = January 1st)
+     */
+    fn dayOfYear(self): int {
+        let comps = timestampToComponents(self.timestampMs);
+        let doy = comps.day;
+        let m = 1;
+        while (m < comps.month) {
+            doy = doy + daysInMonthCalc(comps.year, m);
+            m = m + 1;
+        }
+        return doy;
+    }
+
+    /**
+     * Returns the ISO week number of the year (1-53).
+     *
+     * Uses a simplified calculation: week 1 starts on January 1st,
+     * and each subsequent week spans 7 days.
+     *
+     * @return Week of year (1-53)
+     */
+    fn weekOfYear(self): int {
+        let doy = self.dayOfYear();
+        let dow = self.dayOfWeek();
+        // Simplified: week containing Jan 1 is week 1
+        // Adjust so that days before the first Sunday are in week 1
+        let jan1Dow = totalDaysToDayOfWeek(timestampToComponents(componentsToTimestamp(self.year(), 1, 1, 0, 0, 0, 0)).totalDays);
+        let adjustedDay = doy + jan1Dow - 1;
+        if (adjustedDay < 0) {
+            adjustedDay = 0;
+        }
+        let week = adjustedDay / 7 + 1;
+        if (week < 1) {
+            week = 1;
+        }
+        if (week > 53) {
+            week = 53;
+        }
+        return week;
+    }
+
+    /**
+     * Returns the Unix timestamp in milliseconds.
+     *
+     * @return Milliseconds since Unix epoch
+     */
+    fn timestamp(self): int {
+        return self.timestampMs;
+    }
+
+    /**
+     * Checks whether the Date falls in a leap year.
+     *
+     * @return true if the year is a leap year, false otherwise
+     */
+    fn isLeapYear(self): bool {
+        return isLeapYearCalc(self.year());
+    }
+
+    // ── Formatting Methods ──────────────────────────────────────
+
+    /**
+     * Returns the date in ISO 8601 format: "YYYY-MM-DDThh:mm:ss.sssZ".
+     *
+     * All fields are zero-padded. The trailing "Z" indicates UTC.
+     *
+     * @return ISO 8601 formatted string
+     */
+    fn toISOString(self): string {
+        let comps = timestampToComponents(self.timestampMs);
+        return pad4(comps.year) + "-" + pad2(comps.month) + "-" + pad2(comps.day) +
+               "T" + pad2(comps.hours) + ":" + pad2(comps.minutes) + ":" +
+               pad2(comps.seconds) + "." + pad3(comps.ms) + "Z";
+    }
+
+    /**
+     * Returns the date and time as a human-readable string: "YYYY-MM-DD hh:mm:ss".
+     *
+     * @return Formatted date-time string
+     */
+    fn toString(self): string {
+        let comps = timestampToComponents(self.timestampMs);
+        return pad4(comps.year) + "-" + pad2(comps.month) + "-" + pad2(comps.day) +
+               " " + pad2(comps.hours) + ":" + pad2(comps.minutes) + ":" + pad2(comps.seconds);
+    }
+
+    /**
+     * Returns only the date portion: "YYYY-MM-DD".
+     *
+     * @return Date-only formatted string
+     */
+    fn toDateString(self): string {
+        let comps = timestampToComponents(self.timestampMs);
+        return pad4(comps.year) + "-" + pad2(comps.month) + "-" + pad2(comps.day);
+    }
+
+    /**
+     * Returns only the time portion: "hh:mm:ss".
+     *
+     * @return Time-only formatted string
+     */
+    fn toTimeString(self): string {
+        let comps = timestampToComponents(self.timestampMs);
+        return pad2(comps.hours) + ":" + pad2(comps.minutes) + ":" + pad2(comps.seconds);
+    }
+
+    /**
+     * Formats the date using a custom pattern string.
+     *
+     * Supported tokens:
+     *   - YYYY → 4-digit year (e.g., "2026")
+     *   - YY   → 2-digit year (e.g., "26")
+     *   - MM   → 2-digit month (e.g., "07")
+     *   - DD   → 2-digit day (e.g., "17")
+     *   - hh   → 2-digit hours, 24-hour clock (e.g., "15")
+     *   - mm   → 2-digit minutes (e.g., "30")
+     *   - ss   → 2-digit seconds (e.g., "00")
+     *   - SSS  → 3-digit milliseconds (e.g., "000")
+     *
+     * @param pattern The format pattern string
+     * @return The formatted date-time string
+     *
+     * @example
+     *   let d = Date.fromParts(2026, 7, 17, 15, 30, 0, 0);
+     *   d.format("YYYY/MM/DD hh:mm");  // "2026/07/17 15:30"
+     *   d.format("YY-MM-DD");          // "26-07-17"
+     */
+    fn format(self, pattern: string): string {
+        let comps = timestampToComponents(self.timestampMs);
+        let result = pattern;
+
+        // Replace longer tokens first to avoid partial replacements
+        result = replaceToken(result, "YYYY", pad4(comps.year));
+
+        // 2-digit year from the last two digits
+        let yy = comps.year % 100;
+        if (yy < 0) {
+            yy = -yy;
+        }
+        result = replaceToken(result, "SSS", pad3(comps.ms));
+        result = replaceToken(result, "YY", pad2(yy));
+        result = replaceToken(result, "MM", pad2(comps.month));
+        result = replaceToken(result, "DD", pad2(comps.day));
+        result = replaceToken(result, "hh", pad2(comps.hours));
+        result = replaceToken(result, "mm", pad2(comps.minutes));
+        result = replaceToken(result, "ss", pad2(comps.seconds));
+
+        return result;
+    }
+
+    // ── Arithmetic Methods ──────────────────────────────────────
+    // All arithmetic methods return NEW Date instances.
+    // The original Date is NEVER mutated.
+
+    /**
+     * Returns a new Date with the specified number of days added.
+     *
+     * @param n Number of days to add (can be negative)
+     * @return A new Date instance
+     */
+    fn addDays(self, n: int): Date {
+        return Date.new(self.timestampMs + n * dayMs());
+    }
+
+    /**
+     * Returns a new Date with the specified number of hours added.
+     *
+     * @param n Number of hours to add (can be negative)
+     * @return A new Date instance
+     */
+    fn addHours(self, n: int): Date {
+        return Date.new(self.timestampMs + n * hourMs());
+    }
+
+    /**
+     * Returns a new Date with the specified number of minutes added.
+     *
+     * @param n Number of minutes to add (can be negative)
+     * @return A new Date instance
+     */
+    fn addMinutes(self, n: int): Date {
+        return Date.new(self.timestampMs + n * minuteMs());
+    }
+
+    /**
+     * Returns a new Date with the specified number of seconds added.
+     *
+     * @param n Number of seconds to add (can be negative)
+     * @return A new Date instance
+     */
+    fn addSeconds(self, n: int): Date {
+        return Date.new(self.timestampMs + n * secondMs());
+    }
+
+    /**
+     * Returns a new Date with the specified number of months added.
+     *
+     * Preserves the time of day. If the target month has fewer days than
+     * the current day, the day is clamped to the last day of the month.
+     * Example: Jan 31 + 1 month → Feb 28 (or 29 in leap year).
+     *
+     * @param n Number of months to add (can be negative)
+     * @return A new Date instance
+     */
+    fn addMonths(self, n: int): Date {
+        if (n === 0) {
+            return Date.new(self.timestampMs);
+        }
+
+        let comps = timestampToComponents(self.timestampMs);
+        let y = comps.year;
+        let m = comps.month;
+        let d = comps.day;
+
+        let targetMonth = m + n;
+        let y2 = y;
+        let m2 = targetMonth;
+
+        // Normalize month to 1-12 range
+        while (m2 > 12) {
+            m2 = m2 - 12;
+            y2 = y2 + 1;
+        }
+        while (m2 < 1) {
+            m2 = m2 + 12;
+            y2 = y2 - 1;
+        }
+
+        // Clamp day to the maximum days in target month
+        let maxDay = daysInMonthCalc(y2, m2);
+        let newDay = d;
+        if (newDay > maxDay) {
+            newDay = maxDay;
+        }
+
+        return Date.fromParts(y2, m2, newDay, comps.hours, comps.minutes, comps.seconds, comps.ms);
+    }
+
+    /**
+     * Returns a new Date with the specified number of years added.
+     *
+     * Preserves the time of day. Handles the leap year edge case:
+     * Feb 29 + 1 year in a non-leap year → Feb 28.
+     *
+     * @param n Number of years to add (can be negative)
+     * @return A new Date instance
+     */
+    fn addYears(self, n: int): Date {
+        let comps = timestampToComponents(self.timestampMs);
+        let y2 = comps.year + n;
+        let m2 = comps.month;
+        let newDay = comps.day;
+
+        // Feb 29 in a non-leap year → clamp to Feb 28
+        let maxDay = daysInMonthCalc(y2, m2);
+        if (newDay > maxDay) {
+            newDay = maxDay;
+        }
+
+        return Date.fromParts(y2, m2, newDay, comps.hours, comps.minutes, comps.seconds, comps.ms);
+    }
+
+    // ── Comparison Methods ──────────────────────────────────────
+
+    /**
+     * Checks whether this Date is strictly before another Date.
+     *
+     * @param other The Date to compare against
+     * @return true if this Date is earlier than other
+     */
+    fn isBefore(self, other: Date): bool {
+        return self.timestampMs < other.timestampMs;
+    }
+
+    /**
+     * Checks whether this Date is strictly after another Date.
+     *
+     * @param other The Date to compare against
+     * @return true if this Date is later than other
+     */
+    fn isAfter(self, other: Date): bool {
+        return self.timestampMs > other.timestampMs;
+    }
+
+    /**
+     * Checks whether this Date represents the same instant as another Date.
+     *
+     * @param other The Date to compare against
+     * @return true if both Dates have the same timestamp
+     */
+    fn equals(self, other: Date): bool {
+        return self.timestampMs === other.timestampMs;
+    }
+
+    /**
+     * Returns the difference in whole days between this Date and another.
+     *
+     * Uses integer arithmetic to count full 24-hour boundaries.
+     * For negative differences, the result correctly handles partial days
+     * (e.g., if this is 1 hour after other, diffDays returns 0).
+     *
+     * @param other The Date to compare against
+     * @return Number of full days between the two dates
+     */
+    fn diffDays(self, other: Date): int {
+        let diff = self.timestampMs - other.timestampMs;
+        let result = diff / dayMs();
+        // Handle negative values with partial days correctly
+        if (diff < 0 && diff % dayMs() !== 0) {
+            result = result - 1;
+        }
+        return result;
+    }
+
+    /**
+     * Returns the difference in whole hours between this Date and another.
+     *
+     * @param other The Date to compare against
+     * @return Number of full hours between the two dates
+     */
+    fn diffHours(self, other: Date): int {
+        let diff = self.timestampMs - other.timestampMs;
+        let result = diff / hourMs();
+        if (diff < 0 && diff % hourMs() !== 0) {
+            result = result - 1;
+        }
+        return result;
+    }
+
+    /**
+     * Returns the difference in whole minutes between this Date and another.
+     *
+     * @param other The Date to compare against
+     * @return Number of full minutes between the two dates
+     */
+    fn diffMinutes(self, other: Date): int {
+        let diff = self.timestampMs - other.timestampMs;
+        let result = diff / minuteMs();
+        if (diff < 0 && diff % minuteMs() !== 0) {
+            result = result - 1;
+        }
+        return result;
+    }
+}
+
+// ============================================================
+// Free Functions
+// ============================================================
+
+/**
+ * Returns a Date representing the current moment.
+ *
+ * Convenience function equivalent to `Date.now()`.
+ *
+ * @return A new Date instance set to the current system time
+ */
+export fn now(): Date {
+    return Date.now();
+}
+
+/**
+ * Parses an ISO 8601 date-time string into a Date.
+ *
+ * Convenience function equivalent to `Date.parse(isoString)`.
+ *
+ * @param isoString An ISO 8601 formatted date-time string
+ * @return A new Date instance representing the parsed time
+ */
+export fn parse(isoString: string): Date {
+    return Date.parse(isoString);
+}
+
+/**
+ * Returns the number of days in the given month for the given year.
+ *
+ * Handles leap years correctly (February has 29 days in leap years).
+ *
+ * @param year  The year (for leap year detection)
+ * @param month The month (1-12)
+ * @return Number of days in the month (28-31)
+ */
+export fn daysInMonth(year: int, month: int): int {
+    return daysInMonthCalc(year, month);
+}
+
+/**
+ * Determines whether the given year is a leap year in the Gregorian calendar.
+ *
+ * @param year The year to check
+ * @return true if the year is a leap year, false otherwise
+ */
+export fn isLeapYear(year: int): bool {
+    return isLeapYearCalc(year);
+}

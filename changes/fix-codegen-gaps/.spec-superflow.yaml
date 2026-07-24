@@ -12,7 +12,7 @@ contract_hash: sha256:f4122ccc4fc7d4ceee7cc3210a19da344f51cb7bb50ebd3e1eb4385250
 # === Execution progress ===
 execution_mode: hotfix
 batches_completed: 5
-test_result: "31/33 examples pass (up from 30/33 baseline); 76/76 runtime tests pass (4 new ruyi_bigint_eq tests); zero warnings; 14 WIP parser failures pre-existing unchanged"
+test_result: "33/33 examples pass; cargo check --workspace 0 errors 0 warnings; bigint.ry classifies 0n/1n/42n/100n|200n/999n correctly; macros.ry and type_aliases.ry Exit 0; ruyi_bigint_eq with 4 unit tests; 14 WIP parser failures pre-existing unchanged"
 
 # === Metadata ===
 change_name: fix-codegen-gaps

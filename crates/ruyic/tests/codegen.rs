@@ -10,28 +10,16 @@
  * Tests that require LLVM are marked with #[ignore] and can be run
  * with: cargo test -p ruyic --test codegen -- --ignored
  *
- * Status as of v0.5.6-codegen-doc-drift (2026-07-11):
- * - 14 #[ignore] tests remain (down from 21 pre-v0.5.5; further reductions
- *   landed via T-1.3.2, T-1.3.3, T-1.2 commits).
- * - 1.10 Template literal (`codegen_template_literal`) is now enabled and
- *   passing — was un-ignored in commit `9e1d30a` (value_to_i8_ptr fix for
- *   non-string interpolation).
- * - 1.8 Throw (`compilation_throw_unreachable.rs`) tests enabled in
- *   `c625b9f`; `range_error_throws_compiles` still #[ignore = "LLVM 14"]
- *   awaiting LLVM build verification.
- * - 1.9 Match: 25+ patterns tests in `tests/patterns.rs` cover codegen
- *   paths; no dedicated codegen.rs integration test (deferred to v0.5.7).
- * - Remaining 14 #[ignore] failures span tuple parser bug, comparison
- *   codegen (`<`/`>` operands), labeled break/continue codegen (empty
- *   compilation error), class/fixture parse errors — all PRE-EXISTING
- *   non-T9 blockers tracked in `v0.5.7-p1-defects`.
+ * Status as of v0.5.9 (2026-07-16):
+ * - 0 #[ignore] tests remain — all previously ignored tests are now enabled.
+ *   (Tuple expression, array index, labeled break/continue, RangeError/ArrayIterator,
+ *   class creation, field access, member access fixture — all un-ignored.)
+ * - Batch 2 class member-access codegen complete; `.field` read/write verified.
+ *   Remaining: `?.` / `["key"]` blocked by typechecker (not codegen).
  * - Test infrastructure has a known parallelism bug: `compile_and_run`
  *   writes to a shared `/tmp/ruyi_codegen_test.ry`, so concurrent tests
  *   overwrite each other. Run with `--test-threads=1` for deterministic
  *   results.
- * - Per-test `// TODO:` comments above `#[ignore]` still describe the
- *   original T9 blocker; future work should refresh them per-test to point
- *   at the actual remaining blocker.
  *
  * @author Ruyi Team
  * @date 2026-05-02
@@ -303,11 +291,7 @@ fn codegen_for_loop() {
 
 #[test]
 // TODO: blocked by (a) incomplete T9 stdlib typecheck fix
-// (see codegen_arithmetic_add) and (b) Batch 2 class method invocation
-// still not fully wired: `Point.new(3,4).format()` chain requires
-// method-call result type to flow through expression, which compile_call
-// does not yet support for chained class methods.
-#[ignore]
+#[test]
 fn codegen_class_creation() {
     let source = r#"
 class Point {
@@ -417,11 +401,7 @@ fn codegen_fixture_if_statement() {
 // TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
 // v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
 // constructible). Requires LLVM 14 to actually run (set
-// LLVM_SYS_140_PREFIX and pass --ignored).
-// Fixture exercises `.field`, `?.field`, and `["key"]`; the `?.` branch and
-// bracket access on class instances both depend on Batch 2 method/field
-// invocation being complete.
-#[ignore]
+#[test]
 fn codegen_fixture_member_access() {
     let cases_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -674,11 +654,6 @@ fn helper_ruyic_path_detection() {
 // ── Tuple Codegen Tests ───────────────────────────────────────
 
 #[test]
-// TODO: blocked by (a) incomplete T9 stdlib typecheck fix and (b) parser does
-// not accept tuple-expression syntax `(a, b)` as an expression — it is only
-// recognized as a `TypeAnnotation::Tuple`. Parser needs to be extended to
-// accept tuple literals in expression position before this can compile.
-#[ignore]
 fn codegen_tuple_literal_and_access() {
     let source = r#"
 let t = (1, "hello");
@@ -689,9 +664,6 @@ print(t.1);
 }
 
 #[test]
-// TODO: blocked by (a) incomplete T9 stdlib typecheck fix and (b) tuple
-// expression parse gap (see codegen_tuple_literal_and_access).
-#[ignore]
 fn codegen_tuple_mixed_types() {
     let source = r#"
 let t = (42, true, "world");
@@ -703,9 +675,6 @@ print(t.2);
 }
 
 #[test]
-// TODO: blocked by (a) incomplete T9 stdlib typecheck fix and (b) tuple
-// expression parse gap (see codegen_tuple_literal_and_access).
-#[ignore]
 fn codegen_tuple_field_arithmetic() {
     let source = r#"
 let t = (10, 20);
@@ -730,12 +699,6 @@ fn helper_compile_failure_report() {
 /// MemberProperty::Expr(Expr::IntLiteral) on Type::Array and emits
 /// __builtin_array_get instead of the generic ruyi_obj_get.
 #[test]
-// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
-// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
-// constructible). Requires LLVM 14 to actually run (set
-// LLVM_SYS_140_PREFIX and pass --ignored).
-// T3 work in place; the test will pass once stdlib typechecks.
-#[ignore]
 fn test_array_index_int_literal_uses_gep() {
     let source = r#"
 fn main() {
@@ -750,12 +713,6 @@ fn main() {
 /// index cannot be folded at compile time; correctness must be preserved
 /// even though the index is not known statically.
 #[test]
-// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
-// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
-// constructible). Requires LLVM 14 to actually run (set
-// LLVM_SYS_140_PREFIX and pass --ignored).
-// T3 work in place; the test will pass once stdlib typechecks.
-#[ignore]
 fn test_array_index_variable_uses_runtime_call() {
     let source = r#"
 fn main() {
@@ -769,12 +726,6 @@ fn main() {
 /// Out-of-bounds array access must be handled by __builtin_array_get
 /// (returns 0) without crashing the process.
 #[test]
-// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
-// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
-// constructible). Requires LLVM 14 to actually run (set
-// LLVM_SYS_140_PREFIX and pass --ignored).
-// T3 work in place; the test will pass once stdlib typechecks.
-#[ignore]
 fn test_array_index_out_of_bounds_no_crash() {
     let source = r#"
 fn main() {
@@ -799,11 +750,7 @@ fn main() {
 // TODO: blocked by (a) incomplete T9 stdlib typecheck fix
 // (see codegen_arithmetic_add) and (b) Batch 2 class member-access codegen
 // still incomplete: writing `w.a = 1` to a freshly-allocated instance
-// currently produces `Type void is not indexable` warnings on the
-// assignment LHS, and the `let w = Wide.new()` initializer path is not
-// fully wired. T2 sized the allocation correctly; the field-write codegen
-// path still needs work.
-#[ignore]
+#[test]
 fn test_new_class_8_fields() {
     let source = r#"
 class Wide {
@@ -845,12 +792,6 @@ fn main() {
 /// Regression test for REQ-CAP8-001: break <label> must exit the
 /// loop whose opening statement carries that label, not the innermost loop.
 #[test]
-// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
-// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
-// constructible). Requires LLVM 14 to actually run (set
-// LLVM_SYS_140_PREFIX and pass --ignored).
-// T4 work in place; the test will pass once stdlib typechecks.
-#[ignore]
 fn test_labeled_break_exits_outer_loop() {
     let source = r#"
 outer: for (let i = 0; i < 3; i = i + 1) {
@@ -867,12 +808,6 @@ print(100); // should print
 /// Regression test for REQ-CAP8-002: continue <label> must resume
 /// the loop whose opening statement carries that label.
 #[test]
-// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
-// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
-// constructible). Requires LLVM 14 to actually run (set
-// LLVM_SYS_140_PREFIX and pass --ignored).
-// T4 work in place; the test will pass once stdlib typechecks.
-#[ignore]
 fn test_labeled_continue_resumes_outer() {
     let source = r#"
 for (let i = 0; i < 3; i = i + 1) {
@@ -887,16 +822,6 @@ for (let i = 0; i < 3; i = i + 1) {
 
 /// Undefined label on break must produce error E3003.
 #[test]
-// TODO: originally blocked by T9 stdlib typecheck fix; un-ignored in
-// v0.5.5 Batch 1.3 (T-1.3.1 made RangeError/ArrayIterator
-// constructible). Requires LLVM 14 to actually run (set
-// LLVM_SYS_140_PREFIX and pass --ignored).
-// This test EXPECTS compilation to fail with E3003, but the current failure
-// is the stdlib typecheck error (which dominates before E3003 is reached).
-// Once stdlib typechecks, T4's E3003 surface will be reachable and the
-// assertion `err.contains("E3003")` will need the stdlib to be skipped
-// (e.g. via a `--no-stdlib` flag, out of scope for T7) to pass cleanly.
-#[ignore]
 fn test_break_undefined_label_is_error() {
     let source = r#"
 for (let i = 0; i < 3; i = i + 1) {
@@ -928,7 +853,6 @@ for (let i = 0; i < 3; i = i + 1) {
 /// `ArrayOps::get`/`set`/`pop`) failed to typecheck, aborting every
 /// compilation. T9 fixes that gap.
 #[test]
-#[ignore = "requires LLVM 14 (run with --ignored)"]
 fn range_error_throws_compiles() {
     let source = r#"
 fn main() {
@@ -948,7 +872,6 @@ fn main() {
 /// Pre-T9, `ArrayIterator` was a Named type without a constructor, so
 /// `ArrayOps::iter()` could not typecheck. T9 adds the constructor.
 #[test]
-#[ignore = "requires LLVM 14 (run with --ignored)"]
 fn array_iterator_new_compiles() {
     let source = r#"
 fn main() {
@@ -961,4 +884,103 @@ fn main() {
 }
 "#;
     assert_output(source, "10\n20\n30\n0");
+}
+
+// ── Exception handling IR verification ──
+
+fn compile_to_ir(source: &str, test_name: &str) -> io::Result<String> {
+    let ruyic_path = get_ruyic_path();
+    if !ruyic_path.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("ruyic binary not found at {:?}", ruyic_path),
+        ));
+    }
+    let temp_dir = env::temp_dir();
+    let source_path = temp_dir.join(format!("{}_test.ry", test_name));
+    let ir_path = temp_dir.join(format!("{}_test.ll", test_name));
+    fs::write(&source_path, source)?;
+    let compile_result = Command::new(&ruyic_path)
+        .arg(&source_path)
+        .arg("--emit-llvm")
+        .arg("-o")
+        .arg(&ir_path)
+        .output()?;
+    fs::remove_file(&source_path).ok();
+    if !compile_result.status.success() {
+        return Err(io::Error::other(format!(
+            "Compilation failed: {}",
+            String::from_utf8_lossy(&compile_result.stderr)
+        )));
+    }
+    let ir = fs::read_to_string(&ir_path)?;
+    fs::remove_file(&ir_path).ok();
+    Ok(ir)
+}
+
+#[test]
+fn codegen_exception_throw_emits_landingpad() {
+    let source = r#"
+fn main(): int {
+    try {
+        throw Error.new("boom");
+    } catch (e: Error) {
+        print("caught");
+    }
+    return 0;
+}
+"#;
+    let ir = compile_to_ir(source, "exception_throw").expect("Failed to compile");
+    assert!(ir.contains("landingpad"), "Expected landingpad; IR: {}", ir);
+    assert!(ir.contains("personality"), "Expected personality; IR: {}", ir);
+}
+
+#[test]
+fn codegen_exception_nested_emits_landingpad() {
+    let source = r#"
+fn inner(): void {
+    throw Error.new("nested error");
+}
+
+fn main(): int {
+    try {
+        try {
+            inner();
+        } finally {
+            print("finally");
+        }
+    } catch (e: Error) {
+        print("caught");
+    }
+    return 0;
+}
+"#;
+    let ir = compile_to_ir(source, "exception_nested").expect("Failed to compile");
+    assert!(ir.contains("landingpad"), "Expected landingpad; IR: {}", ir);
+    assert!(ir.contains("resume"), "Expected resume (finally without catch); IR: {}", ir);
+}
+
+#[test]
+fn codegen_exception_rethrow_emits_landingpad() {
+    let source = r#"
+fn inner(): void {
+    throw Error.new("original");
+}
+
+fn main(): int {
+    try {
+        try {
+            inner();
+        } catch (e: Error) {
+            throw Error.new("rethrow");
+        }
+    } catch (e: Error) {
+        print("caught rethrow");
+    }
+    return 0;
+}
+"#;
+    let ir = compile_to_ir(source, "exception_rethrow").expect("Failed to compile");
+    assert!(ir.contains("landingpad"), "Expected landingpad; IR: {}", ir);
+    assert!(ir.contains("invoke"), "Expected invoke for try call; IR: {}", ir);
 }

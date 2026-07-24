@@ -1,0 +1,154 @@
+/**
+ * Ruyi Standard Library - Compression
+ *
+ * Gzip, Zlib, and raw Deflate compression via flate2.
+ *
+ * Usage:
+ *   import { Gzip } from "./compress";
+ *   let data = Buffer.from("hello, world!");
+ *   let compressed = Gzip.compress(data);
+ *   let original = Gzip.decompress(compressed);
+ *   print(original.toString()); // "hello, world!"
+ */
+
+import { Buffer } from "./buffer";
+
+extern fn __compress_gzip(b64: string): string;
+extern fn __decompress_gzip(b64: string): string;
+extern fn __compress_zlib(b64: string): string;
+extern fn __decompress_zlib(b64: string): string;
+extern fn __compress_deflate(b64: string): string;
+extern fn __decompress_deflate(b64: string): string;
+
+const FORMAT_GZIP: int = 0;
+const FORMAT_ZLIB: int = 1;
+const FORMAT_DEFLATE: int = 2;
+
+extern fn __compress_new(format: int): *mut i8;
+extern fn __compress_write(handle: *mut i8, b64: string): string;
+extern fn __compress_finish(handle: *mut i8): string;
+extern fn __decompress_new(format: int): *mut i8;
+extern fn __decompress_write(handle: *mut i8, b64: string): string;
+extern fn __decompress_finish(handle: *mut i8): string;
+
+export class Gzip {
+    static fn compress(data: Buffer): Buffer {
+        return Buffer.fromBase64(__compress_gzip(data.toBase64()));
+    }
+    static fn decompress(data: Buffer): Buffer {
+        return Buffer.fromBase64(__decompress_gzip(data.toBase64()));
+    }
+}
+
+export class Zlib {
+    static fn compress(data: Buffer): Buffer {
+        return Buffer.fromBase64(__compress_zlib(data.toBase64()));
+    }
+    static fn decompress(data: Buffer): Buffer {
+        return Buffer.fromBase64(__decompress_zlib(data.toBase64()));
+    }
+}
+
+export class Deflate {
+    static fn compress(data: Buffer): Buffer {
+        return Buffer.fromBase64(__compress_deflate(data.toBase64()));
+    }
+    static fn decompress(data: Buffer): Buffer {
+        return Buffer.fromBase64(__decompress_deflate(data.toBase64()));
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Streaming API — for large payloads processed chunk-by-chunk
+//
+// Usage:
+//   let gz = new GzipCompressor();
+//   let p1 = gz.write(chunk1);
+//   let p2 = gz.write(chunk2);
+//   let rest = gz.finish();      // final flush, frees handle
+//   let result = Buffer.concat([p1, p2, rest]);
+// ──────────────────────────────────────────────────────────────────
+
+export class GzipCompressor {
+    _h: *mut i8;
+
+    fn new() { self._h = __compress_new(FORMAT_GZIP); return self; }
+    fn write(data: Buffer): Buffer {
+        return Buffer.fromBase64(__compress_write(self._h, data.toBase64()));
+    }
+    fn finish(): Buffer {
+        let out = Buffer.fromBase64(__compress_finish(self._h));
+        self._h = null;
+        return out;
+    }
+}
+
+export class ZlibCompressor {
+    _h: *mut i8;
+
+    fn new() { self._h = __compress_new(FORMAT_ZLIB); return self; }
+    fn write(data: Buffer): Buffer {
+        return Buffer.fromBase64(__compress_write(self._h, data.toBase64()));
+    }
+    fn finish(): Buffer {
+        let out = Buffer.fromBase64(__compress_finish(self._h));
+        self._h = null;
+        return out;
+    }
+}
+
+export class DeflateCompressor {
+    _h: *mut i8;
+
+    fn new() { self._h = __compress_new(FORMAT_DEFLATE); return self; }
+    fn write(data: Buffer): Buffer {
+        return Buffer.fromBase64(__compress_write(self._h, data.toBase64()));
+    }
+    fn finish(): Buffer {
+        let out = Buffer.fromBase64(__compress_finish(self._h));
+        self._h = null;
+        return out;
+    }
+}
+
+export class GzipDecompressor {
+    _h: *mut i8;
+
+    fn new() { self._h = __decompress_new(FORMAT_GZIP); return self; }
+    fn write(data: Buffer): Buffer {
+        return Buffer.fromBase64(__decompress_write(self._h, data.toBase64()));
+    }
+    fn finish(): Buffer {
+        let out = Buffer.fromBase64(__decompress_finish(self._h));
+        self._h = null;
+        return out;
+    }
+}
+
+export class ZlibDecompressor {
+    _h: *mut i8;
+
+    fn new() { self._h = __decompress_new(FORMAT_ZLIB); return self; }
+    fn write(data: Buffer): Buffer {
+        return Buffer.fromBase64(__decompress_write(self._h, data.toBase64()));
+    }
+    fn finish(): Buffer {
+        let out = Buffer.fromBase64(__decompress_finish(self._h));
+        self._h = null;
+        return out;
+    }
+}
+
+export class DeflateDecompressor {
+    _h: *mut i8;
+
+    fn new() { self._h = __decompress_new(FORMAT_DEFLATE); return self; }
+    fn write(data: Buffer): Buffer {
+        return Buffer.fromBase64(__decompress_write(self._h, data.toBase64()));
+    }
+    fn finish(): Buffer {
+        let out = Buffer.fromBase64(__decompress_finish(self._h));
+        self._h = null;
+        return out;
+    }
+}

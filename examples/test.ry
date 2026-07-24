@@ -1,0 +1,26 @@
+// Stub for examples/test_demo.ry's `import { ... } from "./test"`.
+// Real test.ry lives in stdlib/ — quick stub here so the import resolves.
+
+fn assert_eq<T>(actual: T, expected: T): void {
+    if (!(actual === expected)) {
+        throw "assert_eq failed";
+    }
+}
+
+fn assert_true(value: bool): void {
+    if (!value) {
+        throw "assert_true failed";
+    }
+}
+
+fn assert_false(value: bool): void {
+    if (value) {
+        throw "assert_false failed";
+    }
+}
+
+fn assert_not_null<T>(value: T?): void {
+    if (value === null) {
+        throw "assert_not_null failed";
+    }
+}

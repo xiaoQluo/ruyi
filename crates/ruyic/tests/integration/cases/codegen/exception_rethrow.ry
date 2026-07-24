@@ -1,0 +1,16 @@
+fn inner(): void {
+    throw Error.new("original");
+}
+
+fn main(): int {
+    try {
+        try {
+            inner();
+        } catch (e: Error) {
+            throw Error.new("rethrow");
+        }
+    } catch (e: Error) {
+        print("caught rethrow");
+    }
+    return 0;
+}

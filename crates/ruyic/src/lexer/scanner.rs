@@ -469,6 +469,7 @@ impl Scanner {
             "await" => Token::Await,
             "import" => Token::Import,
             "export" => Token::Export,
+            "extern" => Token::Extern,
             "macro" => Token::Macro,
             "type" => Token::Type,
             "true" => Token::True,

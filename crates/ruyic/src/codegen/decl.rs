@@ -13,6 +13,7 @@ use super::expr::compile_expr;
 use super::generator::CodegenContext;
 use super::stmt::compile_block;
 use super::types::{function_type_from_ruyi, ruyi_type_to_llvm};
+use ruyi_exception::landing_pad::LandingPadGenerator;
 use crate::parser::ast::{Binding, ClassElement, Declaration, Expr, Pattern, PropertyName};
 use crate::typechecker::types::Type;
 
@@ -63,30 +64,27 @@ pub fn compile_declaration<'ctx>(
         Declaration::Trait { .. } => Ok(()),
         Declaration::Macro { .. } => Ok(()),
         Declaration::TypeAlias { .. } => Ok(()),
+        Declaration::ExternFn { .. } => Ok(()),
     }
 }
 
-fn compile_binding<'ctx>(
+fn compile_simple_binding<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_, '_>,
+    name: &str,
     binding: &Binding,
 ) -> Result<(), String> {
-    let name = match &binding.pattern {
-        Pattern::Identifier(n) => n.clone(),
-        _ => return Err("Complex patterns not yet supported".to_string()),
-    };
-
     let (ty, _llvm_ty, ptr) = if let Some(annotation) = &binding.ty {
         let ty = Type::from_annotation(annotation);
         let llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
-        let ptr = ctx.builder().build_alloca(llvm_ty, &name);
+        let ptr = ctx.builder().build_alloca(llvm_ty, name);
         (ty, llvm_ty, ptr)
     } else if let Some(init) = &binding.init {
         let init_result = compile_expr(ctx, init)?;
         let ty = init_result.ty;
         let llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
-        let ptr = ctx.builder().build_alloca(llvm_ty, &name);
+        let ptr = ctx.builder().build_alloca(llvm_ty, name);
         ctx.builder().build_store(ptr, init_result.value);
-        ctx.define_variable(name, (ptr, ty.clone()));
+        ctx.define_variable(name.to_string(), (ptr, ty.clone()));
         if is_gc_managed(&ty) {
             ctx.add_gc_root(ptr, ty);
         }
@@ -94,7 +92,7 @@ fn compile_binding<'ctx>(
     } else {
         let ty = Type::Dynamic;
         let llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
-        let ptr = ctx.builder().build_alloca(llvm_ty, &name);
+        let ptr = ctx.builder().build_alloca(llvm_ty, name);
         (ty, llvm_ty, ptr)
     };
 
@@ -110,7 +108,75 @@ fn compile_binding<'ctx>(
         ctx.add_gc_root(ptr, ty.clone());
     }
 
-    ctx.define_variable(name, (ptr, ty));
+    ctx.define_variable(name.to_string(), (ptr, ty));
+    Ok(())
+}
+
+fn compile_array_destructure<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
+    binding: &Binding,
+    elements: &[crate::parser::ast::ArrayPatternElement],
+) -> Result<(), String> {
+    let init = binding.init.as_ref().ok_or("Array destructuring requires an initializer")?;
+    let result = compile_expr(ctx, init)?;
+    let arr_ptr = match result.value {
+        BasicValueEnum::PointerValue(p) => p,
+        _ => return Err("Array destructuring requires an array value".to_string()),
+    };
+    let get_fn = ctx
+        .module
+        .get_function("__builtin_array_get")
+        .ok_or("__builtin_array_get not declared")?;
+    let mut i = 0u64;
+    for element in elements.iter() {
+        match element {
+            crate::parser::ast::ArrayPatternElement::Elision => {
+                i += 1;
+                continue;
+            }
+            crate::parser::ast::ArrayPatternElement::Pattern(pat) => {
+                let name = match pat {
+                    crate::parser::ast::Pattern::Identifier(n) => n.clone(),
+                    _ => {
+                        return Err(
+                            "Nested destructuring patterns not yet supported".to_string()
+                        )
+                    }
+                };
+                let idx_val = ctx.context.i64_type().const_int(i, false);
+                let elem_val = ctx
+                    .builder()
+                    .build_call(get_fn, &[arr_ptr.into(), idx_val.into()], "destr_elem")
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+                    .into_int_value();
+                let llvm_ty = ctx.context.i64_type();
+                let ptr = ctx.builder().build_alloca(llvm_ty, &name);
+                ctx.builder().build_store(ptr, elem_val);
+                ctx.define_variable(name, (ptr, Type::Int));
+                i += 1;
+            }
+            _ => return Err("Nested destructuring patterns not yet supported".to_string()),
+        }
+    }
+    Ok(())
+}
+
+fn compile_binding<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
+    binding: &Binding,
+) -> Result<(), String> {
+    match &binding.pattern {
+        Pattern::Identifier(n) => {
+            let name = n.clone();
+            compile_simple_binding(ctx, &name, binding)?;
+        }
+        Pattern::Array(elements) => {
+            compile_array_destructure(ctx, binding, elements)?;
+        }
+        _ => return Err("Complex patterns not yet supported".to_string()),
+    }
     Ok(())
 }
 
@@ -199,6 +265,20 @@ pub fn compile_function<'ctx>(
         ctx.module.add_function(name, fn_type, None)
     };
 
+    // Set personality function so the C++ exception runtime can unwind through
+    // every Ruyi function frame. Without this, functions without a landingpad
+    // instruction cannot be unwound through when a callee throws.
+    use inkwell::attributes::{Attribute, AttributeLoc};
+    let lp_gen = LandingPadGenerator::new(&ctx.context, &ctx.module, ctx.builder());
+    let personality = lp_gen.get_personality_function();
+    function.set_personality_function(personality);
+
+    // uwtable forces LLVM to emit full .eh_frame with personality/LSDA,
+    // which the platform unwinder needs to match landingpad handlers.
+    let uwtable_id = Attribute::get_named_enum_kind_id("uwtable");
+    let uwtable_attr = ctx.context.create_enum_attribute(uwtable_id, 0);
+    function.add_attribute(AttributeLoc::Function, uwtable_attr);
+
     // Save current function and builder position
     let prev_function = ctx.current_function();
     let prev_return_type = ctx.current_return_type().cloned();
@@ -265,6 +345,9 @@ pub fn compile_function<'ctx>(
                     }
                     Type::Bool => {
                         BasicValueEnum::IntValue(ctx.context.bool_type().const_int(0, false))
+                    }
+                    Type::Byte => {
+                        BasicValueEnum::IntValue(ctx.context.i8_type().const_int(0, false))
                     }
                     _ => BasicValueEnum::PointerValue(
                         ctx.context

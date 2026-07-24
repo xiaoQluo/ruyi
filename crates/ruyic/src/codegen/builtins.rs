@@ -564,6 +564,7 @@ pub fn is_gc_managed(ty: &crate::typechecker::types::Type) -> bool {
         Type::Int
         | Type::Float
         | Type::Bool
+        | Type::Byte
         | Type::Null
         | Type::Void
         | Type::Never
@@ -659,6 +660,24 @@ pub fn build_ruyi_obj_get<'ctx>(
         .left()
         .unwrap()
         .into_pointer_value()
+}
+
+/// Build a call to `__builtin_array_set(arr, index, value)`.
+pub fn build_builtin_array_set<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    arr: inkwell::values::PointerValue<'ctx>,
+    index: inkwell::values::IntValue<'ctx>,
+    value: inkwell::values::IntValue<'ctx>,
+) {
+    let fn_val = module
+        .get_function("__builtin_array_set")
+        .expect("__builtin_array_set not declared");
+    builder.build_call(
+        fn_val,
+        &[arr.into(), index.into(), value.into()],
+        "array_set",
+    );
 }
 
 /// Build a call to `__builtin_array_get(arr, index)`.

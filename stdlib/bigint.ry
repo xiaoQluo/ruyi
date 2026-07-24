@@ -1,0 +1,494 @@
+/**
+ * Ruyi Standard Library - BigInt Module
+ *
+ * Pure-Ruyi arbitrary-precision integer arithmetic.
+ * Internal representation: base-10^9 digits (little-endian) with sign.
+ *
+ * Operations: fromString, toString, add, sub, mul, divMod, pow, compare, eq
+ *
+ * @author Ruyi Team
+ * @date 2026-07-24
+ */
+
+// ============================================================
+// Constants
+// ============================================================
+
+const BASE: int = 1000000000;
+const BASE_DIGITS: int = 9;
+
+// ============================================================
+// Internal Helpers
+// ============================================================
+
+fn copyDigits(d: Array<int>): Array<int> {
+    let r: Array<int> = [];
+    let i = 0;
+    while (i < d.length()) {
+        r.push(d.get(i));
+        i = i + 1;
+    }
+    return r;
+}
+
+fn stripLeadingZeros(d: Array<int>): Array<int> {
+    let n = d.length();
+    while (n > 1 && d.get(n - 1) === 0) {
+        n = n - 1;
+    }
+    let r: Array<int> = [];
+    let i = 0;
+    while (i < n) {
+        r.push(d.get(i));
+        i = i + 1;
+    }
+    return r;
+}
+
+fn compareAbs(a: Array<int>, b: Array<int>): int {
+    let alen = a.length();
+    let blen = b.length();
+    if (alen !== blen) {
+        return alen > blen ? 1 : -1;
+    }
+    let i = alen - 1;
+    while (i >= 0) {
+        let av = a.get(i);
+        let bv = b.get(i);
+        if (av !== bv) {
+            return av > bv ? 1 : -1;
+        }
+        i = i - 1;
+    }
+    return 0;
+}
+
+fn addAbs(a: Array<int>, b: Array<int>): Array<int> {
+    let r: Array<int> = [];
+    let carry = 0;
+    let maxLen = a.length() > b.length() ? a.length() : b.length();
+    let i = 0;
+    while (i < maxLen || carry > 0) {
+        let av = i < a.length() ? a.get(i) : 0;
+        let bv = i < b.length() ? b.get(i) : 0;
+        let sum = av + bv + carry;
+        if (sum >= BASE) {
+            sum = sum - BASE;
+            carry = 1;
+        } else {
+            carry = 0;
+        }
+        r.push(sum);
+        i = i + 1;
+    }
+    return r;
+}
+
+fn subAbs(a: Array<int>, b: Array<int>): Array<int> {
+    let r: Array<int> = [];
+    let borrow = 0;
+    let i = 0;
+    while (i < a.length()) {
+        let av = a.get(i) - borrow;
+        let bv = i < b.length() ? b.get(i) : 0;
+        if (av < bv) {
+            av = av + BASE;
+            borrow = 1;
+        } else {
+            borrow = 0;
+        }
+        r.push(av - bv);
+        i = i + 1;
+    }
+    return stripLeadingZeros(r);
+}
+
+fn mulAbs(a: Array<int>, b: Array<int>): Array<int> {
+    let alen = a.length();
+    let blen = b.length();
+    let r: Array<int> = [];
+    let i = 0;
+    while (i < alen + blen) {
+        r.push(0);
+        i = i + 1;
+    }
+    i = 0;
+    while (i < alen) {
+        let carry = 0;
+        let j = 0;
+        while (j < blen) {
+            let prod = r.get(i + j) + a.get(i) * b.get(j) + carry;
+            r.set(i + j, prod % BASE);
+            carry = prod / BASE;
+            j = j + 1;
+        }
+        r.set(i + blen, carry);
+        i = i + 1;
+    }
+    return stripLeadingZeros(r);
+}
+
+fn divModAbs(a: Array<int>, b: Array<int>): { q: Array<int>, r: Array<int> } {
+    let cmp = compareAbs(a, b);
+    if (cmp < 0) {
+        let q: Array<int> = [0];
+        return { q: q, r: copyDigits(a) };
+    }
+    if (cmp === 0) {
+        let q: Array<int> = [1];
+        let r: Array<int> = [0];
+        return { q: q, r: r };
+    }
+    // Long division
+    let q: Array<int> = [];
+    let r: Array<int> = [];
+    let i = a.length() - 1;
+    while (i >= 0) {
+        // r = r * BASE + a[i]
+        let r2: Array<int> = [];
+        r2.push(a.get(i));
+        let j = r.length() - 1;
+        while (j >= 0) {
+            r2.push(r.get(j));
+            j = j - 1;
+        }
+        r = r2;
+        r = stripLeadingZeros(r);
+        // Find quotient digit
+        let qd = 0;
+        let lo = 0;
+        let hi = BASE - 1;
+        while (lo <= hi) {
+            let mid = (lo + hi) / 2;
+            let midBI: Array<int> = [mid];
+            let prod = mulAbs(b, midBI);
+            if (compareAbs(prod, r) <= 0) {
+                qd = mid;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        q.push(qd);
+        let qdBI: Array<int> = [qd];
+        r = subAbs(r, mulAbs(b, qdBI));
+        r = stripLeadingZeros(r);
+        i = i - 1;
+    }
+    // Reverse q (built most-significant-first)
+    let qRev: Array<int> = [];
+    i = q.length() - 1;
+    while (i >= 0) {
+        qRev.push(q.get(i));
+        i = i - 1;
+    }
+    return { q: stripLeadingZeros(qRev), r: r };
+}
+
+fn powAbs(a: Array<int>, exp: int): Array<int> {
+    if (exp === 0) {
+        let r: Array<int> = [1];
+        return r;
+    }
+    let result: Array<int> = [1];
+    let base2 = copyDigits(a);
+    let e = exp;
+    while (e > 0) {
+        if (e % 2 === 1) {
+            result = mulAbs(result, base2);
+        }
+        base2 = mulAbs(base2, base2);
+        e = e / 2;
+    }
+    return result;
+}
+
+fn pad9(n: int): string {
+    if (n < 10) { return "00000000" + n.toString(); }
+    if (n < 100) { return "0000000" + n.toString(); }
+    if (n < 1000) { return "000000" + n.toString(); }
+    if (n < 10000) { return "00000" + n.toString(); }
+    if (n < 100000) { return "0000" + n.toString(); }
+    if (n < 1000000) { return "000" + n.toString(); }
+    if (n < 10000000) { return "00" + n.toString(); }
+    if (n < 100000000) { return "0" + n.toString(); }
+    return n.toString();
+}
+
+// ============================================================
+// BigInt Class
+// ============================================================
+
+/**
+ * Arbitrary-precision signed integer.
+ *
+ * Digits are stored little-endian in base 10^9.
+ * sign is 1 for positive, -1 for negative.
+ * Zero is represented as digits=[0], sign=1.
+ */
+export class BigInt {
+    _digits: Array<int>;
+    _sign: int;
+
+    // ── Constructor ────────────────────────────────────────
+
+    fn new(digits: Array<int>, sign: int = 1) {
+        self._digits = stripLeadingZeros(digits);
+        self._sign = sign;
+        // Normalize zero
+        if (self._digits.length() === 1 && self._digits.get(0) === 0) {
+            self._sign = 1;
+        }
+    }
+
+    // ── Factory ─────────────────────────────────────────────
+
+    /**
+     * Creates a BigInt from a decimal string.
+     * Supports optional leading "-" sign.
+     * @param s Decimal string
+     * @return BigInt
+     */
+    static fn fromString(s: string): BigInt {
+        let sign = 1;
+        let start = 0;
+        if (s.charAt(0) === "-") {
+            sign = -1;
+            start = 1;
+        } else if (s.charAt(0) === "+") {
+            start = 1;
+        }
+        let digits: Array<int> = [0];
+        let i = start;
+        while (i < s.length()) {
+            let c = s.charCodeAt(i);
+            if (c >= 48 && c <= 57) {
+                let d = c - 48;
+                // digits = digits * 10 + d
+                let carry = d;
+                let j = 0;
+                while (j < digits.length()) {
+                    let val = digits.get(j) * 10 + carry;
+                    digits.set(j, val % BASE);
+                    carry = val / BASE;
+                    j = j + 1;
+                }
+                if (carry > 0) {
+                    digits.push(carry);
+                }
+            }
+            i = i + 1;
+        }
+        return BigInt.new(digits, sign);
+    }
+
+    /**
+     * Creates a BigInt from a regular int.
+     * @param n Integer value (may be negative)
+     * @return BigInt
+     */
+    static fn fromInt(n: int): BigInt {
+        let sign = 1;
+        if (n < 0) {
+            sign = -1;
+            n = -n;
+        }
+        if (n === 0) {
+            let d: Array<int> = [0];
+            return BigInt.new(d, 1);
+        }
+        let digits: Array<int> = [];
+        while (n > 0) {
+            digits.push(n % BASE);
+            n = n / BASE;
+        }
+        return BigInt.new(digits, sign);
+    }
+
+    // ── Conversion ──────────────────────────────────────────
+
+    /**
+     * Converts the BigInt to a decimal string.
+     * @return Decimal string representation
+     */
+    fn toString(): string {
+        if (self._digits.length() === 1 && self._digits.get(0) === 0) {
+            return "0";
+        }
+        // Convert base-10^9 to decimal by repeated division by 10
+        let digits = copyDigits(self._digits);
+        let chars = "";
+        while (digits.length() > 1 || digits.get(0) !== 0) {
+            let remainder = 0;
+            let next: Array<int> = [];
+            let i = digits.length() - 1;
+            while (i >= 0) {
+                let cur = remainder * BASE + digits.get(i);
+                let q = cur / 10;
+                remainder = cur % 10;
+                if (q > 0 || next.length() > 0) {
+                    // Build most-significant-first; will reverse
+                }
+                i = i - 1;
+            }
+            // Actually let me implement this differently - build least-sig-first then reverse
+            digits = copyDigits(self._digits);
+            chars = "";
+            while (true) {
+                let rem = 0;
+                let next: Array<int> = [];
+                let k = digits.length() - 1;
+                while (k >= 0) {
+                    let cur = rem * BASE + digits.get(k);
+                    next.push(cur / 10);
+                    rem = cur % 10;
+                    k = k - 1;
+                }
+                // Reverse next (was built most-sig-first)
+                let nextRev: Array<int> = [];
+                k = next.length() - 1;
+                while (k >= 0) {
+                    let v = next.get(k);
+                    if (v > 0 || nextRev.length() > 0) {
+                        nextRev.push(v);
+                    }
+                    k = k - 1;
+                }
+                if (nextRev.length() === 0) {
+                    nextRev.push(0);
+                }
+                digits = nextRev;
+                chars = rem.toString() + chars;
+                if (digits.length() === 1 && digits.get(0) === 0) {
+                    break;
+                }
+            }
+        }
+        if (self._sign < 0 && chars !== "0") {
+            return "-" + chars;
+        }
+        return chars;
+    }
+
+    // ── Comparison ──────────────────────────────────────────
+
+    /**
+     * Compares this BigInt with another.
+     * @param other The BigInt to compare against
+     * @return -1 if self < other, 0 if equal, 1 if self > other
+     */
+    fn compare(other: BigInt): int {
+        if (self._sign !== other._sign) {
+            return self._sign > other._sign ? 1 : -1;
+        }
+        let cmp = compareAbs(self._digits, other._digits);
+        return self._sign > 0 ? cmp : -cmp;
+    }
+
+    /**
+     * Returns true if this BigInt equals another.
+     * @param other The BigInt to compare
+     * @return true if equal
+     */
+    fn eq(other: BigInt): bool {
+        return self.compare(other) === 0;
+    }
+
+    // ── Arithmetic ──────────────────────────────────────────
+
+    /**
+     * Returns self + other.
+     * @param other Augend
+     * @return Sum
+     */
+    fn add(other: BigInt): BigInt {
+        if (self._sign === other._sign) {
+            return BigInt.new(addAbs(self._digits, other._digits), self._sign);
+        }
+        let cmp = compareAbs(self._digits, other._digits);
+        if (cmp === 0) {
+            let d: Array<int> = [0];
+            return BigInt.new(d, 1);
+        }
+        if (cmp > 0) {
+            return BigInt.new(subAbs(self._digits, other._digits), self._sign);
+        }
+        return BigInt.new(subAbs(other._digits, self._digits), other._sign);
+    }
+
+    /**
+     * Returns self - other.
+     * @param other Subtrahend
+     * @return Difference
+     */
+    fn sub(other: BigInt): BigInt {
+        let negOther = BigInt.new(copyDigits(other._digits), -other._sign);
+        return self.add(negOther);
+    }
+
+    /**
+     * Returns self * other.
+     * @param other Multiplier
+     * @return Product
+     */
+    fn mul(other: BigInt): BigInt {
+        let sign = self._sign * other._sign;
+        return BigInt.new(mulAbs(self._digits, other._digits), sign);
+    }
+
+    /**
+     * Returns the quotient and remainder of self / other.
+     * @param other Divisor (must not be zero)
+     * @return { quotient: BigInt, remainder: BigInt }
+     */
+    fn divMod(other: BigInt): { quotient: BigInt, remainder: BigInt } {
+        let result = divModAbs(self._digits, other._digits);
+        let qSign = self._sign * other._sign;
+        let rSign = self._sign;
+        return {
+            quotient: BigInt.new(result.q, qSign),
+            remainder: BigInt.new(result.r, rSign)
+        };
+    }
+
+    /**
+     * Returns self raised to the power of exp.
+     * @param exp Non-negative exponent
+     * @return self^exp
+     */
+    fn pow(exp: int): BigInt {
+        if (exp < 0) {
+            let d: Array<int> = [0];
+            return BigInt.new(d, 1);
+        }
+        let r = powAbs(self._digits, exp);
+        // For positive base or even exponent, result is positive
+        let sign = 1;
+        if (self._sign < 0 && exp % 2 === 1) {
+            sign = -1;
+        }
+        return BigInt.new(r, sign);
+    }
+}
+
+// ============================================================
+// Free Functions
+// ============================================================
+
+/**
+ * Parse a decimal string into a BigInt.
+ * @param s Decimal string
+ * @return BigInt
+ */
+export fn parseBigInt(s: string): BigInt {
+    return BigInt.fromString(s);
+}
+
+/**
+ * Create a BigInt from a regular int value.
+ * @param n Integer value
+ * @return BigInt
+ */
+export fn bigIntFromInt(n: int): BigInt {
+    return BigInt.fromInt(n);
+}

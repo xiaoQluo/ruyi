@@ -1,0 +1,117 @@
+/**
+ * Ruyi Standard Library — Crypto Utilities
+ *
+ * Shared internal helpers for the crypto sub-modules: data conversion,
+ * bitwise operations, and constant-time comparison.
+ *
+ * @author Ruyi Team
+ * @date 2026-07-24
+ */
+
+import { fromCharCode } from "../string";
+
+// ============================================================
+// Data Conversion
+// ============================================================
+
+fn stringToBytes(s: string): Array<byte> {
+    let result: Array<byte> = [];
+    let len = s.length();
+    let i = 0;
+    while (i < len) {
+        result.push(s.charCodeAt(i));
+        i = i + 1;
+    }
+    return result;
+}
+
+fn bytesToString(data: Array<byte>): string {
+    let result = "";
+    let len = data.length();
+    let i = 0;
+    while (i < len) {
+        result = result + fromCharCode(data.get(i));
+        i = i + 1;
+    }
+    return result;
+}
+
+fn zeroArray(size: int): Array<byte> {
+    let arr: Array<byte> = [];
+    let i = 0;
+    while (i < size) {
+        arr.push(0);
+        i = i + 1;
+    }
+    return arr;
+}
+
+fn copyArray(src: Array<byte>): Array<byte> {
+    let result: Array<byte> = [];
+    let len = src.length();
+    let i = 0;
+    while (i < len) {
+        result.push(src.get(i));
+        i = i + 1;
+    }
+    return result;
+}
+
+// ============================================================
+// Bitwise Operations
+// ============================================================
+
+fn rotr32(x: int, n: int): int {
+    let masked = x & 0xFFFFFFFF;
+    return (masked >>> n) | ((masked << (32 - n)) & 0xFFFFFFFF);
+}
+
+fn rotr64(x: int, n: int): int {
+    return (x >>> n) | (x << (64 - n));
+}
+
+fn u64(hi: int, lo: int): int {
+    return (hi << 32) | (lo & 0xFFFFFFFF);
+}
+
+// ============================================================
+// Constant-Time Comparison
+// ============================================================
+
+export fn timingSafeEqual(a: string, b: string): bool {
+    let aLen = a.length();
+    let bLen = b.length();
+    let result = 0;
+    if (aLen !== bLen) {
+        result = 1;
+    }
+    let minLen = aLen;
+    if (bLen < minLen) {
+        minLen = bLen;
+    }
+    let i = 0;
+    while (i < minLen) {
+        result = result | (a.charCodeAt(i) ^ b.charCodeAt(i));
+        i = i + 1;
+    }
+    return result === 0;
+}
+
+export fn timingSafeEqualBytes(a: Array<byte>, b: Array<byte>): bool {
+    let aLen = a.length();
+    let bLen = b.length();
+    let result = 0;
+    if (aLen !== bLen) {
+        result = 1;
+    }
+    let minLen = aLen;
+    if (bLen < minLen) {
+        minLen = bLen;
+    }
+    let i = 0;
+    while (i < minLen) {
+        result = result | (a.get(i) ^ b.get(i));
+        i = i + 1;
+    }
+    return result === 0;
+}

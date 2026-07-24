@@ -6,6 +6,7 @@ use crate::parser::error::ParseError;
 pub struct Parser {
     tokens: Vec<TokenWithLocation>,
     pos: usize,
+    pending_extra_closes: u32,
 }
 
 impl Parser {
@@ -14,7 +15,11 @@ impl Parser {
         let tokens = scanner
             .scan_all()
             .map_err(|e| ParseError::LexerError(e.to_string()))?;
-        Ok(Self { tokens, pos: 0 })
+        Ok(Self {
+            tokens,
+            pos: 0,
+            pending_extra_closes: 0,
+        })
     }
 
     pub fn parse(&mut self) -> Result<Program, ParseError> {
@@ -73,7 +78,7 @@ impl Parser {
     }
 
     fn is_builtin_type(name: &str) -> bool {
-        matches!(name, "string" | "int" | "float" | "bool")
+        matches!(name, "string" | "int" | "float" | "bool" | "byte")
     }
 
     fn match_ident(&mut self, name: &str) -> bool {
@@ -212,7 +217,7 @@ impl Parser {
             Some(Token::Export) => self.parse_export().map(ModuleItem::Export),
             Some(Token::Let) | Some(Token::Const) | Some(Token::Fn) | Some(Token::Class)
             | Some(Token::Trait) | Some(Token::Impl) | Some(Token::Type) | Some(Token::Macro)
-            | Some(Token::At) | Some(Token::Async) => {
+            | Some(Token::At) | Some(Token::Async) | Some(Token::Extern) => {
                 self.parse_declaration().map(ModuleItem::Declaration)
             }
             _ => self.parse_statement().map(ModuleItem::Statement),
@@ -397,8 +402,29 @@ impl Parser {
             Some(Token::Impl) => self.parse_impl_declaration(),
             Some(Token::Type) => self.parse_type_alias(),
             Some(Token::Macro) => self.parse_macro_declaration(),
+            Some(Token::Extern) => self.parse_extern_declaration(),
             _ => Err(self.error("expected declaration")),
         }
+    }
+
+    fn parse_extern_declaration(&mut self) -> Result<Declaration, ParseError> {
+        self.expect(Token::Extern)?;
+        self.expect(Token::Fn)?;
+        let name = self.expect_ident()?;
+        self.expect(Token::LParen)?;
+        let params = self.parse_formal_params()?;
+        self.expect(Token::RParen)?;
+        let return_type = if self.check(&Token::Colon) {
+            Some(self.parse_type_annotation()?)
+        } else {
+            None
+        };
+        self.expect(Token::SemiColon)?;
+        Ok(Declaration::ExternFn {
+            name,
+            params,
+            return_type,
+        })
     }
 
     /// Dispatch an annotation-prefixed declaration by lookahead-scanning
@@ -1775,14 +1801,13 @@ impl Parser {
 
     fn parse_new_expression(&mut self) -> Result<Expr, ParseError> {
         self.expect(Token::New)?;
-        let callee = self.parse_expr_bp(180)?;
-        let args = if self.check(&Token::LParen) {
-            self.parse_arguments()?
-        } else {
-            vec![]
+        let class_name = match self.current_token() {
+            Some(Token::Ident(_)) => self.expect_ident()?,
+            _ => return Err(self.error("expected class name after `new`")),
         };
+        let args = self.parse_arguments()?;
         Ok(Expr::New {
-            callee: Box::new(callee),
+            callee: Box::new(Expr::Identifier(class_name)),
             args,
         })
     }
@@ -1888,6 +1913,10 @@ impl Parser {
         let mut ty = self.parse_primary_type()?;
         if self.match_token(&Token::Question) {
             ty = TypeAnnotation::Nullable(Box::new(ty));
+        }
+        while self.match_token(&Token::LBracket) {
+            self.expect(Token::RBracket)?;
+            ty = TypeAnnotation::Array(Box::new(ty));
         }
         Ok(ty)
     }
@@ -2038,13 +2067,34 @@ impl Parser {
     fn parse_type_args(&mut self) -> Result<Vec<TypeAnnotation>, ParseError> {
         self.expect(Token::Less)?;
         let mut args = Vec::new();
-        while !self.check(&Token::Greater) && !self.is_at_end() {
-            args.push(self.parse_type()?);
-            if !self.match_token(&Token::Comma) {
-                break;
+        let mut depth: i32 = 1;
+        while depth > 0 && !self.is_at_end() {
+            match self.current_token() {
+                Some(Token::Greater) => {
+                    self.advance();
+                    depth -= 1;
+                }
+                Some(Token::Shr) | Some(Token::ShrAssign) => {
+                    self.advance();
+                    depth -= 2;
+                    self.pending_extra_closes += 1;
+                }
+                Some(Token::Comma) => {
+                    if depth == 1 {
+                        self.advance();
+                    }
+                }
+                _ => {
+                    if depth == 1 {
+                        args.push(self.parse_type()?);
+                        if self.pending_extra_closes > 0 {
+                            depth -= self.pending_extra_closes as i32;
+                            self.pending_extra_closes = 0;
+                        }
+                    }
+                }
             }
         }
-        self.expect(Token::Greater)?;
         Ok(args)
     }
 
@@ -2054,21 +2104,42 @@ impl Parser {
         }
         self.advance();
         let mut params = Vec::new();
-        while !self.check(&Token::Greater) && !self.is_at_end() {
-            let name = self.expect_ident()?;
-            let mut bounds = Vec::new();
-            if self.match_token(&Token::Colon) {
-                bounds.push(self.expect_ident()?);
-                while self.match_token(&Token::Plus) {
-                    bounds.push(self.expect_ident()?);
+        let mut depth: i32 = 1;
+        while depth > 0 && !self.is_at_end() {
+            match self.current_token() {
+                Some(Token::Greater) => {
+                    self.advance();
+                    depth -= 1;
+                }
+                Some(Token::Shr) | Some(Token::ShrAssign) => {
+                    self.advance();
+                    depth -= 2;
+                    self.pending_extra_closes += 1;
+                }
+                Some(Token::Comma) => {
+                    if depth == 1 {
+                        self.advance();
+                    }
+                }
+                _ => {
+                    if depth == 1 {
+                        let name = self.expect_ident()?;
+                        let mut bounds = Vec::new();
+                        if self.match_token(&Token::Colon) {
+                            bounds.push(self.expect_ident()?);
+                            while self.match_token(&Token::Plus) {
+                                bounds.push(self.expect_ident()?);
+                            }
+                        }
+                        params.push(TypeParam { name, bounds });
+                        if self.pending_extra_closes > 0 {
+                            depth -= self.pending_extra_closes as i32;
+                            self.pending_extra_closes = 0;
+                        }
+                    }
                 }
             }
-            params.push(TypeParam { name, bounds });
-            if !self.match_token(&Token::Comma) {
-                break;
-            }
         }
-        self.expect(Token::Greater)?;
         Ok(params)
     }
 

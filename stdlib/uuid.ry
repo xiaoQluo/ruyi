@@ -1,0 +1,77 @@
+/**
+ * Ruyi Standard Library - UUID Module
+ *
+ * Provides UUID (Universally Unique Identifier) generation.
+ *
+ * UUID v4 generates random UUIDs compliant with RFC 9562 (formerly RFC 4122).
+ * Pure .ry implementation — no additional FFI required.
+ *
+ * @author Ruyi Team
+ * @date 2026-07-17
+ */
+
+import { Random, random_new } from "./random";
+import { HEX_CHARS } from "./encoding";
+
+// ============================================================
+// UUID v4
+// ============================================================
+
+/**
+ * Generate a random UUID v4 string.
+ *
+ * Format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+ * where x is any hex digit and y is 8, 9, a, or b.
+ *
+ * @return UUID v4 string (36 characters)
+ */
+export fn v4(): string {
+    let rng = random_new();
+    let bytes = rng.nextBytes(16);
+    let result = "";
+    let i = 0;
+
+    while (i < 16) {
+        let b = bytes.charCodeAt(i);
+        // Ensure b is positive (treat as unsigned byte)
+        if (b < 0) {
+            b = b + 256;
+        }
+
+        // Insert hyphens at positions 4, 6, 8, 10
+        if (i === 4 || i === 6 || i === 8 || i === 10) {
+            result = result + "-";
+        }
+
+        // Set version bits: position 6 (byte index 6, first nibble = 4)
+        if (i === 6) {
+            b = (b & 0x0f) | 0x40; // Set version to 4
+        }
+
+        // Set variant bits: position 8 (byte index 8, first nibble = 8/9/a/b)
+        if (i === 8) {
+            b = (b & 0x3f) | 0x80; // Set variant to 10xx
+        }
+
+        result = result + HEX_CHARS.charAt((b / 16) & 0x0f) + HEX_CHARS.charAt(b & 0x0f);
+        i = i + 1;
+    }
+
+    return result;
+}
+
+/**
+ * Generate multiple UUID v4 strings.
+ *
+ * @param count Number of UUIDs to generate
+ * @return Array of UUID v4 strings
+ */
+export fn v4Batch(count: int): Array<string> {
+    let result = [];
+    let i = 0;
+    while (i < count) {
+        result.push(v4());
+        i = i + 1;
+    }
+    return result;
+}

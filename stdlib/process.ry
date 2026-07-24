@@ -8,10 +8,9 @@
  * @date 2026-05-02
  */
 
-import { Error } from "./error";
-
 // ============================================================
 // Process Class
+// (Error types from error.ry are auto-loaded — no import needed)
 // ============================================================
 
 /**
