@@ -1,3 +1,5 @@
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+
 /**
  * C FFI implementations backing `stdlib/path.ry`.
  *
@@ -169,7 +171,7 @@ pub extern "C" fn __path_normalize(path: *const c_char) -> *mut c_char {
                 if !components.is_empty() && components.last() != Some(&"..") {
                     let last = components.last().unwrap();
                     // Don't pop root "/"
-                    if *last != "/" && *last != "" {
+                    if *last != "/" && !last.is_empty() {
                         components.pop();
                     }
                 } else if components.is_empty() {

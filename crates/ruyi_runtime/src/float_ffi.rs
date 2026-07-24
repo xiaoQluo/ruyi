@@ -1,4 +1,5 @@
-/**
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+/*!
  * Float bit-level conversion FFI.
  *
  * Provides f64::to_bits() / f64::from_bits() so that the Ruyi stdlib

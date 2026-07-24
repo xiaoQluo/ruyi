@@ -1,3 +1,5 @@
+#![allow(clippy::manual_strip, clippy::unnecessary_map_or, clippy::needless_borrow)]
+
 /**
  * C FFI implementations backing `stdlib/json.ry`.
  *
@@ -96,7 +98,7 @@ fn parse_json_value(input: &str) -> Result<(&str, String), String> {
     }
 
     // Parse number
-    if input.starts_with('-') || input.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+    if input.starts_with('-') || input.chars().next().is_some_and(|c| c.is_ascii_digit()) {
         let end = find_number_end(input)?;
         let number = &input[..end];
         return Ok((&input[end..], number.to_string()));
@@ -239,7 +241,7 @@ fn parse_json_object(input: &str) -> Result<(&str, String), String> {
             if !remaining.starts_with(',') {
                 return Err("Expected comma in object".to_string());
             }
-            remaining = &remaining[1..].trim();
+            remaining = remaining[1..].trim();
         }
 
         // Parse key
@@ -253,7 +255,7 @@ fn parse_json_object(input: &str) -> Result<(&str, String), String> {
         if !remaining.starts_with(':') {
             return Err("Expected colon in object".to_string());
         }
-        remaining = &remaining[1..].trim();
+        remaining = remaining[1..].trim();
 
         // Parse value
         let (new_remaining, value) = parse_json_value(remaining)?;
@@ -281,7 +283,7 @@ fn stringify_json_value(value: &str) -> Result<String, String> {
     }
 
     // Number
-    if value.starts_with('-') || value.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+    if value.starts_with('-') || value.chars().next().is_some_and(|c| c.is_ascii_digit()) {
         return Ok(value.to_string());
     }
 

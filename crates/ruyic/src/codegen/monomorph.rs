@@ -56,7 +56,7 @@ pub fn collect_monomorphizations(tracker: &MonomorphizationTracker) -> Vec<Monom
     tracker
         .specializations()
         .values()
-        .map(|spec| MonomorphizedFunction::from_specialization(spec))
+        .map(MonomorphizedFunction::from_specialization)
         .collect()
 }
 

@@ -412,7 +412,7 @@ pub fn compile_async_function<'ctx>(
     let struct_size = state_struct_type.size_of().unwrap();
     let alloc_ptr = crate::codegen::gc_alloc::GcAllocFn::for_mode(ctx.gc_mode).emit(
         ctx.builder(),
-        &ctx.module,
+        ctx.module,
         struct_size,
     );
     let state_ptr = ctx
@@ -529,7 +529,7 @@ pub fn compile_await<'ctx>(
     let future_ptr = inner_result.value.into_pointer_value();
 
     let poll_result =
-        super::builtins::build_ruyi_async_poll(ctx.builder(), &ctx.module, future_ptr, waker);
+        super::builtins::build_ruyi_async_poll(ctx.builder(), ctx.module, future_ptr, waker);
 
     let result_ty = match &inner_result.ty {
         Type::Future(inner) => *inner.clone(),

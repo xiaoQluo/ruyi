@@ -206,7 +206,7 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
                         .builder()
                         .build_load(*ptr, "root_val")
                         .into_pointer_value();
-                    super::builtins::build_gc_remove_root(self.builder(), &self.module, loaded);
+                    super::builtins::build_gc_remove_root(self.builder(), self.module, loaded);
                 }
             }
         }
@@ -248,7 +248,7 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
                     .builder()
                     .build_load(ptr, "root_val")
                     .into_pointer_value();
-                super::builtins::build_gc_add_root(self.builder(), &self.module, loaded);
+                super::builtins::build_gc_add_root(self.builder(), self.module, loaded);
             }
         }
     }
@@ -538,11 +538,11 @@ impl<'ctx> CodeGenerator<'ctx> {
 
     /// Generate LLVM IR from a typed AST program with monomorphization tracker
     /// and an optional type environment.
-    pub fn generate_with_env<'env>(
+    pub fn generate_with_env(
         &self,
         program: &Program,
         tracker: &MonomorphizationTracker,
-        type_env: Option<&'env crate::typechecker::environment::TypeEnvironment>,
+        type_env: Option<&crate::typechecker::environment::TypeEnvironment>,
     ) -> Result<(), String> {
         let mut ctx = CodegenContext::with_gc_mode(
             self.context,
@@ -590,7 +590,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         // Set personality and uwtable on main — required so the platform
         // unwinder can find landingpad handlers when throw originates from
         // a callee (e.g. innerThrow → ruyi_throw → _Unwind_RaiseException).
-        let lp_gen = LandingPadGenerator::new(&ctx.context, &ctx.module, ctx.builder());
+        let lp_gen = LandingPadGenerator::new(ctx.context, ctx.module, ctx.builder());
         main_fn.set_personality_function(lp_gen.get_personality_function());
         let uwtable_id = Attribute::get_named_enum_kind_id("uwtable");
         main_fn.add_attribute(

@@ -117,14 +117,13 @@ impl PatternMatcher {
 
     pub fn match_pattern(&mut self) -> MacroResult<MatchResult> {
         let tokens = self.pattern.tokens.clone();
-        if self.match_tokens(&tokens) {
-            if self.pos == self.input.len() {
+        if self.match_tokens(&tokens)
+            && self.pos == self.input.len() {
                 return Ok(MatchResult {
                     captures: std::mem::take(&mut self.captures),
                     matched: true,
                 });
             }
-        }
         Ok(MatchResult {
             captures: self.captures.clone(),
             matched: false,

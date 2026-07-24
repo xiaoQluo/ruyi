@@ -1,3 +1,5 @@
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+
 /**
  * C FFI implementations backing `stdlib/net.ry`.
  *

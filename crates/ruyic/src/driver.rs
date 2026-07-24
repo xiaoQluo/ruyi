@@ -324,7 +324,7 @@ impl Driver {
 
         // Prepend auto-loaded stdlib modules before main program items
         let mut all_items: Vec<crate::parser::ast::ModuleItem> = Vec::new();
-        for (_, module) in &self.resolver.loaded_modules {
+        for module in self.resolver.loaded_modules.values() {
             for module_item in &module.items {
                 all_items.push(module_item.clone());
             }

@@ -383,7 +383,7 @@ impl<W: Write> DiagnosticRenderer<W> {
                 if i == 0 {
                     let underline = "   ".to_string()
                         + &" ".repeat(line_num.to_string().len() + 2)
-                        + &" | "
+                        + " | "
                         + &" ".repeat(start)
                         + &"^".repeat(end.saturating_sub(start).max(1));
                     writeln!(

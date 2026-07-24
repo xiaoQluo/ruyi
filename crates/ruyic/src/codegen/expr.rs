@@ -166,8 +166,8 @@ fn infer_param_types_expr(expr: &Expr, param_map: &mut std::collections::HashMap
                     if let (Some(lname), Some(rname)) =
                         (get_identifier_name(left), get_identifier_name(right))
                     {
-                        if lname == rname {
-                            if matches!(
+                        if lname == rname
+                            && matches!(
                                 op,
                                 BinaryOp::Star
                                     | BinaryOp::Minus
@@ -176,7 +176,6 @@ fn infer_param_types_expr(expr: &Expr, param_map: &mut std::collections::HashMap
                             ) {
                                 param_map.insert(lname, Type::Int);
                             }
-                        }
                     }
                 }
             }
@@ -667,7 +666,7 @@ pub fn compile_bigint_literal<'ctx>(
     let global = ctx.builder().build_global_string_ptr(n, "bigint_lit");
     let str_ptr = global.as_pointer_value();
     let bigint_ptr =
-        super::builtins::build_ruyi_bigint_from_str(ctx.builder(), &ctx.module, str_ptr)?;
+        super::builtins::build_ruyi_bigint_from_str(ctx.builder(), ctx.module, str_ptr)?;
     Ok(ExprResult::new(
         BasicValueEnum::PointerValue(bigint_ptr),
         Type::BigInt,
@@ -725,7 +724,7 @@ fn compile_member_access<'ctx>(
                 };
                 let elem_val = super::builtins::build_builtin_array_get(
                     ctx.builder(),
-                    &ctx.module,
+                    ctx.module,
                     arr_ptr,
                     index_val,
                 );
@@ -771,7 +770,7 @@ fn compile_member_access<'ctx>(
             let obj_ptr = value_to_i8_ptr(ctx, &obj_result.value)?;
             let key_ptr = value_to_i8_ptr(ctx, &key_result.value)?;
             let result =
-                super::builtins::build_ruyi_obj_get(ctx.builder(), &ctx.module, obj_ptr, key_ptr);
+                super::builtins::build_ruyi_obj_get(ctx.builder(), ctx.module, obj_ptr, key_ptr);
             Ok(ExprResult::new(
                 BasicValueEnum::PointerValue(result),
                 Type::Dynamic,
@@ -2132,7 +2131,7 @@ fn build_call_or_invoke<'ctx>(
                     }
                 })
                 .collect();
-            let lp_gen = LandingPadGenerator::new(&ctx.context, &ctx.module, ctx.builder());
+            let lp_gen = LandingPadGenerator::new(ctx.context, ctx.module, ctx.builder());
             let invoke = lp_gen.build_invoke(func, &invoke_args, then_bb, unwind_bb, name);
             ctx.builder().position_at_end(then_bb);
             invoke
@@ -2508,9 +2507,9 @@ fn compile_call<'ctx>(
                         .current_function
                         .ok_or("print requires a function context")?;
                     super::builtins::build_print(
-                        &ctx.context,
+                        ctx.context,
                         ctx.builder(),
-                        &ctx.module,
+                        ctx.module,
                         result.value,
                         &result.ty,
                         func,
@@ -2534,7 +2533,7 @@ fn compile_call<'ctx>(
                     let result = compile_expr(ctx, e)?;
                     let future_ptr = result.value.into_pointer_value();
                     let task_handle =
-                        super::builtins::build_ruyi_spawn(ctx.builder(), &ctx.module, future_ptr);
+                        super::builtins::build_ruyi_spawn(ctx.builder(), ctx.module, future_ptr);
                     return Ok(ExprResult::new(
                         BasicValueEnum::PointerValue(task_handle),
                         Type::Dynamic,
@@ -2871,7 +2870,7 @@ fn compile_assignment<'ctx>(
                     };
                     super::builtins::build_builtin_array_set(
                         ctx.builder(),
-                        &ctx.module,
+                        ctx.module,
                         obj_ptr,
                         index_val,
                         effective_val,
@@ -2986,7 +2985,7 @@ fn compile_array_literal<'ctx>(
     let len = elements.len() as u64;
     let cap = if len == 0 { 4 } else { len };
     let total_size = ctx.context.i64_type().const_int(16 + cap * 8, false);
-    let ptr = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), &ctx.module, total_size);
+    let ptr = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), ctx.module, total_size);
 
     let len_ptr = ctx
         .builder()
@@ -3050,7 +3049,7 @@ fn compile_array_literal<'ctx>(
                     if let BasicValueEnum::PointerValue(pv) = val.value {
                         super::builtins::build_gc_write_barrier(
                             ctx.builder(),
-                            &ctx.module,
+                            ctx.module,
                             ptr,
                             pv,
                         );
@@ -3075,7 +3074,7 @@ fn compile_rest_args_to_array<'ctx>(
     let len = rest_args.len() as u64;
     let cap = if len == 0 { 4 } else { len };
     let total_size = ctx.context.i64_type().const_int(16 + cap * 8, false);
-    let ptr = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), &ctx.module, total_size);
+    let ptr = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), ctx.module, total_size);
 
     let len_ptr = ctx
         .builder()
@@ -3142,7 +3141,7 @@ fn compile_object_literal<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     let len = properties.len() as u64;
     let total_size = ctx.context.i64_type().const_int(len * 8, false);
-    let ptr = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), &ctx.module, total_size);
+    let ptr = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), ctx.module, total_size);
 
     let mut fields = Vec::new();
     for (i, prop) in properties.iter().enumerate() {
@@ -3178,7 +3177,7 @@ fn compile_object_literal<'ctx>(
                     if let BasicValueEnum::PointerValue(pv) = val.value {
                         super::builtins::build_gc_write_barrier(
                             ctx.builder(),
-                            &ctx.module,
+                            ctx.module,
                             ptr,
                             pv,
                         );
@@ -3189,7 +3188,7 @@ fn compile_object_literal<'ctx>(
                     crate::parser::ast::PropertyName::Ident(n) => n.clone(),
                     crate::parser::ast::PropertyName::String(n) => n.clone(),
                     crate::parser::ast::PropertyName::Number(n) => format!("{}", n),
-                    crate::parser::ast::PropertyName::Computed(_) => format!("[computed]"),
+                    crate::parser::ast::PropertyName::Computed(_) => "[computed]".to_string(),
                 };
                 fields.push(crate::typechecker::types::ObjectField {
                     name,
@@ -3238,7 +3237,7 @@ pub(crate) fn compile_new<'ctx>(
             args: call_args,
         } => match call_callee.as_ref() {
             crate::parser::ast::Expr::Identifier(name)
-                if name.chars().next().map_or(false, |c| c.is_uppercase()) =>
+                if name.chars().next().is_some_and(|c| c.is_uppercase()) =>
             {
                 return compile_new(
                     ctx,
@@ -3278,7 +3277,7 @@ pub(crate) fn compile_new<'ctx>(
         let type_info_ptr = type_info_global.as_pointer_value();
         super::arc_ops::emit_arc_alloc(ctx, total_size, type_info_ptr)
     } else {
-        GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), &ctx.module, total_size)
+        GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), ctx.module, total_size)
     };
 
     let ctor_name = format!("{}_new", class_name);
@@ -3346,14 +3345,13 @@ fn compile_enum_variant<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     let i8_ty = ctx.context.i8_type();
     let i8_ptr_ty = i8_ty.ptr_type(Default::default());
-    let option_struct = ctx
+    let option_struct = *ctx
         .enum_struct_types
         .entry("Option".to_string())
         .or_insert_with(|| {
             ctx.context
                 .struct_type(&[i8_ty.into(), i8_ptr_ty.into()], false)
-        })
-        .clone();
+        });
     let ptr = ctx.builder().build_alloca(option_struct, "enum_variant");
 
     let tag_ptr = ctx.builder().build_struct_gep(ptr, 0, "tag_ptr").unwrap();

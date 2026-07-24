@@ -727,7 +727,7 @@ fn compile_throw<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>, expr: &Expr) -> R
                 _ => return Err("throw: unsupported callee".to_string()),
             };
             let is_class = ctx.class_struct_types.contains_key(&name)
-                || name.chars().next().map_or(false, |c| c.is_uppercase());
+                || name.chars().next().is_some_and(|c| c.is_uppercase());
             if !is_class {
                 let exc_result = compile_expr(ctx, expr)?;
                 let exc_ptr = match exc_result.value {
@@ -858,7 +858,7 @@ fn compile_try<'ctx>(
     // ── T4: LLVM landing-pad generation (for invoke-based exception handling) ──
     let landing_pad_val;
     {
-        let lp_gen = LandingPadGenerator::new(&ctx.context, &ctx.module, ctx.builder());
+        let lp_gen = LandingPadGenerator::new(ctx.context, ctx.module, ctx.builder());
 
         // Create per-catch handler blocks; type_id = 0 is catch-all for ruyi exception type
         let mut catch_handlers: Vec<(
@@ -901,25 +901,22 @@ fn compile_try<'ctx>(
             let handler_bb = catch_handlers[i].1;
             ctx.builder().position_at_end(handler_bb);
 
-            build_ruyi_clear_pending_exception(ctx.builder(), &ctx.module);
+            build_ruyi_clear_pending_exception(ctx.builder(), ctx.module);
 
             let exc_val = ctx
                 .builder()
                 .build_load(exception_ptr, "exc_val")
                 .into_pointer_value();
             if let Some(pattern) = &catch_clause.pattern {
-                match pattern {
-                    crate::parser::ast::Pattern::Identifier(name) => {
-                        let local_ptr = ctx.builder().build_alloca(i8_ptr, name);
-                        ctx.builder().build_store(local_ptr, exc_val);
-                        let var_ty = catch_clause
-                            .ty
-                            .as_ref()
-                            .map(Type::from_annotation)
-                            .unwrap_or(Type::Dynamic);
-                        ctx.define_variable(name.clone(), (local_ptr, var_ty));
-                    }
-                    _ => {}
+                if let crate::parser::ast::Pattern::Identifier(name) = pattern {
+                    let local_ptr = ctx.builder().build_alloca(i8_ptr, name);
+                    ctx.builder().build_store(local_ptr, exc_val);
+                    let var_ty = catch_clause
+                        .ty
+                        .as_ref()
+                        .map(Type::from_annotation)
+                        .unwrap_or(Type::Dynamic);
+                    ctx.define_variable(name.clone(), (local_ptr, var_ty));
                 }
             }
 
@@ -939,7 +936,7 @@ fn compile_try<'ctx>(
 
     // Uncaught exception: build resume block
     {
-        let lp_gen = LandingPadGenerator::new(&ctx.context, &ctx.module, ctx.builder());
+        let lp_gen = LandingPadGenerator::new(ctx.context, ctx.module, ctx.builder());
         ctx.builder().position_at_end(resume_bb);
         lp_gen.build_resume(landing_pad_val);
     }
@@ -1061,7 +1058,7 @@ fn build_exception_check<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>) -> Result
     }
 
     let func = ctx.current_function().unwrap();
-    let pending = build_ruyi_get_pending_exception(ctx.builder(), &ctx.module);
+    let pending = build_ruyi_get_pending_exception(ctx.builder(), ctx.module);
 
     let i64_ty = ctx.context.i64_type();
     let pending_int = ctx
@@ -1088,7 +1085,7 @@ fn build_exception_check<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>) -> Result
 
     ctx.builder().position_at_end(store_exc_bb);
     ctx.builder().build_store(try_ctx.exception_ptr, pending);
-    build_ruyi_clear_pending_exception(ctx.builder(), &ctx.module);
+    build_ruyi_clear_pending_exception(ctx.builder(), ctx.module);
     ctx.builder().build_unconditional_branch(dest_bb);
 
     ctx.builder().position_at_end(continue_bb);

@@ -530,7 +530,7 @@ pub extern "C" fn __builtin_array_length(arr: *mut i8) -> i64 {
 /// Create a new empty map. Returns an opaque pointer to a boxed HashMap.
 #[no_mangle]
 pub extern "C" fn __builtin_map_create() -> *mut i8 {
-    let map: Box<HashMap<i64, i64>> = Box::new(HashMap::new());
+    let map: Box<HashMap<i64, i64>> = Box::default();
     Box::into_raw(map) as *mut i8
 }
 
@@ -613,7 +613,7 @@ pub extern "C" fn __builtin_map_values(data: *mut i8) -> *mut i8 {
 /// Create a new empty set. Returns an opaque pointer to a boxed HashSet.
 #[no_mangle]
 pub extern "C" fn __builtin_set_create() -> *mut i8 {
-    let set: Box<HashSet<i64>> = Box::new(HashSet::new());
+    let set: Box<HashSet<i64>> = Box::default();
     Box::into_raw(set) as *mut i8
 }
 

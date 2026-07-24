@@ -1778,7 +1778,7 @@ impl TypeInference {
                     .resolve_impl_method(type_name, prop_name)
                 {
                     let ret_ty = self.substitute_self_type(&method.return_type, obj_ty);
-                    let param_types: Vec<Type> = if method.param_types.len() >= 1 {
+                    let param_types: Vec<Type> = if !method.param_types.is_empty() {
                         method.param_types[1..]
                             .iter()
                             .map(|p| self.substitute_self_type(p, obj_ty))
@@ -1943,7 +1943,6 @@ impl TypeInference {
                     {
                         if let Some(ty) = self.env.lookup(name).cloned() {
                             self.record_reverse(name, &ty, &ty.non_null());
-                            return;
                         }
                     }
                 }
@@ -1954,7 +1953,6 @@ impl TypeInference {
                         if let Some(ty) = self.env.lookup(name).cloned() {
                             let narrowed = Type::Named(class_name.clone(), vec![]);
                             self.record_reverse(name, &ty, &narrowed);
-                            return;
                         }
                     }
                 }

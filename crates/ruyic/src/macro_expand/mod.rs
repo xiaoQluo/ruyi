@@ -105,6 +105,7 @@ impl From<crate::parser::ParseError> for MacroError {
 pub type MacroResult<T> = Result<T, MacroError>;
 
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct MacroRegistry {
     macros: HashMap<String, Vec<MacroRule>>,
     builtins: HashMap<String, BuiltinMacro>,
@@ -145,14 +146,6 @@ impl MacroRegistry {
     }
 }
 
-impl Default for MacroRegistry {
-    fn default() -> Self {
-        Self {
-            macros: HashMap::new(),
-            builtins: HashMap::new(),
-        }
-    }
-}
 
 pub fn expand_macros(program: &Program, registry: &mut MacroRegistry) -> MacroResult<Program> {
     let mut expander = expand::MacroExpander::new(registry);

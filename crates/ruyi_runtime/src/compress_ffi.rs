@@ -1,3 +1,5 @@
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
+
 /**
  * Compress FFI — gzip, zlib, and raw Deflate via flate2.
  *
@@ -20,7 +22,7 @@ use flate2::Compression;
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 fn b64enc(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    let mut s = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for ch in bytes.chunks(3) {
         let b0 = ch[0] as u32;
         let b1 = *ch.get(1).unwrap_or(&0) as u32;

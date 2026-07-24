@@ -1,3 +1,10 @@
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::missing_safety_doc)]
+#![allow(clippy::unnecessary_cast)]
+#![allow(clippy::len_without_is_empty)]
+#![allow(clippy::let_unit_value)]
+#![allow(clippy::type_complexity)]
+
 pub mod alloc;
 pub mod arc;
 pub mod async_exports;

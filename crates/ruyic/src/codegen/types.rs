@@ -47,7 +47,7 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: &Type) -> BasicTypeEn
                 .iter()
                 .map(|t| ruyi_type_to_llvm(context, t))
                 .collect();
-            let field_refs: Vec<_> = field_types.iter().map(|t| (*t).into()).collect();
+            let field_refs: Vec<_> = field_types.to_vec();
             BasicTypeEnum::StructType(context.struct_type(&field_refs, false))
         }
         Type::Object(_) => {
