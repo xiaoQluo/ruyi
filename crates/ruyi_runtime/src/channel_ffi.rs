@@ -15,9 +15,7 @@ use std::sync::mpsc::TrySendError;
  * @author Ruyi Team
  * @date 2026-07-25
  */
-use std::sync::mpsc::{
-    self, Receiver, RecvError, RecvTimeoutError, SendError, SyncSender, TryRecvError,
-};
+use std::sync::mpsc::{self, Receiver, SendError, SyncSender, TryRecvError};
 
 // ── Unified channel type ────────────────────────────────────────
 
@@ -119,10 +117,7 @@ pub extern "C" fn __channel_recv(ptr: *mut i8) -> i64 {
         return i64::MIN;
     }
     let ch = unsafe { &*(ptr as *const Channel) };
-    match ch.rx.recv() {
-        Ok(v) => v,
-        Err(RecvError) => i64::MIN,
-    }
+    ch.rx.recv().unwrap_or(i64::MIN)
 }
 
 /// Try to receive without blocking.
@@ -133,10 +128,7 @@ pub extern "C" fn __channel_try_recv(ptr: *mut i8) -> i64 {
         return i64::MIN;
     }
     let ch = unsafe { &*(ptr as *const Channel) };
-    match ch.rx.try_recv() {
-        Ok(v) => v,
-        Err(TryRecvError::Empty | TryRecvError::Disconnected) => i64::MIN,
-    }
+    ch.rx.try_recv().unwrap_or(i64::MIN)
 }
 
 /// Receive a value, blocking for at most `timeout_ms` milliseconds.
@@ -148,10 +140,7 @@ pub extern "C" fn __channel_recv_timeout(ptr: *mut i8, timeout_ms: i64) -> i64 {
     }
     let ch = unsafe { &*(ptr as *const Channel) };
     let dur = std::time::Duration::from_millis(if timeout_ms < 0 { 0 } else { timeout_ms as u64 });
-    match ch.rx.recv_timeout(dur) {
-        Ok(v) => v,
-        Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => i64::MIN,
-    }
+    ch.rx.recv_timeout(dur).unwrap_or(i64::MIN)
 }
 
 /// Check if all senders dropped. 1=closed, 0=open.
@@ -307,7 +296,6 @@ pub extern "C" fn __channel_select_free(sel: *mut i8) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread;
 
     #[test]
     fn test_unbounded_send_recv() {

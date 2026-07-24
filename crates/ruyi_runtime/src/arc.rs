@@ -470,7 +470,6 @@ mod tests {
         unsafe {
             let ptr = ruyi_arc_alloc(16, &raw mut TYPE_INFO);
             assert!(!ptr.is_null());
-            let header = GcObjectHeader::from_payload(ptr);
             assert_eq!(ruyi_arc_ref_count(ptr), 1);
 
             ruyi_arc_retain(ptr);

@@ -528,9 +528,7 @@ mod tests {
     #[test]
     fn test_exec_failure() {
         let result = __process_exec(c("nonexistent_command_xyz_123"));
-        unsafe {
-            assert!(!result.is_null());
-        }
+        assert!(!result.is_null());
     }
 
     #[test]
@@ -634,7 +632,7 @@ mod tests {
 
         // Read output after closing input
         std::thread::sleep(std::time::Duration::from_millis(200));
-        let out = __process_read_output(proc);
+        let _out = __process_read_output(proc);
         // cat should echo back the input
         let code = __process_wait(proc);
         assert_eq!(code, 0);

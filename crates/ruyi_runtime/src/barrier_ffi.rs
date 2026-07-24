@@ -51,7 +51,6 @@ pub extern "C" fn __barrier_free(ptr: *mut Barrier) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use std::thread;
 
     #[test]

@@ -718,9 +718,7 @@ mod tests {
         let path = temp_path("read_lines.txt");
         fs::write(&path, "a\nb\nc\n").unwrap();
         let result = __io_file_read_lines(c(&path));
-        unsafe {
-            assert!(!result.is_null());
-        }
+        assert!(!result.is_null());
         let _ = fs::remove_file(&path);
     }
 
@@ -899,10 +897,6 @@ mod tests {
         );
         unsafe {
             let slice = std::slice::from_raw_parts(result as *const u8, 32);
-            // All bytes must be in valid range
-            for &b in slice.iter() {
-                assert!(b <= 255, "byte must be in 0..=255");
-            }
             // Statistically impossible for CSPRNG to produce all zeros
             let all_zero = slice.iter().all(|&b| b == 0);
             assert!(!all_zero, "CSPRNG should not produce all zeros");

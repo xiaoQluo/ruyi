@@ -1593,23 +1593,17 @@ mod tests {
     #[test]
     fn test_string_length_basic() {
         let s = CString::new("hello").unwrap();
-        unsafe {
-            assert_eq!(__string_length(s.as_ptr()), 5);
-        }
+        assert_eq!(__string_length(s.as_ptr()), 5);
     }
 
     #[test]
     fn test_string_length_empty() {
         let s = CString::new("").unwrap();
-        unsafe {
-            assert_eq!(__string_length(s.as_ptr()), 0);
-        }
+        assert_eq!(__string_length(s.as_ptr()), 0);
     }
 
     #[test]
     fn test_string_length_null() {
-        unsafe {
-            assert_eq!(__string_length(std::ptr::null()), 0);
-        }
+        assert_eq!(__string_length(std::ptr::null()), 0);
     }
 }

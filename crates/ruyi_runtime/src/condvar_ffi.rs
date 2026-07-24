@@ -81,7 +81,7 @@ pub extern "C" fn __condvar_free(ptr: *mut Condvar) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mutex_ffi::{__mutex_free, __mutex_lock, __mutex_new, __mutex_unlock};
+    use crate::mutex_ffi::{__mutex_free, __mutex_new, __mutex_unlock};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::thread;
