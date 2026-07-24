@@ -1243,7 +1243,7 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         params: &[],
     },
     // ============================================================
-    // channel_ffi (10) — bounded/unbounded MPSC channels
+    // channel_ffi (14) — bounded/unbounded MPSC + select
     // ============================================================
     BuiltinDecl {
         name: "__channel_new",
@@ -1281,17 +1281,37 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         params: &[BuiltinSig::Ptr],
     },
     BuiltinDecl {
-        name: "__channel_sender_send",
+        name: "__channel_clone_send",
         ret: BuiltinSig::Int,
         params: &[BuiltinSig::Ptr, BuiltinSig::Int],
     },
     BuiltinDecl {
-        name: "__channel_sender_free",
+        name: "__channel_clone_free",
         ret: BuiltinSig::Void,
         params: &[BuiltinSig::Ptr],
     },
     BuiltinDecl {
         name: "__channel_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__channel_select_new",
+        ret: BuiltinSig::Ptr,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__channel_select_add",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__channel_select_wait",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__channel_select_free",
         ret: BuiltinSig::Void,
         params: &[BuiltinSig::Ptr],
     },
@@ -1389,6 +1409,34 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         ret: BuiltinSig::Void,
         params: &[BuiltinSig::Ptr],
     },
+    // ============================================================
+    // tls_store_ffi (5) — per-thread key-value storage
+    // ============================================================
+    BuiltinDecl {
+        name: "__tls_store",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__tls_load",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__tls_remove",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__tls_contains",
+        ret: BuiltinSig::Bool,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__tls_clear",
+        ret: BuiltinSig::Void,
+        params: &[],
+    },
 ];
 
 /// Resolve a `BuiltinSig` to its inkwell `BasicTypeEnum` representation.
@@ -1430,11 +1478,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builtins_count_is_240() {
+    fn builtins_count_is_249() {
         assert_eq!(
             BUILTINS.len(),
-            240,
-            "expected exactly 240 FFI entries (213 + 10 channel + 8 rwlock + 6 thread + 3 spawn_blocking)"
+            249,
+            "expected exactly 249 FFI entries (244 + 5 tls_store)"
         );
     }
 

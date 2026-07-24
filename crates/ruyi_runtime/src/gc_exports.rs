@@ -3,6 +3,21 @@
 //! Provides `extern "C"` functions that wrap the generational garbage
 //! collector so that the compiler frontend (LLVM code generator) can
 //! emit calls to runtime GC routines.
+//!
+//! ## Thread Safety
+//!
+//! Each OS thread owns its own `GenerationalCollector` via `thread_local!`.
+//! GC objects allocated in one thread MUST NOT be accessed from another
+//! thread — doing so will cause use-after-free or data corruption since
+//! the cross-thread collector has no knowledge of foreign objects.
+//!
+//! To share data across threads, use `Arc<T>`, `Mutex<T>`, `Channel<T>`,
+//! or `Atomic<int>` — all of which are thread-safe and do not involve
+//! GC-managed memory.
+//!
+//! The `CURRENT_COLLECTOR` is auto-initialized on first access in each
+//! thread. New threads spawned via `__thread_spawn` automatically receive
+//! their own collector instance.
 
 use std::cell::RefCell;
 

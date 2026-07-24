@@ -91,11 +91,11 @@ export class ChannelSender {
 
     /** Send a value. Blocks if bounded and full. */
     fn send(value: int): bool {
-        return __channel_sender_send(self._ptr, value) === 0;
+        return __channel_clone_send(self._ptr, value) === 0;
     }
 
     /** Deallocate this sender handle. */
     fn free(): void {
-        __channel_sender_free(self._ptr);
+        __channel_clone_free(self._ptr);
     }
 }

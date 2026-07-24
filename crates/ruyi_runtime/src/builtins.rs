@@ -3,9 +3,10 @@ pub use crate::atomic_ffi::{
     __atomic_i64_load, __atomic_i64_new, __atomic_i64_store, __atomic_i64_swap,
 };
 pub use crate::channel_ffi::{
-    __channel_clone, __channel_free, __channel_is_closed, __channel_new, __channel_recv,
-    __channel_send, __channel_sender_free, __channel_sender_send, __channel_try_recv,
-    __channel_try_send,
+    __channel_clone, __channel_clone_free, __channel_clone_send, __channel_free,
+    __channel_is_closed, __channel_new, __channel_recv, __channel_select_add,
+    __channel_select_free, __channel_select_new, __channel_select_wait, __channel_send,
+    __channel_try_recv, __channel_try_send,
 };
 pub use crate::compress_ffi::{
     __compress_deflate, __compress_finish, __compress_gzip, __compress_new, __compress_write,
@@ -61,6 +62,9 @@ pub use crate::tls_ffi::{
     __tls_server_accept, __tls_server_close, __tls_server_config_new, __tls_server_free,
     __tls_server_read_cstr, __tls_server_read_raw, __tls_server_write, __tls_server_write_raw,
     __tls_write, __tls_write_raw,
+};
+pub use crate::tls_store_ffi::{
+    __tls_clear, __tls_contains, __tls_load, __tls_remove, __tls_store,
 };
 use std::alloc::{alloc, Layout};
 use std::collections::{HashMap, HashSet};

@@ -33,6 +33,7 @@ pub mod rwlock_ffi;
 pub mod thread_ffi;
 pub mod time_ffi;
 pub mod tls_ffi;
+pub mod tls_store_ffi;
 
 pub use alloc::{
     allocate, deallocate, reallocate, ruyi_alloc, ruyi_dealloc, ruyi_realloc, GcObjectHeader, Heap,
