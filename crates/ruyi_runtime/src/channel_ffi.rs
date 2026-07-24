@@ -15,7 +15,9 @@ use std::sync::mpsc::TrySendError;
  * @author Ruyi Team
  * @date 2026-07-25
  */
-use std::sync::mpsc::{self, Receiver, RecvError, SendError, SyncSender, TryRecvError};
+use std::sync::mpsc::{
+    self, Receiver, RecvError, RecvTimeoutError, SendError, SyncSender, TryRecvError,
+};
 
 // ── Unified channel type ────────────────────────────────────────
 
@@ -134,6 +136,21 @@ pub extern "C" fn __channel_try_recv(ptr: *mut i8) -> i64 {
     match ch.rx.try_recv() {
         Ok(v) => v,
         Err(TryRecvError::Empty | TryRecvError::Disconnected) => i64::MIN,
+    }
+}
+
+/// Receive a value, blocking for at most `timeout_ms` milliseconds.
+/// Returns the value, or i64::MIN on timeout or if closed-and-empty.
+#[no_mangle]
+pub extern "C" fn __channel_recv_timeout(ptr: *mut i8, timeout_ms: i64) -> i64 {
+    if ptr.is_null() {
+        return i64::MIN;
+    }
+    let ch = unsafe { &*(ptr as *const Channel) };
+    let dur = std::time::Duration::from_millis(if timeout_ms < 0 { 0 } else { timeout_ms as u64 });
+    match ch.rx.recv_timeout(dur) {
+        Ok(v) => v,
+        Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => i64::MIN,
     }
 }
 
@@ -363,5 +380,25 @@ mod tests {
         // select_wait accesses freed memory via dangling pointer — EXPECTED CRASH
         // This is a known limitation: select_set must be freed BEFORE channels.
         __channel_select_free(sel);
+    }
+
+    #[test]
+    fn test_recv_timeout_empty() {
+        let ch = __channel_new(0); // unbounded
+        let start = std::time::Instant::now();
+        let val = __channel_recv_timeout(ch, 50);
+        let elapsed = start.elapsed().as_millis();
+        assert_eq!(val, i64::MIN, "should timeout on empty channel");
+        assert!(elapsed >= 45, "should wait ~50ms, got {elapsed}ms");
+        __channel_free(ch);
+    }
+
+    #[test]
+    fn test_recv_timeout_success() {
+        let ch = __channel_new(0);
+        __channel_send(ch, 42);
+        let val = __channel_recv_timeout(ch, 50);
+        assert_eq!(val, 42);
+        __channel_free(ch);
     }
 }

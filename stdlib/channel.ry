@@ -60,6 +60,16 @@ export class Channel {
         return val;
     }
 
+    /** Receive a value, blocking for at most `timeoutMs` milliseconds.
+     *  Returns null on timeout or if closed-and-empty. */
+    fn recvTimeout(timeoutMs: int): int? {
+        let val = __channel_recv_timeout(self._ptr, timeoutMs);
+        if (val === 0x8000000000000000) {
+            return null;
+        }
+        return val;
+    }
+
     /** Check if all senders have been dropped (channel is closed). */
     fn isClosed(): bool {
         return __channel_is_closed(self._ptr) !== 0;

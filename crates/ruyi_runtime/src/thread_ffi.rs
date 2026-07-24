@@ -97,6 +97,90 @@ pub extern "C" fn __thread_join(handle: i64) -> i64 {
     }
 }
 
+/// Check whether a thread handle is still valid and whether the
+/// thread has finished executing WITHOUT consuming the handle.
+///
+/// Returns 1 if finished, 0 if still running, -1 if handle is invalid.
+#[no_mangle]
+pub extern "C" fn __thread_is_finished(handle: i64) -> i64 {
+    ensure_registry();
+    let registry = THREADS.lock().unwrap();
+    match registry.as_ref().unwrap().get(&handle) {
+        Some(Some(join_handle)) => {
+            if join_handle.is_finished() {
+                1
+            } else {
+                0
+            }
+        }
+        _ => -1,
+    }
+}
+
+/// Join a thread, blocking for at most `timeout_ms` milliseconds.
+///
+/// Returns 1 if joined successfully, 0 if timed out, -1 if handle invalid.
+#[no_mangle]
+pub extern "C" fn __thread_join_timeout(handle: i64, timeout_ms: i64) -> i64 {
+    if timeout_ms <= 0 {
+        return __thread_is_finished(handle); // poll once
+    }
+    let start = std::time::Instant::now();
+    let deadline = start + std::time::Duration::from_millis(timeout_ms as u64);
+    loop {
+        match __thread_is_finished(handle) {
+            1 => {
+                // Thread finished — actually join to reclaim resources
+                return __thread_join(handle);
+            }
+            -1 => return -1, // invalid handle
+            _ => {}
+        }
+        if std::time::Instant::now() >= deadline {
+            return 0; // timeout
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
+/// Spawn a named OS thread.
+///
+/// `name` is a null-terminated UTF-8 string for debugging/profiling.
+/// `entry` is the function pointer, `arg` the argument.
+///
+/// Returns a positive handle on success, -1 on failure.
+#[no_mangle]
+pub extern "C" fn __thread_spawn_named(name: *const i8, entry: *mut i8, arg: *mut i8) -> i64 {
+    if entry.is_null() {
+        return -1;
+    }
+    let entry_fn: ThreadFn = unsafe { std::mem::transmute(entry) };
+    let arg_val = arg as usize;
+
+    let thread_name = if name.is_null() {
+        None
+    } else {
+        unsafe {
+            std::ffi::CStr::from_ptr(name)
+                .to_str()
+                .ok()
+                .map(|s| s.to_string())
+        }
+    };
+
+    let mut builder = thread::Builder::new().stack_size(2 * 1024 * 1024);
+    if let Some(n) = thread_name {
+        builder = builder.name(n);
+    }
+
+    match builder.spawn(move || {
+        entry_fn(arg_val);
+    }) {
+        Ok(handle) => register_thread(handle),
+        Err(_) => -1,
+    }
+}
+
 /// Detach a spawned thread — it will run independently.
 ///
 /// The thread's resources are reclaimed automatically when it finishes.
@@ -194,5 +278,45 @@ mod tests {
         __thread_sleep(1);
         __thread_sleep(0);
         __thread_sleep(-1);
+    }
+
+    extern "C" fn slow_entry(_arg: usize) {
+        __thread_sleep(200);
+    }
+
+    #[test]
+    fn test_is_finished() {
+        let handle = __thread_spawn(slow_entry as *mut i8, std::ptr::null_mut());
+        assert!(handle > 0);
+        assert_eq!(
+            __thread_is_finished(handle),
+            0,
+            "should not be finished immediately"
+        );
+        __thread_join(handle);
+        assert_eq!(__thread_is_finished(handle), -1, "handle gone after join");
+    }
+
+    #[test]
+    fn test_join_timeout() {
+        let handle = __thread_spawn(slow_entry as *mut i8, std::ptr::null_mut());
+        // Should time out
+        assert_eq!(
+            __thread_join_timeout(handle, 10),
+            0,
+            "should timeout quickly"
+        );
+        // Join normally
+        let result = __thread_join(handle);
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn test_spawn_named() {
+        let name = std::ffi::CString::new("test-worker").unwrap();
+        let handle =
+            __thread_spawn_named(name.as_ptr(), dummy_entry as *mut i8, std::ptr::null_mut());
+        assert!(handle > 0, "named spawn should succeed");
+        __thread_join(handle);
     }
 }

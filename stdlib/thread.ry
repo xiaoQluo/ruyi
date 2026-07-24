@@ -54,6 +54,22 @@ export class Thread {
     }
 
     /**
+     * Wait for the thread to finish, at most `timeoutMs` milliseconds.
+     * Returns 1 if joined, 0 if timed out, -1 if handle invalid.
+     */
+    fn joinTimeout(timeoutMs: int): int {
+        return __thread_join_timeout(self._handle, timeoutMs);
+    }
+
+    /**
+     * Check whether the thread has finished, without consuming the handle.
+     * Returns true if finished, false if still running or handle invalid.
+     */
+    fn isFinished(): bool {
+        return __thread_is_finished(self._handle) === 1;
+    }
+
+    /**
      * Detach the thread — it runs independently and is reclaimed
      * automatically when it finishes.
      * Returns 0 on success, -1 on error.
@@ -70,6 +86,18 @@ export class Thread {
     /** Get the number of available CPU cores. */
     static fn cpuCount(): int {
         return __thread_cpu_count();
+    }
+
+    /**
+     * Spawn a named OS thread — the name appears in debuggers and
+     * profiling tools. Otherwise identical to spawn().
+     */
+    static fn spawnNamed(name: string): Thread {
+        let t = new Thread();
+        // spawnNamed is a compiler builtin — the closure
+        // capturing is managed by the compiler.
+        t._handle = -1;
+        return t;
     }
 
     /** Sleep the current thread for `ms` milliseconds. */

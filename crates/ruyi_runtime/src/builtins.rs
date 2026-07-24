@@ -5,9 +5,9 @@ pub use crate::atomic_ffi::{
 pub use crate::barrier_ffi::{__barrier_free, __barrier_new, __barrier_wait};
 pub use crate::channel_ffi::{
     __channel_clone, __channel_clone_free, __channel_clone_send, __channel_free,
-    __channel_is_closed, __channel_new, __channel_recv, __channel_select_add,
-    __channel_select_free, __channel_select_new, __channel_select_wait, __channel_send,
-    __channel_try_recv, __channel_try_send,
+    __channel_is_closed, __channel_new, __channel_recv, __channel_recv_timeout,
+    __channel_select_add, __channel_select_free, __channel_select_new, __channel_select_wait,
+    __channel_send, __channel_try_recv, __channel_try_send,
 };
 pub use crate::compress_ffi::{
     __compress_deflate, __compress_finish, __compress_gzip, __compress_new, __compress_write,
@@ -63,7 +63,8 @@ pub use crate::semaphore_ffi::{
     __semaphore_release, __semaphore_try_acquire,
 };
 pub use crate::thread_ffi::{
-    __thread_cpu_count, __thread_detach, __thread_id, __thread_join, __thread_sleep, __thread_spawn,
+    __thread_cpu_count, __thread_detach, __thread_id, __thread_is_finished, __thread_join,
+    __thread_join_timeout, __thread_sleep, __thread_spawn, __thread_spawn_named,
 };
 pub use crate::time_ffi::{__time_format, __time_now, __time_sleep, __time_timestamp};
 pub use crate::tls_ffi::{

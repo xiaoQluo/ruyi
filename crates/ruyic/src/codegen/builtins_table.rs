@@ -1266,6 +1266,11 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         params: &[BuiltinSig::Ptr],
     },
     BuiltinDecl {
+        name: "__channel_recv_timeout",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
         name: "__channel_try_recv",
         ret: BuiltinSig::Int,
         params: &[BuiltinSig::Ptr],
@@ -1367,7 +1372,22 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         params: &[BuiltinSig::Ptr, BuiltinSig::Ptr],
     },
     BuiltinDecl {
+        name: "__thread_spawn_named",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
         name: "__thread_join",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__thread_join_timeout",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__thread_is_finished",
         ret: BuiltinSig::Int,
         params: &[BuiltinSig::Int],
     },
@@ -1585,11 +1605,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builtins_count_is_268() {
+    fn builtins_count_is_272() {
         assert_eq!(
             BUILTINS.len(),
-            268,
-            "expected exactly 268 FFI entries (249 + 19 barrier/once/semaphore/condvar)"
+            272,
+            "expected exactly 272 FFI entries (268 + 4 recv_timeout/is_finished/join_timeout/spawn_named)"
         );
     }
 
