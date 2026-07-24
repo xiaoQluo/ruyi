@@ -66,6 +66,23 @@ impl ArcClassRegistry {
         }
     }
 
+    /// Returns `true` if the given type is GC-managed (default class, not @arc).
+    /// GC objects are NOT thread-safe and cannot be sent across thread boundaries.
+    pub fn is_gc_type(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Named(name, _) => !self.is_arc_class(name),
+            Type::Generic { base, .. } => !self.is_arc_class(base),
+            // Array, Future, and closure types may contain GC references
+            Type::Array(inner) => self.is_gc_type(inner),
+            Type::Future(inner) => self.is_gc_type(inner),
+            Type::Function {
+                params,
+                return_type,
+            } => params.iter().any(|p| self.is_gc_type(p)) || self.is_gc_type(return_type),
+            _ => false,
+        }
+    }
+
     /// Returns the number of registered ARC classes.
     pub fn len(&self) -> usize {
         self.arc_classes.len()
