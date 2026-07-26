@@ -18,7 +18,27 @@
  * @date 2026-07-24
  */
 
+import { cryptoRandomHex } from "./random";
+
 export class Aes256Gcm {
+    /**
+     * 生成一个 64 字符 hex 编码的 256-bit 随机密钥。
+     *
+     * @return 64-char hex key (32 bytes)
+     */
+    static fn generateKey(): string {
+        return cryptoRandomHex(32);
+    }
+
+    /**
+     * 生成一个 24 字符 hex 编码的 96-bit 随机 nonce。
+     *
+     * @return 24-char hex nonce (12 bytes)
+     */
+    static fn generateNonce(): string {
+        return cryptoRandomHex(12);
+    }
+
     /**
      * Encrypts plaintext with AES-256-GCM.
      *

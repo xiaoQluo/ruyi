@@ -1,0 +1,163 @@
+// =============================================================================
+// Trait Objects (dyn Trait) — Ruyi Dynamic Dispatch
+// =============================================================================
+// Covers: dyn Trait type, polymorphic collections (Array<dyn Trait>),
+//         static vs dynamic dispatch, downcasting with match
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 1. Define a Trait
+// -----------------------------------------------------------------------------
+trait Describable {
+  fn describe(self): string;
+}
+
+// -----------------------------------------------------------------------------
+// 2. Implement for Various Types
+// -----------------------------------------------------------------------------
+impl Describable for string {
+  fn describe(self): string {
+    return "string: \"" + self + "\"";
+  }
+}
+
+class Person {
+  name: string;
+  age: int;
+
+  fn new(name: string, age: int) {
+    self.name = name;
+    self.age = age;
+  }
+}
+
+impl Describable for Person {
+  fn describe(self): string {
+    return "Person { name: \"" + self.name + "\", age: " + self.age.toString() + " }";
+  }
+}
+
+class Book {
+  title: string;
+  author: string;
+
+  fn new(title: string, author: string) {
+    self.title = title;
+    self.author = author;
+  }
+}
+
+impl Describable for Book {
+  fn describe(self): string {
+    return "Book { title: \"" + self.title + "\", author: \"" + self.author + "\" }";
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 3. Trait Object Type — Single Object
+// -----------------------------------------------------------------------------
+fn singleTraitObjectDemo() {
+  print("--- Single Trait Object ---\n");
+
+  // Type-erased variable: holds any Describable value
+  let desc: dyn Describable = "hello world";
+
+  // Dynamic dispatch through trait object
+  print(desc.describe());
+  print("\n");
+
+  // Reassign to a different concrete type
+  desc = Person.new("Alice", 30);
+  print(desc.describe());
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 4. Polymorphic Collection — Array<dyn Trait>
+// -----------------------------------------------------------------------------
+fn polymorphicCollectionDemo() {
+  print("--- Polymorphic Collection ---\n");
+
+  // A collection holding values of different types via a shared trait
+  let items: Array<dyn Describable>;
+
+  items = [];
+  items.push("a string");
+  items.push(Person.new("Bob", 25));
+  items.push(Book.new("The Ruyi Language", "Ruyi Team"));
+
+  for (let item of items) {
+    print("  ");
+    print(item.describe());
+    print("\n");
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 5. Static Dispatch (Monomorphized) vs Dynamic Dispatch
+// -----------------------------------------------------------------------------
+// Static dispatch: concrete type known at compile time
+fn printDescription<T: Describable>(value: T) {
+  // This call is resolved at compile time (monomorphized)
+  print("static: ");
+  print(value.describe());
+  print("\n");
+}
+
+// Dynamic dispatch: concrete type unknown at compile time
+fn printDynamic(value: dyn Describable) {
+  // This call goes through the vtable at runtime
+  print("dynamic: ");
+  print(value.describe());
+  print("\n");
+}
+
+fn dispatchComparisonDemo() {
+  print("--- Dispatch Comparison ---\n");
+
+  // Static: type known at compile time
+  printDescription("static dispatch");
+  printDescription(Person.new("Charlie", 40));
+
+  // Dynamic: type erased
+  printDynamic("dynamic dispatch");
+  printDynamic(Book.new("Learning Ruyi", "Ruyi Docs"));
+}
+
+// -----------------------------------------------------------------------------
+// 6. Trait Object Downcasting with Match
+// -----------------------------------------------------------------------------
+fn downcastDemo() {
+  print("--- Downcasting ---\n");
+
+  let value: dyn Describable = Person.new("David", 35);
+
+  // Match can recover the concrete type
+  let label: string = match (value) {
+    p as Person => { "Person: " + p.name }
+    b as Book => { "Book: " + b.title }
+    s as string => { "String: \"" + s + "\"" }
+    _ => { "unknown type" }
+  };
+
+  print("downcast result: ");
+  print(label);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+  print("=== Trait Objects (dyn Trait) Demo ===\n\n");
+
+  singleTraitObjectDemo();
+  print("\n");
+  polymorphicCollectionDemo();
+  print("\n");
+  dispatchComparisonDemo();
+  print("\n");
+  downcastDemo();
+
+  print("\nAll trait object demos completed successfully!\n");
+}

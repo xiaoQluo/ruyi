@@ -42,6 +42,29 @@ use std::collections::{HashMap, HashSet};
 /// predicate returns collapse to `Type::Bool`. The typechecker's job is to
 /// enable compilation, not enforce FFI type safety.
 fn resolve_builtin_name(name: &str) -> Option<Type> {
+    // Reactor-based async I/O futures that return Future<T> instead of Dynamic.
+    match name {
+        "__net_async_read" => {
+            return Some(Type::Function {
+                params: vec![Type::Int, Type::Int],
+                return_type: Box::new(Type::Future(Box::new(Type::String))),
+            });
+        }
+        "__net_async_write" => {
+            return Some(Type::Function {
+                params: vec![Type::Dynamic, Type::String],
+                return_type: Box::new(Type::Future(Box::new(Type::Int))),
+            });
+        }
+        "__net_async_accept" => {
+            return Some(Type::Function {
+                params: vec![Type::Int],
+                return_type: Box::new(Type::Future(Box::new(Type::Int))),
+            });
+        }
+        _ => {}
+    }
+
     use crate::codegen::builtins_table::BUILTINS;
     for decl in BUILTINS {
         if decl.name == name {
@@ -127,6 +150,10 @@ pub struct TypeInference {
     /// `Class.method()` (where `Class` is an identifier) is treated as a
     /// static call rather than an instance method dispatch.
     static_method_names: HashMap<String, HashSet<String>>,
+    /// Class inheritance map: child class name → parent class name.
+    /// Populated in Pass 1 when processing `class X extends Y` declarations.
+    /// Used to allow subtyping: `Dog <: Animal` when `Dog extends Animal`.
+    class_parents: HashMap<String, String>,
 }
 
 impl TypeInference {
@@ -161,6 +188,20 @@ impl TypeInference {
                 return_type: Box::new(Type::String),
             },
         );
+        env.declare_let(
+            "fromCharCode",
+            Type::Function {
+                params: vec![Type::Int],
+                return_type: Box::new(Type::String),
+            },
+        );
+        env.declare_let(
+            "fromCharCodes",
+            Type::Function {
+                params: vec![Type::Array(Box::new(Type::Int))],
+                return_type: Box::new(Type::String),
+            },
+        );
         // Pre-declare Error class type
         env.declare_let(
             "Error",
@@ -186,6 +227,7 @@ impl TypeInference {
             class_fields: HashMap::new(),
             class_methods: HashMap::new(),
             static_method_names: HashMap::new(),
+            class_parents: HashMap::new(),
         }
     }
 
@@ -216,7 +258,8 @@ impl TypeInference {
                                         .unwrap_or(Type::Dynamic);
                                 // Auto-wrap rest params as Array<T> so the
                                 // typechecker/codegen recognise them as variadic.
-                                if p.is_rest {
+                                // Skip wrapping if the annotation is already Array<T>.
+                                if p.is_rest && !matches!(&ty, Type::Array(_)) {
                                     ty = Type::Array(Box::new(ty));
                                 }
                                 ty
@@ -236,7 +279,7 @@ impl TypeInference {
                             return_type: Box::new(fn_ret_type),
                         };
                         if !type_params.is_empty() {
-                            let generic_def = make_generic_function_def(
+                            let (generic_def, _, _) = make_generic_function_def(
                                 name,
                                 type_params,
                                 &param_types,
@@ -255,13 +298,33 @@ impl TypeInference {
                                 .as_ref()
                                 .map(Type::from_annotation)
                                 .unwrap_or(Type::Dynamic);
-                            let name = pattern_name(&binding.pattern);
-                            if is_const {
-                                self.env.declare_const(&name, ty);
-                            } else {
-                                self.env.declare_let(&name, ty);
+                            // Handle destructuring patterns: extract all var names
+                            for name in pattern_var_names(&binding.pattern) {
+                                if is_const {
+                                    self.env.declare_const(&name, ty.clone());
+                                } else {
+                                    self.env.declare_let(&name, ty.clone());
+                                }
                             }
                         }
+                    }
+                    Declaration::Class { name, extends, .. } => {
+                        let class_type = Type::Named(name.clone(), vec![]);
+                        self.env.declare_let(name, class_type);
+                        // Record inheritance: child → parent
+                        if let Some(ext) = extends {
+                            if let crate::parser::ast::Expr::Identifier(parent) = ext.as_ref() {
+                                self.class_parents.insert(name.clone(), parent.clone());
+                            }
+                        }
+                    }
+                    Declaration::Trait { name, .. } => {
+                        let trait_type = Type::Trait(name.clone());
+                        self.env.declare_let(name, trait_type);
+                    }
+                    Declaration::TypeAlias { name, ty, .. } => {
+                        let alias_type = Type::from_annotation(ty);
+                        self.env.declare_let(name, alias_type);
                     }
                     _ => {}
                 }
@@ -337,10 +400,19 @@ impl TypeInference {
                     } else {
                         Type::Dynamic
                     };
-                    if mutable {
-                        self.env.declare_let(&pattern_name(&binding.pattern), ty);
-                    } else {
-                        self.env.declare_const(&pattern_name(&binding.pattern), ty);
+                    // Handle destructuring patterns via bind_pattern_type;
+                    // simple identifiers use declare_let/declare_const directly.
+                    match &binding.pattern {
+                        Pattern::Identifier(name) => {
+                            if mutable {
+                                self.env.declare_let(name, ty);
+                            } else {
+                                self.env.declare_const(name, ty);
+                            }
+                        }
+                        _ => {
+                            self.bind_pattern_type(&binding.pattern, &ty);
+                        }
                     }
                 }
                 Type::Void
@@ -361,7 +433,7 @@ impl TypeInference {
                             p.ty.as_ref()
                                 .map(Type::from_annotation)
                                 .unwrap_or(Type::Dynamic);
-                        if p.is_rest {
+                        if p.is_rest && !matches!(&ty, Type::Array(_)) {
                             ty = Type::Array(Box::new(ty));
                         }
                         ty
@@ -369,17 +441,18 @@ impl TypeInference {
                     .collect();
 
                 // Phase 1: Infer return type (needs parameters in scope)
-                // Suppress diagnostics during return-type inference — this pass
-                // runs before the function body has been fully type-checked, so
-                // variables referenced in return expressions may not be declared
-                // yet. Phase 3 handles proper error reporting.
                 self.env.push_scope();
                 for (param, ty) in params.iter().zip(param_types.iter()) {
-                    self.env
-                        .declare_param(&pattern_name(&param.pattern), ty.clone());
+                    match &param.pattern {
+                        Pattern::Identifier(name) => {
+                            self.env.declare_param(name, ty.clone());
+                        }
+                        _ => {
+                            self.bind_pattern_type(&param.pattern, ty);
+                        }
+                    }
                 }
 
-                // Push declared return type so collapse logic in infer_return_type sees it.
                 let declared_ret = return_type.as_ref().map(Type::from_annotation);
                 self.return_type_stack
                     .push(declared_ret.clone().unwrap_or(Type::Void));
@@ -403,8 +476,8 @@ impl TypeInference {
                     return_type: Box::new(fn_ret_type.clone()),
                 };
 
-                if !type_params.is_empty() {
-                    let generic_def = make_generic_function_def(
+                let body_param_types: Vec<Type> = if !type_params.is_empty() {
+                    let (generic_def, env_params, _env_ret) = make_generic_function_def(
                         name,
                         type_params,
                         &param_types,
@@ -412,7 +485,10 @@ impl TypeInference {
                         &mut self.tracker,
                     );
                     self.tracker.register_generic(generic_def);
-                }
+                    env_params
+                } else {
+                    param_types.clone()
+                };
 
                 // Pop the temporary scope used for return type inference
                 self.env.pop_scope();
@@ -422,9 +498,15 @@ impl TypeInference {
 
                 // Phase 3: Type check the function body
                 self.env.push_scope();
-                for (param, ty) in params.iter().zip(param_types.iter()) {
-                    self.env
-                        .declare_param(&pattern_name(&param.pattern), ty.clone());
+                for (param, ty) in params.iter().zip(body_param_types.iter()) {
+                    match &param.pattern {
+                        Pattern::Identifier(name) => {
+                            self.env.declare_param(name, ty.clone());
+                        }
+                        _ => {
+                            self.bind_pattern_type(&param.pattern, ty);
+                        }
+                    }
                 }
                 self.return_type_stack.push(ret_type.clone());
                 for stmt in body {
@@ -531,9 +613,15 @@ impl TypeInference {
                 let param_types: Vec<Type> = params
                     .iter()
                     .map(|p| {
-                        p.ty.as_ref()
-                            .map(Type::from_annotation)
-                            .unwrap_or(Type::Dynamic)
+                        let mut ty =
+                            p.ty.as_ref()
+                                .map(Type::from_annotation)
+                                .unwrap_or(Type::Dynamic);
+                        // Auto-wrap rest params as Array<T>
+                        if p.is_rest && !matches!(&ty, Type::Array(_)) {
+                            ty = Type::Array(Box::new(ty));
+                        }
+                        ty
                     })
                     .collect();
                 let ret_type = return_type
@@ -547,8 +635,20 @@ impl TypeInference {
                     ret_type.clone()
                 };
 
+                // External method type excludes the `self` param (it's implicit
+                // at call sites: `obj.method(args)` doesn't pass self explicitly).
+                let has_self_param = params
+                    .first()
+                    .map(|p| matches!(&p.pattern, Pattern::Identifier(n) if n == "self"))
+                    .unwrap_or(false);
+                let external_params: Vec<Type> = if has_self_param {
+                    param_types[1..].to_vec()
+                } else {
+                    param_types.clone()
+                };
+
                 let method_type = Type::Function {
-                    params: param_types.clone(),
+                    params: external_params,
                     return_type: Box::new(fn_ret_type),
                 };
                 self.env.declare_let(&method_name, method_type.clone());
@@ -571,8 +671,14 @@ impl TypeInference {
 
                 self.env.push_scope();
                 for (param, ty) in params.iter().zip(param_types.iter()) {
-                    self.env
-                        .declare_param(&pattern_name(&param.pattern), ty.clone());
+                    match &param.pattern {
+                        Pattern::Identifier(name) => {
+                            self.env.declare_param(name, ty.clone());
+                        }
+                        _ => {
+                            self.bind_pattern_type(&param.pattern, ty);
+                        }
+                    }
                 }
                 self.return_type_stack.push(ret_type.clone());
                 for stmt in body {
@@ -702,12 +808,18 @@ impl TypeInference {
         match stmt {
             Statement::Expression(expr) => self.synthesize(expr),
             Statement::Return(expr) => {
-                let ret_ty = expr
-                    .as_ref()
-                    .map(|e| self.synthesize(e))
-                    .unwrap_or(Type::Null);
-                if let Some(expected) = self.return_type_stack.last() {
-                    if !ret_ty.is_consistent_with(expected) {
+                let expected = self.return_type_stack.last().cloned();
+                let ret_ty = if let Some(e) = expr {
+                    self.synthesize(e)
+                } else {
+                    // Bare `return;` — treat as Void when the function returns Void
+                    match &expected {
+                        Some(Type::Void) => Type::Void,
+                        _ => Type::Null,
+                    }
+                };
+                if let Some(expected) = &expected {
+                    if !self.is_type_compatible(&ret_ty, expected) {
                         self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
                             expected: expected.clone(),
                             found: ret_ty,
@@ -1099,6 +1211,8 @@ impl TypeInference {
                 match &ty {
                     Type::Nullable(inner) => *inner.clone(),
                     Type::Null => Type::Never,
+                    // dyn is compatible with everything; null assertion is a no-op
+                    Type::Dynamic => Type::Dynamic,
                     _ => {
                         self.diagnostics.add_error(DiagnosticKind::Other {
                             message: format!(
@@ -1137,17 +1251,38 @@ impl TypeInference {
                                 self.tracker
                                     .specialize(name, inferred_args, &mut self.diagnostics)
                             {
-                                return spec.specialized_type;
+                                // specialized_type is the full function type;
+                                // a call expression evaluates to the return type.
+                                return match spec.specialized_type {
+                                    Type::Function { return_type, .. } => *return_type,
+                                    other => other,
+                                };
                             }
                         }
                     }
                 }
+
+                // Unwrap nullable function for optional chaining calls (obj?.method())
+                let (callee_ty, make_result_nullable) = match &callee_ty {
+                    Type::Nullable(inner)
+                        if matches!(inner.as_ref(), Type::Function { .. }) =>
+                    {
+                        (inner.as_ref().clone(), true)
+                    }
+                    _ => (callee_ty, false),
+                };
 
                 match callee_ty {
                     Type::Function {
                         params,
                         return_type,
                     } => {
+                        // Instance method calls (`obj.method(...)`) carry the
+                        // receiver as an implicit first parameter (prepended by
+                        // `synthesize_member_access`). Strip it so call-site
+                        // arguments are checked against the method's external
+                        // signature, which excludes `self`.
+                        let params = self.strip_receiver_param(callee, params);
                         // Support default params: allow fewer args (missing args have defaults)
                         // Support rest params: allow more args when last param is Array<T>
                         // Only treat as rest if we have more args than regular params
@@ -1159,7 +1294,13 @@ impl TypeInference {
                                 _ => false,
                             })
                             .unwrap_or(false);
-                        let has_rest = last_is_array && arg_types.len() > params.len();
+                        let has_rest = last_is_array
+                            && (arg_types.len() > params.len()
+                                || (arg_types.len() == params.len()
+                                    && arg_types.last().is_some_and(|a| {
+                                        !matches!(a, Type::Array(_))
+                                            && !matches!(a, Type::Generic { base, .. } if base == "Array")
+                                    })));
                         let min_args = 0; // Allow all args to have defaults
                         let max_args = if has_rest { usize::MAX } else { params.len() };
                         if arg_types.len() < min_args || arg_types.len() > max_args {
@@ -1177,7 +1318,7 @@ impl TypeInference {
                                 .enumerate()
                                 .take(regular_count)
                             {
-                                if !arg.is_consistent_with(param) {
+                                if !self.is_type_compatible(arg, param) {
                                     self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
                                         expected: param.clone(),
                                         found: arg.clone(),
@@ -1188,7 +1329,7 @@ impl TypeInference {
                             // Rest param: all remaining args must match element type
                             if let Some(Type::Array(elem)) = params.last() {
                                 for arg in arg_types.iter().skip(regular_count) {
-                                    if !arg.is_consistent_with(elem) {
+                                    if !self.is_type_compatible(arg, elem) {
                                         self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
                                             expected: *elem.clone(),
                                             found: arg.clone(),
@@ -1199,7 +1340,7 @@ impl TypeInference {
                         } else {
                             for (i, (arg, param)) in arg_types.iter().zip(params.iter()).enumerate()
                             {
-                                if !arg.is_consistent_with(param) {
+                                if !self.is_type_compatible(arg, param) {
                                     self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
                                         expected: param.clone(),
                                         found: arg.clone(),
@@ -1208,10 +1349,19 @@ impl TypeInference {
                                 }
                             }
                         }
-                        *return_type
+                        let ret = *return_type;
+                        if make_result_nullable {
+                            ret.make_nullable()
+                        } else {
+                            ret
+                        }
                     }
                     Type::Dynamic => Type::Dynamic,
                     Type::Error => Type::Error,
+                    // Class constructor call: ClassName(args) → instance
+                    Type::Named(name, type_args) => Type::Named(name, type_args),
+                    // Generic class constructor call
+                    Type::Generic { base, args } => Type::Generic { base, args },
                     _ => {
                         self.diagnostics.add_error(DiagnosticKind::NotCallable {
                             ty: callee_ty.clone(),
@@ -1275,11 +1425,27 @@ impl TypeInference {
                                 && !right_ty.is_consistent_with(&existing_ty)
                             {
                                 self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
-                                    expected: existing_ty,
+                                    expected: existing_ty.clone(),
                                     found: right_ty.clone(),
                                 });
                             }
-                            if !self.env.update(name, right_ty.clone()) {
+                            // Preserve the variable's established type when the
+                            // assigned value is consistent with it. Reassigning an
+                            // annotated global such as
+                            // `let classes: Array<CharClass> = []; classes = [];`
+                            // must not downgrade the element type to the empty
+                            // array literal's default (Array<int>), which would
+                            // poison later element accesses
+                            // (`classes.get(i).matches(...)` -> `Int_matches`).
+                            // Dynamic bindings are still refined to the RHS type.
+                            let new_ty = if !existing_ty.is_dynamic()
+                                && right_ty.is_consistent_with(&existing_ty)
+                            {
+                                existing_ty.clone()
+                            } else {
+                                right_ty.clone()
+                            };
+                            if !self.env.update(name, new_ty) {
                                 self.diagnostics.add_error(DiagnosticKind::ImmutableAssign {
                                     name: name.clone(),
                                 });
@@ -1501,7 +1667,7 @@ impl TypeInference {
             }
         }
 
-        if !synthesized.is_consistent_with(expected) {
+        if !self.is_type_compatible(&synthesized, expected) {
             self.diagnostics.add_error(DiagnosticKind::TypeMismatch {
                 expected: expected.clone(),
                 found: synthesized.clone(),
@@ -1649,6 +1815,90 @@ impl TypeInference {
         }
     }
 
+    /// Check if `child` class is a subtype of `parent` class via inheritance chain.
+    /// E.g., if Dog extends Animal, then `is_class_subtype("Dog", "Animal")` is true.
+    fn is_class_subtype(&self, child: &str, parent: &str) -> bool {
+        let mut current = child;
+        loop {
+            match self.class_parents.get(current) {
+                Some(p) if p == parent => return true,
+                Some(p) => current = p,
+                None => return false,
+            }
+        }
+    }
+
+    /// Check type consistency with class inheritance and trait coercion awareness.
+    /// Returns true if `found` is consistent with `expected`, considering:
+    /// - Class inheritance (e.g., Dog is consistent with Animal if Dog extends Animal)
+    /// - Trait coercion (e.g., string is consistent with dyn Describable if string impls Describable)
+    fn is_type_compatible(&self, found: &Type, expected: &Type) -> bool {
+        // Resolve user-defined type aliases (e.g., StringArray = Array<string>)
+        let found_resolved = self.resolve_aliases(found);
+        let expected_resolved = self.resolve_aliases(expected);
+
+        if found_resolved.is_consistent_with(&expected_resolved) {
+            return true;
+        }
+        // Check class inheritance: Named(child) <: Named(parent)
+        if let (Type::Named(child, _), Type::Named(parent, _)) = (&found_resolved, &expected_resolved) {
+            if self.is_class_subtype(child, parent) {
+                return true;
+            }
+        }
+        // Check trait coercion: concrete type -> dyn Trait
+        if let Type::Trait(trait_name) = &expected_resolved {
+            if self.trait_registry.implements(&found_resolved, trait_name) {
+                return true;
+            }
+        }
+        // Check trait coercion: concrete type -> generic trait annotation
+        if let Type::Generic { base, .. } = &expected_resolved {
+            if self.trait_registry.get_trait(base).is_some()
+                && self.trait_registry.implements(&found_resolved, base)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Resolve user-defined type aliases by looking up Named types in the environment.
+    /// e.g., `StringArray` (a type alias for `Array<string>`) is resolved to `Array<string>`.
+    fn resolve_aliases(&self, ty: &Type) -> Type {
+        match ty {
+            Type::Named(name, _) => {
+                // Look up the name in the environment
+                if let Some(resolved) = self.env.lookup(name) {
+                    // If the resolved type is NOT a Named with the same name,
+                    // it's a type alias (e.g., StringArray -> Array<string>)
+                    match resolved {
+                        Type::Named(n, _) if n == name => ty.clone(),
+                        Type::Function { .. } => ty.clone(),
+                        _ => self.resolve_aliases(resolved),
+                    }
+                } else {
+                    ty.clone()
+                }
+            }
+            Type::Array(inner) => {
+                Type::Array(Box::new(self.resolve_aliases(inner)))
+            }
+            Type::Nullable(inner) => {
+                Type::Nullable(Box::new(self.resolve_aliases(inner)))
+            }
+            Type::Generic { base, args } => Type::Generic {
+                base: base.clone(),
+                args: args.iter().map(|a| self.resolve_aliases(a)).collect(),
+            },
+            Type::Function { params, return_type } => Type::Function {
+                params: params.iter().map(|p| self.resolve_aliases(p)).collect(),
+                return_type: Box::new(self.resolve_aliases(return_type)),
+            },
+            _ => ty.clone(),
+        }
+    }
+
     fn substitute_self_type(&self, ty: &Type, self_type: &Type) -> Type {
         match ty {
             Type::Named(name, _) if name == "Self" || name == "self" => self_type.clone(),
@@ -1692,6 +1942,86 @@ impl TypeInference {
         }
     }
 
+    /// Instance method calls (`obj.method(...)`) carry the receiver as an
+    /// implicit first parameter: `synthesize_member_access` prepends the
+    /// receiver type when resolving a non-static, non-constructor method on a
+    /// class instance. Strip that implicit parameter so call-site arguments
+    /// line up with the method's external signature (which excludes `self`).
+    ///
+    /// The prepend condition and the strip condition are symmetric: a receiver
+    /// is prepended iff the method is registered in `class_methods` for the
+    /// receiver class and is neither a constructor (`new`) nor `static`. This
+    /// mirrors that check here so static methods, constructors and trait-impl
+    /// methods (which are resolved without a prepended receiver) are untouched.
+    fn strip_receiver_param(&self, callee: &Expr, params: Vec<Type>) -> Vec<Type> {
+        let prop_name = match callee {
+            Expr::Member { property, .. } => match property {
+                crate::parser::ast::MemberProperty::Ident(n) => n,
+                _ => return params,
+            },
+            _ => return params,
+        };
+        // Constructors are resolved without a prepended receiver.
+        if prop_name == "new" {
+            return params;
+        }
+        // The prepended receiver (when present) is always the first parameter.
+        let receiver_class = match params.first() {
+            Some(Type::Named(name, _)) => Some(name.clone()),
+            Some(Type::Generic { base, .. }) => Some(base.clone()),
+            _ => None,
+        };
+        let class_name = match receiver_class {
+            Some(name) => name,
+            None => return params,
+        };
+        let is_static = self
+            .static_method_names
+            .get(&class_name)
+            .map(|names| names.contains(prop_name))
+            .unwrap_or(false);
+        let is_instance_method = self
+            .class_methods
+            .get(&class_name)
+            .map(|methods| methods.iter().any(|m| &m.name == prop_name))
+            .unwrap_or(false);
+        if is_instance_method && !is_static {
+            params[1..].to_vec()
+        } else {
+            params
+        }
+    }
+
+    /// Returns the type of a built-in `String` method. Signatures mirror the
+    /// `__string_*` runtime builtins (see `codegen/builtins_table.rs`) so that
+    /// results are typed precisely instead of uniformly collapsing to `Dynamic`
+    /// — which would otherwise block codegen from compiling arithmetic on
+    /// results such as `charCodeAt`. Unknown methods still return `Dynamic`.
+    fn string_method_type(&self, prop_name: &str) -> Type {
+        let method = |params: Vec<Type>, ret: Type| Type::Function {
+            params,
+            return_type: Box::new(ret),
+        };
+        match prop_name {
+            "length" => method(vec![], Type::Int),
+            "charCodeAt" => method(vec![Type::Int], Type::Int),
+            "indexOf" => method(vec![Type::String, Type::Int], Type::Int),
+            "lastIndexOf" => method(vec![Type::String, Type::Int], Type::Int),
+            "contains" => method(vec![Type::String], Type::Bool),
+            "startsWith" => method(vec![Type::String], Type::Bool),
+            "endsWith" => method(vec![Type::String], Type::Bool),
+            "charAt" => method(vec![Type::Int], Type::String),
+            "repeat" => method(vec![Type::Int], Type::String),
+            "substring" => method(vec![Type::Int, Type::Int], Type::String),
+            "toUpperCase" => method(vec![], Type::String),
+            "toLowerCase" => method(vec![], Type::String),
+            "trim" => method(vec![], Type::String),
+            "split" => method(vec![Type::String], Type::Array(Box::new(Type::String))),
+            "toString" => method(vec![], Type::String),
+            _ => Type::Dynamic,
+        }
+    }
+
     fn synthesize_member_access(
         &mut self,
         object: &Expr,
@@ -1700,9 +2030,10 @@ impl TypeInference {
         optional: bool,
     ) -> Type {
         // Check for unsafe nullable access (non-optional member access on nullable type)
+        // Changed to warning: gradual typing allows nullable access, runtime handles null
         if !optional && obj_ty.is_nullable() && !obj_ty.is_dynamic() {
             self.diagnostics
-                .add_error(DiagnosticKind::UnsafeNullableAccess { ty: obj_ty.clone() });
+                .add_warning(DiagnosticKind::UnsafeNullableAccess { ty: obj_ty.clone() });
         }
 
         let is_static_call = matches!(object, Expr::Identifier(_))
@@ -1748,22 +2079,36 @@ impl TypeInference {
                     .map(|m| m.ty.clone())
                 {
                     if is_static_call {
+                        // Constructor (`new`) returns the class instance type
+                        // instead of void.  Keep params as-is.
+                        if prop_name == "new" {
+                            if let Type::Function {
+                                params: ref p,
+                                return_type: _,
+                            } = &method_ty
+                            {
+                                return Type::Function {
+                                    params: p.clone(),
+                                    return_type: Box::new(obj_ty.clone()),
+                                };
+                            }
+                        }
                         method_ty
                     } else if let Type::Function {
                         params,
                         return_type,
                     } = method_ty
                     {
-                        let new_params: Vec<Type> = params
-                            .iter()
-                            .enumerate()
-                            .map(|(idx, p)| {
-                                if idx == 0 {
-                                    obj_ty.clone()
-                                } else {
-                                    self.substitute_self_type(p, obj_ty)
-                                }
-                            })
+                        // Prepend the receiver (`self`) type so that
+                        // `p.method` has type `fn(Receiver, ...) => Ret`.
+                        // Expr::Call strips this implicit `self` before
+                        // checking call arguments.
+                        let new_params: Vec<Type> = std::iter::once(obj_ty.clone())
+                            .chain(
+                                params
+                                    .iter()
+                                    .map(|p| self.substitute_self_type(p, obj_ty)),
+                            )
                             .collect();
                         let new_ret = self.substitute_self_type(&return_type, obj_ty);
                         Type::Function {
@@ -1795,9 +2140,102 @@ impl TypeInference {
                 }
             }
             Type::Array(_) => Type::Dynamic,
-            Type::Generic { .. } => Type::Dynamic,
+            Type::Generic { ref base, args: _ } => {
+                let type_name = base;
+                if let Some(field_ty) = self
+                    .class_fields
+                    .get(type_name)
+                    .and_then(|fields| fields.iter().find(|f| f.name == prop_name))
+                    .map(|f| f.ty.clone())
+                {
+                    field_ty
+                } else if let Some(method_ty) = self
+                    .class_methods
+                    .get(type_name)
+                    .and_then(|methods| methods.iter().find(|m| m.name == prop_name))
+                    .map(|m| m.ty.clone())
+                {
+                    if is_static_call {
+                        // Constructor (`new`) returns the class instance type
+                        // instead of void.  Keep params as-is.
+                        if prop_name == "new" {
+                            if let Type::Function {
+                                params: ref p,
+                                return_type: _,
+                            } = &method_ty
+                            {
+                                return Type::Function {
+                                    params: p.clone(),
+                                    return_type: Box::new(obj_ty.clone()),
+                                };
+                            }
+                        }
+                        method_ty
+                    } else if let Type::Function {
+                        params,
+                        return_type,
+                    } = method_ty
+                    {
+                        // Prepend the receiver (`self`) type so that
+                        // `p.method` has type `fn(Receiver, ...) => Ret`.
+                        // Expr::Call strips this implicit `self` before
+                        // checking call arguments.
+                        let new_params: Vec<Type> = std::iter::once(obj_ty.clone())
+                            .chain(
+                                params
+                                    .iter()
+                                    .map(|p| self.substitute_self_type(p, obj_ty)),
+                            )
+                            .collect();
+                        let new_ret = self.substitute_self_type(&return_type, obj_ty);
+                        Type::Function {
+                            params: new_params,
+                            return_type: Box::new(new_ret),
+                        }
+                    } else {
+                        method_ty
+                    }
+                } else if let Some((_trait_name, method)) = self
+                    .trait_registry
+                    .resolve_impl_method(type_name, prop_name)
+                {
+                    let ret_ty = self.substitute_self_type(&method.return_type, obj_ty);
+                    let param_types: Vec<Type> = if !method.param_types.is_empty() {
+                        method.param_types[1..]
+                            .iter()
+                            .map(|p| self.substitute_self_type(p, obj_ty))
+                            .collect()
+                    } else {
+                        vec![]
+                    };
+                    Type::Function {
+                        params: param_types,
+                        return_type: Box::new(ret_ty),
+                    }
+                } else {
+                    Type::Dynamic
+                }
+            }
+            Type::String => self.string_method_type(prop_name),
             Type::Dynamic => Type::Dynamic,
             Type::Error => Type::Error,
+            // Primitive types support .toString() method
+            Type::Int | Type::Float | Type::Bool | Type::Byte | Type::BigInt
+                if prop_name == "toString" =>
+            {
+                Type::Function {
+                    params: vec![],
+                    return_type: Box::new(Type::String),
+                }
+            }
+            // Primitive types: allow member access without warning (returns Dynamic)
+            Type::Int | Type::Float | Type::Bool | Type::Byte | Type::BigInt => Type::Dynamic,
+            // Type variables: allow member access (returns Dynamic)
+            Type::TypeVar(_) => Type::Dynamic,
+            // Nullable types: unwrap and try again
+            Type::Nullable(inner) => {
+                self.synthesize_member_access(object, inner, prop_name, optional)
+            }
             _ => {
                 self.diagnostics
                     .add_warning(DiagnosticKind::NotIndexable { ty: obj_ty.clone() });
@@ -1978,8 +2416,8 @@ impl TypeInference {
             Pattern::Object(fields) => {
                 let obj_fields = match ty {
                     Type::Object(f) => Some(f),
-                    Type::Named(_, _) => None,
-                    _ => return,
+                    // For Named, Dynamic, and other types: field types default to Dynamic
+                    _ => None,
                 };
 
                 for field in fields {
@@ -1998,7 +2436,8 @@ impl TypeInference {
                                 .unwrap_or(Type::Dynamic);
                             self.bind_pattern_type(inner, &field_ty);
                         }
-                        crate::parser::ast::ObjectPatternField::Shorthand(name) => {
+                        crate::parser::ast::ObjectPatternField::Shorthand(name)
+                        | crate::parser::ast::ObjectPatternField::ShorthandDefault(name, _) => {
                             let field_ty = obj_fields
                                 .map(|f| {
                                     f.iter()
@@ -2014,19 +2453,23 @@ impl TypeInference {
                 }
             }
             Pattern::Array(elements) => {
-                if let Type::Array(elem_ty) = ty {
-                    for (i, elem) in elements.iter().enumerate() {
-                        match elem {
-                            crate::parser::ast::ArrayPatternElement::Pattern(p) => {
-                                self.bind_pattern_type(p, elem_ty);
-                            }
-                            crate::parser::ast::ArrayPatternElement::Rest(p) => {
-                                self.bind_pattern_type(p, &Type::Array(elem_ty.clone()));
-                            }
-                            crate::parser::ast::ArrayPatternElement::Elision => {}
+                let elem_ty = match ty {
+                    Type::Array(inner) => inner.as_ref(),
+                    // For non-array types, elements default to Dynamic
+                    _ => &Type::Dynamic,
+                };
+                for (i, elem) in elements.iter().enumerate() {
+                    match elem {
+                        crate::parser::ast::ArrayPatternElement::Pattern(p)
+                        | crate::parser::ast::ArrayPatternElement::Default(p, _) => {
+                            self.bind_pattern_type(p, elem_ty);
                         }
-                        let _ = i;
+                        crate::parser::ast::ArrayPatternElement::Rest(p) => {
+                            self.bind_pattern_type(p, &Type::Array(Box::new(elem_ty.clone())));
+                        }
+                        crate::parser::ast::ArrayPatternElement::Elision => {}
                     }
+                    let _ = i;
                 }
             }
             Pattern::Rest(name) => {
@@ -2147,6 +2590,44 @@ fn pattern_name(pattern: &Pattern) -> String {
         Pattern::Identifier(name) => name.clone(),
         Pattern::Wildcard => "_".into(),
         _ => "pattern".into(),
+    }
+}
+
+/// Extracts all variable names from a pattern (including destructuring).
+/// Used in Pass 1 to pre-declare variables for forward references.
+fn pattern_var_names(pattern: &Pattern) -> Vec<String> {
+    match pattern {
+        Pattern::Identifier(name) => vec![name.clone()],
+        Pattern::Wildcard => vec![],
+        Pattern::Literal(_) => vec![],
+        Pattern::Object(fields) => fields
+            .iter()
+            .flat_map(|f| match f {
+                crate::parser::ast::ObjectPatternField::Property { pattern: inner, .. } => {
+                    pattern_var_names(inner)
+                }
+                crate::parser::ast::ObjectPatternField::Shorthand(name)
+                | crate::parser::ast::ObjectPatternField::ShorthandDefault(name, _) => {
+                    vec![name.clone()]
+                }
+                crate::parser::ast::ObjectPatternField::Rest(_) => vec![],
+            })
+            .collect(),
+        Pattern::Array(elements) => elements
+            .iter()
+            .flat_map(|e| match e {
+                crate::parser::ast::ArrayPatternElement::Pattern(p)
+                | crate::parser::ast::ArrayPatternElement::Default(p, _) => pattern_var_names(p),
+                crate::parser::ast::ArrayPatternElement::Rest(p) => pattern_var_names(p),
+                crate::parser::ast::ArrayPatternElement::Elision => vec![],
+            })
+            .collect(),
+        Pattern::Rest(name) => vec![name.clone()],
+        Pattern::As(inner, _) => pattern_var_names(inner),
+        Pattern::Or(patterns) => patterns
+            .first()
+            .map(pattern_var_names)
+            .unwrap_or_default(),
     }
 }
 

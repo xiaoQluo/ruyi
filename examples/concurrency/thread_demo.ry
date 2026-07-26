@@ -1,0 +1,134 @@
+/**
+ * Ruyi Example — 线程与并发任务
+ *
+ * 覆盖:
+ * - spawn: 火即忘（fire-and-forget）并发任务
+ * - Thread.spawn / join / detach: 线程创建与管理
+ * - Channel: 线程间消息通信
+ * - Thread.id / cpuCount: 线程信息
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { Thread } from "thread";
+import { Channel } from "channel";
+
+// =============================================================================
+// 1. spawn — 火即忘并发任务
+// =============================================================================
+// spawn 将函数指针提交到全局工作窃取调度器，立即返回。
+// 被提交的任务与调用者并发执行，调用者不阻塞等待。
+
+fn task_a(): void {
+  print("A");
+}
+
+fn task_b(): void {
+  print("B");
+}
+
+fn task_c(): void {
+  print("C");
+}
+
+fn demo_spawn() {
+  print("=== 1. spawn (Fire-and-Forget) ===\n\n");
+
+  spawn(task_a);
+  spawn(task_b);
+  spawn(task_c);
+  print("main continues without waiting\n\n");
+}
+
+// =============================================================================
+// 2. Thread.spawn + join — 线程创建与等待
+// =============================================================================
+
+fn demo_thread_join() {
+  print("=== 2. Thread.spawn + join ===\n\n");
+
+  let cpu = Thread.cpuCount();
+  print("CPU count: ");
+  print(cpu);
+  print("\n");
+
+  // 创建线程并等待完成
+  let t1 = Thread.spawn(fn(arg) {
+    print("thread running, id=");
+    print(Thread.id());
+    print("\n");
+  });
+  t1.join();
+  print("t1 joined\n\n");
+}
+
+// =============================================================================
+// 3. Channel 通信 — 多线程消息收集
+// =============================================================================
+
+fn worker(sender, id) {
+  let msg = "hello from worker " + id;
+  sender.send(msg);
+  sender.close();
+}
+
+fn demo_channel() {
+  print("=== 3. Channel Communication ===\n\n");
+
+  let ch = Channel.new();
+  let n = 4;
+
+  // 启动 N 个 worker，通过 Channel 收集结果
+  for (let i = 0; i < n; i = i + 1) {
+    let s = ch.sender();
+    Thread.spawn(fn(arg) { worker(s, arg); }, i);
+  }
+  ch.close();
+
+  let count = 0;
+  while (true) {
+    let msg = ch.recv();
+    if (msg === null) { break; }
+    print("received: ");
+    print(msg);
+    print("\n");
+    count = count + 1;
+  }
+  print("total received: ");
+  print(count);
+  print(" / ");
+  print(n);
+  print("\n\n");
+}
+
+// =============================================================================
+// 4. detach — 分离线程（火即忘）
+// =============================================================================
+
+fn demo_detach() {
+  print("=== 4. Thread Detach ===\n\n");
+
+  let dt = Thread.spawn(fn(arg) {
+    // 后台执行，主线程不等待
+    for (let i = 0; i < 1000; i = i + 1) {}
+  });
+  dt.detach();
+  print("thread detached — main continues without waiting\n\n");
+}
+
+// =============================================================================
+// Main
+// =============================================================================
+fn main() {
+  print("╔══════════════════════════════════╗\n");
+  print("║     Thread & Spawn Demo         ║\n");
+  print("╚══════════════════════════════════╝\n\n");
+
+  demo_spawn();
+  demo_thread_join();
+  demo_channel();
+  demo_detach();
+
+  print("All thread demos completed!\n");
+}

@@ -91,7 +91,8 @@ pub fn bind_array_pattern<'ctx>(
     let mut idx = 0;
     for elem in elements {
         match elem {
-            crate::parser::ast::ArrayPatternElement::Pattern(p) => {
+            crate::parser::ast::ArrayPatternElement::Pattern(p)
+            | crate::parser::ast::ArrayPatternElement::Default(p, _) => {
                 let elem_ty = match p {
                     Pattern::Identifier(_) => {
                         if let Type::Array(inner) = &scrutinee.ty {
@@ -804,7 +805,8 @@ fn compile_array_match<'ctx>(
                 let mut has_rest = false;
                 for elem in elements {
                     match elem {
-                        crate::parser::ast::ArrayPatternElement::Pattern(_) => len += 1,
+                        crate::parser::ast::ArrayPatternElement::Pattern(_)
+                        | crate::parser::ast::ArrayPatternElement::Default(_, _) => len += 1,
                         crate::parser::ast::ArrayPatternElement::Rest(_) => {
                             has_rest = true;
                             break;

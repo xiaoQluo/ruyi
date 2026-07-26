@@ -39,6 +39,16 @@ impl ConstraintSolver {
         }
     }
 
+    /// Creates a solver with a specific starting variable ID.
+    /// Used to avoid TypeVar ID collisions when the argument types
+    /// already contain TypeVars from an outer generic scope.
+    pub fn with_start_id(start_id: u32) -> Self {
+        Self {
+            constraints: Vec::new(),
+            next_var_id: start_id,
+        }
+    }
+
     /// Creates a fresh type variable for inference.
     pub fn fresh_var(&mut self, prefix: &str) -> TypeVar {
         let id = self.next_var_id;
@@ -189,8 +199,22 @@ fn unify(t1: &Type, t2: &Type, subst: &mut HashMap<u32, Type>) -> Result<(), Str
         return Ok(());
     }
 
-    // dyn unifies with anything
+    // dyn unifies with anything — but when one side is an unresolved
+    // type variable, bind it to dyn so that type inference resolves
+    // T = dyn (per spec Section 10.4).
     if t1.is_dynamic() || t2.is_dynamic() {
+        if let Type::TypeVar(var) = &t1 {
+            if !occurs_in(var, &t2) {
+                subst.insert(var.id, Type::Dynamic);
+            }
+            return Ok(());
+        }
+        if let Type::TypeVar(var) = &t2 {
+            if !occurs_in(var, &t1) {
+                subst.insert(var.id, Type::Dynamic);
+            }
+            return Ok(());
+        }
         return Ok(());
     }
 
@@ -224,6 +248,30 @@ fn unify(t1: &Type, t2: &Type, subst: &mut HashMap<u32, Type>) -> Result<(), Str
     // Structural unification
     match (&t1, &t2) {
         (Type::Nullable(inner1), Type::Nullable(inner2)) => unify(inner1, inner2, subst),
+        // Unify Nullable<T> with a non-Nullable type X:
+        // - With null: always succeeds (null is a valid value for any T?)
+        // - With type-variable inner: bind T = X (a non-null X is a valid value of X?)
+        // - With concrete inner X and other Y (X != Y): error
+        (Type::Nullable(inner), other) | (other, Type::Nullable(inner)) => {
+            match (inner.as_ref(), other) {
+                // null is a valid value for any Nullable<T>
+                (_, Type::Null) | (Type::Null, _) => Ok(()),
+                // T? unified with concrete X → T = X
+                (Type::TypeVar(var), _) => {
+                    if occurs_in(var, other) {
+                        Err(format!(
+                            "Cannot construct infinite type: {} = {}",
+                            var.name, other
+                        ))
+                    } else {
+                        subst.insert(var.id, other.clone());
+                        Ok(())
+                    }
+                }
+                // X? unified with Y where X != Y and neither is null/type-var
+                _ => Err(format!("Cannot unify {} with {}", t1, t2)),
+            }
+        }
         (Type::Array(elem1), Type::Array(elem2)) => unify(elem1, elem2, subst),
         (
             Type::Function {

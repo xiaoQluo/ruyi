@@ -1,0 +1,10 @@
+class Counter {
+    static fn now(): int {
+        return 42;
+    }
+}
+
+fn main() {
+    let x = Counter.now();
+    print(x);
+}

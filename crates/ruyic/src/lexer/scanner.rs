@@ -608,8 +608,8 @@ impl Scanner {
             self.advance();
             return Ok(Token::BigInt(format!("0x{}", raw)));
         }
-        match i64::from_str_radix(&raw, 16) {
-            Ok(i) => Ok(Token::Int(i)),
+        match u64::from_str_radix(&raw, 16) {
+            Ok(u) => Ok(Token::Int(u as i64)),
             Err(_) => Err(LexerError::InvalidNumber {
                 line: start_line,
                 col: start_col,

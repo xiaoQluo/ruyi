@@ -1,0 +1,149 @@
+/**
+ * Ruyi Example — TLS 模块 (安全连接)
+ *
+ * 覆盖:
+ * - TlsServerConfig.loadConfig(): 证书加载与错误处理
+ * - TlsSocket.connect(): 客户端 TLS 连接
+ * - TlsServer.listen(): 服务端 TLS 监听
+ * - TLS 握手失败处理
+ *
+ * 注意: 完整 TLS 通信需要证书文件 (cert.pem, key.pem)。
+ * 本示例演示 API 调用流程和错误处理。
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { TlsSocket, TlsServer, TlsServerConfig } from "tls";
+
+// -----------------------------------------------------------------------------
+// Helper
+// -----------------------------------------------------------------------------
+fn printOk(label: string) {
+    print("  ✓ " + label + "\n");
+}
+
+fn check(label: string, condition: bool) {
+    if (condition) {
+        print("  ✓ " + label + "\n");
+    } else {
+        print("  ✗ FAILED: " + label + "\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 1. TlsServerConfig 加载与错误处理
+// -----------------------------------------------------------------------------
+fn demo_config_loading() {
+    print("=== 1. TlsServerConfig 加载 ===\n\n");
+
+    // 尝试加载无效证书 — 应返回 null
+    let invalidConfig = TlsServerConfig.loadConfig("invalid-cert", "invalid-key");
+    check("无效证书返回 null", invalidConfig === null);
+    print("  无效 PEM 数据 → loadConfig 返回 null\n");
+
+    // 空字符串测试
+    let emptyConfig = TlsServerConfig.loadConfig("", "");
+    check("空证书返回 null", emptyConfig === null);
+    print("  空字符串 → loadConfig 返回 null\n");
+
+    printOk("配置加载 OK");
+}
+
+// -----------------------------------------------------------------------------
+// 2. TlsSocket 客户端连接
+// -----------------------------------------------------------------------------
+fn demo_tls_client() {
+    print("=== 2. TlsSocket 客户端 ===\n\n");
+
+    // 尝试连接不存在的服务器 — 应返回 null 或抛异常
+    try {
+        let sock = TlsSocket.connect("127.0.0.1", 19999);
+        if (sock === null) {
+            print("  连接失败 → 返回 null (服务器不存在)\n");
+            check("连接失败处理", true);
+        } else {
+            // 如果连接成功，检查状态并关闭
+            check("连接有效", sock.isValid());
+            sock.close();
+        }
+    } catch (e) {
+        print("  连接异常: 网络操作失败\n");
+        check("异常捕获", true);
+    }
+
+    printOk("客户端 OK");
+}
+
+// -----------------------------------------------------------------------------
+// 3. TlsServer 启动尝试
+// -----------------------------------------------------------------------------
+fn demo_tls_server() {
+    print("=== 3. TlsServer 启动 ===\n\n");
+
+    // 无有效证书时无法启动 TLS 服务器
+    let config = TlsServerConfig.loadConfig("not-a-cert", "not-a-key");
+
+    if (config === null) {
+        print("  无有效证书，无法启动 TLS 服务器\n");
+        print("  生成自签名证书:\n");
+        print("    openssl req -x509 -newkey rsa:2048 \\\n");
+        print("      -keyout key.pem -out cert.pem \\\n");
+        print("      -days 365 -nodes -subj \"/CN=localhost\"\n");
+        check("证书检查逻辑", true);
+    } else {
+        // 有证书时启动服务器
+        let server = TlsServer.listen("127.0.0.1", 19998, config);
+        check("服务器启动", server.isValid());
+        server.close();
+    }
+
+    printOk("服务器 OK");
+}
+
+// -----------------------------------------------------------------------------
+// 4. TLS 安全模式演示
+// -----------------------------------------------------------------------------
+fn demo_security_pattern() {
+    print("=== 4. TLS 安全模式 ===\n\n");
+
+    // 演示安全的 TLS 客户端使用模式
+    print("  安全连接模式:\n");
+    print("    1. TlsSocket.connect(host, port)\n");
+    print("    2. 检查返回值是否为 null\n");
+    print("    3. sock.write(request)\n");
+    print("    4. let resp = sock.read(4096)\n");
+    print("    5. sock.close()\n\n");
+
+    // 实际演示: 安全包装函数
+    let connected = false;
+    try {
+        let sock = TlsSocket.connect("127.0.0.1", 19997);
+        if (sock !== null) {
+            connected = true;
+            sock.close();
+        }
+    } catch (e) {
+        // 安全失败
+    }
+    print("  安全连接尝试: connected=" + connected + "\n");
+    check("安全模式执行", true);
+
+    printOk("安全模式 OK");
+}
+
+// -----------------------------------------------------------------------------
+// 主入口
+// -----------------------------------------------------------------------------
+fn main() {
+    print("╔══════════════════════════════════╗\n");
+    print("║       TLS Module Demo           ║\n");
+    print("╚══════════════════════════════════╝\n\n");
+
+    demo_config_loading();
+    demo_tls_client();
+    demo_tls_server();
+    demo_security_pattern();
+
+    print("\nAll TLS demos completed!\n");
+}

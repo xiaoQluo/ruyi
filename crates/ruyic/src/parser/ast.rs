@@ -413,6 +413,7 @@ pub enum TraitElement {
         params: Vec<Param>,
         return_type: Option<TypeAnnotation>,
         body: Option<Vec<Statement>>,
+        is_static: bool,
     },
     Field {
         name: PropertyName,
@@ -455,12 +456,16 @@ pub enum Pattern {
 pub enum ObjectPatternField {
     Property { key: String, pattern: Pattern },
     Shorthand(String),
+    /// Shorthand with a default value: `{ key = default }`
+    ShorthandDefault(String, Box<Expr>),
     Rest(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ArrayPatternElement {
     Pattern(Pattern),
+    /// Pattern with a default value: `[a = 10]`
+    Default(Pattern, Box<Expr>),
     Rest(Pattern),
     Elision,
 }

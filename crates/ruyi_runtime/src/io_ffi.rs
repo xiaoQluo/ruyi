@@ -27,14 +27,14 @@ use std::time::UNIX_EPOCH;
 // Helpers
 // ============================================================
 
-unsafe fn cstr_to_str<'a>(ptr: *const c_char) -> &'a str {
+pub(crate) unsafe fn cstr_to_str<'a>(ptr: *const c_char) -> &'a str {
     if ptr.is_null() {
         return "";
     }
     CStr::from_ptr(ptr).to_str().unwrap_or("")
 }
 
-unsafe fn str_to_heap(s: &str) -> *mut c_char {
+pub(crate) unsafe fn str_to_heap(s: &str) -> *mut c_char {
     let bytes = s.as_bytes();
     let layout = Layout::from_size_align(bytes.len() + 1, 1).unwrap();
     let out = alloc(layout) as *mut c_char;

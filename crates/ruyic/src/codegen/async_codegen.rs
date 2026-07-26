@@ -536,8 +536,30 @@ pub fn compile_await<'ctx>(
         _ => Type::Int,
     };
 
+    // Detect ReactorFuture calls: these futures use FFI _result functions
+    // instead of a fixed-offset result field.
+    let reactor_result_fn = detect_reactor_future(expr);
+
     let _result_llvm: inkwell::types::BasicTypeEnum<'ctx> = ctx.context.i64_type().into();
-    let result_val = if matches!(inner_result.ty, Type::Future(_)) {
+    let result_val = if let Some(result_fn_name) = reactor_result_fn {
+        // ReactorFuture: emit call to __net_async_XXX_result(future_ptr)
+        let result_fn = ctx.module.get_function(result_fn_name).unwrap_or_else(|| {
+            let fn_type = match result_fn_name {
+                n if n.contains("_read_result") => i8_ptr.fn_type(&[i8_ptr.into()], false),
+                _ => i32_ty.fn_type(&[i8_ptr.into()], false),
+            };
+            ctx.module.add_function(result_fn_name, fn_type, None)
+        });
+        let call_result =
+            ctx.builder()
+                .build_call(result_fn, &[future_ptr.into()], "reactor_result");
+        if result_fn_name.contains("_read_result") {
+            call_result.try_as_basic_value().left().unwrap()
+        } else {
+            call_result.try_as_basic_value().left().unwrap()
+        }
+    } else if matches!(inner_result.ty, Type::Future(_)) {
+        // Standard future: read result from fixed offset in state struct.
         let state_as_i8_ptr = ctx
             .builder()
             .build_bitcast(future_ptr, i8_ptr, "state_as_i8")
@@ -565,4 +587,24 @@ pub fn compile_await<'ctx>(
     };
 
     Ok(super::expr::ExprResult::new(result_val, result_ty))
+}
+
+/// Check if the awaited expression is a ReactorFuture call (__net_async_*).
+/// Returns the name of the result extraction FFI if it is.
+fn detect_reactor_future(expr: &Expr) -> Option<&'static str> {
+    match expr {
+        Expr::Call { callee, .. } => match callee.as_ref() {
+            Expr::Identifier(name) if *name == "__net_async_read" => {
+                Some("__net_async_read_result")
+            }
+            Expr::Identifier(name) if *name == "__net_async_write" => {
+                Some("__net_async_write_result")
+            }
+            Expr::Identifier(name) if *name == "__net_async_accept" => {
+                Some("__net_async_accept_result")
+            }
+            _ => None,
+        },
+        _ => None,
+    }
 }

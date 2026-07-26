@@ -10,7 +10,7 @@ use inkwell::values::BasicValueEnum;
 
 use super::builtins::is_gc_managed;
 use super::expr::compile_expr;
-use super::generator::CodegenContext;
+use super::generator::{ruyi_type_to_zero, CodegenContext};
 use super::stmt::compile_block;
 use super::types::{function_type_from_ruyi, ruyi_type_to_llvm};
 use crate::parser::ast::{Binding, ClassElement, Declaration, Expr, Pattern, PropertyName};
@@ -51,16 +51,18 @@ pub fn compile_declaration<'ctx>(
         }
         Declaration::Class {
             name,
+            type_params,
             extends,
             body,
             ..
-        } => compile_class(ctx, name, extends.as_deref(), body),
+        } => compile_class(ctx, name, type_params, extends.as_deref(), body),
         Declaration::Impl {
+            type_params,
             trait_name,
             for_type,
             body,
             ..
-        } => compile_impl(ctx, trait_name, for_type, body),
+        } => compile_impl(ctx, type_params, trait_name, for_type, body),
         Declaration::Trait { .. } => Ok(()),
         Declaration::Macro { .. } => Ok(()),
         Declaration::TypeAlias { .. } => Ok(()),
@@ -137,7 +139,8 @@ fn compile_array_destructure<'ctx>(
                 i += 1;
                 continue;
             }
-            crate::parser::ast::ArrayPatternElement::Pattern(pat) => {
+            crate::parser::ast::ArrayPatternElement::Pattern(pat)
+            | crate::parser::ast::ArrayPatternElement::Default(pat, _) => {
                 let name = match pat {
                     crate::parser::ast::Pattern::Identifier(n) => n.clone(),
                     _ => return Err("Nested destructuring patterns not yet supported".to_string()),
@@ -188,9 +191,17 @@ pub fn predeclare_function<'ctx>(
     let param_types: Vec<Type> = params
         .iter()
         .map(|p| {
-            p.ty.as_ref()
+            let mut ty = p
+                .ty.as_ref()
                 .map(Type::from_annotation)
-                .unwrap_or(Type::Dynamic)
+                .unwrap_or(Type::Dynamic);
+            // Wrap rest params as Array<T> so the definition-side parameter
+            // type matches the call-site packaging (compile_rest_args_to_array
+            // passes an array pointer) and the typechecker's inference.
+            if p.is_rest && !matches!(&ty, Type::Array(_)) {
+                ty = Type::Array(Box::new(ty));
+            }
+            ty
         })
         .collect();
 
@@ -222,9 +233,18 @@ pub fn compile_function<'ctx>(
             params
                 .iter()
                 .map(|p| {
-                    p.ty.as_ref()
+                    let mut ty = p
+                        .ty.as_ref()
                         .map(Type::from_annotation)
-                        .unwrap_or(Type::Dynamic)
+                        .unwrap_or(Type::Dynamic);
+                    // Wrap rest params as Array<T> so the definition-side
+                    // parameter type matches the call-site packaging
+                    // (compile_rest_args_to_array passes an array pointer)
+                    // and the typechecker's inference.
+                    if p.is_rest && !matches!(&ty, Type::Array(_)) {
+                        ty = Type::Array(Box::new(ty));
+                    }
+                    ty
                 })
                 .collect()
         });
@@ -289,8 +309,10 @@ pub fn compile_function<'ctx>(
     let prev_block = ctx.builder().get_insert_block();
     ctx.builder().position_at_end(entry_bb);
 
-    // Save previous variables and create new scope
-    let mut prev_vars = std::collections::HashMap::new();
+    // Snapshot the variable map: parameters and body lets must not leak
+    // into later compilations (locals shadow globals, so a leaked binding
+    // would mask a same-named global with a dangling alloca).
+    let saved_vars = ctx.variables.clone();
 
     // SAFETY: pop_gc_root_scope guaranteed by GcRootGuard Drop.
     // The previous bare `?` on `get_nth_param` could leak the scope on
@@ -318,9 +340,7 @@ pub fn compile_function<'ctx>(
             ctx.add_gc_root(ptr, param_ty.clone());
         }
 
-        if let Some(old) = ctx.define_variable(param_name.clone(), (ptr, param_ty)) {
-            prev_vars.insert(param_name, old);
-        }
+        ctx.define_variable(param_name, (ptr, param_ty));
     }
 
     // Compile function body
@@ -367,10 +387,8 @@ pub fn compile_function<'ctx>(
         ctx.builder().position_at_end(block);
     }
 
-    // Restore variables
-    for (name, old) in prev_vars {
-        ctx.define_variable(name, old);
-    }
+    // Restore the pre-function variable map (see snapshot above).
+    ctx.variables = saved_vars;
 
     result
 }
@@ -382,9 +400,17 @@ fn build_combined_fields<'ctx>(
 ) -> Vec<(String, Type)> {
     let mut combined: Vec<(String, Type)> = Vec::new();
 
+    // The hidden __typeid field is always at index 0 (added by compile_class).
+    // When inheriting parent fields, skip the parent's __typeid to avoid
+    // duplication — the child's own __typeid takes its place.
     if let Some(parent_name) = ctx.class_extends.get(class_name) {
         if let Some(parent_fields) = ctx.class_fields.get(parent_name) {
-            combined.extend(parent_fields.iter().cloned());
+            combined.extend(
+                parent_fields
+                    .iter()
+                    .filter(|(n, _)| n != "__typeid")
+                    .cloned(),
+            );
         }
     }
 
@@ -395,9 +421,23 @@ fn build_combined_fields<'ctx>(
 fn compile_class<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_, '_>,
     name: &str,
+    type_params: &[crate::parser::ast::TypeParam],
     extends: Option<&Expr>,
     body: &[ClassElement],
 ) -> Result<(), String> {
+    let is_generic = !type_params.is_empty();
+    if is_generic {
+        // Register the template so call sites can instantiate specialized
+        // method copies on demand (see codegen::specialize).
+        ctx.generic_classes.insert(
+            name.to_string(),
+            (
+                type_params.iter().map(|tp| tp.name.clone()).collect(),
+                body.to_vec(),
+            ),
+        );
+    }
+
     let mut fields: Vec<(String, Type)> = Vec::new();
     let mut methods: Vec<&ClassElement> = Vec::new();
     let mut static_methods: Vec<&ClassElement> = Vec::new();
@@ -441,6 +481,11 @@ fn compile_class<'ctx>(
         }
     }
 
+    // Prepend the hidden __typeid field (always at struct index 0) for
+    // runtime `instanceof` support. build_combined_fields skips the
+    // parent's __typeid so each class has exactly one.
+    fields.insert(0, ("__typeid".to_string(), Type::Int));
+
     let combined_fields = build_combined_fields(ctx, name, &fields);
     ctx.class_fields
         .insert(name.to_string(), combined_fields.clone());
@@ -452,6 +497,41 @@ fn compile_class<'ctx>(
     let struct_type = ctx.context.struct_type(&field_types, false);
     ctx.class_struct_types.insert(name.to_string(), struct_type);
 
+    // Compile static fields as module-level globals (e.g. `Signal.TERM`).
+    // Each static field becomes a global variable named `{Class}_{field}`.
+    for element in body {
+        if let ClassElement::Field {
+            name: prop_name,
+            ty,
+            init,
+            is_static: true,
+        } = element
+        {
+            let field_name = match prop_name {
+                PropertyName::Ident(n) => n.clone(),
+                _ => continue,
+            };
+            let field_ty = ty
+                .as_ref()
+                .map(Type::from_annotation)
+                .unwrap_or(Type::Dynamic);
+            let global_name = format!("{}_{}", name, field_name);
+            let llvm_ty = ruyi_type_to_llvm(ctx.context, &field_ty);
+            let global = ctx.module.add_global(llvm_ty, None, &global_name);
+            global.set_linkage(inkwell::module::Linkage::Internal);
+            let zero = ruyi_type_to_zero(ctx.context, &field_ty);
+            global.set_initializer(&zero);
+            // Evaluate the initializer (if any) and store into the global.
+            if let Some(init_expr) = init {
+                if let Ok(init_result) = compile_expr(ctx, init_expr) {
+                    ctx.builder()
+                        .build_store(global.as_pointer_value(), init_result.value);
+                }
+            }
+            ctx.static_fields.insert(global_name, field_ty);
+        }
+    }
+
     // First pass: predeclare all methods to allow forward references
     for element in &methods {
         if let ClassElement::Method {
@@ -459,11 +539,18 @@ fn compile_class<'ctx>(
             params,
             return_type,
             is_async,
+            is_setter,
             ..
         } = element
         {
             let method_name = match prop_name {
-                PropertyName::Ident(n) => format!("{}_{}", name, n),
+                PropertyName::Ident(n) => {
+                    if *is_setter {
+                        format!("{}_set_{}", name, n)
+                    } else {
+                        format!("{}_{}", name, n)
+                    }
+                }
                 _ => continue,
             };
             let mut method_params = vec![crate::parser::ast::Param {
@@ -487,6 +574,33 @@ fn compile_class<'ctx>(
         }
     }
 
+    // Predeclare static methods as well so instance method bodies can
+    // forward-reference them (e.g. an instance method calling
+    // `Date.fromParts` before the static method is compiled).
+    for element in &static_methods {
+        if let ClassElement::Method {
+            name: prop_name,
+            params,
+            return_type,
+            is_async,
+            ..
+        } = element
+        {
+            let method_name = match prop_name {
+                PropertyName::Ident(n) => format!("{}_{}", name, n),
+                _ => continue,
+            };
+            let method_params = params
+                .iter()
+                .filter(|p| !matches!(&p.pattern, Pattern::Identifier(n) if n == "self"))
+                .cloned()
+                .collect::<Vec<_>>();
+            if !*is_async {
+                predeclare_function(ctx, &method_name, &method_params, return_type.as_ref());
+            }
+        }
+    }
+
     for element in methods {
         if let ClassElement::Method {
             name: prop_name,
@@ -494,11 +608,18 @@ fn compile_class<'ctx>(
             return_type,
             body: method_body,
             is_async,
+            is_setter,
             ..
         } = element
         {
             let method_name = match prop_name {
-                PropertyName::Ident(n) => format!("{}_{}", name, n),
+                PropertyName::Ident(n) => {
+                    if *is_setter {
+                        format!("{}_set_{}", name, n)
+                    } else {
+                        format!("{}_{}", name, n)
+                    }
+                }
                 _ => continue,
             };
 
@@ -526,16 +647,32 @@ fn compile_class<'ctx>(
                     return_type.as_ref(),
                     method_body,
                 )?;
-            } else {
-                compile_function(
-                    ctx,
-                    &method_name,
-                    &method_params,
-                    return_type.as_ref(),
-                    None,
-                    None,
-                    method_body,
-                )?;
+            } else if let Err(e) = compile_function(
+                ctx,
+                &method_name,
+                &method_params,
+                return_type.as_ref(),
+                None,
+                None,
+                method_body,
+            ) {
+                // Never leave a half-compiled body behind: calls would
+                // silently produce garbage. Reset to a declaration so
+                // uses fail loudly at link time instead.
+                reset_to_declaration(ctx, &method_name);
+                if is_generic {
+                    // Generic method bodies are templates; the erased
+                    // compilation may legitimately fail (e.g. trait
+                    // method calls on a type-parameter receiver).
+                    // Specialized copies are instantiated at call sites.
+                    log::warn!(
+                        "Deferring generic method {} to call-site specialization: {}",
+                        method_name,
+                        e
+                    );
+                } else {
+                    return Err(e);
+                }
             }
         }
     }
@@ -569,16 +706,25 @@ fn compile_class<'ctx>(
                     return_type.as_ref(),
                     method_body,
                 )?;
-            } else {
-                compile_function(
-                    ctx,
-                    &method_name,
-                    &method_params,
-                    return_type.as_ref(),
-                    None,
-                    None,
-                    method_body,
-                )?;
+            } else if let Err(e) = compile_function(
+                ctx,
+                &method_name,
+                &method_params,
+                return_type.as_ref(),
+                None,
+                None,
+                method_body,
+            ) {
+                reset_to_declaration(ctx, &method_name);
+                if is_generic {
+                    log::warn!(
+                        "Deferring generic static method {} to call-site specialization: {}",
+                        method_name,
+                        e
+                    );
+                } else {
+                    return Err(e);
+                }
             }
         }
     }
@@ -586,14 +732,36 @@ fn compile_class<'ctx>(
     Ok(())
 }
 
+/// Strip a function back to a bare declaration, deleting any (possibly
+/// half-compiled) body. Existing references are rewired to the fresh
+/// declaration so LLVM's use lists stay consistent.
+pub fn reset_to_declaration<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>, name: &str) {
+    if let Some(func) = ctx.module.get_function(name) {
+        if func.count_basic_blocks() == 0 {
+            return;
+        }
+        let fn_type = func.get_type();
+        let replacement = ctx
+            .module
+            .add_function(&format!("{}.__reset", name), fn_type, None);
+        func.replace_all_uses_with(replacement);
+        unsafe {
+            func.delete();
+        }
+        replacement.as_global_value().set_name(name);
+    }
+}
+
 fn compile_impl<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_, '_>,
+    type_params: &[crate::parser::ast::TypeParam],
     trait_name: &str,
     for_type: &crate::parser::ast::TypeAnnotation,
     body: &[crate::parser::ast::ClassElement],
 ) -> Result<(), String> {
     let for_type_str = match for_type {
         crate::parser::ast::TypeAnnotation::Identifier(name) => name.clone(),
+        crate::parser::ast::TypeAnnotation::Builtin(name) => name.clone(),
         crate::parser::ast::TypeAnnotation::Generic { base, .. } => base.clone(),
         _ => "dyn".to_string(),
     };
@@ -613,6 +781,17 @@ fn compile_impl<'ctx>(
                 _ => continue,
             };
             let mangled_name = format!("{}_{}_for_{}", method_name, trait_name, for_type_str);
+
+            // Record the impl signature so call sites can substitute type
+            // parameters into the declared return type (e.g. `iter` on
+            // Array<int> returning ArrayIterator<int> instead of <T>).
+            ctx.impl_method_sigs.insert(
+                mangled_name.clone(),
+                (
+                    type_params.iter().map(|tp| tp.name.clone()).collect(),
+                    for_type.clone(),
+                ),
+            );
 
             let impl_params: Vec<_> = std::iter::once(crate::parser::ast::Param {
                 pattern: Pattern::Identifier("self".to_string()),
@@ -656,6 +835,7 @@ fn compile_impl<'ctx>(
                 None,
                 method_body,
             ) {
+                reset_to_declaration(ctx, &mangled_name);
                 if ctx.allow_partial_codegen() {
                     log::warn!("Skipping method codegen for {}: {}", method_name, e);
                 } else {

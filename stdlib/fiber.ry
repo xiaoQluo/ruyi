@@ -38,7 +38,7 @@ export class Fiber {
      * The closure is captured and runs in a new lightweight fiber
      * with a 256 KiB stack.
      */
-    static fn spawn(): Fiber {
+    static fn spawn(f: dyn): Fiber {
         // spawn() is handled as a compiler builtin — the closure
         // capturing is managed by the compiler.
         let f = new Fiber();
@@ -107,7 +107,7 @@ export class Fiber {
      * future versions will implement true cooperative yield
      * via the async scheduler.
      */
-    static fn yield(): void {
+    static fn yieldNow(): void {
         __fiber_yield();
     }
 }

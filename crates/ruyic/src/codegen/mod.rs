@@ -8,6 +8,7 @@ pub mod gc_alloc;
 pub mod generator;
 pub mod monomorph;
 pub mod patterns;
+pub mod specialize;
 pub mod stmt;
 pub mod traits;
 pub mod types;

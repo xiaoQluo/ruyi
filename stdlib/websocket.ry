@@ -33,6 +33,7 @@ import { sha1Raw } from "./crypto/hash";
 import { base64Encode } from "./encoding";
 import { Deflate } from "./compress";
 import { Buffer } from "./buffer";
+import { fromCharCode } from "./string";
 
 // ============================================================
 // Constants

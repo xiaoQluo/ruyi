@@ -147,7 +147,7 @@ fn mangle_type(ty: &Type) -> String {
             return_type,
         } => {
             let param_strs: Vec<String> = params.iter().map(mangle_type).collect();
-            format!("fn_{}_{}", param_strs.join("_"), mangle_type(return_type))
+            format!("fn_{}__{}", param_strs.join("_"), mangle_type(return_type))
         }
         Type::Named(name, _) => name.clone(),
         Type::Generic { base, args } => {
@@ -395,8 +395,20 @@ impl MonomorphizationTracker {
             }
         };
 
+        // Collect TypeVar IDs from argument types to avoid ID collisions.
+        // The constraint solver creates fresh variables starting from 0, but the
+        // arg types may contain TypeVars from an outer generic scope (e.g.,
+        // quickSort<T> body calling quickSortRange<T>). If the solver reuses the
+        // same ID, the unifier treats them as the same variable and skips
+        // unification, producing incorrect inference results.
+        let mut arg_type_var_ids = std::collections::HashSet::new();
+        for arg in arg_types {
+            Self::collect_type_var_ids(arg, &mut arg_type_var_ids);
+        }
+        let safe_start = arg_type_var_ids.iter().max().map(|m| m + 1).unwrap_or(0);
+
         // Create fresh type variables for each type parameter
-        let mut solver = ConstraintSolver::new();
+        let mut solver = ConstraintSolver::with_start_id(safe_start);
         let mut type_var_map: HashMap<u32, Type> = HashMap::new();
 
         for param in &def.type_params {
@@ -477,6 +489,38 @@ impl MonomorphizationTracker {
         &self.specializations
     }
 
+    /// Collects all TypeVar IDs present in a type tree.
+    /// Used to avoid ID collisions when creating fresh type variables.
+    fn collect_type_var_ids(ty: &Type, ids: &mut std::collections::HashSet<u32>) {
+        match ty {
+            Type::TypeVar(var) => {
+                ids.insert(var.id);
+            }
+            Type::Nullable(inner) => Self::collect_type_var_ids(inner, ids),
+            Type::Array(elem) => Self::collect_type_var_ids(elem, ids),
+            Type::Function {
+                params,
+                return_type,
+            } => {
+                for p in params {
+                    Self::collect_type_var_ids(p, ids);
+                }
+                Self::collect_type_var_ids(return_type, ids);
+            }
+            Type::Generic { args, .. } => {
+                for a in args {
+                    Self::collect_type_var_ids(a, ids);
+                }
+            }
+            Type::Object(fields) => {
+                for f in fields {
+                    Self::collect_type_var_ids(&f.ty, ids);
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Gets a specialization by its mangled name.
     pub fn get_specialization(&self, mangled_name: &str) -> Option<&Specialization> {
         self.specializations.get(mangled_name)
@@ -552,13 +596,24 @@ impl Default for MonomorphizationTracker {
 ///
 /// Takes the function's type parameters and body type, and creates
 /// a GenericDefinition with fresh type variable IDs.
+///
+/// Returns a tuple of:
+/// - `GenericDefinition`: the generic definition for the tracker
+/// - `Vec<Type>`: TypeVar-substituted parameter types (for the type environment)
+/// - `Type`: TypeVar-substituted return type (for the type environment)
+///
+/// The substituted types MUST be used in the type environment when
+/// type-checking the function body so that nested generic calls
+/// (e.g., `quickSort<T> → quickSortRange<T> → partition<T>`)
+/// correctly track the outer type variable and enable recursive
+/// monomorphization.
 pub fn make_generic_function_def(
     name: &str,
     type_params: &[crate::parser::ast::TypeParam],
     param_types: &[Type],
     return_type: &Type,
     tracker: &mut MonomorphizationTracker,
-) -> GenericDefinition {
+) -> (GenericDefinition, Vec<Type>, Type) {
     let mut param_infos = Vec::new();
     let mut name_to_var: HashMap<&str, Type> = HashMap::new();
     for tp in type_params {
@@ -570,16 +625,21 @@ pub fn make_generic_function_def(
 
     let replace_type_names = |ty: &Type| -> Type { replace_type_param_refs(ty, &name_to_var) };
 
+    let substituted_params: Vec<Type> = param_types.iter().map(&replace_type_names).collect();
+    let substituted_return: Type = replace_type_names(return_type);
+
     let body_type = Type::Function {
-        params: param_types.iter().map(&replace_type_names).collect(),
-        return_type: Box::new(replace_type_names(return_type)),
+        params: substituted_params.clone(),
+        return_type: Box::new(substituted_return.clone()),
     };
 
-    GenericDefinition {
+    let def = GenericDefinition {
         name: name.to_string(),
         type_params: param_infos,
         body_type,
-    }
+    };
+
+    (def, substituted_params, substituted_return)
 }
 
 fn replace_type_param_refs(ty: &Type, name_to_var: &HashMap<&str, Type>) -> Type {
@@ -648,11 +708,13 @@ pub fn make_generic_trait_def(
     let mut param_infos = Vec::new();
     for tp in type_params {
         let var_id = tracker.fresh_var_id();
-        param_infos.push(TypeParamInfo::with_bounds(
-            tp.name.clone(),
-            var_id,
-            tp.bounds.clone(),
-        ));
+        // Trait type parameters inherit the trait's own name as a bound
+        // (e.g. `trait Comparable<T>` implies `T: Comparable`).
+        let mut bounds = tp.bounds.clone();
+        if !bounds.contains(&name.to_string()) {
+            bounds.push(name.to_string());
+        }
+        param_infos.push(TypeParamInfo::with_bounds(tp.name.clone(), var_id, bounds));
     }
 
     GenericDefinition {
@@ -858,7 +920,7 @@ mod tests {
             name: "T".to_string(),
             bounds: vec![],
         }];
-        let def = make_generic_function_def(
+        let (def, env_params, env_return) = make_generic_function_def(
             "identity",
             &type_params,
             &[Type::TypeVar(TypeVar::new(0, "T".to_string()))],
@@ -868,6 +930,10 @@ mod tests {
         assert_eq!(def.name, "identity");
         assert_eq!(def.type_params.len(), 1);
         assert_eq!(def.type_params[0].name, "T");
+        // TypeVar-substituted params/return should have the same TypeVar
+        assert_eq!(env_params.len(), 1);
+        assert!(matches!(env_params[0], Type::TypeVar(_)));
+        assert!(matches!(env_return, Type::TypeVar(_)));
     }
 
     #[test]
@@ -1078,5 +1144,149 @@ mod tests {
         let spec = tracker.specialize("print_it", vec![Type::Int], &mut diagnostics);
         assert!(spec.is_none(), "int should fail Marker bound without impl");
         assert!(diagnostics.has_errors());
+    }
+
+    #[test]
+    fn test_infer_type_args_nested_generic_chain() {
+        // Simulates the quickSort<T> → quickSortRange<T> chain:
+        //   fn quickSort<T>(arr: Array<T>, cmp: fn(T,T)->int): Array<T>
+        //   fn quickSortRange<T>(arr: Array<T>, lo: int, hi: int, cmp: fn(T,T)->int): void
+        //
+        // When quickSort's body calls quickSortRange, the argument types
+        // contain the outer T as a TypeVar. infer_type_args must correctly
+        // infer that the inner T maps to the outer TypeVar, not a plain
+        // Named("T").
+
+        let mut tracker = MonomorphizationTracker::new();
+
+        // Register outer generic: quickSort<T>
+        let outer_var_id = tracker.fresh_var_id();
+        let outer_type_var = TypeVar::new(outer_var_id, "T".to_string());
+        tracker.register_generic(GenericDefinition {
+            name: "quickSort".to_string(),
+            type_params: vec![TypeParamInfo::new("T".to_string(), outer_var_id)],
+            body_type: Type::Function {
+                params: vec![
+                    Type::Array(Box::new(Type::TypeVar(outer_type_var.clone()))),
+                    Type::Function {
+                        params: vec![
+                            Type::TypeVar(outer_type_var.clone()),
+                            Type::TypeVar(outer_type_var.clone()),
+                        ],
+                        return_type: Box::new(Type::Int),
+                    },
+                ],
+                return_type: Box::new(Type::Array(Box::new(Type::TypeVar(outer_type_var.clone())))),
+            },
+        });
+
+        // Register inner generic: quickSortRange<T>
+        let inner_var_id = tracker.fresh_var_id();
+        let inner_type_var = TypeVar::new(inner_var_id, "T".to_string());
+        tracker.register_generic(GenericDefinition {
+            name: "quickSortRange".to_string(),
+            type_params: vec![TypeParamInfo::new("T".to_string(), inner_var_id)],
+            body_type: Type::Function {
+                params: vec![
+                    Type::Array(Box::new(Type::TypeVar(inner_type_var.clone()))),
+                    Type::Int,
+                    Type::Int,
+                    Type::Function {
+                        params: vec![
+                            Type::TypeVar(inner_type_var.clone()),
+                            Type::TypeVar(inner_type_var),
+                        ],
+                        return_type: Box::new(Type::Int),
+                    },
+                ],
+                return_type: Box::new(Type::Void),
+            },
+        });
+
+        let mut diagnostics = DiagnosticBag::new();
+
+        // Simulate calling quickSortRange from within quickSort's body,
+        // where the argument types reference the OUTER TypeVar
+        let arg_types = vec![
+            Type::Array(Box::new(Type::TypeVar(outer_type_var.clone()))),
+            Type::Int,
+            Type::Int,
+            Type::Function {
+                params: vec![
+                    Type::TypeVar(outer_type_var.clone()),
+                    Type::TypeVar(outer_type_var.clone()),
+                ],
+                return_type: Box::new(Type::Int),
+            },
+        ];
+
+        let inferred = tracker.infer_type_args("quickSortRange", &arg_types, &mut diagnostics);
+        assert!(
+            inferred.is_some(),
+            "should infer type args for nested generic call"
+        );
+        assert!(!diagnostics.has_errors());
+
+        let type_args = inferred.unwrap();
+        assert_eq!(type_args.len(), 1);
+
+        // The inferred type should be the outer TypeVar (tracking the dependency),
+        // not a plain Named("T")
+        assert_eq!(type_args[0], Type::TypeVar(outer_type_var));
+    }
+
+    #[test]
+    fn test_infer_type_args_nested_generic_chain_with_concrete() {
+        // End-to-end test: quickSort<int>() should result in
+        // quickSortRange<int> being inferrable.
+
+        let mut tracker = MonomorphizationTracker::new();
+
+        // outer: quickSort<T>
+        let outer_var_id = tracker.fresh_var_id();
+        let ret_var_id = tracker.fresh_var_id();
+        let outer_type_var = TypeVar::new(outer_var_id, "T".to_string());
+        let ret_type_var = TypeVar::new(ret_var_id, "U".to_string());
+        tracker.register_generic(GenericDefinition {
+            name: "quickSort".to_string(),
+            type_params: vec![TypeParamInfo::new("T".to_string(), outer_var_id)],
+            body_type: Type::Function {
+                params: vec![
+                    Type::Array(Box::new(Type::TypeVar(outer_type_var.clone()))),
+                    Type::Function {
+                        params: vec![
+                            Type::TypeVar(outer_type_var.clone()),
+                            Type::TypeVar(outer_type_var),
+                        ],
+                        return_type: Box::new(Type::Int),
+                    },
+                ],
+                return_type: Box::new(Type::Array(Box::new(Type::TypeVar(ret_type_var)))),
+            },
+        });
+
+        let mut diagnostics = DiagnosticBag::new();
+
+        // Call quickSort with concrete int
+        let inferred = tracker
+            .infer_type_args(
+                "quickSort",
+                &[
+                    Type::Array(Box::new(Type::Int)),
+                    Type::Function {
+                        params: vec![Type::Int, Type::Int],
+                        return_type: Box::new(Type::Int),
+                    },
+                ],
+                &mut diagnostics,
+            )
+            .expect("should infer T=int for quickSort");
+
+        assert_eq!(inferred, vec![Type::Int]);
+
+        // Specialize quickSort with int
+        let spec = tracker.specialize("quickSort", inferred, &mut diagnostics);
+        assert!(spec.is_some(), "should specialize quickSort<int>");
+        assert!(!diagnostics.has_errors());
     }
 }

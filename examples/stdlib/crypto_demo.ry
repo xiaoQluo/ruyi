@@ -1,0 +1,257 @@
+/**
+ * Ruyi Example — 加密模块综合
+ *
+ * 覆盖:
+ * - Hash: sha256/sha512/sha1/md5 哈希
+ * - HMAC: hmacSha256/hmacSha512 消息认证码
+ * - PBKDF2: 密码密钥派生
+ * - AES-256-GCM: 认证加密/解密
+ * - X25519: Diffie-Hellman 密钥交换
+ * - CSPRNG: 密码学安全随机数
+ * - timingSafeEqual: 常量时间比较
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { sha256, sha512, sha1, md5 } from "crypto/hash";
+import { hmacSha256, hmacSha512 } from "crypto/hmac";
+import { pbkdf2Sha256 } from "crypto/pbkdf2";
+import { Aes256Gcm } from "crypto/aes";
+import { X25519 } from "crypto/dh";
+import { cryptoRandomBytes, cryptoRandomHex, cryptoRandomInt, cryptoRandomUUID } from "crypto/random";
+import { timingSafeEqual } from "crypto/util";
+
+// =============================================================================
+// 1. Hash — 消息摘要
+// =============================================================================
+fn demo_hash() {
+  print("=== 1. Hash 消息摘要 ===\n\n");
+
+  let msg = "Hello, Ruyi Crypto!";
+
+  let h256 = sha256(msg);
+  print("SHA-256: ");
+  print(h256);
+  print("\n");
+
+  let h512 = sha512(msg);
+  print("SHA-512: ");
+  print(h512);
+  print("\n");
+
+  let h1 = sha1(msg);
+  print("SHA-1:   ");
+  print(h1);
+  print("\n");
+
+  let hmd5 = md5(msg);
+  print("MD5:     ");
+  print(hmd5);
+  print("\n");
+
+  // 验证: 相同输入产生相同哈希
+  let h256_2 = sha256(msg);
+  print("SHA-256 一致性: ");
+  print(h256 === h256_2);
+  print("\n\n");
+}
+
+// =============================================================================
+// 2. HMAC — 消息认证码
+// =============================================================================
+fn demo_hmac() {
+  print("=== 2. HMAC 消息认证码 ===\n\n");
+
+  let key = "my-secret-key";
+  let message = "important data";
+
+  let mac256 = hmacSha256(key, message);
+  print("HMAC-SHA256: ");
+  print(mac256);
+  print("\n");
+
+  let mac512 = hmacSha512(key, message);
+  print("HMAC-SHA512: ");
+  print(mac512);
+  print("\n");
+
+  // 不同 key 产生不同 HMAC
+  let mac256_other = hmacSha256("other-key", message);
+  print("不同 key 结果不同: ");
+  print(mac256 !== mac256_other);
+  print("\n\n");
+}
+
+// =============================================================================
+// 3. PBKDF2 — 密码密钥派生
+// =============================================================================
+fn demo_pbkdf2() {
+  print("=== 3. PBKDF2 密钥派生 ===\n\n");
+
+  let password = "user-password-123";
+  let salt = "random-salt-value";
+  let iterations = 10000;
+  let keyLen = 32;
+
+  let derived = pbkdf2Sha256(password, salt, iterations, keyLen);
+  print("PBKDF2-SHA256 (");
+  print(iterations);
+  print(" iterations, ");
+  print(keyLen);
+  print(" bytes):\n  ");
+  print(derived);
+  print("\n");
+
+  // 相同参数产生相同密钥
+  let derived2 = pbkdf2Sha256(password, salt, iterations, keyLen);
+  print("确定性: ");
+  print(derived === derived2);
+  print("\n");
+
+  // 不同 salt 产生不同密钥
+  let derived3 = pbkdf2Sha256(password, "other-salt", iterations, keyLen);
+  print("不同 salt 结果不同: ");
+  print(derived !== derived3);
+  print("\n\n");
+}
+
+// =============================================================================
+// 4. AES-256-GCM — 认证加密
+// =============================================================================
+fn demo_aes() {
+  print("=== 4. AES-256-GCM 认证加密 ===\n\n");
+
+  // 生成密钥和 nonce
+  let key = Aes256Gcm.generateKey();
+  let nonce = Aes256Gcm.generateNonce();
+  print("Key (64 hex): ");
+  print(key);
+  print("\n");
+  print("Nonce (24 hex): ");
+  print(nonce);
+  print("\n");
+
+  // 加密
+  let plaintext = "Secret message for AES demo";
+  let cipher = Aes256Gcm.encrypt(key, nonce, plaintext);
+  print("密文: ");
+  print(cipher);
+  print("\n");
+
+  // 解密
+  let decrypted = Aes256Gcm.decrypt(key, nonce, cipher);
+  print("解密: ");
+  print(decrypted);
+  print("\n");
+
+  // 验证
+  print("解密正确: ");
+  print(decrypted === plaintext);
+  print("\n\n");
+}
+
+// =============================================================================
+// 5. X25519 — Diffie-Hellman 密钥交换
+// =============================================================================
+fn demo_dh() {
+  print("=== 5. X25519 密钥交换 ===\n\n");
+
+  // Alice 生成密钥对
+  let alice = X25519.generateKeypair();
+  print("Alice pubKey: ");
+  print(alice.pubKey);
+  print("\n");
+
+  // Bob 生成密钥对
+  let bob = X25519.generateKeypair();
+  print("Bob pubKey:   ");
+  print(bob.pubKey);
+  print("\n");
+
+  // 双方各自派生共享密钥
+  let sharedAlice = X25519.dh(alice.privKey, bob.pubKey);
+  let sharedBob = X25519.dh(bob.privKey, alice.pubKey);
+
+  print("Alice 派生: ");
+  print(sharedAlice);
+  print("\n");
+  print("Bob 派生:   ");
+  print(sharedBob);
+  print("\n");
+
+  // 验证共享密钥一致
+  print("共享密钥一致: ");
+  print(sharedAlice === sharedBob);
+  print("\n\n");
+}
+
+// =============================================================================
+// 6. CSPRNG — 密码学安全随机数
+// =============================================================================
+fn demo_csprng() {
+  print("=== 6. CSPRNG 安全随机数 ===\n\n");
+
+  // 随机字节
+  let bytes = cryptoRandomBytes(16);
+  print("cryptoRandomBytes(16): ");
+  print(bytes.length());
+  print(" bytes\n");
+
+  // 随机 hex 字符串
+  let hex = cryptoRandomHex(32);
+  print("cryptoRandomHex(32): ");
+  print(hex);
+  print("\n");
+
+  // 随机整数（范围）
+  let randInt = cryptoRandomInt(1, 100);
+  print("cryptoRandomInt(1, 100): ");
+  print(randInt);
+  print("\n");
+
+  // 随机 UUID
+  let uuid = cryptoRandomUUID();
+  print("cryptoRandomUUID(): ");
+  print(uuid);
+  print("\n\n");
+}
+
+// =============================================================================
+// 7. timingSafeEqual — 常量时间比较
+// =============================================================================
+fn demo_timing_safe() {
+  print("=== 7. timingSafeEqual 常量时间比较 ===\n\n");
+
+  let a = "deadbeef01234567";
+  let b = "deadbeef01234567";
+  let c = "deadbeef01234568";
+
+  print("相等字符串: ");
+  print(timingSafeEqual(a, b));
+  print("\n");
+
+  print("不等字符串: ");
+  print(timingSafeEqual(a, c));
+  print("\n");
+
+  // 用途: 安全比较 token/签名，防止时序攻击
+  let token = "session-abc-123";
+  let provided = "session-abc-123";
+  print("Token 验证: ");
+  print(timingSafeEqual(token, provided));
+  print("\n\n");
+}
+
+// =============================================================================
+// 主入口
+// =============================================================================
+demo_hash();
+demo_hmac();
+demo_pbkdf2();
+demo_aes();
+demo_dh();
+demo_csprng();
+demo_timing_safe();
+
+print("[crypto_demo] 完成\n");

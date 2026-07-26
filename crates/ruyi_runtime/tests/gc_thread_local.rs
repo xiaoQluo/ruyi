@@ -5,7 +5,6 @@ use std::thread;
 use ruyi_runtime::gc_exports::{
     ruyi_gc_add_root, ruyi_gc_alloc, ruyi_gc_collect, ruyi_gc_remove_root,
 };
-use ruyi_runtime::GcObjectHeader;
 
 /**
  * Thread-local GC heap tests
@@ -129,12 +128,14 @@ fn test_thread_exit_does_not_corrupt_main_heap() {
 
     unsafe {
         *(main_ptr as *mut u64) = 0x12345678;
+        ruyi_gc_add_root(main_ptr);
         ruyi_gc_collect();
         assert_eq!(
             *(main_ptr as *mut u64),
             0x12345678,
             "main heap should not be corrupted"
         );
+        ruyi_gc_remove_root(main_ptr);
     }
 }
 

@@ -1,0 +1,176 @@
+/**
+ * Ruyi Example — File System & Path Module
+ *
+ * Demonstrates:
+ * - File operations: readFile, writeFile, exists, size
+ * - Directory operations: readDir, mkdir, removeDir, ensureDir
+ * - Path manipulation: join, basename, dirname, extname, normalize
+ * - Temp file utilities
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { exists, isFile, isDir, readFile, writeFile, appendFile,
+         mkdir, removeDir, readDir, ensureDir, size, mtime,
+         tempDir, tempFilePath } from "fs";
+import { Path } from "path";
+
+// -----------------------------------------------------------------------------
+// Helper
+// -----------------------------------------------------------------------------
+fn printOk(label: string) {
+    print("  ✓ " + label + "\n");
+}
+
+fn check(label: string, condition: bool) {
+    if (condition) {
+        print("  ✓ " + label + "\n");
+    } else {
+        print("  ✗ FAILED: " + label + "\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 1. Path Operations
+// -----------------------------------------------------------------------------
+fn demo_path() {
+    print("=== 1. Path Operations ===\n\n");
+
+    // Basic path decomposition
+    let filePath = "/home/ruyi/project/main.ry";
+
+    check("Path.basename()", Path.basename(filePath) === "main.ry");
+    check("Path.dirname()", Path.dirname(filePath) === "/home/ruyi/project");
+    check("Path.extname()", Path.extname(filePath) === ".ry");
+
+    // Path without extension
+    let noExt = Path.basenameNoExt(filePath);
+    check("Path.basenameNoExt()", noExt === "main");
+
+    // Path classification
+    check("Path.isAbsolute()", Path.isAbsolute(filePath));
+    check("Path.isRelative()", !Path.isRelative(filePath));
+
+    // Path joining
+    let joined = Path.join("/home/ruyi", "stdlib", "io.ry");
+    check("Path.join()", joined === "/home/ruyi/stdlib/io.ry");
+
+    // Path normalization
+    let messy = "/home/ruyi/./project/../stdlib/io.ry";
+    let normalized = Path.normalize(messy);
+    print("  normalize(\"" + messy + "\") = \"" + normalized + "\"\n");
+
+    // Change extension
+    let changed = Path.changeExt(filePath, ".js");
+    check("Path.changeExt()", changed === "/home/ruyi/project/main.js");
+
+    printOk("path module OK");
+}
+
+// -----------------------------------------------------------------------------
+// 2. File Operations
+// -----------------------------------------------------------------------------
+fn demo_files() {
+    print("=== 2. File Operations ===\n\n");
+
+    let workDir = tempFilePath("ruyi_fs_demo");
+    let filePath = workDir + "/test.txt";
+
+    ensureDir(workDir);
+
+    // Write and read
+    writeFile(filePath, "Line 1\nLine 2\nLine 3");
+    check("exists() after write", exists(filePath));
+    check("isFile()", isFile(filePath));
+    check("isDir() neg", !isDir(filePath));
+
+    // File size
+    let sz = size(filePath);
+    check("size() > 0", sz > 0);
+    print("  File size: " + sz + " bytes\n");
+
+    // Read content
+    let content = readFile(filePath);
+    check("readFile() content length", content.length() > 0);
+    print("  Content: \"" + content + "\"\n");
+
+    // Append
+    appendFile(filePath, "\nLine 4");
+    let appended = readFile(filePath);
+    check("appendFile()", appended.length() > content.length());
+
+    // Cleanup
+    removeDir(workDir);
+    check("removeDir() cleanup", !exists(workDir));
+
+    printOk("file operations OK");
+}
+
+// -----------------------------------------------------------------------------
+// 3. Directory Operations
+// -----------------------------------------------------------------------------
+fn demo_directories() {
+    print("=== 3. Directory Operations ===\n\n");
+
+    let baseDir = tempFilePath("ruyi_dir_demo");
+    ensureDir(baseDir);
+
+    // Create subdirectories
+    mkdir(Path.join(baseDir, "src"));
+    mkdir(Path.join(baseDir, "lib"));
+    writeFile(Path.join(baseDir, "README.txt"), "docs");
+    writeFile(Path.join(baseDir, "src", "main.ry"), "code");
+    writeFile(Path.join(baseDir, "lib", "utils.ry"), "lib code");
+
+    // List directory
+    let entries = readDir(baseDir);
+    check("readDir() returns entries", entries.length() > 0);
+    print("  Directory listing:\n");
+    let i = 0;
+    while (i < entries.length()) {
+        print("    - " + entries.get(i) + "\n");
+        i = i + 1;
+    }
+
+    // Cleanup
+    removeDir(baseDir);
+    check("removeDir() recursive", !exists(baseDir));
+
+    printOk("directory operations OK");
+}
+
+// -----------------------------------------------------------------------------
+// 4. Temp File Utilities
+// -----------------------------------------------------------------------------
+fn demo_temp() {
+    print("=== 4. Temp File Utilities ===\n\n");
+
+    // Temp file path (doesn't create the file)
+    let tmpPath = tempFilePath("demo");
+    check("tempFilePath() returns path", tmpPath !== "");
+    print("  Temp file path: " + tmpPath + "\n");
+
+    // Temp directory path
+    let tmpDir = tempDir();
+    check("tempDir() returns path", tmpDir !== "");
+    print("  Temp directory: " + tmpDir + "\n");
+
+    printOk("temp utilities OK");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+    print("╔══════════════════════════════════╗\n");
+    print("║    File System & Path Demo      ║\n");
+    print("╚══════════════════════════════════╝\n\n");
+
+    demo_path();
+    demo_files();
+    demo_directories();
+    demo_temp();
+
+    print("\nAll FS & Path demos completed!\n");
+}

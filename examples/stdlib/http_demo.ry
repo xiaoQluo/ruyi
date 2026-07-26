@@ -1,0 +1,233 @@
+/**
+ * Ruyi Example — HTTP Client & Server (http module)
+ *
+ * Demonstrates:
+ * - HttpClient.request(): GET/POST requests
+ * - HttpResponse: status, body, headers, isSuccess()
+ * - HttpServer: listen, accept, sendResponse
+ * - HttpRequest: method, path, headers, body
+ * - Convenience functions: get(), post()
+ * - Content-Type handling
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { HttpClient, HttpServer, HttpRequest, HttpResponse } from "http";
+import { Thread } from "thread";
+
+// -----------------------------------------------------------------------------
+// Helper
+// -----------------------------------------------------------------------------
+fn printOk(label: string) {
+    print("  ✓ " + label + "\n");
+}
+
+fn check(label: string, condition: bool) {
+    if (condition) {
+        print("  ✓ " + label + "\n");
+    } else {
+        print("  ✗ FAILED: " + label + "\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 1. HTTP Server Basics
+// -----------------------------------------------------------------------------
+fn demo_http_server() {
+    print("=== 1. HTTP Server Basics ===\n\n");
+
+    try {
+        let server = HttpServer.listen("127.0.0.1", 19970);
+        print("  HTTP server on http://127.0.0.1:19970\n");
+
+        // Server thread
+        Thread.spawn(fn(arg) {
+            // GET /
+            let req1 = server.accept();
+            check("  request method", req1.method === "GET");
+            server.sendResponse(req1, 200, "Hello from Ruyi!", "text/plain");
+
+            // GET /api/status
+            let req2 = server.accept();
+            check("  request path", req2.path === "/api/status");
+            server.sendResponse(req2, 200, "{\"status\":\"ok\"}", "application/json");
+
+            // POST /data
+            let req3 = server.accept();
+            check("  POST method", req3.method === "POST");
+            server.sendResponse(req3, 201, "{\"created\":true}", "application/json");
+
+            server.close();
+        });
+
+        Thread.sleep(10);
+
+        // Client: GET /
+        let resp1 = HttpClient.request("GET", "http://127.0.0.1:19970/", null, null);
+        check("HTTP GET / → 200", resp1.status === 200);
+        check("HTTP GET / body", resp1.body === "Hello from Ruyi!");
+        check("HTTP isSuccess()", resp1.isSuccess());
+
+        // Client: GET /api/status
+        let resp2 = HttpClient.request("GET", "http://127.0.0.1:19970/api/status", null, null);
+        check("HTTP GET /api/status → 200", resp2.status === 200);
+        check("HTTP JSON content-type", resp2.body !== "");
+        print("  Response: " + resp2.body + "\n");
+
+        // Client: POST /data
+        let resp3 = HttpClient.request("POST", "http://127.0.0.1:19970/data", "payload", null);
+        check("HTTP POST → 201", resp3.status === 201);
+
+        printOk("HTTP server basics OK");
+    } catch (e) {
+        print("  ⚠ HTTP server skipped: 网络操作失败\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 2. HttpResponse 详情
+// -----------------------------------------------------------------------------
+fn demo_http_response() {
+    print("=== 2. HttpResponse 详情 ===\n\n");
+
+    try {
+        let server = HttpServer.listen("127.0.0.1", 19972);
+
+        Thread.spawn(fn(arg) {
+            let req = server.accept();
+            server.sendResponse(req, 200, "{\"name\":\"Ruyi\",\"version\":\"0.6\"}", "application/json");
+            server.close();
+        });
+
+        Thread.sleep(10);
+
+        let resp = HttpClient.request("GET", "http://127.0.0.1:19972/", null, null);
+
+        // 访问 HttpResponse 字段
+        check("status === 200", resp.status === 200);
+        check("isSuccess()", resp.isSuccess());
+        check("body 非空", resp.body !== "");
+        print("  status: " + resp.status + "\n");
+        print("  body: " + resp.body + "\n");
+
+        printOk("HttpResponse OK");
+    } catch (e) {
+        print("  ⚠ HttpResponse 跳过: 网络操作失败\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 3. HttpClient 多方法请求
+// -----------------------------------------------------------------------------
+fn demo_http_methods() {
+    print("=== 3. HttpClient 多方法请求 ===\n\n");
+
+    try {
+        let server = HttpServer.listen("127.0.0.1", 19973);
+
+        Thread.spawn(fn(arg) {
+            // 处理 PUT 请求
+            let req1 = server.accept();
+            server.sendResponse(req1, 200, "PUT:" + req1.body, "text/plain");
+
+            // 处理 DELETE 请求
+            let req2 = server.accept();
+            server.sendResponse(req2, 204, "", "text/plain");
+
+            server.close();
+        });
+
+        Thread.sleep(10);
+
+        // PUT 请求
+        let putResp = HttpClient.request("PUT", "http://127.0.0.1:19973/item/1", "updated-data", null);
+        check("PUT → 200", putResp.status === 200);
+        print("  PUT body: " + putResp.body + "\n");
+
+        // DELETE 请求
+        let delResp = HttpClient.request("DELETE", "http://127.0.0.1:19973/item/1", null, null);
+        check("DELETE → 204", delResp.status === 204);
+
+        printOk("多方法请求 OK");
+    } catch (e) {
+        print("  ⚠ 多方法请求跳过: 网络操作失败\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 4. HttpRequest 服务端解析
+// -----------------------------------------------------------------------------
+fn demo_http_request() {
+    print("=== 4. HttpRequest 服务端解析 ===\n\n");
+
+    try {
+        let server = HttpServer.listen("127.0.0.1", 19974);
+
+        Thread.spawn(fn(arg) {
+            let req = server.accept();
+            // 服务端读取请求字段
+            let method = req.method;
+            let path = req.path;
+            let body = req.body;
+            // 回显请求信息
+            let echo = method + " " + path + " body=" + body;
+            server.sendResponse(req, 200, echo, "text/plain");
+            server.close();
+        });
+
+        Thread.sleep(10);
+
+        let resp = HttpClient.request("POST", "http://127.0.0.1:19974/api/echo", "hello-server", null);
+        check("服务端解析请求", resp.status === 200);
+        print("  服务端回显: " + resp.body + "\n");
+
+        printOk("HttpRequest 解析 OK");
+    } catch (e) {
+        print("  ⚠ HttpRequest 跳过: 网络操作失败\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 5. Error Handling
+// -----------------------------------------------------------------------------
+fn demo_http_errors() {
+    print("=== 5. HTTP Error Handling ===\n\n");
+
+    try {
+        let server = HttpServer.listen("127.0.0.1", 19971);
+        Thread.spawn(fn(arg) {
+            let req = server.accept();
+            if (req.path !== "/found") {
+                server.sendResponse(req, 404, "Not Found", "text/plain");
+            }
+            server.close();
+        });
+
+        Thread.sleep(10);
+        let resp = HttpClient.request("GET", "http://127.0.0.1:19971/missing", null, null);
+        check("HTTP 404 not success", !resp.isSuccess());
+        check("HTTP 404 status", resp.status === 404);
+
+        printOk("error handling OK");
+    } catch (e) {
+        print("  ⚠ Error handling demo skipped: 操作失败\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+    print("╔══════════════════════════════════╗\n");
+    print("║     HTTP Client / Server Demo   ║\n");
+    print("╚══════════════════════════════════╝\n\n");
+
+    demo_http_server();
+    demo_http_response();
+    demo_http_methods();
+    demo_http_request();
+    demo_http_errors();
+
+    print("\nAll HTTP demos completed!\n");
+}

@@ -1,0 +1,192 @@
+/**
+ * Ruyi Example — Argument Parser Module
+ *
+ * Demonstrates:
+ * - parseArgs(): parsing command-line arguments
+ * - ParsedArgs.hasFlag(): checking flag presence
+ * - ParsedArgs.getOpt(): extracting option values
+ * - ParsedArgs.positional(): accessing positional arguments
+ * - Long form (--flag) and short form (-f) flag aliasing
+ *
+ * Note: This module operates on an Array<string> of arguments and does NOT
+ * read from the OS directly. The caller provides the argument array, typically
+ * obtained via a mechanism like process.argv.
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { parseArgs, ParsedArgs } from "argparser";
+
+// -----------------------------------------------------------------------------
+// Helper
+// -----------------------------------------------------------------------------
+fn printOk(label: string) {
+    print("  ✓ " + label + "\n");
+}
+
+fn check(label: string, condition: bool) {
+    if (condition) {
+        print("  ✓ " + label + "\n");
+    } else {
+        print("  ✗ FAILED: " + label + "\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 1. Basic Flag Parsing
+// -----------------------------------------------------------------------------
+fn demo_basic_flags() {
+    print("=== 1. Basic Flag Parsing ===\n\n");
+
+    // Simulated argv: ["program", "--verbose", "--debug", "input.txt"]
+    let argv = ["ruyic", "--verbose", "--debug", "input.txt"];
+
+    let longForms = ["--verbose", "--debug", "--output"];
+    let shortForms = ["-v", "-d", "-o"];
+
+    let parsed = parseArgs(argv, longForms, shortForms);
+
+    // Check flags
+    check("hasFlag('--verbose')", parsed.hasFlag("--verbose"));
+    check("hasFlag('--debug')", parsed.hasFlag("--debug"));
+    check("!hasFlag('--output')", !parsed.hasFlag("--output"));
+
+    // Check positional arguments
+    let positional = parsed.positional();
+    check("positional()[0]", positional.get(0) === "input.txt");
+
+    printOk("basic flags OK");
+}
+
+// -----------------------------------------------------------------------------
+// 2. Options with Values
+// -----------------------------------------------------------------------------
+fn demo_options() {
+    print("=== 2. Options with Values ===\n\n");
+
+    // Simulated: ./program --config app.json --port 8080
+    let argv = ["program", "--config", "app.json", "--port", "8080"];
+
+    let longForms = ["--config", "--port", "--verbose"];
+    let shortForms = ["-c", "-p", "-v"];
+
+    let parsed = parseArgs(argv, longForms, shortForms);
+
+    // Extract option values
+    let config = parsed.getOpt("--config");
+    check("getOpt('--config')", config === "app.json");
+
+    let port = parsed.getOpt("--port");
+    check("getOpt('--port')", port === "8080");
+
+    // Missing option returns null
+    let missing = parsed.getOpt("--verbose");
+    check("getOpt('--verbose') missing", missing === null);
+
+    printOk("options with values OK");
+}
+
+// -----------------------------------------------------------------------------
+// 3. Short Form Flags (-v, -d)
+// -----------------------------------------------------------------------------
+fn demo_short_forms() {
+    print("=== 3. Short Form Flags ===\n\n");
+
+    // Simulated: ./program -v -d -o output.txt
+    let argv = ["program", "-v", "-d", "-o", "output.txt"];
+
+    let longForms = ["--verbose", "--debug", "--output"];
+    let shortForms = ["-v", "-d", "-o"];
+
+    let parsed = parseArgs(argv, longForms, shortForms);
+
+    // Short forms map to the same flag names
+    check("hasFlag('-v') → '--verbose'", parsed.hasFlag("-v"));
+    check("hasFlag('-d') → '--debug'", parsed.hasFlag("-d"));
+
+    // Short form options also work
+    let output = parsed.getOpt("-o");
+    check("getOpt('-o')", output === "output.txt");
+
+    printOk("short forms OK");
+}
+
+// -----------------------------------------------------------------------------
+// 4. Positional Arguments
+// -----------------------------------------------------------------------------
+fn demo_positional() {
+    print("=== 4. Positional Arguments ===\n\n");
+
+    // Simulated: ./program source.ry dest.ry
+    let argv = ["program", "source.ry", "dest.ry"];
+
+    let longForms: Array<string> = [];
+    let shortForms: Array<string> = [];
+
+    let parsed = parseArgs(argv, longForms, shortForms);
+
+    let pos = parsed.positional();
+    check("positional length", pos.length() === 2);
+
+    // Access by index
+    check("get(0)", parsed.get(0) === "source.ry");
+    check("get(1)", parsed.get(1) === "dest.ry");
+
+    printOk("positional arguments OK");
+}
+
+// -----------------------------------------------------------------------------
+// 5. Complete CLI Example
+// -----------------------------------------------------------------------------
+fn demo_complete_cli() {
+    print("=== 5. Complete CLI Example ===\n\n");
+
+    // Simulate: ruyic --emit-llvm --debug -O2 -o output main.ry
+    let argv = ["ruyic", "--emit-llvm", "--debug", "-O2", "-o", "output", "main.ry"];
+
+    let longForms = ["--emit-llvm", "--emit-ast", "--debug", "--output"];
+    let shortForms = ["-O0", "-O1", "-O2", "-o"];
+
+    let parsed = parseArgs(argv, longForms, shortForms);
+
+    // Compile flags
+    let emitLlvm = parsed.hasFlag("--emit-llvm");
+    let debug = parsed.hasFlag("--debug");
+    let optLevel = parsed.getOpt("-O2") ?? "O2";
+
+    // Output file
+    let output = parsed.getOpt("-o");
+
+    // Source file (positional)
+    let source = parsed.get(0);
+
+    check("emit-llvm flag", emitLlvm);
+    check("debug flag", debug);
+    check("output option", output === "output");
+    check("source file", source === "main.ry");
+
+    print("\n  Full CLI simulation:\n");
+    print("    Compile: " + source + "\n");
+    print("    Flags: emit-llvm=" + emitLlvm + " debug=" + debug + "\n");
+    print("    Output: " + output + "\n");
+
+    printOk("complete CLI OK");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+    print("╔══════════════════════════════════╗\n");
+    print("║     Argument Parser Demo        ║\n");
+    print("╚══════════════════════════════════╝\n\n");
+
+    demo_basic_flags();
+    demo_options();
+    demo_short_forms();
+    demo_positional();
+    demo_complete_cli();
+
+    print("\nAll Argument Parser demos completed!\n");
+}

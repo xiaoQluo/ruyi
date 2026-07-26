@@ -25,10 +25,7 @@
  */
 export fn assert_eq<T>(actual: T, expected: T): void {
     if (actual !== expected) {
-        throw AssertionError.new(
-            "assert_eq failed: expected " + expected.toString() +
-                ", got " + actual.toString()
-        );
+        throw AssertionError.new("assert_eq failed: actual !== expected");
     }
 }
 

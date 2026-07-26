@@ -1,0 +1,224 @@
+// =============================================================================
+// Bitwise Operators — Ruyi Bit Manipulation
+// =============================================================================
+// Covers: AND (&), OR (|), XOR (^), NOT (~),
+//         left shift (<<), right shift (>>), unsigned right shift (>>>)
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 1. Bitwise AND (&) — Masking and Checking
+// -----------------------------------------------------------------------------
+fn andDemo() {
+  print("--- Bitwise AND (&) ---\n");
+
+  let a: int = 0b1100;  // 12
+  let b: int = 0b1010;  // 10
+  let result: int = a & b;
+
+  print("0b1100 & 0b1010 = 0b");
+  print(result);
+  print("  (decimal: ");
+  print(result);
+  print(")\n");
+}
+
+// -----------------------------------------------------------------------------
+// 2. Bitwise OR (|) — Setting Bits
+// -----------------------------------------------------------------------------
+fn orDemo() {
+  print("--- Bitwise OR (|) ---\n");
+
+  let a: int = 0b1100;  // 12
+  let b: int = 0b1010;  // 10
+  let result: int = a | b;
+
+  print("0b1100 | 0b1010 = 0b");
+  print(result);
+  print("  (decimal: ");
+  print(result);
+  print(")\n");
+}
+
+// -----------------------------------------------------------------------------
+// 3. Bitwise XOR (^) — Toggling Bits
+// -----------------------------------------------------------------------------
+fn xorDemo() {
+  print("--- Bitwise XOR (^) ---\n");
+
+  let a: int = 0b1100;  // 12
+  let b: int = 0b1010;  // 10
+  let result: int = a ^ b;
+
+  print("0b1100 ^ 0b1010 = 0b");
+  print(result);
+  print("  (decimal: ");
+  print(result);
+  print(")\n");
+}
+
+// -----------------------------------------------------------------------------
+// 4. Bitwise NOT (~) — Complement
+// -----------------------------------------------------------------------------
+fn notDemo() {
+  print("--- Bitwise NOT (~) ---\n");
+
+  let a: int = 0b0000;
+  let result: int = ~a;
+
+  print("~0 = ");
+  print(result);
+  print("\n");
+
+  let b: int = 42;
+  print("~42 = ");
+  print(~b);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 5. Left Shift (<<) — Multiply by Powers of 2
+// -----------------------------------------------------------------------------
+fn leftShiftDemo() {
+  print("--- Left Shift (<<) ---\n");
+
+  let x: int = 1;
+
+  for (let i = 0; i < 5; i = i + 1) {
+    let shifted: int = x << i;
+    print("1 << ");
+    print(i);
+    print(" = ");
+    print(shifted);
+    print("\n");
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 6. Right Shift (>>) — Arithmetic (Sign-Preserving)
+// -----------------------------------------------------------------------------
+fn rightShiftDemo() {
+  print("--- Right Shift (>>) ---\n");
+
+  let x: int = 16;
+
+  for (let i = 0; i < 5; i = i + 1) {
+    let shifted: int = x >> i;
+    print("16 >> ");
+    print(i);
+    print(" = ");
+    print(shifted);
+    print("\n");
+  }
+
+  // Sign extension
+  let neg: int = -16;
+  print("-16 >> 1 = ");
+  print(neg >> 1);
+  print("  (sign-preserving)\n");
+}
+
+// -----------------------------------------------------------------------------
+// 7. Unsigned Right Shift (>>>) — Logical (Zero-Fill)
+// -----------------------------------------------------------------------------
+fn unsignedRightShiftDemo() {
+  print("--- Unsigned Right Shift (>>>) ---\n");
+
+  let x: int = 16;
+  print("16 >>> 1 = ");
+  print(x >>> 1);
+  print("\n");
+  print("16 >>> 2 = ");
+  print(x >>> 2);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 8. Practical: Permission Flags
+// -----------------------------------------------------------------------------
+class Permissions {
+  _flags: int;
+
+  fn new() {
+    self._flags = 0;
+  }
+
+  // Check if a permission is set
+  fn has(permission: int): bool {
+    return (self._flags & permission) !== 0;
+  }
+
+  // Grant a permission
+  fn grant(permission: int) {
+    self._flags = self._flags | permission;
+  }
+
+  // Revoke a permission
+  fn revoke(permission: int) {
+    self._flags = self._flags & ~permission;
+  }
+
+  // Toggle a permission
+  fn toggle(permission: int) {
+    self._flags = self._flags ^ permission;
+  }
+
+  get flags(): int {
+    return self._flags;
+  }
+}
+
+fn permissionsDemo() {
+  print("--- Permission Flags ---\n");
+
+  let READ: int = 1 << 0;    // 1
+  let WRITE: int = 1 << 1;   // 2
+  let EXECUTE: int = 1 << 2; // 4
+
+  let perms = Permissions.new();
+
+  perms.grant(READ);
+  perms.grant(WRITE);
+  print("after grant READ+WRITE: flags=");
+  print(perms.flags);
+  print("\n");
+
+  print("has READ: ");
+  print(perms.has(READ));
+  print(", has WRITE: ");
+  print(perms.has(WRITE));
+  print(", has EXECUTE: ");
+  print(perms.has(EXECUTE));
+  print("\n");
+
+  perms.revoke(READ);
+  print("after revoke READ: has READ=");
+  print(perms.has(READ));
+  print(", flags=");
+  print(perms.flags);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+  print("=== Bitwise Operators Demo ===\n\n");
+
+  andDemo();
+  print("\n");
+  orDemo();
+  print("\n");
+  xorDemo();
+  print("\n");
+  notDemo();
+  print("\n");
+  leftShiftDemo();
+  print("\n");
+  rightShiftDemo();
+  print("\n");
+  unsignedRightShiftDemo();
+  print("\n");
+  permissionsDemo();
+
+  print("\nAll bitwise operator demos completed successfully!\n");
+}

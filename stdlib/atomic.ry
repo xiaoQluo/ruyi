@@ -47,8 +47,8 @@ export class AtomicInt {
 
     /** Compare-and-swap: if current == expected, set to desired.
      *  Returns the OLD value (== expected on success). */
-    fn compareExchange(expected: int, desired: int): int {
-        return __atomic_i64_cas(self._ptr, expected, desired);
+    fn compareExchange(expected: int, desired: int): bool {
+        return __atomic_i64_cas(self._ptr, expected, desired) === expected;
     }
 
     /** Atomically add value. Returns the OLD value. */

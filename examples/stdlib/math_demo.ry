@@ -1,0 +1,45 @@
+import { PI, E, sqrt, pow, abs, min, max, floor, ceil, round,
+         sin, cos, tan, log, log2, log10, sinh, cosh, tanh,
+         atan2, hypot, cbrt, exp, trunc } from "math";
+
+fn main() {
+    print("=== Math Constants ===\n");
+    print("PI = " + PI + "\n");
+    print("E  = " + E + "\n\n");
+
+    print("=== Basic Functions ===\n");
+    print("sqrt(16) = " + sqrt(16.0) + "\n");
+    print("pow(2, 10) = " + pow(2.0, 10.0) + "\n");
+    print("abs(-3.5) = " + abs(0.0 - 3.5) + "\n");
+    print("exp(1) = " + exp(1.0) + "\n\n");
+
+    print("=== Rounding ===\n");
+    print("floor(2.7) = " + floor(2.7) + "\n");
+    print("ceil(2.3)  = " + ceil(2.3) + "\n");
+    print("round(2.5) = " + round(2.5) + "\n");
+    print("trunc(2.9) = " + trunc(2.9) + "\n\n");
+
+    print("=== Trigonometry ===\n");
+    print("sin(0) = " + sin(0.0) + "\n");
+    print("cos(0) = " + cos(0.0) + "\n");
+    print("tan(0) = " + tan(0.0) + "\n");
+    print("atan2(1, 1) = " + atan2(1.0, 1.0) + "\n\n");
+
+    print("=== Hyperbolic ===\n");
+    print("sinh(1) = " + sinh(1.0) + "\n");
+    print("cosh(1) = " + cosh(1.0) + "\n");
+    print("tanh(1) = " + tanh(1.0) + "\n\n");
+
+    print("=== Logarithms ===\n");
+    print("log(e)   = " + log(E) + "\n");
+    print("log2(8)  = " + log2(8.0) + "\n");
+    print("log10(100) = " + log10(100.0) + "\n\n");
+
+    print("=== Geometry ===\n");
+    print("hypot(3, 4) = " + hypot(3.0, 4.0) + "\n");
+    print("cbrt(27)   = " + cbrt(27.0) + "\n\n");
+
+    print("=== Min/Max ===\n");
+    print("min(3, 5) = " + min(3.0, 5.0) + "\n");
+    print("max(3, 5) = " + max(3.0, 5.0) + "\n");
+}

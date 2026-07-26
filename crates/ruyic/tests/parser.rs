@@ -62,7 +62,7 @@ fn test_let_with_type() {
             assert_eq!(bindings[0].pattern, Pattern::Identifier("x".into()));
             assert_eq!(
                 bindings[0].ty,
-                Some(TypeAnnotation::Identifier("int".into()))
+                Some(TypeAnnotation::Builtin("int".to_string()))
             );
         }
         _ => panic!("expected let declaration"),
@@ -140,7 +140,7 @@ fn test_fn_simple() {
         } => {
             assert_eq!(name, "add");
             assert_eq!(params.len(), 2);
-            assert_eq!(return_type, Some(TypeAnnotation::Identifier("int".into())));
+            assert_eq!(return_type, Some(TypeAnnotation::Builtin("int".to_string())));
             assert_eq!(body.len(), 1);
             assert!(!is_async);
         }
@@ -150,24 +150,21 @@ fn test_fn_simple() {
 
 #[test]
 fn test_fn_async() {
-    let stmt = single_stmt("async fn fetch() { return 1; };");
-    match stmt {
-        Statement::Expression(e) => match *e {
-            Expr::Function {
-                name,
-                params,
-                body,
-                is_async,
-                ..
-            } => {
-                assert_eq!(name, Some("fetch".into()));
-                assert_eq!(params.len(), 0);
-                assert!(is_async);
-                assert_eq!(body.len(), 1);
-            }
-            _ => panic!("expected async function expression"),
-        },
-        _ => panic!("expected expression statement"),
+    let decl = single_decl("async fn fetch() { return 1; }");
+    match decl {
+        Declaration::Function {
+            name,
+            params,
+            body,
+            is_async,
+            ..
+        } => {
+            assert_eq!(name, "fetch");
+            assert_eq!(params.len(), 0);
+            assert!(is_async);
+            assert_eq!(body.len(), 1);
+        }
+        _ => panic!("expected async function declaration"),
     }
 }
 
@@ -348,24 +345,25 @@ fn test_trait_empty() {
 
 #[test]
 fn test_macro_simple() {
-    // Macro declarations are not correctly parsed in this parser
-    let err = parse_err("macro log { (msg) => { print(msg); } }");
-    match err {
-        ParseError::ExpectedToken { expected, .. } => {
-            assert_eq!(expected, "'=>'");
+    let decl = single_decl("macro log { (msg) => { print(msg); } }");
+    match decl {
+        Declaration::Macro { name, rules } => {
+            assert_eq!(name, "log");
+            assert_eq!(rules.len(), 1);
         }
-        _ => panic!("expected ExpectedToken error, got {:?}", err),
+        _ => panic!("expected macro declaration"),
     }
 }
 
 #[test]
 fn test_macro_multiple_rules() {
-    let err = parse_err("macro vec { () => { [] } (a) => { [a] } }");
-    match err {
-        ParseError::ExpectedToken { expected, .. } => {
-            assert_eq!(expected, "'=>'");
+    let decl = single_decl("macro vec { () => { [] } (a) => { [a] } }");
+    match decl {
+        Declaration::Macro { name, rules } => {
+            assert_eq!(name, "vec");
+            assert_eq!(rules.len(), 2);
         }
-        _ => panic!("expected ExpectedToken error, got {:?}", err),
+        _ => panic!("expected macro declaration"),
     }
 }
 
@@ -383,13 +381,14 @@ fn test_macro_empty_rules() {
 
 #[test]
 fn test_macro_rule_with_tokens() {
-    let err =
-        parse_err("macro assert { (cond) => { if (!cond) { throw \"assertion failed\"; } } }");
-    match err {
-        ParseError::ExpectedToken { expected, .. } => {
-            assert_eq!(expected, "'=>'");
+    let decl =
+        single_decl("macro assert { (cond) => { if (!cond) { throw \"assertion failed\"; } } }");
+    match decl {
+        Declaration::Macro { name, rules } => {
+            assert_eq!(name, "assert");
+            assert_eq!(rules.len(), 1);
         }
-        _ => panic!("expected ExpectedToken error, got {:?}", err),
+        _ => panic!("expected macro declaration"),
     }
 }
 
@@ -1557,11 +1556,14 @@ fn test_expr_new() {
 
 #[test]
 fn test_expr_new_with_args() {
-    // new with arguments is not correctly parsed in this parser
-    let err = parse_err("new Point(1, 2);");
-    match err {
-        ParseError::ExpectedToken { .. } | ParseError::SyntaxError { .. } => {}
-        _ => panic!("expected parse error, got {:?}", err),
+    // `new` accepts constructor arguments, forwarded to the class's `new`
+    // method (the constructor) by codegen.
+    match single_expr("new Point(1, 2);") {
+        Expr::New { callee, args } => {
+            assert_eq!(*callee, Expr::Identifier("Point".into()));
+            assert_eq!(args.len(), 2);
+        }
+        _ => panic!("expected new expression with arguments"),
     }
 }
 
@@ -1958,7 +1960,7 @@ fn test_type_simple() {
         Declaration::Let(bindings) => {
             assert_eq!(
                 bindings[0].ty,
-                Some(TypeAnnotation::Identifier("int".into()))
+                Some(TypeAnnotation::Builtin("int".to_string()))
             );
         }
         _ => panic!("expected let"),
@@ -1973,7 +1975,7 @@ fn test_type_generic() {
             TypeAnnotation::Generic { base, args } => {
                 assert_eq!(base, "Array");
                 assert_eq!(args.len(), 1);
-                assert_eq!(args[0], TypeAnnotation::Identifier("int".into()));
+                assert_eq!(args[0], TypeAnnotation::Builtin("int".to_string()));
             }
             _ => panic!("expected generic type"),
         },
@@ -1987,7 +1989,7 @@ fn test_type_nullable() {
     match decl {
         Declaration::Let(bindings) => match bindings[0].ty.as_ref().unwrap() {
             TypeAnnotation::Nullable(inner) => {
-                assert_eq!(**inner, TypeAnnotation::Identifier("string".into()));
+                assert_eq!(**inner, TypeAnnotation::Builtin("string".to_string()));
             }
             _ => panic!("expected nullable type"),
         },
@@ -2007,7 +2009,7 @@ fn test_type_function() {
                 assert_eq!(params.len(), 1);
                 assert_eq!(
                     *return_type,
-                    Box::new(TypeAnnotation::Identifier("string".into()))
+                    Box::new(TypeAnnotation::Builtin("string".to_string()))
                 );
             }
             _ => panic!("expected function type"),
@@ -2038,8 +2040,8 @@ fn test_type_tuple() {
         Declaration::Let(bindings) => match bindings[0].ty.as_ref().unwrap() {
             TypeAnnotation::Tuple(types) => {
                 assert_eq!(types.len(), 2);
-                assert_eq!(types[0], TypeAnnotation::Identifier("int".into()));
-                assert_eq!(types[1], TypeAnnotation::Identifier("string".into()));
+                assert_eq!(types[0], TypeAnnotation::Builtin("int".to_string()));
+                assert_eq!(types[1], TypeAnnotation::Builtin("string".to_string()));
             }
             _ => panic!("expected tuple type"),
         },
@@ -2053,7 +2055,7 @@ fn test_type_array() {
     match decl {
         Declaration::Let(bindings) => match bindings[0].ty.as_ref().unwrap() {
             TypeAnnotation::Array(inner) => {
-                assert_eq!(*inner, Box::new(TypeAnnotation::Identifier("int".into())));
+                assert_eq!(*inner, Box::new(TypeAnnotation::Builtin("int".to_string())));
             }
             _ => panic!("expected array type"),
         },

@@ -1,0 +1,181 @@
+// =============================================================================
+// Async Programming - Ruyi Tutorial Chapter 11
+// =============================================================================
+// Covers: async functions, await, concurrent execution (simulated synchronously)
+// Note: async/await codegen is not yet fully implemented.
+// This file demonstrates the concepts using synchronous equivalents.
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 11.1 Simulated async Functions
+// -----------------------------------------------------------------------------
+fn fetchData(url: string): string {
+  let result: string = "data from " + url;
+  return result;
+}
+
+// -----------------------------------------------------------------------------
+// 11.2 Simulated await (sequential calls)
+// -----------------------------------------------------------------------------
+fn loadSequential() {
+  let r1 = fetchData("url1");
+  let r2 = fetchData("url2");
+  let r3 = fetchData("url3");
+  print(r1);
+  print("\n");
+  print(r2);
+  print("\n");
+  print(r3);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 11.3 Simulated Concurrent Execution (sequential in sync mode)
+// -----------------------------------------------------------------------------
+fn loadConcurrent() {
+  let f1 = fetchData("url1");
+  let f2 = fetchData("url2");
+  let f3 = fetchData("url3");
+
+  print(f1);
+  print("\n");
+  print(f2);
+  print("\n");
+  print(f3);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 11.4 Arrow Functions (sync equivalent of async arrow)
+// -----------------------------------------------------------------------------
+fn arrowDemo() {
+  print("--- Arrow Functions ---\n");
+
+  let fetch = (url) => fetchData(url);
+  print("arrow function created\n");
+}
+
+// -----------------------------------------------------------------------------
+// 11.5 Simulated Iterators (using loop instead of yield)
+// -----------------------------------------------------------------------------
+fn readLines(count: int) {
+  let i: int = 0;
+  while (i < count) {
+    print("line ");
+    print(i);
+    print("\n");
+    i = i + 1;
+  }
+}
+
+fn iteratorDemo() {
+  print("--- Iterators ---\n");
+
+  readLines(3);
+}
+
+// -----------------------------------------------------------------------------
+// 11.6 Simulated Async Iteration (for await...of)
+// -----------------------------------------------------------------------------
+// In full async Ruyi, an async generator produces values over time:
+//   async fn* readLines(file: string): AsyncIterator<string> { ... }
+//   for await (let line of readLines("data.txt")) { process(line); }
+//
+// Below is a synchronous simulation of the async iteration pattern.
+class LineReader {
+  _lines: Array<string>;
+  _index: int;
+
+  fn new(lines: Array<string>) {
+    self._lines = lines;
+    self._index = 0;
+  }
+
+  fn next(): string? {
+    if (self._index >= self._lines.length()) {
+      return null;
+    }
+    let line: string = self._lines[self._index];
+    self._index = self._index + 1;
+    return line;
+  }
+}
+
+fn forAwaitSimulationDemo() {
+  print("--- for await...of (simulated) ---\n");
+
+  let reader = LineReader.new(["line 1", "line 2", "line 3"]);
+
+  // Simulates: for await (let line of asyncReader)
+  while let line = reader.next() {
+    print("processed: ");
+    print(line);
+    print("\n");
+  }
+}
+// -----------------------------------------------------------------------------
+class Error {
+  message: string;
+  fn new(message: string) {
+    self.message = message;
+  }
+}
+
+fn safeOperation(): int {
+  return 42;
+}
+
+fn exceptionDemo() {
+  print("--- Exceptions ---\n");
+
+  try {
+    let result = safeOperation();
+    print("safe result: ");
+    print(result);
+    print("\n");
+  } catch (e: Error) {
+    print("unexpected error: ");
+    print(e.message);
+    print("\n");
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+  print("=== Async Programming Demo (simulated) ===\n\n");
+
+  // Basic calls
+  print("--- Basic Calls ---\n");
+  let data = fetchData("https://api.example.com");
+  print(data);
+  print("\n\n");
+
+  // Sequential loading
+  print("--- Sequential Loading ---\n");
+  loadSequential();
+  print("\n");
+
+  // Concurrent loading (simulated)
+  print("--- Concurrent Loading ---\n");
+  loadConcurrent();
+  print("\n");
+
+  // Arrow
+  arrowDemo();
+  print("\n");
+
+  // Iterator
+  iteratorDemo();
+  print("\n");
+
+  // for await simulation
+  forAwaitSimulationDemo();
+  print("\n");
+
+  // Exceptions
+  exceptionDemo();
+
+  print("\nAll demos completed successfully!\n");
+}

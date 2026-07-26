@@ -35,11 +35,13 @@ impl Scope {
     }
 
     fn lookup(&self, name: &str) -> Option<&Binding> {
-        self.bindings.iter().find(|b| b.name == name)
+        // Search from the end so that the most recently declared binding
+        // (e.g. from Pass 2 of infer_program) shadows earlier ones.
+        self.bindings.iter().rev().find(|b| b.name == name)
     }
 
     fn lookup_mut(&mut self, name: &str) -> Option<&mut Binding> {
-        self.bindings.iter_mut().find(|b| b.name == name)
+        self.bindings.iter_mut().rev().find(|b| b.name == name)
     }
 }
 

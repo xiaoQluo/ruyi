@@ -213,6 +213,10 @@ impl TraitRegistry {
     pub fn validate_impls(&self, diagnostics: &mut DiagnosticBag) {
         for (i, impl_info) in self.impls.iter().enumerate() {
             if let Some(trait_info) = self.traits.get(&impl_info.trait_name) {
+                // Empty-body generic impls delegate to the class's own methods.
+                if impl_info.methods.is_empty() && !impl_info.type_params.is_empty() {
+                    continue;
+                }
                 // Check that all non-default trait methods are implemented
                 for (method_name, trait_method) in &trait_info.methods {
                     if !trait_method.has_default && !impl_info.methods.contains(method_name) {

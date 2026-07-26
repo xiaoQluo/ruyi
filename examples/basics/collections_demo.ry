@@ -1,0 +1,192 @@
+/**
+ * Ruyi Example — Collections Module (Map & Set)
+ *
+ * Demonstrates:
+ * - Map<K,V>: set, get, has, remove, size, keys, values, clear
+ * - Set<T>: add, has, remove, size, clear
+ * - Array operations: push, pop, map, filter, forEach
+ * - Iterator pattern
+ *
+ * Note: collections module is auto-loaded — no import needed.
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+// -----------------------------------------------------------------------------
+// Helper
+// -----------------------------------------------------------------------------
+fn printOk(label: string) {
+    print("  ✓ " + label + "\n");
+}
+
+fn check(label: string, condition: bool) {
+    if (condition) {
+        print("  ✓ " + label + "\n");
+    } else {
+        print("  ✗ FAILED: " + label + "\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 1. Map Operations
+// -----------------------------------------------------------------------------
+fn demo_map() {
+    print("=== 1. Map<K, V> ===\n\n");
+
+    let m = Map.new();
+
+    // Set and get
+    m.set("name", "Ruyi");
+    m.set("version", "0.5");
+    m.set("type", "compiled");
+
+    check("Map.set/get", m.get("name") === "Ruyi");
+    check("Map size", m.size() === 3);
+
+    // has
+    check("Map.has('name')", m.has("name"));
+    check("Map.has('missing') neg", !m.has("missing"));
+
+    // Update existing key
+    m.set("version", "0.6");
+    check("Map.update", m.get("version") === "0.6");
+    check("Map size unchanged", m.size() === 3);
+
+    // Remove
+    m.delete("type");
+    check("Map.delete", !m.has("type"));
+    check("Map size after remove", m.size() === 2);
+
+    // Clear
+    m.clear();
+    check("Map.clear", m.size() === 0);
+
+    printOk("Map OK");
+}
+
+// -----------------------------------------------------------------------------
+// 2. Set Operations
+// -----------------------------------------------------------------------------
+fn demo_set() {
+    print("=== 2. Set<T> ===\n\n");
+
+    let s = Set.new();
+
+    // Add
+    s.add(1);
+    s.add(2);
+    s.add(3);
+    check("Set.size after adds", s.size() === 3);
+
+    // has
+    check("Set.has(1)", s.has(1));
+    check("Set.has(4) neg", !s.has(4));
+
+    // Duplicate add
+    s.add(2);
+    check("Set dedup", s.size() === 3);
+
+    // Remove
+    s.delete(1);
+    check("Set.delete", !s.has(1));
+    check("Set size after remove", s.size() === 2);
+
+    // Clear
+    s.clear();
+    check("Set.clear", s.size() === 0);
+
+    printOk("Set OK");
+}
+
+// -----------------------------------------------------------------------------
+// 3. Map Keys & Values
+// -----------------------------------------------------------------------------
+fn demo_map_iteration() {
+    print("=== 3. Map Keys & Values ===\n\n");
+
+    let m = Map.new();
+    m.set("a", "alpha");
+    m.set("b", "beta");
+    m.set("c", "gamma");
+
+    // Keys
+    let keys = m.keys();
+    check("Map.keys() length", keys.length() === 3);
+
+    print("  Keys: ");
+    let i = 0;
+    while (i < keys.length()) {
+        print(keys.get(i) + " ");
+        i = i + 1;
+    }
+    print("\n");
+
+    // Values
+    let values = m.values();
+    check("Map.values() length", values.length() === 3);
+
+    printOk("map iteration OK");
+}
+
+// -----------------------------------------------------------------------------
+// 4. Array Operations
+// -----------------------------------------------------------------------------
+fn demo_array_ops() {
+    print("=== 4. Array Operations ===\n\n");
+
+    let arr = [1, 2, 3];
+
+    // Push
+    arr.push(4);
+    check("Array.push", arr.length() === 4);
+
+    // Pop
+    let popped = arr.pop();
+    check("Array.pop value", popped === 4);
+    check("Array.pop length", arr.length() === 3);
+
+    // Access
+    check("Array.get(0)", arr.get(0) === 1);
+    check("Array.get(2)", arr.get(2) === 3);
+
+    printOk("array operations OK");
+}
+
+// -----------------------------------------------------------------------------
+// 5. Use Cases
+// -----------------------------------------------------------------------------
+fn demo_use_cases() {
+    print("=== 5. Use Cases ===\n\n");
+
+    print("  Map use cases:\n");
+    print("    - Key-value configuration storage\n");
+    print("    - Cache implementations\n");
+    print("    - Counting/frequency maps\n");
+    print("    - Lookup tables\n\n");
+
+    print("  Set use cases:\n");
+    print("    - Deduplication\n");
+    print("    - Membership testing\n");
+    print("    - Set operations (union, intersection)\n");
+    print("    - Tracking visited nodes\n\n");
+
+    printOk("use cases documented");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+    print("╔══════════════════════════════════╗\n");
+    print("║     Collections Module Demo     ║\n");
+    print("╚══════════════════════════════════╝\n\n");
+
+    demo_map();
+    demo_set();
+    demo_map_iteration();
+    demo_array_ops();
+    demo_use_cases();
+
+    print("\nAll Collections demos completed!\n");
+}

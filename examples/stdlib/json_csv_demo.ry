@@ -1,0 +1,170 @@
+/**
+ * Ruyi Example — JSON & CSV Module
+ *
+ * Demonstrates:
+ * - JSON: parse, stringify, isValid
+ * - CSV: parse, stringify, custom delimiters
+ * - Roundtrip conversions between formats
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { parse as jsonParse, stringify as jsonStringify, isValid } from "json";
+import { parseCsv as csvParse, stringifyCsv as csvStringify } from "csv";
+
+// -----------------------------------------------------------------------------
+// Helper
+// -----------------------------------------------------------------------------
+fn printOk(label: string) {
+    print("  ✓ " + label + "\n");
+}
+
+fn check(label: string, condition: bool) {
+    if (condition) {
+        print("  ✓ " + label + "\n");
+    } else {
+        print("  ✗ FAILED: " + label + "\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 1. JSON Parsing
+// -----------------------------------------------------------------------------
+fn demo_json_parse() {
+    print("=== 1. JSON Parsing ===\n\n");
+
+    // Parse a JSON object
+    let obj = jsonParse("{\"name\":\"Ruyi\",\"version\":\"0.5\",\"active\":true,\"count\":42}");
+    check("parse object", obj !== null);
+
+    // Parse a JSON array
+    let arr = jsonParse("[\"async\",\"traits\",\"macros\"]");
+    check("parse array", arr !== null);
+
+    // Parse primitives
+    let num = jsonParse("3.14");
+    check("parse number", num !== null);
+
+    let bool = jsonParse("true");
+    check("parse boolean", bool !== null);
+
+    let str = jsonParse("\"hello\"");
+    check("parse string", str !== null);
+
+    let nil = jsonParse("null");
+    check("parse null", nil === null);
+
+    printOk("JSON parsing OK");
+}
+
+// -----------------------------------------------------------------------------
+// 2. JSON Stringify
+// -----------------------------------------------------------------------------
+fn demo_json_stringify() {
+    print("=== 2. JSON Stringify ===\n\n");
+
+    let obj = jsonParse("{\"x\":10,\"y\":20}");
+    let jsonStr = jsonStringify(obj);
+    check("stringify object", jsonStr !== null && jsonStr.length() > 0);
+    print("  Output: " + jsonStr + "\n");
+
+    let arr = jsonParse("[1,2,3]");
+    let arrStr = jsonStringify(arr);
+    check("stringify array", arrStr !== null);
+
+    printOk("JSON stringify OK");
+}
+
+// -----------------------------------------------------------------------------
+// 3. JSON Validation
+// -----------------------------------------------------------------------------
+fn demo_json_validation() {
+    print("=== 3. JSON Validation ===\n\n");
+
+    check("isValid() valid JSON", isValid("{\"key\":\"value\"}"));
+    check("isValid() valid array", isValid("[1, 2, 3]"));
+    check("isValid() valid string", isValid("\"hello\""));
+    check("isValid() valid number", isValid("42"));
+    check("isValid() valid null", isValid("null"));
+    check("isValid() valid bool", isValid("true"));
+
+    check("isValid() invalid", !isValid("{bad json"));
+    check("isValid() empty invalid", !isValid(""));
+
+    printOk("JSON validation OK");
+}
+
+// -----------------------------------------------------------------------------
+// 4. CSV Parsing
+// -----------------------------------------------------------------------------
+fn demo_csv_parse() {
+    print("=== 4. CSV Parsing ===\n\n");
+
+    // Standard comma-separated
+    let csvData = "name,age,city\nAlice,30,Beijing\nBob,25,Shanghai";
+    let rows = csvParse(csvData, ",");
+    check("csvParse() returns data", rows !== null);
+    print("  Parsed " + rows.length() + " rows\n");
+
+    // Tab-separated
+    let tsvData = "key\tvalue\nname\tRuyi\nversion\t0.5";
+    let tsvRows = csvParse(tsvData, "\t");
+    check("csvParse() tab delimiter", tsvRows !== null);
+
+    printOk("CSV parsing OK");
+}
+
+// -----------------------------------------------------------------------------
+// 5. CSV Stringify
+// -----------------------------------------------------------------------------
+fn demo_csv_stringify() {
+    print("=== 5. CSV Stringify ===\n\n");
+
+    let header = ["name", "age", "city"];
+    let row1 = ["Alice", "30", "Beijing"];
+    let row2 = ["Bob", "25", "Shanghai"];
+    let rows = [header, row1, row2];
+
+    let csvStr = csvStringify(rows, ",");
+    check("csvStringify()", csvStr !== "");
+    print("  Output:\n" + csvStr);
+
+    printOk("CSV stringify OK");
+}
+
+// -----------------------------------------------------------------------------
+// 6. JSON ↔ CSV Roundtrip
+// -----------------------------------------------------------------------------
+fn demo_roundtrip() {
+    print("=== 6. JSON ↔ CSV Roundtrip ===\n\n");
+
+    // JSON array of objects → process
+    let jsonArr = jsonParse("[{\"id\":1,\"name\":\"Alpha\"},{\"id\":2,\"name\":\"Beta\"}]");
+    let jsonStr = jsonStringify(jsonArr);
+    print("  Original JSON: " + jsonStr + "\n");
+
+    // Re-parse to verify
+    let reparsed = jsonParse(jsonStr);
+    check("JSON roundtrip", reparsed !== null);
+
+    printOk("roundtrip OK");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+    print("╔══════════════════════════════════╗\n");
+    print("║     JSON & CSV Module Demo      ║\n");
+    print("╚══════════════════════════════════╝\n\n");
+
+    demo_json_parse();
+    demo_json_stringify();
+    demo_json_validation();
+    demo_csv_parse();
+    demo_csv_stringify();
+    demo_roundtrip();
+
+    print("\nAll JSON & CSV demos completed!\n");
+}

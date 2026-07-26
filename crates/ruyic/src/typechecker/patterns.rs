@@ -107,7 +107,8 @@ fn pattern_covered_cases(pattern: &Pattern, scrutinee_type: &Type) -> HashSet<St
                             .map(|case| format!("{}:{}", key, case))
                             .collect::<Vec<_>>()
                     }
-                    crate::parser::ast::ObjectPatternField::Shorthand(name) => {
+                    crate::parser::ast::ObjectPatternField::Shorthand(name)
+                    | crate::parser::ast::ObjectPatternField::ShorthandDefault(name, _) => {
                         // 简写绑定任意值，用通配符表示
                         vec![format!("{}:_", name)]
                     }
@@ -122,7 +123,8 @@ fn pattern_covered_cases(pattern: &Pattern, scrutinee_type: &Type) -> HashSet<St
             let elem_list: Vec<String> = elements
                 .iter()
                 .map(|e| match e {
-                    crate::parser::ast::ArrayPatternElement::Pattern(p) => {
+                    crate::parser::ast::ArrayPatternElement::Pattern(p)
+                    | crate::parser::ast::ArrayPatternElement::Default(p, _) => {
                         let inner = pattern_covered_cases(p, scrutinee_type);
                         if inner.len() == 1 {
                             inner.iter().next().unwrap().clone()

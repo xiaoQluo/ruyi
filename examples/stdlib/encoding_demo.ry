@@ -1,0 +1,179 @@
+/**
+ * Ruyi Example — Encoding Module
+ *
+ * Demonstrates:
+ * - Base64 / Base64URL encode & decode
+ * - Hex encode & decode
+ * - URL encode & decode
+ * - Validators: isBase64, isHex, isBase64Url
+ * - Conversion between Base64 and Base64URL
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { base64Encode, base64Decode, base64EncodeBytes, base64DecodeToBytes,
+         base64UrlEncode, base64UrlDecode, base64UrlEncodeBytes, base64UrlDecodeToBytes,
+         hexEncode, hexDecode, bytesToHex, hexToBytes,
+         urlEncode, urlDecode, urlEncodeComponent, urlDecodeComponent,
+         isBase64, isHex, isBase64Url,
+         base64ToBase64Url, base64UrlToBase64,
+         BASE64_ALPHABET, BASE64URL_ALPHABET } from "encoding";
+
+// -----------------------------------------------------------------------------
+// Helper
+// -----------------------------------------------------------------------------
+fn printOk(label: string) {
+    print("  ✓ " + label + "\n");
+}
+
+fn check(label: string, condition: bool) {
+    if (condition) {
+        print("  ✓ " + label + "\n");
+    } else {
+        print("  ✗ FAILED: " + label + "\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 1. Base64 Encoding
+// -----------------------------------------------------------------------------
+fn demo_base64() {
+    print("=== 1. Base64 Encoding ===\n\n");
+
+    // Encode
+    let encoded = base64Encode("Ruyi Language");
+    check("base64Encode()", encoded === "UnV5aSBMYW5ndWFnZQ==");
+
+    // Decode
+    let decoded = base64Decode(encoded);
+    check("base64Decode() roundtrip", decoded === "Ruyi Language");
+
+    // Edge cases
+    check("base64Encode('')", base64Encode("") === "");
+    check("base64Encode('f')", base64Encode("f") === "Zg==");
+    check("base64Encode('fo')", base64Encode("fo") === "Zm8=");
+    check("base64Encode('foo')", base64Encode("foo") === "Zm9v");
+
+    printOk("Base64 OK");
+}
+
+// -----------------------------------------------------------------------------
+// 2. Base64URL Encoding
+// -----------------------------------------------------------------------------
+fn demo_base64url() {
+    print("=== 2. Base64URL Encoding ===\n\n");
+
+    // Base64URL is URL-safe (uses -_ instead of +/, no padding)
+    let data = "test>>data??";
+    let encoded = base64UrlEncode(data);
+    check("base64UrlEncode()", encoded !== "");
+
+    let decoded = base64UrlDecode(encoded);
+    check("base64UrlDecode() roundtrip", decoded === data);
+
+    // Conversion between formats
+    let b64 = base64Encode("Hello!");
+    let b64url = base64ToBase64Url(b64);
+    let back = base64UrlToBase64(b64url);
+    check("base64 ↔ base64url conversion", back === b64);
+
+    print("  base64:     " + b64 + "\n");
+    print("  base64url:  " + b64url + "\n");
+
+    printOk("Base64URL OK");
+}
+
+// -----------------------------------------------------------------------------
+// 3. Hex Encoding
+// -----------------------------------------------------------------------------
+fn demo_hex() {
+    print("=== 3. Hex Encoding ===\n\n");
+
+    // Encode
+    let hex = hexEncode("AB");
+    check("hexEncode('AB')", hex === "4142");
+
+    // Decode
+    let decoded = hexDecode(hex);
+    check("hexDecode() roundtrip", decoded === "AB");
+
+    // Empty string
+    check("hexEncode('')", hexEncode("") === "");
+
+    // Various inputs
+    check("hexEncode('0')", hexEncode("0") === "30");
+    check("hexEncode('!@#')", hexEncode("!@#") === "214023");
+
+    printOk("Hex OK");
+}
+
+// -----------------------------------------------------------------------------
+// 4. URL Encoding
+// -----------------------------------------------------------------------------
+fn demo_url() {
+    print("=== 4. URL Encoding ===\n\n");
+
+    // URL encode
+    let encoded = urlEncode("Hello World!");
+    check("urlEncode() space → +", encoded === "Hello+World%21");
+
+    let spaceEncoded = urlEncode("a b c");
+    check("urlEncode() spaces", spaceEncoded === "a+b+c");
+
+    // URL decode
+    let decoded = urlDecode(encoded);
+    check("urlDecode() roundtrip", decoded === "Hello World!");
+
+    // Component encoding (stricter)
+    let comp = urlEncodeComponent("hello=world&foo=bar");
+    check("urlEncodeComponent() encodes = and &", comp !== "hello=world&foo=bar");
+
+    let compDecoded = urlDecodeComponent(comp);
+    check("urlDecodeComponent() roundtrip", compDecoded === "hello=world&foo=bar");
+
+    print("  urlEncode('Hello World!'): " + encoded + "\n");
+    print("  urlEncodeComponent('a&b=c'): " + comp + "\n");
+
+    printOk("URL encoding OK");
+}
+
+// -----------------------------------------------------------------------------
+// 5. Validators
+// -----------------------------------------------------------------------------
+fn demo_validators() {
+    print("=== 5. Encoding Validators ===\n\n");
+
+    // isBase64
+    check("isBase64() valid", isBase64("UnV5aQ=="));
+    check("isBase64() invalid", !isBase64("not valid!!!"));
+    check("isBase64() empty", isBase64(""));
+
+    // isHex
+    check("isHex() valid", isHex("414243"));
+    check("isHex() uppercase", isHex("ABCDEF"));
+    check("isHex() invalid", !isHex("xyz123"));
+
+    // isBase64Url
+    check("isBase64Url() valid", isBase64Url("UnV5aQ"));
+    check("isBase64Url() invalid", !isBase64Url("has spaces"));
+
+    printOk("validators OK");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+    print("╔══════════════════════════════════╗\n");
+    print("║       Encoding Module Demo      ║\n");
+    print("╚══════════════════════════════════╝\n\n");
+
+    demo_base64();
+    demo_base64url();
+    demo_hex();
+    demo_url();
+    demo_validators();
+
+    print("\nAll Encoding demos completed!\n");
+}

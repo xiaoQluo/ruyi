@@ -1,0 +1,358 @@
+/**
+ * Event-driven async networking — Netty-inspired Channel / EventLoop.
+ *
+ * Phase 2: EventLoop + Channel + Pipeline abstractions on top of the
+ * Reactor-based non-blocking I/O primitives (`net_async_ffi`).
+ *
+ * ## Architecture
+ *
+ * ```
+ * +---------------------------------------------+
+ * |              EventLoop (single thread)        |
+ * |  +---------+  +---------+  +---------+       |
+ * |  | Channel |  | Channel |  | Channel | ...   |
+ * |  | +-----+ |  | +-----+ |  | +-----+ |       |
+ * |  | |Pipe | |  | |Pipe | |  | |Pipe | |       |
+ * |  | |line | |  | |line | |  | |line | |       |
+ * |  | +-----+ |  | +-----+ |  | +-----+ |       |
+ * |  +---------+  +---------+  +---------+       |
+ * |         ^           ^           ^             |
+ * |         +-----------+-----------+             |
+ * |                     |                         |
+ * |              Reactor (epoll/kqueue)            |
+ * +---------------------------------------------+
+ * ```
+ *
+ * ## Codegen Integration (Phase 3)
+ *
+ * To use true ReactorFuture (single-threaded, non-blocking):
+ *
+ * ```ruyi
+ * // Codegen emits for `await channel.read(buf)`:
+ * let future = __net_async_read(channel._handle, maxBytes);
+ * // ReactorReadFuture with vtable at offset 0
+ * // ruyi_await(future) suspends until data arrives
+ * let data = __net_async_read_result(future);
+ * __net_async_read_free(future);
+ * ```
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { TCPSocket, TCPServer } from "./net";
+import { Buffer } from "./buffer";
+
+// ==============================================================
+// ChannelHandler — pipeline processing interface
+// ==============================================================
+
+trait ChannelHandler {
+    fn channelRead(ctx: ChannelContext, msg: Buffer): void;
+    fn channelWritable(ctx: ChannelContext): void;
+    fn channelActive(ctx: ChannelContext): void;
+    fn channelInactive(ctx: ChannelContext): void;
+    fn exceptionCaught(ctx: ChannelContext, cause: string): void;
+}
+
+// ==============================================================
+// ChannelContext — per-channel context through pipeline
+// ==============================================================
+
+class ChannelContext {
+    _channel: Channel;
+    _pipeline: ChannelPipeline;
+    _nextIdx: int;
+
+    fn new(ch: Channel, pipeline: ChannelPipeline): ChannelContext {
+        self._channel = ch;
+        self._pipeline = pipeline;
+        self._nextIdx = 0;
+        return self;
+    }
+
+    fn channel(): Channel { return self._channel; }
+    fn pipeline(): ChannelPipeline { return self._pipeline; }
+
+    fn fireChannelRead(msg: Buffer): void {
+        self._nextIdx = self._nextIdx + 1;
+        self._pipeline._fireChannelRead(self, msg);
+    }
+
+    fn fireChannelActive(): void {
+        self._nextIdx = self._nextIdx + 1;
+        self._pipeline._fireChannelActive(self);
+    }
+}
+
+// ==============================================================
+// ChannelPipeline — ordered handler list
+// ==============================================================
+
+class ChannelPipeline {
+    _handlers: ChannelHandler[];
+
+    fn new(): ChannelPipeline {
+        self._handlers = [];
+        return self;
+    }
+
+    fn addLast(handler: ChannelHandler): ChannelPipeline {
+        self._handlers.push(handler);
+        return self;
+    }
+
+    fn addFirst(handler: ChannelHandler): ChannelPipeline {
+        let n = self._handlers.length();
+        self._handlers.push(null);
+        for (let i = n - 1; i >= 0; i = i - 1) {
+            self._handlers[i + 1] = self._handlers[i];
+        }
+        self._handlers[0] = handler;
+        return self;
+    }
+
+    fn _fireChannelRead(ctx: ChannelContext, msg: Buffer): void {
+        let idx = ctx._nextIdx;
+        if (idx < self._handlers.length()) {
+            self._handlers[idx].channelRead(ctx, msg);
+        }
+    }
+
+    fn _fireChannelActive(ctx: ChannelContext): void {
+        let idx = ctx._nextIdx;
+        if (idx < self._handlers.length()) {
+            self._handlers[idx].channelActive(ctx);
+        }
+    }
+
+    fn _fireException(ctx: ChannelContext, cause: string): void {
+        let idx = ctx._nextIdx;
+        if (idx < self._handlers.length()) {
+            self._handlers[idx].exceptionCaught(ctx, cause);
+        }
+    }
+}
+
+// ==============================================================
+// Channel — socket with pipeline
+// ==============================================================
+
+class Channel {
+    _sock: TCPSocket;
+    _pipeline: ChannelPipeline;
+    _eventLoop: EventLoop;
+    _active: bool;
+
+    fn new(sock: TCPSocket, eventLoop: EventLoop): Channel {
+        self._sock = sock;
+        self._pipeline = ChannelPipeline.new();
+        self._eventLoop = eventLoop;
+        self._active = false;
+        return self;
+    }
+
+    fn pipeline(): ChannelPipeline { return self._pipeline; }
+    fn isActive(): bool { return self._active; }
+
+    fn raw(): TCPSocket { return self._sock; }
+
+    fn close(): void {
+        self._active = false;
+        self._sock.close();
+        let ctx = ChannelContext.new(self, self._pipeline);
+        self._pipeline._fireException(ctx, "channel closed");
+    }
+}
+
+// ==============================================================
+// ServerChannel — accepting socket
+// ==============================================================
+
+class ServerChannel {
+    _server: TCPServer;
+    _pipeline: ChannelPipeline;
+    _eventLoop: EventLoop;
+    _active: bool;
+
+    fn new(server: TCPServer, eventLoop: EventLoop): ServerChannel {
+        self._server = server;
+        self._pipeline = ChannelPipeline.new();
+        self._eventLoop = eventLoop;
+        self._active = false;
+        return self;
+    }
+
+    fn accept(): Channel {
+        let client = self._server.accept();
+        let ch = Channel.new(client, self._eventLoop);
+        ch._active = true;
+        return ch;
+    }
+
+    fn close(): void {
+        self._active = false;
+        self._server.close();
+    }
+}
+
+// ==============================================================
+// EventLoop — single-threaded I/O event loop
+// ==============================================================
+
+class EventLoop {
+    _channels: Channel[];
+    _running: bool;
+
+    fn new(): EventLoop {
+        self._channels = [];
+        self._running = false;
+        return self;
+    }
+
+    fn register(ch: Channel): void {
+        self._channels.push(ch);
+    }
+
+    /**
+     * Run the event loop. Processes all registered channels.
+     * Phase 2: uses spawn_blocking. Phase 3: ReactorFuture.
+     */
+    async fn run(): void {
+        self._running = true;
+        while (self._running) {
+            let hasActive = false;
+            for (let i = 0; i < self._channels.length(); i = i + 1) {
+                let ch = self._channels[i];
+                if (ch.isActive()) {
+                    hasActive = true;
+                    let data = await spawn_blocking(fn(): Buffer {
+                        return ch.raw().readRaw(4096);
+                    });
+                    if (data.length() > 0) {
+                        let ctx = ChannelContext.new(ch, ch.pipeline());
+                        ctx._nextIdx = 0;
+                        ch.pipeline()._fireChannelRead(ctx, data);
+                    }
+                }
+            }
+            if (!hasActive) {
+                self._running = false;
+            }
+        }
+    }
+
+    fn shutdown(): void {
+        self._running = false;
+        for (let i = 0; i < self._channels.length(); i = i + 1) {
+            self._channels[i].close();
+        }
+    }
+}
+
+// ==============================================================
+// ServerBootstrap — convenient server setup
+// ==============================================================
+
+class ServerBootstrap {
+    _eventLoop: EventLoop;
+    _host: string;
+    _port: int;
+    _childHandler: ChannelHandler;
+
+    fn new(): ServerBootstrap {
+        self._eventLoop = EventLoop.new();
+        self._host = "0.0.0.0";
+        self._port = 0;
+        return self;
+    }
+
+    fn group(loop: EventLoop): ServerBootstrap {
+        self._eventLoop = loop;
+        return self;
+    }
+
+    fn bind(host: string, port: int): ServerBootstrap {
+        self._host = host;
+        self._port = port;
+        return self;
+    }
+
+    fn childHandler(handler: ChannelHandler): ServerBootstrap {
+        self._childHandler = handler;
+        return self;
+    }
+
+    async fn start(): ServerChannel {
+        let listener = await spawn_blocking(fn(): TCPServer {
+            return TCPServer.listen(self._host, self._port);
+        });
+        let serverCh = ServerChannel.new(listener, self._eventLoop);
+        serverCh._active = true;
+
+        spawn(fn() {
+            while (serverCh._active) {
+                let client = serverCh.accept();
+                let ch = Channel.new(client, self._eventLoop);
+                ch.pipeline().addLast(self._childHandler);
+                self._eventLoop.register(ch);
+                let ctx = ChannelContext.new(ch, ch.pipeline());
+                ch.pipeline()._fireChannelActive(ctx);
+            }
+        });
+
+        return serverCh;
+    }
+}
+
+// ==============================================================
+// Built-in Handlers
+// ==============================================================
+
+class EchoHandler {
+    impl ChannelHandler for EchoHandler {
+        fn channelRead(ctx: ChannelContext, msg: Buffer): void {
+            ctx.channel().raw().writeRaw(msg);
+        }
+        fn channelWritable(ctx: ChannelContext): void {}
+        fn channelActive(ctx: ChannelContext): void {
+            print("Client connected");
+        }
+        fn channelInactive(ctx: ChannelContext): void {
+            print("Client disconnected");
+        }
+        fn exceptionCaught(ctx: ChannelContext, cause: string): void {
+            print("Error: " + cause);
+            ctx.channel().close();
+        }
+    }
+}
+
+class LoggingHandler {
+    _prefix: string;
+
+    fn new(prefix: string): LoggingHandler {
+        self._prefix = prefix;
+        return self;
+    }
+
+    impl ChannelHandler for LoggingHandler {
+        fn channelRead(ctx: ChannelContext, msg: Buffer): void {
+            print(self._prefix + " READ " + msg.length() + " bytes");
+            ctx.fireChannelRead(msg);
+        }
+        fn channelWritable(ctx: ChannelContext): void {
+            print(self._prefix + " WRITABLE");
+        }
+        fn channelActive(ctx: ChannelContext): void {
+            print(self._prefix + " ACTIVE");
+            ctx.fireChannelActive();
+        }
+        fn channelInactive(ctx: ChannelContext): void {
+            print(self._prefix + " INACTIVE");
+        }
+        fn exceptionCaught(ctx: ChannelContext, cause: string): void {
+            print(self._prefix + " ERROR: " + cause);
+        }
+    }
+}

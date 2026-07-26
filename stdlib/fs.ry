@@ -75,7 +75,7 @@ export fn isRelative(path: string): bool {
  * @param segments Path string segments
  * @return Joined path string
  */
-export fn join(...segments: string): string {
+export fn joinPath(...segments: string): string {
     return __path_join(segments);
 }
 
@@ -467,41 +467,12 @@ export fn ensureDir(path: string): void {
  * @return Future that completes when the directory is ensured
  */
 export async fn ensureDirAsync(path: string): Future<void> {
-    let isDir = __io_is_directory_async(path);
-    if (!isDir) {
-        let normalized = __path_normalize(path);
-        if (normalized !== "" && normalized !== ".") {
-            let components: Array<string> = [];
-            let current = normalized;
-
-            while (true) {
-                let base = __path_basename(current);
-                if (base === "" || base === "." || base === "..") {
-                    break;
-                }
-                components.push(base);
-                let parent = __path_dirname(current);
-                if (parent === current || parent === "") {
-                    break;
-                }
-                current = parent;
-            }
-
-            let built: string = "";
-            for (let i = components.length - 1; i >= 0; i = i - 1) {
-                let comp: string = components[i];
-                if (built === "") {
-                    built = comp;
-                } else {
-                    let __join_arr: Array<string> = [built, comp];
-                    built = __path_join(__join_arr);
-                }
-                if (!__io_is_directory_async(built)) {
-                    __io_mkdir_async(built, false);
-                }
-            }
-        }
-    }
+    // Delegate to the synchronous implementation. The directory checks rely
+    // on boolean results; the `_async` FFI variants return Futures, which
+    // cannot be negated directly. Running the sync path inside the async
+    // wrapper preserves the Future<void> contract while keeping the logic
+    // correct and avoiding a local named like the exported `isDir` function.
+    ensureDir(path);
 }
 
 // File Manipulation

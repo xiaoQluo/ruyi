@@ -1,0 +1,162 @@
+/**
+ * Ruyi Example — Process Module
+ *
+ * Demonstrates:
+ * - Process.exec(): synchronous command execution
+ * - Process.spawn(): asynchronous process spawning
+ * - Process.wait() / waitAsync(): process lifecycle
+ * - Process.writeInput() / readOutput(): I/O pipes
+ * - Environment variables: getEnv, setEnv, getAllEnv
+ * - Process info: getPID, getPPID, getPlatform
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { Process, ProcessOptions, ProcessResult, Signal, getEnv, setEnv, getAllEnv,
+         getPID, getPPID, getPlatform, getCPUCount } from "process";
+
+// -----------------------------------------------------------------------------
+// Helper
+// -----------------------------------------------------------------------------
+fn printOk(label: string) {
+    print("  ✓ " + label + "\n");
+}
+
+fn check(label: string, condition: bool) {
+    if (condition) {
+        print("  ✓ " + label + "\n");
+    } else {
+        print("  ✗ FAILED: " + label + "\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 1. Process Info & Environment
+// -----------------------------------------------------------------------------
+fn demo_process_info() {
+    print("=== 1. Process Info & Environment ===\n\n");
+
+    // Process identifiers
+    let pid = getPID();
+    let ppid = getPPID();
+    check("getPID() returns value", pid > 0);
+    check("getPPID() returns value", ppid > 0);
+    print("  PID: " + pid + ", PPID: " + ppid + "\n");
+
+    // Platform & CPU
+    let platform = getPlatform();
+    check("getPlatform()", platform !== "");
+    print("  Platform: " + platform + "\n");
+    print("  CPU count: " + getCPUCount() + "\n");
+
+    // Environment variables
+    setEnv("RUYI_DEMO_VAR", "hello-process");
+    let envVal = getEnv("RUYI_DEMO_VAR");
+    check("getEnv/setEnv", envVal === "hello-process");
+
+    let allEnv = getAllEnv();
+    check("getAllEnv() returns map", allEnv !== null);
+
+    printOk("process info OK");
+}
+
+// -----------------------------------------------------------------------------
+// 2. Synchronous Execution
+// -----------------------------------------------------------------------------
+fn demo_exec() {
+    print("=== 2. Synchronous Command Execution ===\n\n");
+
+    // Simple command execution
+    try {
+        let result = Process.exec("echo 'ruyi process test'");
+        check("Process.exec() success", result.exitCode === 0);
+        check("Process.exec() stdout", result.stdout !== "");
+        print("  stdout: " + result.stdout + "\n");
+        result.ensureSuccess();
+    } catch (e) {
+        print("  ⚠ echo command failed: 操作失败\n");
+    }
+
+    printOk("sync execution OK");
+}
+
+// -----------------------------------------------------------------------------
+// 3. Asynchronous Spawning
+// -----------------------------------------------------------------------------
+fn demo_spawn() {
+    print("=== 3. Asynchronous Process Spawning ===\n\n");
+
+    try {
+        let proc = Process.spawn("echo", ["async test message"]);
+        check("Process.spawn() created", proc !== null);
+        check("Process.isRunning", proc.isRunning);
+
+        proc.wait();
+        check("Process.wait() completes", !proc.isRunning);
+
+        let output = proc.readOutput();
+        check("Process.readOutput()", output !== "");
+        print("  stdout: " + output + "\n");
+    } catch (e) {
+        print("  ⚠ spawn command failed: 操作失败\n");
+    }
+
+    printOk("async spawning OK");
+}
+
+// -----------------------------------------------------------------------------
+// 4. Process Options
+// -----------------------------------------------------------------------------
+fn demo_options() {
+    print("=== 4. Process Options ===\n\n");
+
+    let defaultOpts = ProcessOptions.default();
+    check("ProcessOptions.default()", defaultOpts !== null);
+
+    let customOpts = ProcessOptions.default()
+        .withShell(true);
+    check("ProcessOptions.withShell()", customOpts !== null);
+
+    print("  ProcessOptions supports:\n");
+    print("    - withCwd(path): set working directory\n");
+    print("    - withEnv(map): set environment variables\n");
+    print("    - withShell(bool): enable shell execution\n");
+
+    printOk("process options OK");
+}
+
+// -----------------------------------------------------------------------------
+// 5. Signal Constants
+// -----------------------------------------------------------------------------
+fn demo_signals() {
+    print("=== 5. Signal Constants ===\n\n");
+
+    print("  Available signal constants:\n");
+    print("    - Signal.HUP, Signal.QUIT, Signal.KILL\n");
+    print("    - Signal.USR1, Signal.USR2\n");
+    print("    - Signal.INT, Signal.TERM\n\n");
+
+    // Check signal availability on current platform
+    let sigTerm = Signal.TERM;
+    check("Signal.TERM defined", sigTerm !== null);
+
+    printOk("signals OK");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+    print("╔══════════════════════════════════╗\n");
+    print("║       Process Module Demo       ║\n");
+    print("╚══════════════════════════════════╝\n\n");
+
+    demo_process_info();
+    demo_exec();
+    demo_spawn();
+    demo_options();
+    demo_signals();
+
+    print("\nAll Process demos completed!\n");
+}

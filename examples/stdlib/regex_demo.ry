@@ -1,0 +1,332 @@
+/**
+ * Ruyi Example — 正则表达式模块
+ *
+ * 覆盖:
+ * - Regex 类: compile()/test()/exec()/matchAll()
+ * - replace()/replaceAll(): 替换匹配
+ * - split(): 按模式分割字符串
+ * - 支持语法: 字面量、.、*、+、?、|、()、^、$、[]、\d、\w、\s、{n,m}
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { Regex } from "regex";
+
+// =============================================================================
+// 1. 基础匹配 — test() 和 exec()
+// =============================================================================
+fn demo_basic_match() {
+  print("=== 1. 基础匹配 ===\n\n");
+
+  // 编译正则
+  let re = Regex.new("hello");
+  re.compile();
+
+  // test(): 完整匹配（从头到尾）
+  print("test(\"hello\"): ");
+  print(re.test("hello"));
+  print("\n");
+  print("test(\"hello world\"): ");
+  print(re.test("hello world"));
+  print("\n");
+
+  // exec(): 查找第一个匹配
+  let result = re.exec("say hello to me");
+  if (result !== null) {
+    print("exec(\"say hello to me\"): index=");
+    print(result.index);
+    print(", text=\"");
+    print(result.text);
+    print("\"\n");
+  }
+
+  // 无匹配
+  let noMatch = re.exec("goodbye");
+  print("exec(\"goodbye\"): ");
+  print(noMatch === null);
+  print(" (null)\n\n");
+}
+
+// =============================================================================
+// 2. 通配符与量词
+// =============================================================================
+fn demo_quantifiers() {
+  print("=== 2. 通配符与量词 ===\n\n");
+
+  // . 匹配任意字符
+  let dot = Regex.new("h.t");
+  dot.compile();
+  print("\"h.t\" test(\"hat\"): ");
+  print(dot.test("hat"));
+  print("\n");
+  print("\"h.t\" test(\"hot\"): ");
+  print(dot.test("hot"));
+  print("\n");
+
+  // * 零次或多次
+  let star = Regex.new("ab*c");
+  star.compile();
+  print("\"ab*c\" test(\"ac\"): ");
+  print(star.test("ac"));
+  print("\n");
+  print("\"ab*c\" test(\"abbc\"): ");
+  print(star.test("abbc"));
+  print("\n");
+
+  // + 一次或多次
+  let plus = Regex.new("ab+c");
+  plus.compile();
+  print("\"ab+c\" test(\"ac\"): ");
+  print(plus.test("ac"));
+  print("\n");
+  print("\"ab+c\" test(\"abc\"): ");
+  print(plus.test("abc"));
+  print("\n");
+
+  // ? 零次或一次
+  let quest = Regex.new("colou?r");
+  quest.compile();
+  print("\"colou?r\" test(\"color\"): ");
+  print(quest.test("color"));
+  print("\n");
+  print("\"colou?r\" test(\"colour\"): ");
+  print(quest.test("colour"));
+  print("\n\n");
+}
+
+// =============================================================================
+// 3. 字符类与转义
+// =============================================================================
+fn demo_char_classes() {
+  print("=== 3. 字符类与转义 ===\n\n");
+
+  // \d 数字
+  let digits = Regex.new("\\d+");
+  digits.compile();
+  let m1 = digits.exec("abc123def");
+  if (m1 !== null) {
+    print("\\d+ exec(\"abc123def\"): \"");
+    print(m1.text);
+    print("\"\n");
+  }
+
+  // \w 单词字符
+  let word = Regex.new("\\w+");
+  word.compile();
+  let m2 = word.exec("  hello_world  ");
+  if (m2 !== null) {
+    print("\\w+ exec(\"  hello_world  \"): \"");
+    print(m2.text);
+    print("\"\n");
+  }
+
+  // [a-z]+ 自定义字符类
+  let lower = Regex.new("[a-z]+");
+  lower.compile();
+  let m3 = lower.exec("ABC123defGHI");
+  if (m3 !== null) {
+    print("[a-z]+ exec(\"ABC123defGHI\"): \"");
+    print(m3.text);
+    print("\"\n");
+  }
+
+  // [^0-9] 否定字符类
+  let nonDigit = Regex.new("[^0-9]+");
+  nonDigit.compile();
+  let m4 = nonDigit.exec("123abc456");
+  if (m4 !== null) {
+    print("[^0-9]+ exec(\"123abc456\"): \"");
+    print(m4.text);
+    print("\"\n");
+  }
+  print("\n");
+}
+
+// =============================================================================
+// 4. 锚点 — ^ 和 $
+// =============================================================================
+fn demo_anchors() {
+  print("=== 4. 锚点 ^ $ ===\n\n");
+
+  let anchored = Regex.new("^hello$");
+  anchored.compile();
+  print("\"^hello$\" test(\"hello\"): ");
+  print(anchored.test("hello"));
+  print("\n");
+  print("\"^hello$\" test(\"hello world\"): ");
+  print(anchored.test("hello world"));
+  print("\n");
+
+  let startsWith = Regex.new("^Ruyi");
+  startsWith.compile();
+  let m = startsWith.exec("Ruyi is great");
+  if (m !== null) {
+    print("\"^Ruyi\" exec(\"Ruyi is great\"): \"");
+    print(m.text);
+    print("\"\n");
+  }
+  print("\n");
+}
+
+// =============================================================================
+// 5. 交替与分组
+// =============================================================================
+fn demo_alternation() {
+  print("=== 5. 交替与分组 ===\n\n");
+
+  // | 交替
+  let alt = Regex.new("cat|dog");
+  alt.compile();
+  print("\"cat|dog\" test(\"cat\"): ");
+  print(alt.test("cat"));
+  print("\n");
+  print("\"cat|dog\" test(\"dog\"): ");
+  print(alt.test("dog"));
+  print("\n");
+  print("\"cat|dog\" test(\"bird\"): ");
+  print(alt.test("bird"));
+  print("\n");
+
+  // () 分组 + 量词
+  let group = Regex.new("(ab)+");
+  group.compile();
+  print("\"(ab)+\" test(\"ababab\"): ");
+  print(group.test("ababab"));
+  print("\n");
+  print("\"(ab)+\" test(\"abab\"): ");
+  print(group.test("abab"));
+  print("\n\n");
+}
+
+// =============================================================================
+// 6. matchAll() — 查找所有匹配
+// =============================================================================
+fn demo_match_all() {
+  print("=== 6. matchAll() 全局匹配 ===\n\n");
+
+  let re = Regex.new("\\d+");
+  re.compile();
+
+  let text = "price: 100, qty: 5, total: 500";
+  let matches = re.matchAll(text);
+
+  print("文本: \"");
+  print(text);
+  print("\"\n");
+  print("匹配到 ");
+  print(matches.length());
+  print(" 个数字:\n");
+
+  let i = 0;
+  while (i < matches.length()) {
+    let m = matches[i];
+    print("  [");
+    print(i);
+    print("] index=");
+    print(m.index);
+    print(" text=\"");
+    print(m.text);
+    print("\"\n");
+    i = i + 1;
+  }
+  print("\n");
+}
+
+// =============================================================================
+// 7. replace() / replaceAll()
+// =============================================================================
+fn demo_replace() {
+  print("=== 7. replace / replaceAll ===\n\n");
+
+  let re = Regex.new("\\d+");
+  re.compile();
+
+  let text = "a1b22c333";
+
+  // 替换第一个匹配
+  let single = re.replace(text, "#");
+  print("replace 第一个: ");
+  print(single);
+  print("\n");
+
+  // 替换所有匹配
+  let all = re.replaceAll(text, "#");
+  print("replaceAll: ");
+  print(all);
+  print("\n\n");
+}
+
+// =============================================================================
+// 8. split() — 按模式分割
+// =============================================================================
+fn demo_split() {
+  print("=== 8. split() 分割 ===\n\n");
+
+  // 按逗号分割
+  let comma = Regex.new(",");
+  comma.compile();
+  let parts = comma.split("apple,banana,cherry,date", -1);
+
+  print("按逗号分割:\n");
+  let i = 0;
+  while (i < parts.length()) {
+    print("  ");
+    print(parts[i]);
+    print("\n");
+    i = i + 1;
+  }
+
+  // 按一个或多个空格分割
+  let spaces = Regex.new(" +");
+  spaces.compile();
+  let words = spaces.split("hello   world  foo", -1);
+  print("按空格分割: ");
+  print(words.length());
+  print(" 个词\n\n");
+}
+
+// =============================================================================
+// 9. {n,m} 重复次数
+// =============================================================================
+fn demo_repeat_count() {
+  print("=== 9. {n,m} 重复次数 ===\n\n");
+
+  // 精确 3 位数字
+  let three = Regex.new("\\d{3}");
+  three.compile();
+  print("\\d{3} test(\"123\"): ");
+  print(three.test("123"));
+  print("\n");
+  print("\\d{3} test(\"12\"): ");
+  print(three.test("12"));
+  print("\n");
+
+  // 2-4 个字母
+  let range = Regex.new("[a-z]{2,4}");
+  range.compile();
+  print("[a-z]{2,4} test(\"ab\"): ");
+  print(range.test("ab"));
+  print("\n");
+  print("[a-z]{2,4} test(\"abcd\"): ");
+  print(range.test("abcd"));
+  print("\n");
+  print("[a-z]{2,4} test(\"a\"): ");
+  print(range.test("a"));
+  print("\n\n");
+}
+
+// =============================================================================
+// 主入口
+// =============================================================================
+demo_basic_match();
+demo_quantifiers();
+demo_char_classes();
+demo_anchors();
+demo_alternation();
+demo_match_all();
+demo_replace();
+demo_split();
+demo_repeat_count();
+
+print("[regex_demo] 完成\n");

@@ -26,11 +26,11 @@ fn hashString(s: string): int {
 }
 
 export class ThreadLocal {
-    static fn store(key: string, value: int): int {
+    static fn store(key: string, value: dyn): int {
         return __tls_store(hashString(key), value);
     }
 
-    static fn load(key: string): int {
+    static fn load(key: string): dyn {
         return __tls_load(hashString(key));
     }
 

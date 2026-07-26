@@ -7,9 +7,9 @@
  * and configurable behavior for empty lines and trailing newlines.
  *
  * Usage:
- *   import { parse, stringify } from "./csv";
- *   let rows = parse("a,b,c\n1,2,3");
- *   let csv = stringify(rows);
+ *   import { parseCsv, stringifyCsv } from "./csv";
+ *   let rows = parseCsv("a,b,c\n1,2,3");
+ *   let csv = stringifyCsv(rows);
  *
  * @author Ruyi Team
  * @date 2026-07-24
@@ -110,7 +110,7 @@ fn escapeField(field: string, delimiter: string): string {
  * @param delimiter Field delimiter (default: ",")
  * @return Array of rows, each row is an array of field strings
  */
-export fn parse(csv: string, delimiter: string = ","): Array<StringArray> {
+export fn parseCsv(csv: string, delimiter: string = ","): Array<StringArray> {
     let rows: Array<StringArray> = [];
     let currentLine = "";
     let i = 0;
@@ -151,7 +151,7 @@ export fn parse(csv: string, delimiter: string = ","): Array<StringArray> {
  * @param delimiter Field delimiter (default: ",")
  * @return CSV-formatted string
  */
-export fn stringify(rows: Array<StringArray>, delimiter: string = ","): string {
+export fn stringifyCsv(rows: Array<StringArray>, delimiter: string = ","): string {
     let result = "";
     let i = 0;
     let rowCount = rows.length();

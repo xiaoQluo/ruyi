@@ -36,7 +36,7 @@ export class Thread {
      * The closure runs in a new thread with its own GC heap.
      * Returns a Thread handle for joining or detaching.
      */
-    static fn spawn(): Thread {
+    static fn spawn(f: dyn, arg: dyn): Thread {
         // spawn() is handled as a compiler builtin that calls ruyi_thread_spawn
         // The closure capturing is managed by the compiler.
         // For the stdlib API, spawn is a language-level builtin.

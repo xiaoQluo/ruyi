@@ -107,7 +107,8 @@ impl WeakTable {
 /// # Safety
 ///
 /// `type_info` must remain valid for the lifetime of the object.
-pub unsafe fn ruyi_arc_alloc(size: usize, type_info: *mut TypeInfo) -> *mut u8 {
+#[no_mangle]
+pub unsafe extern "C" fn ruyi_arc_alloc(size: usize, type_info: *mut TypeInfo) -> *mut u8 {
     ruyi_alloc(size, type_info, MemoryStrategy::ARC)
 }
 
@@ -116,7 +117,8 @@ pub unsafe fn ruyi_arc_alloc(size: usize, type_info: *mut TypeInfo) -> *mut u8 {
 /// # Safety
 ///
 /// `ptr` must be a valid payload pointer returned by `ruyi_arc_alloc`.
-pub unsafe fn ruyi_arc_retain(ptr: *mut u8) {
+#[no_mangle]
+pub unsafe extern "C" fn ruyi_arc_retain(ptr: *mut u8) {
     if ptr.is_null() {
         return;
     }
@@ -132,7 +134,8 @@ pub unsafe fn ruyi_arc_retain(ptr: *mut u8) {
 /// # Safety
 ///
 /// `ptr` must be a valid payload pointer returned by `ruyi_arc_alloc`.
-pub unsafe fn ruyi_arc_release(ptr: *mut u8) {
+#[no_mangle]
+pub unsafe extern "C" fn ruyi_arc_release(ptr: *mut u8) {
     if ptr.is_null() {
         return;
     }

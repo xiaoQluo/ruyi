@@ -1475,10 +1475,12 @@ fn test_check_nullable_with_value() {
 
 #[test]
 fn test_check_unsafe_nullable_access_error() {
+    // Unsafe nullable access is a warning (gradual typing), not an error.
     let result = check_program("let obj: { prop: int }? = null; let x = obj.prop;");
+    let warnings: Vec<_> = result.warnings().collect();
     assert!(
-        result.has_errors,
-        "Expected error for unsafe nullable access"
+        !warnings.is_empty(),
+        "Expected warning for unsafe nullable access"
     );
 }
 

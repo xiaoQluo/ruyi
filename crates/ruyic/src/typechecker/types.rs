@@ -130,6 +130,53 @@ impl Type {
         matches!(self, Type::Error)
     }
 
+    /// Returns `true` if this type is a type variable (generic parameter).
+    pub fn is_type_var(&self) -> bool {
+        matches!(self, Type::TypeVar(_))
+    }
+
+    /// Returns `true` if this type is a single-char uppercase `Named` type,
+    /// which is the convention for type parameters (T, U, E, F, etc.).
+    /// `from_annotation` does not convert these to `TypeVar`, so this
+    /// heuristic bridges the gap inside generic definitions.
+    fn is_type_param_name(ty: &Type) -> bool {
+        match ty {
+            Type::Named(name, _) => {
+                name.len() == 1 && name.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+            }
+            _ => false,
+        }
+    }
+
+    /// Expand well-known type aliases to their underlying union types.
+    /// `Option<T>` = `Some<T> | None`, `Result<T,E>` = `Ok<T,E> | Err<T,E>`.
+    fn resolve_type_alias(ty: &Type) -> Type {
+        match ty {
+            Type::Generic { base, args } if base == "Option" && args.len() == 1 => {
+                Type::Union(vec![
+                    Type::Generic {
+                        base: "Some".into(),
+                        args: args.clone(),
+                    },
+                    Type::Named("None".into(), vec![]),
+                ])
+            }
+            Type::Generic { base, args } if base == "Result" && args.len() == 2 => {
+                Type::Union(vec![
+                    Type::Generic {
+                        base: "Ok".into(),
+                        args: args.clone(),
+                    },
+                    Type::Generic {
+                        base: "Err".into(),
+                        args: args.clone(),
+                    },
+                ])
+            }
+            other => other.clone(),
+        }
+    }
+
     /// Returns `true` if this type is the never (bottom) type.
     pub fn is_never(&self) -> bool {
         matches!(self, Type::Never)
@@ -205,7 +252,30 @@ impl Type {
             return true;
         }
 
-        match (self, other) {
+        // Type variables are compatible with any type.
+        // This is essential for generic definitions where method-level and
+        // class-level type parameters coexist (e.g. Some<T>.map<U>).
+        // Without this, passing a method-level TypeVar to a class-level
+        // TypeVar would fail because they have different internal IDs.
+        // At instantiation time (monomorphization), both get bound to
+        // concrete types, so this relaxed check inside generic bodies is safe.
+        if self.is_type_var() || other.is_type_var() {
+            return true;
+        }
+
+        // Single-char uppercase Named types are type parameters (T, U, E, F).
+        // `from_annotation` resolves them as `Type::Named` rather than
+        // `Type::TypeVar`, so we treat them as universally compatible here.
+        if Self::is_type_param_name(self) || Self::is_type_param_name(other) {
+            return true;
+        }
+
+        // Expand well-known type aliases before subtyping check.
+        // `Option<T>` = `Some<T> | None` and `Result<T,E>` = `Ok<T,E> | Err<T,E>`
+        let self_resolved = Self::resolve_type_alias(self);
+        let other_resolved = Self::resolve_type_alias(other);
+
+        match (&self_resolved, &other_resolved) {
             // int <: float (widening coercion)
             (Type::Int, Type::Float) => true,
             // byte <: int (widening coercion)
@@ -319,6 +389,35 @@ impl Type {
                 let _ = (base, trait_name);
                 true
             }
+
+            // Named type is compatible with its generic instantiation.
+            // Inside generic bodies, constructors (e.g., Some.new())
+            // return the bare class type while the declared return type
+            // is the full Generic { base: "Some", args: [...] }.
+            (
+                Type::Named(self_name, _),
+                Type::Generic {
+                    base: other_base, ..
+                },
+            ) if self_name == other_base => true,
+            (
+                Type::Generic {
+                    base: self_base, ..
+                },
+                Type::Named(other_name, _),
+            ) if self_base == other_name => true,
+
+            // Object literals are compatible with Generic types (structural
+            // typing for undefined generic containers like Pair<K, V>).
+            // This allows `{ first: a, second: b }` to satisfy `Pair<K, V>?`.
+            (Type::Object(_), Type::Generic { .. }) => true,
+            (Type::Generic { .. }, Type::Object(_)) => true,
+
+            // Union subtyping: S <: Union(V) if S matches any variant
+            (_, Type::Union(variants)) => variants.iter().any(|v| self.is_subtype_of(v)),
+
+            // Union subtyping: Union(V) <: S if every variant is subtype of S
+            (Type::Union(variants), _) => variants.iter().all(|v| v.is_subtype_of(other)),
 
             _ => false,
         }

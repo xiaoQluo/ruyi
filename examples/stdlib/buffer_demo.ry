@@ -1,0 +1,220 @@
+/**
+ * Ruyi Example — Buffer Module
+ *
+ * Demonstrates:
+ * - Buffer creation: fromString, fromBase64, fromHex, fromArray, alloc
+ * - Buffer operations: get, set, slice, copy, fill
+ * - Integer read/write: UInt8, Int16BE/LE, Int32BE/LE, Float64BE/LE
+ * - String read/write: readString, writeString
+ * - Encoding: toString, toBase64, toHex, toBase64Url
+ * - Search: indexOf, lastIndexOf, includes, startsWith, endsWith
+ * - Comparison: equals
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { Buffer } from "buffer";
+
+// -----------------------------------------------------------------------------
+// Helper
+// -----------------------------------------------------------------------------
+fn printOk(label: string) {
+    print("  ✓ " + label + "\n");
+}
+
+fn check(label: string, condition: bool) {
+    if (condition) {
+        print("  ✓ " + label + "\n");
+    } else {
+        print("  ✗ FAILED: " + label + "\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 1. Buffer Creation
+// -----------------------------------------------------------------------------
+fn demo_creation() {
+    print("=== 1. Buffer Creation ===\n\n");
+
+    // From string
+    let buf1 = Buffer.fromString("Hello");
+    check("Buffer.fromString()", buf1.length() === 5);
+    check("Buffer.fromString() → toString()", buf1.toString() === "Hello");
+
+    // From Base64
+    let buf2 = Buffer.fromBase64("UnV5aQ==");
+    check("Buffer.fromBase64()", buf2.toString() === "Ruyi");
+
+    // From Hex
+    let buf3 = Buffer.fromHex("414243");
+    check("Buffer.fromHex()", buf3.toString() === "ABC");
+
+    // Allocate empty buffer
+    let buf4 = Buffer.alloc(10);
+    check("Buffer.alloc()", buf4.length() === 10);
+
+    // From array
+    let buf5 = Buffer.fromArray([72, 101, 108, 108, 111]);
+    check("Buffer.fromArray()", buf5.toString() === "Hello");
+
+    printOk("creation OK");
+}
+
+// -----------------------------------------------------------------------------
+// 2. Basic Operations
+// -----------------------------------------------------------------------------
+fn demo_basic_ops() {
+    print("=== 2. Basic Operations ===\n\n");
+
+    let buf = Buffer.fromString("Ruyi Programming Language");
+
+    // Get / Set
+    check("get(0)", buf.get(0) === 82);  // 'R' = 82
+    buf.set(0, 114);  // change to 'r'
+    check("set(0, 114)", buf.get(0) === 114);
+
+    // Slice
+    let sliced = buf.slice(0, 4);
+    check("slice(0,4)", sliced.toString() === "ruyi");
+
+    // Copy
+    let target = Buffer.alloc(10);
+    buf.copy(target, 0, 0, 5);
+    check("copy()", target.toString() !== "");
+
+    // Fill
+    let fillBuf = Buffer.alloc(4);
+    fillBuf.fill(65);  // 'A'
+    check("fill()", fillBuf.toString() === "AAAA");
+
+    // Concat
+    let a = Buffer.fromString("Hello ");
+    let b = Buffer.fromString("World");
+    let c = Buffer.concat([a, b]);
+    check("concat()", c.toString() === "Hello World");
+
+    printOk("basic operations OK");
+}
+
+// -----------------------------------------------------------------------------
+// 3. Integer Read/Write
+// -----------------------------------------------------------------------------
+fn demo_integer_rw() {
+    print("=== 3. Integer Read/Write ===\n\n");
+
+    let buf = Buffer.alloc(8);
+
+    // Write UInt8
+    buf.writeUInt8(0, 255);
+    check("writeUInt8(0,255) → readUInt8(0)", buf.readUInt8(0) === 255);
+
+    // Write Int16 BE (Big Endian)
+    buf.writeInt16BE(0, 0x1234);
+    let readBE = buf.readInt16BE(0);
+    check("Int16 BE roundtrip", readBE === 0x1234);
+
+    // Write Int16 LE (Little Endian)
+    buf.writeInt16LE(2, 0x5678);
+    let readLE = buf.readInt16LE(2);
+    check("Int16 LE roundtrip", readLE === 0x5678);
+
+    // Write Int32
+    buf.writeInt32BE(0, 0x12345678);
+    let read32 = buf.readInt32BE(0);
+    check("Int32 BE roundtrip", read32 === 0x12345678);
+
+    printOk("integer read/write OK");
+}
+
+// -----------------------------------------------------------------------------
+// 4. String Read/Write
+// -----------------------------------------------------------------------------
+fn demo_string_rw() {
+    print("=== 4. String Read/Write ===\n\n");
+
+    let buf = Buffer.alloc(20);
+    buf.writeString(0, "Ruyi");
+    buf.writeString(5, "Language");
+
+    let part1 = buf.readString(0, 4);
+    let part2 = buf.readString(5, 8);
+    check("readString(0,4)", part1 === "Ruyi");
+    check("readString(5,8)", part2 === "Language");
+
+    printOk("string read/write OK");
+}
+
+// -----------------------------------------------------------------------------
+// 5. Encoding Output
+// -----------------------------------------------------------------------------
+fn demo_encoding_output() {
+    print("=== 5. Encoding Output ===\n\n");
+
+    let buf = Buffer.fromString("Ruyi");
+
+    let b64 = buf.toBase64();
+    check("toBase64()", b64 === "UnV5aQ==");
+
+    let hex = buf.toHex();
+    check("toHex()", hex === "52757969");
+
+    check("toString()", buf.toString() === "Ruyi");
+
+    print("  toString(): " + buf.toString() + "\n");
+    print("  toBase64():  " + b64 + "\n");
+    print("  toHex():     " + hex + "\n");
+
+    printOk("encoding output OK");
+}
+
+// -----------------------------------------------------------------------------
+// 6. Search & Comparison
+// -----------------------------------------------------------------------------
+fn demo_search() {
+    print("=== 6. Search & Comparison ===\n\n");
+
+    let buf = Buffer.fromString("Hello Ruyi World");
+
+    // indexOf
+    let idx = buf.indexOf(82);  // 'R'
+    check("indexOf('R')", idx === 6);
+
+    // includes
+    check("includes('Ruyi')", buf.includes(82));  // byte value
+
+    // startsWith
+    let start = Buffer.fromString("Hello");
+    check("startsWith('Hello')", buf.startsWith(start));
+
+    // endsWith
+    let end = Buffer.fromString("World");
+    check("endsWith('World')", buf.endsWith(end));
+
+    // equals
+    let same = Buffer.fromString("Hello Ruyi World");
+    check("equals()", buf.equals(same));
+
+    let different = Buffer.fromString("Different");
+    check("!equals()", !buf.equals(different));
+
+    printOk("search & comparison OK");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+    print("╔══════════════════════════════════╗\n");
+    print("║        Buffer Module Demo       ║\n");
+    print("╚══════════════════════════════════╝\n\n");
+
+    demo_creation();
+    demo_basic_ops();
+    demo_integer_rw();
+    demo_string_rw();
+    demo_encoding_output();
+    demo_search();
+
+    print("\nAll Buffer demos completed!\n");
+}

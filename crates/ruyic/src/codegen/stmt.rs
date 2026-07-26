@@ -339,6 +339,75 @@ fn compile_for_in<'ctx>(
 
     let iter_result = compile_expr(ctx, iterable)?;
 
+    // for-in on Array: iterate over integer indices
+    if let Type::Array(_) = &iter_result.ty {
+        let array_ptr = iter_result.value.into_pointer_value();
+
+        let len_ptr = ctx
+            .builder()
+            .build_bitcast(array_ptr, i64_ptr_ty, "len_ptr")
+            .into_pointer_value();
+        let len = ctx.builder().build_load(len_ptr, "len").into_int_value();
+
+        let idx_ptr = ctx.builder().build_alloca(i64_ty, "for_in_idx");
+        ctx.builder()
+            .build_store(idx_ptr, i64_ty.const_int(0, false));
+
+        // for-in 的循环变量是整数索引
+        let var_ptr = ctx.builder().build_alloca(i64_ty, variable);
+        let old_var = ctx
+            .variables
+            .insert(variable.to_string(), (var_ptr, Type::Int));
+
+        let cond_bb = ctx.context.append_basic_block(func, "for_in_cond");
+        let body_bb = ctx.context.append_basic_block(func, "for_in_body");
+        let end_bb = ctx.context.append_basic_block(func, "for_in_end");
+
+        ctx.builder().build_unconditional_branch(cond_bb);
+
+        ctx.builder().position_at_end(cond_bb);
+        let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
+        let cond = ctx
+            .builder()
+            .build_int_compare(inkwell::IntPredicate::SLT, idx, len, "for_in_cond");
+        ctx.builder()
+            .build_conditional_branch(cond, body_bb, end_bb);
+
+        let label = ctx.pending_loop_label.take();
+        ctx.push_loop(end_bb, cond_bb, label);
+
+        ctx.builder().position_at_end(body_bb);
+        let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
+        let one = i64_ty.const_int(1, false);
+        // 将当前索引存入循环变量
+        ctx.builder().build_store(var_ptr, idx);
+
+        compile_stmt(ctx, body)?;
+
+        if ctx
+            .builder()
+            .get_insert_block()
+            .unwrap()
+            .get_terminator()
+            .is_none()
+        {
+            let next_idx = ctx.builder().build_int_add(idx, one, "next_idx");
+            ctx.builder().build_store(idx_ptr, next_idx);
+            ctx.builder().build_unconditional_branch(cond_bb);
+        }
+
+        ctx.builder().position_at_end(end_bb);
+        ctx.pop_loop();
+
+        if let Some(old) = old_var {
+            ctx.define_variable(variable.to_string(), old);
+        } else {
+            ctx.remove_variable(variable);
+        }
+
+        return Ok(());
+    }
+
     if let crate::typechecker::types::Type::Object(fields) = &iter_result.ty {
         let var_ptr = ctx.builder().build_alloca(i8_ptr, variable);
         let old_var = ctx
@@ -533,6 +602,96 @@ fn compile_for_of<'ctx>(
                 .into_pointer_value();
             let elem_val = ctx.builder().build_load(elem_i64_ptr, "elem_val");
             ctx.builder().build_store(var_ptr, elem_val);
+
+            compile_stmt(ctx, body)?;
+
+            if ctx
+                .builder()
+                .get_insert_block()
+                .unwrap()
+                .get_terminator()
+                .is_none()
+            {
+                let next_idx = ctx.builder().build_int_add(idx, one, "next_idx");
+                ctx.builder().build_store(idx_ptr, next_idx);
+                ctx.builder().build_unconditional_branch(cond_bb);
+            }
+
+            ctx.builder().position_at_end(end_bb);
+            ctx.pop_loop();
+
+            if let Some(old) = old_var {
+                ctx.define_variable(variable.to_string(), old);
+            } else {
+                ctx.remove_variable(variable);
+            }
+
+            Ok(())
+        }
+        Type::String => {
+            // for-of on String: iterate over each character
+            let str_ptr = iter_result.value.into_pointer_value();
+
+            // Call __string_length(str) to get character count
+            let str_len_fn = ctx
+                .module
+                .get_function("__string_length")
+                .expect("__string_length not declared");
+            let len = ctx
+                .builder()
+                .build_call(str_len_fn, &[str_ptr.into()], "str_len")
+                .try_as_basic_value()
+                .left()
+                .unwrap()
+                .into_int_value();
+
+            let idx_ptr = ctx.builder().build_alloca(i64_ty, "for_of_str_idx");
+            ctx.builder()
+                .build_store(idx_ptr, i64_ty.const_int(0, false));
+
+            // Loop variable is a single-char string (i8*)
+            let var_ptr = ctx.builder().build_alloca(i8_ptr, variable);
+            let old_var = ctx
+                .variables
+                .insert(variable.to_string(), (var_ptr, Type::String));
+
+            let cond_bb = ctx.context.append_basic_block(func, "for_of_str_cond");
+            let body_bb = ctx.context.append_basic_block(func, "for_of_str_body");
+            let end_bb = ctx.context.append_basic_block(func, "for_of_str_end");
+
+            ctx.builder().build_unconditional_branch(cond_bb);
+
+            ctx.builder().position_at_end(cond_bb);
+            let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
+            let cond = ctx.builder().build_int_compare(
+                inkwell::IntPredicate::SLT,
+                idx,
+                len,
+                "for_of_str_cond",
+            );
+            ctx.builder()
+                .build_conditional_branch(cond, body_bb, end_bb);
+
+            let label = ctx.pending_loop_label.take();
+            ctx.push_loop(end_bb, cond_bb, label);
+
+            ctx.builder().position_at_end(body_bb);
+            let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
+            let one = i64_ty.const_int(1, false);
+
+            // Call __string_char_at(str, idx) to get single-char string
+            let char_at_fn = ctx
+                .module
+                .get_function("__string_char_at")
+                .expect("__string_char_at not declared");
+            let ch = ctx
+                .builder()
+                .build_call(char_at_fn, &[str_ptr.into(), idx.into()], "char_at")
+                .try_as_basic_value()
+                .left()
+                .unwrap()
+                .into_pointer_value();
+            ctx.builder().build_store(var_ptr, ch);
 
             compile_stmt(ctx, body)?;
 
@@ -1312,7 +1471,8 @@ fn bind_pattern_in_codegen<'ctx>(
                                 };
                                 bind_pattern_in_codegen(ctx, inner, &field_result)?;
                             }
-                            ObjectPatternField::Shorthand(name) => {
+                            ObjectPatternField::Shorthand(name)
+                            | ObjectPatternField::ShorthandDefault(name, _) => {
                                 let field_index = class_fields
                                     .iter()
                                     .position(|(n, _)| n == name)
@@ -1377,7 +1537,8 @@ fn bind_pattern_in_codegen<'ctx>(
                                 };
                                 bind_pattern_in_codegen(ctx, inner, &field_result)?;
                             }
-                            ObjectPatternField::Shorthand(name) => {
+                            ObjectPatternField::Shorthand(name)
+                            | ObjectPatternField::ShorthandDefault(name, _) => {
                                 let field_index = type_fields
                                     .iter()
                                     .position(|f| f.name == *name)

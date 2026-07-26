@@ -1018,6 +1018,14 @@ pub extern "C" fn __string_last_index_of(haystack: *const i8, needle: *const i8)
     }
 }
 
+/// Return the string unchanged. `toString()` on a string is the identity,
+/// but codegen dispatches it through the `__string_*` builtin table like any
+/// other string method, so an actual symbol is required.
+#[no_mangle]
+pub extern "C" fn __string_to_string(s: *const i8) -> *mut i8 {
+    s as *mut i8
+}
+
 /// Get the character at `index`. Returns a new single-character string.
 #[no_mangle]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]

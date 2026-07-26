@@ -1,0 +1,110 @@
+/**
+ * Ruyi Example — String Module
+ *
+ * Demonstrates:
+ * - join: array to string with separator
+ * - fromCharCode / fromCharCodes: character code to string
+ * - template: string template interpolation
+ * - Built-in string methods: length, contains, startsWith, endsWith,
+ *   indexOf, charAt, substring, toUpperCase, toLowerCase, trim, split
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { join, fromCharCode, fromCharCodes, template } from "string";
+
+// -----------------------------------------------------------------------------
+// Helper
+// -----------------------------------------------------------------------------
+fn printOk(label: string) {
+    print("  ✓ " + label + "\n");
+}
+
+// -----------------------------------------------------------------------------
+// 1. join
+// -----------------------------------------------------------------------------
+fn demo_join() {
+    print("=== 1. join ===\n\n");
+
+    let joined = join(["a", "b", "c"], "-");
+    print("  join(['a','b','c'], '-') = \"" + joined + "\"\n");
+
+    let noSep = join(["x", "y", "z"], "");
+    print("  join(['x','y','z'], '') = \"" + noSep + "\"\n");
+
+    let defaultSep = join(["1", "2", "3"], ",");
+    print("  join(['1','2','3'], ',') = \"" + defaultSep + "\"\n");
+
+    printOk("join OK");
+}
+
+// -----------------------------------------------------------------------------
+// 2. fromCharCode / fromCharCodes
+// -----------------------------------------------------------------------------
+fn demo_char_codes() {
+    print("=== 2. fromCharCode / fromCharCodes ===\n\n");
+
+    let ch = fromCharCode(65);
+    print("  fromCharCode(65) = '" + ch + "'\n");
+
+    let word = fromCharCodes([72, 101, 108, 108, 111]);
+    print("  fromCharCodes([72,101,108,108,111]) = \"" + word + "\"\n");
+
+    printOk("char codes OK");
+}
+
+// -----------------------------------------------------------------------------
+// 3. Built-in String Methods
+// -----------------------------------------------------------------------------
+fn demo_builtins() {
+    print("=== 3. Built-in String Methods ===\n\n");
+
+    let s = "Hello Ruyi World";
+
+    print("  length:             " + s.length() + "\n");
+    print("  contains('Ruyi'):   " + s.contains("Ruyi") + "\n");
+    print("  startsWith('Hello'):" + s.startsWith("Hello") + "\n");
+    print("  endsWith('World'):  " + s.endsWith("World") + "\n");
+    print("  indexOf('R'):       " + s.indexOf("R") + "\n");
+    print("  charAt(0):          '" + s.charAt(0) + "'\n");
+    print("  substring(6,10):    \"" + s.substring(6, 10) + "\"\n");
+    print("  toUpperCase():      \"" + s.toUpperCase() + "\"\n");
+    print("  toLowerCase():      \"" + s.toLowerCase() + "\"\n");
+    print("  trim():             \"" + "  spaces  ".trim() + "\"\n");
+
+    let parts = s.split(" ");
+    print("  split(' '):         [" + join(parts, ", ") + "]\n");
+
+    printOk("built-in methods OK");
+}
+
+// -----------------------------------------------------------------------------
+// 4. Template Strings
+// -----------------------------------------------------------------------------
+fn demo_template() {
+    print("=== 4. Template Strings ===\n\n");
+
+    let name = "Ruyi";
+    let version = "0.5";
+    let msg = "Welcome to " + name + " v" + version + "!";
+    print("  " + msg + "\n");
+
+    printOk("template strings OK");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+    print("╔══════════════════════════════════╗\n");
+    print("║      String Module Demo         ║\n");
+    print("╚══════════════════════════════════╝\n\n");
+
+    demo_join();
+    demo_char_codes();
+    demo_builtins();
+    demo_template();
+
+    print("\nAll String demos completed!\n");
+}

@@ -21,6 +21,8 @@
 use inkwell::context::Context;
 use inkwell::types::{BasicMetadataTypeEnum, BasicType};
 
+use crate::typechecker::types::Type;
+
 /// LLVM ABI signature kind for a builtin return or parameter.
 #[derive(Clone, Copy)]
 pub enum BuiltinSig {
@@ -228,6 +230,11 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         name: "__string_char_code_at",
         ret: BuiltinSig::Int,
         params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__string_to_string",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr],
     },
     BuiltinDecl {
         name: "__string_repeat",
@@ -1602,6 +1609,54 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         ret: BuiltinSig::Void,
         params: &[BuiltinSig::Ptr],
     },
+    // ============================================================
+    // __net_async_* (9) — Reactor-based async TCP I/O futures
+    // ============================================================
+    BuiltinDecl {
+        name: "__net_async_read",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Int, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__net_async_read_result",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__net_async_read_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__net_async_write",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__net_async_write_result",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__net_async_write_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__net_async_accept",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__net_async_accept_result",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__net_async_accept_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
 ];
 
 /// Resolve a `BuiltinSig` to its inkwell `BasicTypeEnum` representation.
@@ -1638,16 +1693,57 @@ pub fn params_to_metadata<'ctx>(
         .collect()
 }
 
+/// Look up the return signature of a builtin by its symbol name.
+///
+/// Returns `None` for names not present in the `BUILTINS` table (e.g.
+/// user-defined functions), letting callers fall back to their default
+/// return-type inference.
+pub fn builtin_ret_sig(name: &str) -> Option<BuiltinSig> {
+    BUILTINS.iter().find(|d| d.name == name).map(|d| d.ret)
+}
+
+/// Convert a `BuiltinSig` return signature into the compiler's `Type`.
+///
+/// Text pointers (`String`) map to `Type::String`. Opaque pointers (`Ptr`)
+/// default to `Type::Dynamic`, but string builtins are refined: they return
+/// UTF-8 text (`Type::String`), with `__string_split` as the exception which
+/// produces an `Array<string>`. Keeping precise result types (e.g. `Int` for
+/// `__string_char_code_at`) instead of collapsing every builtin call to
+/// `Dynamic` lets codegen compile arithmetic and method chains on results.
+pub fn sig_to_type(name: &str, sig: BuiltinSig) -> Type {
+    match sig {
+        BuiltinSig::Void => Type::Void,
+        BuiltinSig::Int => Type::Int,
+        BuiltinSig::Float => Type::Float,
+        BuiltinSig::Bool => Type::Bool,
+        BuiltinSig::Byte => Type::Byte,
+        BuiltinSig::String => Type::String,
+        BuiltinSig::Ptr => {
+            if name == "__string_split" {
+                Type::Array(Box::new(Type::String))
+            } else if name.starts_with("__string_") {
+                Type::String
+            } else if name == "__io_read_random" {
+                // Returns a null-terminated buffer of random bytes, i.e. a
+                // string; callers index it with charCodeAt.
+                Type::String
+            } else {
+                Type::Dynamic
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn builtins_count_is_279() {
+    fn builtins_count_is_289() {
         assert_eq!(
             BUILTINS.len(),
-            279,
-            "expected exactly 279 FFI entries (268 + 4 recv_timeout/is_finished/join_timeout/spawn_named + 7 fiber_ffi)"
+            289,
+            "expected exactly 289 FFI entries (279 before + 9 net_async_ffi + 1 tls)"
         );
     }
 

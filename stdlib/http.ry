@@ -239,11 +239,13 @@ export class HttpClient {
      * @param headers Additional request headers
      * @return Parsed HttpResponse
      */
-    static fn request(method: string, url: string, body: string = "", headers: Map<string, string>? = null): HttpResponse {
+    static fn request(method: string, url: string, body: string? = null, headers: Map<string, string>? = null): HttpResponse {
         let urlInfo = parseUrl(url);
 
         let hdrs = headers !== null ? headers : Map.new();
         hdrs.set("accept-encoding", "gzip, deflate");
+
+        let bodyStr = body !== null ? body : "";
 
         if (urlInfo.scheme === "https") {
             let port = 443;
@@ -260,7 +262,7 @@ export class HttpClient {
             }
 
             // Build request
-            let req = buildRequest(method, urlInfo.path, urlInfo.host, hdrs, body);
+            let req = buildRequest(method, urlInfo.path, urlInfo.host, hdrs, bodyStr);
             tls.write(req);
 
             // Read response
@@ -275,7 +277,7 @@ export class HttpClient {
         }
 
         // Build request
-        let req = buildRequest(method, urlInfo.path, urlInfo.host, hdrs, body);
+        let req = buildRequest(method, urlInfo.path, urlInfo.host, hdrs, bodyStr);
 
         // Connect and send
         let sock = TCPSocket.connect(urlInfo.host, urlInfo.port);

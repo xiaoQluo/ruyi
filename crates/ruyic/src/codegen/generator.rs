@@ -127,6 +127,28 @@ pub struct CodegenContext<'ctx, 'm, 'env> {
     /// Registry of `@arc`-annotated class names. Consulted by `compile_new`
     /// to decide whether to emit `ruyi_arc_alloc` instead of GC allocation.
     pub(crate) arc_registry: ArcClassRegistry,
+    /// Generic class templates: class name -> (type parameter names, class body).
+    /// Used by call sites to instantiate specialized method copies on demand.
+    pub generic_classes: HashMap<String, (Vec<String>, Vec<crate::parser::ast::ClassElement>)>,
+    /// Trait-impl method signatures: mangled fn name -> (impl type parameter
+    /// names, `for` type annotation). Used to substitute type parameters in
+    /// declared return types at call sites.
+    pub impl_method_sigs: HashMap<String, (Vec<String>, crate::parser::ast::TypeAnnotation)>,
+    /// Specializations already attempted (successfully or not), keyed by the
+    /// specialized function name, to avoid repeated failing instantiations.
+    pub attempted_specializations: std::collections::HashSet<String>,
+    /// Static field registry: maps `{Class}_{field}` to the field type.
+    /// The backing LLVM global is looked up via `module.get_global()`.
+    pub static_fields: HashMap<String, Type>,
+    /// Getter registry: maps class_name -> set of getter property names.
+    pub class_getters: HashMap<String, std::collections::HashSet<String>>,
+    /// Setter registry: maps class_name -> set of setter property names.
+    pub class_setters: HashMap<String, std::collections::HashSet<String>>,
+    /// Runtime type ID registry for `instanceof` support.
+    /// Maps class name to a unique numeric type ID.
+    pub type_ids: HashMap<String, u64>,
+    /// Next available type ID for class registration.
+    pub next_type_id: u64,
 }
 
 impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
@@ -183,6 +205,14 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
             pending_loop_label: None,
             gc_mode,
             arc_registry: ArcClassRegistry::new(),
+            generic_classes: HashMap::new(),
+            impl_method_sigs: HashMap::new(),
+            attempted_specializations: std::collections::HashSet::new(),
+            static_fields: HashMap::new(),
+            class_getters: HashMap::new(),
+            class_setters: HashMap::new(),
+            type_ids: HashMap::new(),
+            next_type_id: 1,
         }
     }
 
@@ -272,13 +302,27 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
 
     /// Look up a variable by name.
     ///
-    /// When a `type_environment` is set, the returned type is taken from the
-    /// type checker (falling back to the annotation-derived type stored in the
-    /// local map). The LLVM pointer value always comes from the local map.
+    /// Locals (parameters, let bindings) shadow module-level globals. The
+    /// `type_environment` retains only the global scope at codegen time, so
+    /// it must never override a local's recorded type: consulting it for a
+    /// local named like a user global would poison the type (and previously
+    /// the pointer) with the global's. It is used only as a fallback when
+    /// the recorded type is `Dynamic`, and for genuine global accesses.
     pub fn lookup_variable(
         &self,
         name: &str,
     ) -> Option<(inkwell::values::PointerValue<'ctx>, Type)> {
+        if let Some((ptr, ty)) = self.variables.get(name) {
+            let final_ty = if matches!(ty, Type::Dynamic) {
+                self.type_environment
+                    .and_then(|env| env.lookup(name))
+                    .cloned()
+                    .unwrap_or_else(|| ty.clone())
+            } else {
+                ty.clone()
+            };
+            return Some((*ptr, final_ty));
+        }
         if let Some(global) = self.globals.get(name) {
             let ptr = global.as_pointer_value();
             let final_ty = self
@@ -288,14 +332,48 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
                 .unwrap_or(crate::typechecker::types::Type::Dynamic);
             return Some((ptr, final_ty));
         }
-        self.variables.get(name).map(|(ptr, ty)| {
-            let final_ty = self
-                .type_environment
-                .and_then(|env| env.lookup(name))
-                .cloned()
-                .unwrap_or_else(|| ty.clone());
-            (*ptr, final_ty)
-        })
+        None
+    }
+
+    /// Resolve user-defined type aliases (e.g. `StringArray` -> `Array<string>`)
+    /// by consulting the type checker's environment. Type aliases are recorded
+    /// there as ordinary bindings via `declare_let`. Resolution is recursive so
+    /// nested aliases and aliases inside Array/Nullable/Generic/Function are
+    /// expanded. Used by method dispatch to map an alias receiver type to its
+    /// underlying builtin/class so the correct method symbol is selected.
+    pub fn resolve_type_aliases(&self, ty: &Type) -> Type {
+        match ty {
+            Type::Named(name, _) => {
+                if let Some(env) = self.type_environment {
+                    if let Some(resolved) = env.lookup(name) {
+                        match resolved {
+                            // A class/alias resolving to itself is not an alias.
+                            Type::Named(n, _) if n == name => ty.clone(),
+                            // Function-typed bindings are values, not type aliases.
+                            Type::Function { .. } => ty.clone(),
+                            _ => self.resolve_type_aliases(resolved),
+                        }
+                    } else {
+                        ty.clone()
+                    }
+                } else {
+                    ty.clone()
+                }
+            }
+            Type::Array(inner) => Type::Array(Box::new(self.resolve_type_aliases(inner))),
+            Type::Nullable(inner) => {
+                Type::Nullable(Box::new(self.resolve_type_aliases(inner)))
+            }
+            Type::Generic { base, args } => Type::Generic {
+                base: base.clone(),
+                args: args.iter().map(|a| self.resolve_type_aliases(a)).collect(),
+            },
+            Type::Function { params, return_type } => Type::Function {
+                params: params.iter().map(|p| self.resolve_type_aliases(p)).collect(),
+                return_type: Box::new(self.resolve_type_aliases(return_type)),
+            },
+            _ => ty.clone(),
+        }
     }
 
     /// Define (insert) a variable into the map.
@@ -650,12 +728,19 @@ impl<'ctx> CodeGenerator<'ctx> {
 
         // First pass: predeclare class struct types and method signatures for forward references
         for item in &program.items {
-            if let crate::parser::ast::ModuleItem::Declaration(
-                crate::parser::ast::Declaration::Class { name, body, .. },
-            ) = item
-            {
-                // Predeclare struct type
+            let decl = match extract_declaration(item) {
+                Some(d) => d,
+                None => continue,
+            };
+            if let crate::parser::ast::Declaration::Class { name, body, .. } = decl {
+                // Register a unique type ID for instanceof support.
+                let type_id = ctx.next_type_id;
+                ctx.next_type_id += 1;
+                ctx.type_ids.insert(name.clone(), type_id);
+
+                // Predeclare struct type (with hidden __typeid field at index 0)
                 let mut fields: Vec<(String, crate::typechecker::types::Type)> = Vec::new();
+                fields.push(("__typeid".to_string(), crate::typechecker::types::Type::Int));
                 for element in body {
                     if let crate::parser::ast::ClassElement::Field {
                         name: prop_name,
@@ -682,6 +767,8 @@ impl<'ctx> CodeGenerator<'ctx> {
                 ctx.class_fields.insert(name.clone(), fields);
 
                 // Predeclare methods
+                let mut getters = std::collections::HashSet::new();
+                let mut setters = std::collections::HashSet::new();
                 for element in body {
                     if let crate::parser::ast::ClassElement::Method {
                         name: prop_name,
@@ -689,11 +776,23 @@ impl<'ctx> CodeGenerator<'ctx> {
                         return_type,
                         is_static: false,
                         is_async: false,
+                        is_getter,
+                        is_setter,
                         ..
                     } = element
                     {
                         if let crate::parser::ast::PropertyName::Ident(method) = prop_name {
-                            let method_name = format!("{}_{}", name, method);
+                            if *is_getter {
+                                getters.insert(method.clone());
+                            }
+                            if *is_setter {
+                                setters.insert(method.clone());
+                            }
+                            let method_name = if *is_setter {
+                                format!("{}_set_{}", name, method)
+                            } else {
+                                format!("{}_{}", name, method)
+                            };
                             let mut method_params = vec![crate::parser::ast::Param {
                                 pattern: crate::parser::ast::Pattern::Identifier(
                                     "self".to_string(),
@@ -711,6 +810,42 @@ impl<'ctx> CodeGenerator<'ctx> {
                                     .filter(|p| !matches!(&p.pattern, crate::parser::ast::Pattern::Identifier(n) if n == "self"))
                                     .cloned(),
                             );
+                            super::decl::predeclare_function(
+                                &mut ctx,
+                                &method_name,
+                                &method_params,
+                                return_type.as_ref(),
+                            );
+                        }
+                    }
+                }
+                if !getters.is_empty() {
+                    ctx.class_getters.insert(name.clone(), getters);
+                }
+                if !setters.is_empty() {
+                    ctx.class_setters.insert(name.clone(), setters);
+                }
+
+                // Predeclare static methods so other classes can
+                // forward-reference them (e.g. Process.create calling
+                // ProcessOptions.default()).
+                for element in body {
+                    if let crate::parser::ast::ClassElement::Method {
+                        name: prop_name,
+                        params,
+                        return_type,
+                        is_static: true,
+                        is_async: false,
+                        ..
+                    } = element
+                    {
+                        if let crate::parser::ast::PropertyName::Ident(method) = prop_name {
+                            let method_name = format!("{}_{}", name, method);
+                            let method_params: Vec<_> = params
+                                .iter()
+                                .filter(|p| !matches!(&p.pattern, crate::parser::ast::Pattern::Identifier(n) if n == "self"))
+                                .cloned()
+                                .collect();
                             super::decl::predeclare_function(
                                 &mut ctx,
                                 &method_name,
@@ -802,6 +937,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                                 if !ctx.allow_partial_codegen() {
                                     return Err(format!("codegen error: {}", _e));
                                 }
+                                log::warn!("Skipping declaration codegen: {}", _e);
                             }
                             _ => return Err(format!("codegen error: {}", _e)),
                         }
@@ -826,6 +962,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                         if !ctx.allow_partial_codegen() {
                             return Err(format!("codegen error: {}", _e));
                         }
+                        log::warn!("Skipping export codegen: {}", _e);
                     }
                 }
                 crate::parser::ast::ModuleItem::Statement(stmt) => {
@@ -978,7 +1115,9 @@ impl<'ctx> CodeGenerator<'ctx> {
         path: &std::path::Path,
         opt_level: OptLevel,
     ) -> Result<(), String> {
-        let temp_obj = std::env::temp_dir().join("ruyi_temp.o");
+        // Use PID in the temp object filename to avoid collisions when
+        // multiple ruyic processes run simultaneously (e.g. parallel tests).
+        let temp_obj = std::env::temp_dir().join(format!("ruyi_temp_{}.o", std::process::id()));
         self.compile_to_object_with_opt(&temp_obj, opt_level)?;
 
         let runtime_lib = option_env!("RUYI_RUNTIME_LIB")
@@ -1175,7 +1314,15 @@ fn compile_top_level_let_inits<'ctx>(
                 };
                 let value = init_result.value;
                 ctx.builder().build_store(global.as_pointer_value(), value);
-                ctx.define_variable(name, (global.as_pointer_value(), init_result.ty));
+                // Record the declared (annotation/checker) type so later
+                // lookups agree with the global slot's LLVM type; fall back
+                // to the compiled init type when nothing was declared.
+                let recorded_ty = if matches!(ty, Type::Dynamic) {
+                    init_result.ty
+                } else {
+                    ty
+                };
+                ctx.define_variable(name, (global.as_pointer_value(), recorded_ty));
                 let _ = BasicValueEnum::IntValue(ctx.context.i64_type().const_int(0, false));
             }
         }
@@ -1215,7 +1362,7 @@ fn collect_top_level_lets(
     result
 }
 
-fn ruyi_type_to_zero<'ctx>(
+pub(crate) fn ruyi_type_to_zero<'ctx>(
     context: &'ctx inkwell::context::Context,
     ty: &crate::typechecker::types::Type,
 ) -> inkwell::values::BasicValueEnum<'ctx> {

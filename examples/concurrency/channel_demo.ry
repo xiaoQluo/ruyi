@@ -1,0 +1,197 @@
+/**
+ * Ruyi Example — Channel Module (Inter-Thread Message Passing)
+ *
+ * Demonstrates:
+ * - Channel.new(): bounded / unbounded channels
+ * - send / recv: blocking send and receive
+ * - tryRecv: non-blocking receive
+ * - recvTimeout: timed receive
+ * - clone: multi-producer pattern
+ * - isClosed: channel state
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { Channel, ChannelSender } from "channel";
+import { Thread } from "thread";
+
+// -----------------------------------------------------------------------------
+// Helper
+// -----------------------------------------------------------------------------
+fn printOk(label: string) {
+    print("  ✓ " + label + "\n");
+}
+
+fn check(label: string, condition: bool) {
+    if (condition) {
+        print("  ✓ " + label + "\n");
+    } else {
+        print("  ✗ FAILED: " + label + "\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 1. Unbounded Channel
+// -----------------------------------------------------------------------------
+fn demo_unbounded() {
+    print("=== 1. Unbounded Channel (capacity 0) ===\n\n");
+
+    // capacity <= 0 → unbounded (never blocks sender)
+    let ch = Channel.new(0);
+    check("Channel.new(0) created", true);
+
+    // Send multiple values without blocking
+    ch.send(10);
+    ch.send(20);
+    ch.send(30);
+
+    // Receive in order (FIFO)
+    let v1 = ch.recv();
+    let v2 = ch.recv();
+    let v3 = ch.recv();
+    check("recv() FIFO order", v1 === 10 && v2 === 20 && v3 === 30);
+
+    printOk("unbounded channel OK");
+}
+
+// -----------------------------------------------------------------------------
+// 2. Bounded Channel
+// -----------------------------------------------------------------------------
+fn demo_bounded() {
+    print("=== 2. Bounded Channel (capacity 2) ===\n\n");
+
+    // capacity > 0 → bounded (sender blocks when full)
+    let ch = Channel.new(2);
+
+    check("Channel.send() fills buffer", ch.send(1));
+    check("Channel.send() fills buffer", ch.send(2));
+
+    // Receive to make room
+    let v1 = ch.recv();
+    check("recv() after bounded fill", v1 === 1);
+
+    // Now can send again
+    check("send() after recv", ch.send(3));
+
+    let v2 = ch.recv();
+    let v3 = ch.recv();
+    check("remaining values", v2 === 2 && v3 === 3);
+
+    printOk("bounded channel OK");
+}
+
+// -----------------------------------------------------------------------------
+// 3. Non-Blocking Receive
+// -----------------------------------------------------------------------------
+fn demo_try_recv() {
+    print("=== 3. Non-Blocking Receive (tryRecv) ===\n\n");
+
+    let ch = Channel.new(0);
+
+    // tryRecv on empty channel returns sentinel (-1)
+    let empty = ch.tryRecv();
+    check("tryRecv() on empty returns -1", empty === -1);
+
+    // Send and tryRecv
+    ch.send(42);
+    let val = ch.tryRecv();
+    check("tryRecv() after send", val === 42);
+
+    // Empty again
+    let emptyAgain = ch.tryRecv();
+    check("tryRecv() empty again", emptyAgain === -1);
+
+    printOk("tryRecv OK");
+}
+
+// -----------------------------------------------------------------------------
+// 4. Producer-Consumer Pattern
+// -----------------------------------------------------------------------------
+fn demo_producer_consumer() {
+    print("=== 4. Producer-Consumer Pattern ===\n\n");
+
+    let ch = Channel.new(0);
+    let done = Channel.new(1);
+
+    // Producer thread
+    Thread.spawn(fn(arg) {
+        ch.send(100);
+        ch.send(200);
+        ch.send(300);
+        ch.send(-1);  // sentinel: end of stream
+        done.send(1);
+    });
+
+    // Consumer (main thread)
+    let sum: int = 0;
+    let count: int = 0;
+    let val = ch.recv();
+    while (val !== -1) {
+        sum = sum + val;
+        count = count + 1;
+        val = ch.recv();
+    }
+
+    let dummy = done.recv();
+    check("consumer received all", count === 3);
+    check("consumer sum", sum === 600);
+    print("  Received " + count + " messages, sum = " + sum + "\n");
+
+    printOk("producer-consumer OK");
+}
+
+// -----------------------------------------------------------------------------
+// 5. Multi-Producer (clone)
+// -----------------------------------------------------------------------------
+fn demo_multi_producer() {
+    print("=== 5. Multi-Producer Channel ===\n\n");
+
+    let ch = Channel.new(0);
+    let done = Channel.new(2);
+
+    // Producer 1
+    Thread.spawn(fn(arg) {
+        ch.send(1);
+        ch.send(2);
+        done.send(1);
+    });
+
+    // Producer 2
+    Thread.spawn(fn(arg) {
+        ch.send(3);
+        ch.send(4);
+        done.send(2);
+    });
+
+    // Collect all values
+    let dummy = done.recv();
+    let dummy2 = done.recv();
+
+    let sum: int = 0;
+    let i = 0;
+    while (i < 4) {
+        sum = sum + ch.recv();
+        i = i + 1;
+    }
+
+    check("multi-producer sum", sum === 10);
+    printOk("multi-producer OK");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+    print("╔══════════════════════════════════╗\n");
+    print("║      Channel Module Demo        ║\n");
+    print("╚══════════════════════════════════╝\n\n");
+
+    demo_unbounded();
+    demo_bounded();
+    demo_try_recv();
+    demo_producer_consumer();
+    demo_multi_producer();
+
+    print("\nAll Channel demos completed!\n");
+}

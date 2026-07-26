@@ -1,0 +1,125 @@
+/**
+ * Ruyi Example — IO 模块
+ *
+ * 覆盖:
+ * - 标准流: stdout.writeStr(), stderr.writeStr(), flush()
+ * - IoWriter: 创建自定义写入器、写入字符串/Buffer
+ * - IoReader: readLine() 读取控制台输入
+ * - 控制台输入函数: readLine, readInt, readFloat
+ *
+ * 注意: 输入类函数需要交互式 stdin，本示例中仅演示输出类操作。
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { stdout, stderr, IoWriter, IoReader } from "io";
+import { Buffer } from "buffer";
+
+// -----------------------------------------------------------------------------
+// Helper
+// -----------------------------------------------------------------------------
+fn printOk(label: string) {
+    print("  ✓ " + label + "\n");
+}
+
+// -----------------------------------------------------------------------------
+// 1. 标准流输出 (stdout / stderr)
+// -----------------------------------------------------------------------------
+fn demo_std_streams() {
+    print("=== 1. 标准流输出 ===\n\n");
+
+    // 使用 stdout 写入字符串
+    stdout.writeStr("  stdout: 这是通过 stdout.writeStr() 输出的\n");
+    stdout.flush();
+
+    // 使用 stderr 写入错误信息
+    stderr.writeStr("  stderr: 这是通过 stderr.writeStr() 输出的\n");
+
+    // writeLine 自动追加换行符
+    stdout.writeLine("  stdout: writeLine 自动换行");
+    stdout.flush();
+
+    printOk("标准流输出 OK");
+}
+
+// -----------------------------------------------------------------------------
+// 2. IoWriter — Buffer 写入
+// -----------------------------------------------------------------------------
+fn demo_writer_buffer() {
+    print("=== 2. IoWriter Buffer 写入 ===\n\n");
+
+    // 通过 Buffer 写入二进制数据
+    let buf = Buffer.from("  通过 Buffer 写入的数据\n");
+    let written = stdout.write(buf);
+    stdout.flush();
+    print("  写入字节数: " + written + "\n");
+
+    printOk("Buffer 写入 OK");
+}
+
+// -----------------------------------------------------------------------------
+// 3. IoReader — 读取接口
+// -----------------------------------------------------------------------------
+fn demo_reader() {
+    print("=== 3. IoReader 读取接口 ===\n\n");
+
+    // IoReader 提供 readLine / read / readAll 方法
+    // 在非交互模式下跳过实际读取，仅演示 API 调用流程
+    let reader = IoReader.new();
+
+    // 尝试读取一行（非交互环境下可能返回 null）
+    print("  尝试 readLine()...\n");
+    let line = reader.readLine();
+    if (line !== null) {
+        print("  读取到: " + line! + "\n");
+    } else {
+        print("  无输入 (EOF 或非交互环境)\n");
+    }
+
+    printOk("IoReader OK");
+}
+
+// -----------------------------------------------------------------------------
+// 4. 实用模式: 日志写入器
+// -----------------------------------------------------------------------------
+fn demo_log_writer() {
+    print("=== 4. 实用模式: 日志写入器 ===\n\n");
+
+    // 模拟日志写入: 正常信息走 stdout，错误走 stderr
+    let levels = ["INFO", "INFO", "ERROR", "INFO"];
+    let messages = ["服务启动", "监听端口 8080", "连接失败", "请求处理完成"];
+
+    let i = 0;
+    while (i < 4) {
+        let level = levels[i];
+        let msg = messages[i];
+        let logLine = "[" + level + "] " + msg + "\n";
+
+        if (level === "ERROR") {
+            stderr.writeStr("  " + logLine);
+        } else {
+            stdout.writeStr("  " + logLine);
+        }
+        i = i + 1;
+    }
+    stdout.flush();
+
+    printOk("日志写入器 OK");
+}
+
+// -----------------------------------------------------------------------------
+// 主入口
+// -----------------------------------------------------------------------------
+fn main() {
+    print("╔══════════════════════════════════╗\n");
+    print("║       IO Module Demo            ║\n");
+    print("╚══════════════════════════════════╝\n\n");
+
+    demo_std_streams();
+    demo_writer_buffer();
+    demo_reader();
+    demo_log_writer();
+
+    print("\nAll IO demos completed!\n");
+}

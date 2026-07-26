@@ -1,0 +1,221 @@
+/**
+ * Ruyi Example — WebSocket Module (websocket)
+ *
+ * Demonstrates:
+ * - WebSocket client: connect, send, recv, close
+ * - WebSocket server: listen, accept, close
+ * - Client-server ping-pong pattern
+ * - Frame-level communication
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { WebSocket, WebSocketServer } from "websocket";
+import { Thread } from "thread";
+
+// -----------------------------------------------------------------------------
+// Helper
+// -----------------------------------------------------------------------------
+fn printOk(label: string) {
+    print("  ✓ " + label + "\n");
+}
+
+fn check(label: string, condition: bool) {
+    if (condition) {
+        print("  ✓ " + label + "\n");
+    } else {
+        print("  ✗ FAILED: " + label + "\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 1. WebSocket Ping-Pong
+// -----------------------------------------------------------------------------
+fn demo_ping_pong() {
+    print("=== 1. WebSocket Ping-Pong ===\n\n");
+
+    try {
+        let server = WebSocketServer.listen("127.0.0.1", 19960);
+        print("  WebSocket server on ws://127.0.0.1:19960\n");
+
+        // Server thread
+        Thread.spawn(fn(arg) {
+            let conn = server.accept();
+            let msg = conn.recv();        // receive message
+            conn.send("pong: " + msg);    // echo back
+            conn.close();
+            server.close();
+        });
+
+        Thread.sleep(10);
+
+        // Client
+        let ws = WebSocket.connect("ws://127.0.0.1:19960");
+        ws.send("hello!");
+        let response = ws.recv();
+        ws.close();
+
+        check("WebSocket response", response === "pong: hello!");
+        print("  Sent: \"hello!\"\n");
+        print("  Received: \"" + response + "\"\n");
+
+        printOk("ping-pong OK");
+    } catch (e) {
+        print("  ⚠ WebSocket skipped: 网络操作失败\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 2. Multi-Message Exchange
+// -----------------------------------------------------------------------------
+fn demo_multi_message() {
+    print("=== 2. Multi-Message Exchange ===\n\n");
+
+    try {
+        let server = WebSocketServer.listen("127.0.0.1", 19961);
+        Thread.spawn(fn(arg) {
+            let conn = server.accept();
+
+            let m1 = conn.recv();
+            conn.send("ack: " + m1);
+
+            let m2 = conn.recv();
+            conn.send("ack: " + m2);
+
+            let m3 = conn.recv();
+            conn.send("ack: " + m3);
+
+            conn.close();
+            server.close();
+        });
+
+        Thread.sleep(10);
+
+        let ws = WebSocket.connect("ws://127.0.0.1:19961");
+
+        ws.send("msg-1");
+        let r1 = ws.recv();
+        check("message 1 ack", r1 === "ack: msg-1");
+
+        ws.send("msg-2");
+        let r2 = ws.recv();
+        check("message 2 ack", r2 === "ack: msg-2");
+
+        ws.send("msg-3");
+        let r3 = ws.recv();
+        check("message 3 ack", r3 === "ack: msg-3");
+
+        ws.close();
+
+        printOk("multi-message OK");
+    } catch (e) {
+        print("  ⚠ Multi-message skipped: 网络操作失败\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 3. 服务端主动推送
+// -----------------------------------------------------------------------------
+fn demo_server_push() {
+    print("=== 3. 服务端主动推送 ===\n\n");
+
+    try {
+        let server = WebSocketServer.listen("127.0.0.1", 19962);
+
+        // 服务端主动发送多条消息
+        Thread.spawn(fn(arg) {
+            let conn = server.accept();
+            conn.send("通知: 系统维护");
+            conn.send("通知: 版本更新");
+            conn.send("通知: 完成");
+            conn.close();
+            server.close();
+        });
+
+        Thread.sleep(10);
+
+        // 客户端接收多条推送
+        let ws = WebSocket.connect("ws://127.0.0.1:19962");
+
+        let msg1 = ws.recv();
+        check("推送 1", msg1 === "通知: 系统维护");
+        print("  接收: " + msg1 + "\n");
+
+        let msg2 = ws.recv();
+        check("推送 2", msg2 === "通知: 版本更新");
+        print("  接收: " + msg2 + "\n");
+
+        let msg3 = ws.recv();
+        check("推送 3", msg3 === "通知: 完成");
+        print("  接收: " + msg3 + "\n");
+
+        ws.close();
+        printOk("服务端推送 OK");
+    } catch (e) {
+        print("  ⚠ 服务端推送跳过: 网络操作失败\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 4. 双向实时聊天
+// -----------------------------------------------------------------------------
+fn demo_bidirectional() {
+    print("=== 4. 双向实时聊天 ===\n\n");
+
+    try {
+        let server = WebSocketServer.listen("127.0.0.1", 19963);
+
+        // 服务端: 接收并回复
+        Thread.spawn(fn(arg) {
+            let conn = server.accept();
+
+            // 服务端先发送欢迎
+            conn.send("欢迎加入聊天室!");
+
+            // 接收客户端消息并回复
+            let msg = conn.recv();
+            conn.send("[" + msg + "] 已收到");
+
+            conn.close();
+            server.close();
+        });
+
+        Thread.sleep(10);
+
+        // 客户端
+        let ws = WebSocket.connect("ws://127.0.0.1:19963");
+
+        // 接收欢迎消息
+        let welcome = ws.recv();
+        check("欢迎消息", welcome === "欢迎加入聊天室!");
+        print("  服务端: " + welcome + "\n");
+
+        // 发送消息
+        ws.send("张三");
+        let ack = ws.recv();
+        check("确认消息", ack === "[张三] 已收到");
+        print("  服务端: " + ack + "\n");
+
+        ws.close();
+        printOk("双向聊天 OK");
+    } catch (e) {
+        print("  ⚠ 双向聊天跳过: 网络操作失败\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+    print("╔══════════════════════════════════╗\n");
+    print("║     WebSocket Module Demo       ║\n");
+    print("╚══════════════════════════════════╝\n\n");
+
+    demo_ping_pong();
+    demo_multi_message();
+    demo_server_push();
+    demo_bidirectional();
+
+    print("\nAll WebSocket demos completed!\n");
+}

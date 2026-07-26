@@ -159,6 +159,8 @@ pub struct ModuleResolver {
     search_paths: Vec<PathBuf>,
     /// Already loaded modules (path -> AST)
     loaded_modules: HashMap<PathBuf, Program>,
+    /// Module paths in dependency (load) order for deterministic emission
+    load_order: Vec<PathBuf>,
     /// RUYI_HOME directory for stdlib resolution
     ruyi_home: Option<PathBuf>,
 }
@@ -168,6 +170,7 @@ impl ModuleResolver {
         Self {
             search_paths,
             loaded_modules: HashMap::new(),
+            load_order: Vec::new(),
             ruyi_home: std::env::var("RUYI_HOME").ok().map(PathBuf::from),
         }
     }
@@ -322,14 +325,28 @@ impl Driver {
         // Process imports recursively
         program = self.resolve_imports(program, input_path)?;
 
-        // Prepend auto-loaded stdlib modules before main program items
-        let mut all_items: Vec<crate::parser::ast::ModuleItem> = Vec::new();
-        for module in self.resolver.loaded_modules.values() {
-            for module_item in &module.items {
-                all_items.push(module_item.clone());
+        // Prepend loaded modules before main program items, preserving
+        // dependency (load) order. Stdlib modules are grouped first and
+        // counted into the lenient partial-codegen zone; user modules
+        // follow and are compiled strictly.
+        let mut stdlib_items: Vec<crate::parser::ast::ModuleItem> = Vec::new();
+        let mut user_items: Vec<crate::parser::ast::ModuleItem> = Vec::new();
+        for path in &self.resolver.load_order {
+            if let Some(module) = self.resolver.loaded_modules.get(path) {
+                let is_stdlib = path.components().any(|c| c.as_os_str() == "stdlib");
+                let target = if is_stdlib {
+                    &mut stdlib_items
+                } else {
+                    &mut user_items
+                };
+                for module_item in &module.items {
+                    target.push(module_item.clone());
+                }
             }
         }
-        let stdlib_count = all_items.len();
+        let stdlib_count = stdlib_items.len();
+        let mut all_items = stdlib_items;
+        all_items.extend(user_items);
         all_items.extend(program.items);
         program.items = all_items;
         self.last_stdlib_item_count = stdlib_count;
@@ -356,7 +373,10 @@ impl Driver {
             let mut module_parser = RuyiParser::new(&module_source)?;
             let mut module_ast = module_parser.parse()?;
             module_ast = self.resolve_imports(module_ast, &module_path)?;
-            self.resolver.loaded_modules.insert(canonical, module_ast);
+            self.resolver
+                .loaded_modules
+                .insert(canonical.clone(), module_ast);
+            self.resolver.load_order.push(canonical);
         }
 
         Ok(())
@@ -388,6 +408,7 @@ impl Driver {
                         self.resolver
                             .loaded_modules
                             .insert(canonical.clone(), module_ast);
+                        self.resolver.load_order.push(canonical.clone());
                     }
 
                     // Merge imported module items into the main program.
@@ -422,7 +443,9 @@ impl Driver {
                         }
                     };
 
-                    // Process re-exports (outside the immutable borrow).
+                    // Load re-exported modules (outside the immutable borrow).
+                    // Their items reach the program via the loaded-module
+                    // prepend in resolve_modules.
                     for (source, dir) in &reexport_sources {
                         let reexport_path = self.resolver.resolve(source, Some(dir))?;
                         let reexport_canonical = self.resolver.canonical_path(&reexport_path);
@@ -438,22 +461,15 @@ impl Driver {
                             self.resolver
                                 .loaded_modules
                                 .insert(reexport_canonical.clone(), module_ast);
-                        }
-                        if let Some(reexport_module) =
-                            self.resolver.loaded_modules.get(&reexport_canonical)
-                        {
-                            for reexport_item in &reexport_module.items {
-                                Self::push_unwrapped(&mut program, reexport_item);
-                            }
+                            self.resolver.load_order.push(reexport_canonical.clone());
                         }
                     }
 
-                    // Main merge and local bindings.
+                    // Local bindings for the import. The module items
+                    // themselves are emitted once via the loaded-module
+                    // prepend in resolve_modules (no inline copy, which
+                    // previously caused double compilation).
                     if let Some(module) = self.resolver.loaded_modules.get(&canonical) {
-                        for module_item in &module.items {
-                            Self::push_unwrapped(&mut program, module_item);
-                        }
-
                         // Aliases: import { x as y } → const y = x;
                         for named_import in &import_decl.named {
                             if let Some(alias) = &named_import.alias {
@@ -731,8 +747,13 @@ impl Driver {
                             },
                         ));
                 }
-                // Named, ReExportAll, ReExportNamed, DefaultExpr are not declarations;
-                // they are processed separately or left as-is.
+                // Named, DefaultExpr are not declarations; leave as-is.
+                // ReExportAll and ReExportNamed must be preserved so the
+                // re-export handling code in resolve_imports can find them.
+                crate::parser::ast::ExportDecl::ReExportAll { .. }
+                | crate::parser::ast::ExportDecl::ReExportNamed { .. } => {
+                    program.items.push(item.clone());
+                }
                 _ => {}
             },
             _ => {

@@ -1,0 +1,239 @@
+// =============================================================================
+// Variables and Types - Ruyi 基础语法
+// =============================================================================
+// 覆盖: Hello World、let/const、内置类型、类型注解、数字字面量、
+//       字符串字面量、算术运算符、比较运算符、逻辑运算符、注释
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 2.7 Comments
+// -----------------------------------------------------------------------------
+// Single-line comment
+
+/* Multi-line
+   comment */
+
+/**
+ * Documentation comment.
+ * Preserved for tooling.
+ */
+
+// -----------------------------------------------------------------------------
+// Main entry point
+// -----------------------------------------------------------------------------
+fn main() {
+  // Hello World — 最简 Ruyi 程序
+  print("Hello, Ruyi!\n\n");
+
+  print("=== Variables and Types Demo ===\n\n");
+
+  // 2.1 let/const
+  let mutableVar: int = 42;
+  mutableVar = 100;
+  const PI: float = 3.14159;
+
+  // Block scoping
+  {
+    let inner: string = "visible inside";
+    print(inner);
+    print("\n");
+  }
+
+  // 2.2 Built-in types（内置类型演示）
+  let count: int = 42;
+  let name: string = "Ruyi";
+  let ratio: float = 0.75;
+  let active: bool = true;
+
+  print("=== Built-in Types ===\n");
+  print("int: ");
+  print(count);
+  print("\nstring: ");
+  print(name);
+  print("\nfloat: ");
+  print(ratio);
+  print("\nbool: ");
+  print(active);
+  print("\n");
+
+  // 类型推断（无需显式注解）
+  let x = 42;
+  let y = "hello";
+  let z = true;
+  print("inferred: ");
+  print(x);
+  print(", ");
+  print(y);
+  print(", ");
+  print(z);
+  print("\n");
+
+  // 无初始化器 + 无注解 => dyn 类型
+  let unknown;
+  unknown = 123;
+  print("dyn: ");
+  print(unknown);
+  print("\n");
+
+  // 2.4 Numeric literals
+  let decimal: int = 42;
+  let negative: int = -7;
+  let pi: float = 3.14159;
+  let scientific: float = 1e10;
+  let small: float = 0.001;
+  let hex: int = 0xFF;
+  let octal: int = 0o77;
+  let binary: int = 0b1010;
+
+  print("=== Numeric Literals ===\n");
+  print("decimal: ");
+  print(decimal);
+  print("\nnegative: ");
+  print(negative);
+  print("\nhex (0xFF): ");
+  print(hex);
+  print("\noctal (0o77): ");
+  print(octal);
+  print("\nbinary (0b1010): ");
+  print(binary);
+  print("\nscientific (1e10): ");
+  print(scientific);
+  print("\nsmall (0.001): ");
+  print(small);
+  print("\npi: ");
+  print(pi);
+  print("\nbig (100n): ");
+  let big: bigint = 100n;
+  print(big);
+  print("\n");
+
+  // 2.5 String literals
+  let greeting: string = "Hello, Ruyi!";
+  let singleQuoted: string = 'World';
+  let escaped: string = "line1\nline2\ttab";
+  print("=== String Literals ===\n");
+  print(greeting);
+  print("\n");
+  print(singleQuoted);
+  print("\n");
+  print(escaped);
+  print("\n");
+
+  // 2.6 Arithmetic operators（整数算术）
+  let sum: int = 10 + 3;
+  let diff: int = 10 - 3;
+  let product: int = 10 * 3;
+  let quotient: int = 10 / 3;
+  let remainder: int = 10 % 3;
+  let power: int = 2 ** 8;
+
+  print("=== Arithmetic Operators (int) ===\n");
+  print("10 + 3 = ");
+  print(sum);
+  print("\n10 - 3 = ");
+  print(diff);
+  print("\n10 * 3 = ");
+  print(product);
+  print("\n10 / 3 = ");
+  print(quotient);
+  print("\n10 % 3 = ");
+  print(remainder);
+  print("\n2 ** 8 = ");
+  print(power);
+  print("\n");
+
+  // 浮点算术（原 float_math.ry）
+  let fa: float = 3.14;
+  let fb: float = 2.0;
+  let fsum: float = fa + fb;
+  let fproduct: float = fa * fb;
+
+  print("=== Arithmetic Operators (float) ===\n");
+  print("3.14 + 2.0 = ");
+  print(fsum);
+  print("\n3.14 * 2.0 = ");
+  print(fproduct);
+  print("\n");
+
+  // Comparison operators（比较运算符）
+  let eq: bool = 5 === 5;
+  let neq: bool = 5 !== 3;
+  let lt: bool = 3 < 5;
+  let gt: bool = 5 > 3;
+  let lte: bool = 3 <= 3;
+  let gte: bool = 5 >= 5;
+
+  print("=== Comparison Operators ===\n");
+  print("5 === 5: ");
+  print(eq);
+  print("\n5 !== 3: ");
+  print(neq);
+  print("\n3 < 5: ");
+  print(lt);
+  print("\n5 > 3: ");
+  print(gt);
+  print("\n3 <= 3: ");
+  print(lte);
+  print("\n5 >= 5: ");
+  print(gte);
+  print("\n");
+
+  // 比较分支（原 compare_test.ry）
+  let cmp_x: int = 5;
+  if (cmp_x <= 10) {
+    print("5 <= 10: true\n");
+  } else {
+    print("5 <= 10: false\n");
+  }
+
+  // Logical operators
+  let and: bool = true && false;
+  let or: bool = true || false;
+  let not: bool = !true;
+
+  print("=== Logical Operators ===\n");
+  print("true && false: ");
+  print(and);
+  print("\ntrue || false: ");
+  print(or);
+  print("\n!true: ");
+  print(not);
+  print("\n");
+
+  // Nullish coalescing
+  let maybeName: string? = null;
+  let displayName: string = maybeName ?? "anonymous";
+
+  print("=== Nullish Coalescing ===\n");
+  print("null ?? \"anonymous\": ");
+  print(displayName);
+  print("\n");
+
+  // Demonstrate let vs const
+  let counter: int = 0;
+  counter = counter + 1;
+  print("counter (let): ");
+  print(counter);
+  print("\n");
+
+  const MAX: int = 100;
+  print("MAX (const): ");
+  print(MAX);
+  print("\n");
+
+  // Demonstrate type inference
+  let inferred = 42;
+  print("inferred type (42): ");
+  print(inferred);
+  print("\n");
+
+  // Demonstrate block scoping
+  {
+    let blockScoped: int = 999;
+    print("block-scoped var: ");
+    print(blockScoped);
+    print("\n");
+  }
+
+  print("\nAll basic syntax demos completed successfully!\n");
+}

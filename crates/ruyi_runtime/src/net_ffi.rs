@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream, UdpSocket};
+use std::os::fd::AsRawFd;
 use std::os::raw::c_char;
 use std::sync::Mutex;
 
@@ -206,7 +207,9 @@ pub(crate) fn tcp_read_raw(handle: i64, buf: &mut [u8]) -> i64 {
     let streams = map.as_mut().unwrap();
     if let Some(stream) = streams.get_mut(&handle) {
         match stream.read(buf) {
+            Ok(0) => 0,
             Ok(n) => n as i64,
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => -2,
             Err(_) => -1,
         }
     } else {
@@ -223,11 +226,79 @@ pub(crate) fn tcp_write_raw(handle: i64, buf: &[u8]) -> i64 {
     if let Some(stream) = streams.get_mut(&handle) {
         match stream.write(buf) {
             Ok(n) => n as i64,
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => -2,
             Err(_) => -1,
         }
     } else {
         -2
     }
+}
+
+pub(crate) fn get_tcp_fd(handle: i64) -> std::os::fd::RawFd {
+    let map = SOCKETS.lock().unwrap();
+    if let Some(ref streams) = *map {
+        if let Some(stream) = streams.get(&handle) {
+            return stream.as_raw_fd();
+        }
+    }
+    -1
+}
+
+pub(crate) fn get_listener_fd(handle: i64) -> std::os::fd::RawFd {
+    let map = LISTENERS.lock().unwrap();
+    if let Some(ref listeners) = *map {
+        if let Some(listener) = listeners.get(&handle) {
+            return listener.as_raw_fd();
+        }
+    }
+    -1
+}
+
+#[cfg(test)]
+pub(crate) fn set_nonblocking(handle: i64, nonblocking: bool) {
+    let map = SOCKETS.lock().unwrap();
+    if let Some(ref streams) = *map {
+        if let Some(stream) = streams.get(&handle) {
+            let _ = stream.set_nonblocking(nonblocking);
+        }
+    }
+}
+
+pub(crate) fn try_accept(server_handle: i64) -> i64 {
+    let mut map = LISTENERS.lock().unwrap();
+    if map.is_none() {
+        return -1;
+    }
+    let listeners = map.as_mut().unwrap();
+    if let Some(listener) = listeners.get_mut(&server_handle) {
+        match listener.accept() {
+            Ok((stream, _addr)) => {
+                let _ = stream.set_nonblocking(true);
+                let handle = next_handle();
+                let mut smap = SOCKETS.lock().unwrap();
+                if smap.is_none() {
+                    *smap = Some(HashMap::new());
+                }
+                smap.as_mut().unwrap().insert(handle, stream);
+                handle
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => -2,
+            Err(_) => -1,
+        }
+    } else {
+        -1
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn register_test_socket(stream: std::net::TcpStream) -> i64 {
+    let handle = next_handle();
+    let mut smap = SOCKETS.lock().unwrap();
+    if smap.is_none() {
+        *smap = Some(HashMap::new());
+    }
+    smap.as_mut().unwrap().insert(handle, stream);
+    handle
 }
 
 // ── end helpers ──
@@ -457,5 +528,165 @@ pub extern "C" fn __net_udp_close(handle: i64) {
     let mut map = UDP_SOCKETS.lock().unwrap();
     if let Some(ref mut socks) = *map {
         socks.remove(&handle);
+    }
+}
+
+// ============================================================
+// Non-Blocking Socket Operations (for async I/O via reactor)
+// ============================================================
+
+/// Set the socket to non-blocking (1) or blocking (0) mode.
+/// Returns 0 on success, -1 on failure.
+#[no_mangle]
+pub extern "C" fn __net_tcp_set_nonblocking(handle: i64, nonblocking: i64) -> i64 {
+    let map = SOCKETS.lock().unwrap();
+    if map.is_none() {
+        return -1;
+    }
+    let streams = map.as_ref().unwrap();
+    if let Some(stream) = streams.get(&handle) {
+        match stream.set_nonblocking(nonblocking != 0) {
+            Ok(_) => 0,
+            Err(_) => -1,
+        }
+    } else {
+        -1
+    }
+}
+
+/// Get the raw file descriptor of a TCP socket.
+/// Returns the fd (>= 0), or -1 on failure.
+#[no_mangle]
+pub extern "C" fn __net_tcp_get_fd(handle: i64) -> i64 {
+    let map = SOCKETS.lock().unwrap();
+    if map.is_none() {
+        return -1;
+    }
+    let streams = map.as_ref().unwrap();
+    if let Some(stream) = streams.get(&handle) {
+        stream.as_raw_fd() as i64
+    } else {
+        -1
+    }
+}
+
+/// Get the raw file descriptor of a TCP server (listener).
+/// Returns the fd (>= 0), or -1 on failure.
+#[no_mangle]
+pub extern "C" fn __net_tcp_listen_get_fd(server_handle: i64) -> i64 {
+    let map = LISTENERS.lock().unwrap();
+    if map.is_none() {
+        return -1;
+    }
+    let listeners = map.as_ref().unwrap();
+    if let Some(listener) = listeners.get(&server_handle) {
+        listener.as_raw_fd() as i64
+    } else {
+        -1
+    }
+}
+
+/// Non-blocking read from a TCP socket.
+///
+/// Returns:
+/// - n > 0: bytes read (as heap-allocated string)
+/// - 0: EOF
+/// - -1: error
+/// - -2: WouldBlock (try again later)
+#[no_mangle]
+pub extern "C" fn __net_tcp_try_read(handle: i64, max_bytes: i64) -> *mut c_char {
+    let mut map = SOCKETS.lock().unwrap();
+    if map.is_none() {
+        return unsafe { str_to_heap("") };
+    }
+    let streams = map.as_mut().unwrap();
+    if let Some(stream) = streams.get_mut(&handle) {
+        let mut buf = vec![0u8; max_bytes as usize];
+        match stream.read(&mut buf) {
+            Ok(0) => unsafe { str_to_heap("") },
+            Ok(n) => unsafe { str_to_heap(&String::from_utf8_lossy(&buf[..n])) },
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                // Return sentinel string SOH (0x01) to signal WouldBlock.
+                unsafe { str_to_heap("\u{1}") }
+            }
+            Err(_) => unsafe { str_to_heap("") },
+        }
+    } else {
+        unsafe { str_to_heap("\u{1}") }
+    }
+}
+
+/// Check if the last try_read returned WouldBlock.
+/// Call this after try_read to disambiguate empty/EOF from WouldBlock.
+/// Returns 1 if last try_read was WouldBlock, 0 otherwise.
+#[no_mangle]
+pub extern "C" fn __net_tcp_would_block(result: *const c_char) -> i64 {
+    if result.is_null() {
+        return 0;
+    }
+    let s = unsafe { cstr_to_str(result) };
+    if s == "\u{1}" {
+        1
+    } else {
+        0
+    }
+}
+
+/// Non-blocking write to a TCP socket.
+///
+/// Returns:
+/// - n >= 0: bytes written
+/// - -1: error
+/// - -2: WouldBlock (try again later)
+#[no_mangle]
+pub extern "C" fn __net_tcp_try_write(handle: i64, data: *const c_char) -> i64 {
+    let d = unsafe { cstr_to_str(data) };
+    let mut map = SOCKETS.lock().unwrap();
+    if map.is_none() {
+        return -1;
+    }
+    let streams = map.as_mut().unwrap();
+    if let Some(stream) = streams.get_mut(&handle) {
+        match stream.write(d.as_bytes()) {
+            Ok(n) => n as i64,
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => -2,
+            Err(_) => -1,
+        }
+    } else {
+        -1
+    }
+}
+
+/// Non-blocking accept on a TCP server.
+///
+/// Returns:
+/// - handle > 0: new client socket handle
+/// - -1: error
+/// - -2: WouldBlock (no pending connections)
+#[no_mangle]
+pub extern "C" fn __net_tcp_try_accept(server_handle: i64) -> i64 {
+    let mut map = LISTENERS.lock().unwrap();
+    if map.is_none() {
+        return -1;
+    }
+    let listeners = map.as_mut().unwrap();
+    if let Some(listener) = listeners.get_mut(&server_handle) {
+        match listener.accept() {
+            Ok((stream, _addr)) => {
+                // Automatically set accepted socket to non-blocking.
+                let _ = stream.set_nonblocking(true);
+                let handle = next_handle();
+                let mut smap = SOCKETS.lock().unwrap();
+                if smap.is_none() {
+                    *smap = Some(HashMap::new());
+                }
+                smap.as_mut().unwrap().insert(handle, stream);
+                handle
+            }
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => -2,
+            Err(_) => -1,
+        }
+    } else {
+        -1
     }
 }

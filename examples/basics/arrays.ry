@@ -1,0 +1,55 @@
+// =============================================================================
+// Arrays - Ruyi 数组操作
+// =============================================================================
+// 覆盖: 数组创建、索引访问、push/pop、length、遍历
+// =============================================================================
+
+fn main() {
+  print("=== Arrays Demo ===\n\n");
+
+  // 1. 数组创建（原 array.ry）
+  print("--- Array Creation ---\n");
+  let basic = [1, 2, 3];
+  print("Array created: ");
+  print(basic);
+  print("\n\n");
+
+  // 2. 索引访问与 length
+  print("--- Index & Length ---\n");
+  let arr = [1, 2, 3];
+  print("length=");
+  print(arr.length());
+  print("\n");
+
+  print("arr[0]=");
+  print(arr[0]);
+  print("\n\n");
+
+  // 3. push / pop
+  print("--- Push & Pop ---\n");
+  arr.push(4);
+  arr.push(5);
+  print("after push length=");
+  print(arr.length());
+  print("\n");
+
+  let popped = arr.pop();
+  print("popped=");
+  print(popped);
+  print("\n");
+
+  print("arr[3]=");
+  print(arr[3]);
+  print("\n\n");
+
+  // 4. 数组遍历
+  print("--- Iteration ---\n");
+  let colors = ["red", "green", "blue"];
+  for (let c of colors) {
+    print(c);
+    print(" ");
+  }
+  print("\n");
+
+  print("\nAll array demos completed successfully!\n");
+}

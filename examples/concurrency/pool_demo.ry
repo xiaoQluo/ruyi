@@ -1,0 +1,140 @@
+/**
+ * Ruyi Example — Pool Module (Buffer Pooling)
+ *
+ * Demonstrates:
+ * - PooledAllocator: acquire / release pattern
+ * - Pool statistics: acquires, releases, pool hits, hit rate
+ * - Memory reuse benefits
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+// import { PooledAllocator } from "pool";
+
+// -----------------------------------------------------------------------------
+// Helper
+// -----------------------------------------------------------------------------
+fn printOk(label: string) {
+    print("  ✓ " + label + "\n");
+}
+
+// -----------------------------------------------------------------------------
+// 1. Pool Concepts
+// -----------------------------------------------------------------------------
+fn demo_pool_concepts() {
+    print("=== 1. Buffer Pool Concepts ===\n\n");
+
+    print("  The pool module provides memory reuse strategies for Buffer objects.\n\n");
+
+    print("  Problem without pooling:\n");
+    print("    Every Buffer.alloc(size) allocates new memory.\n");
+    print("    In hot paths (e.g., network I/O loops), this leads to:\n");
+    print("      - Frequent allocation/deallocation\n");
+    print("      - Memory fragmentation\n");
+    print("      - GC pressure\n\n");
+
+    print("  Solution with pooling:\n");
+    print("    Buffers are acquired from a pool and released back when done.\n");
+    print("    The pool reuses previously allocated memory, avoiding:\n");
+    print("      - Repeated malloc/free calls\n");
+    print("      - GC overhead for short-lived buffers\n\n");
+
+    printOk("pool concepts explained");
+}
+
+// -----------------------------------------------------------------------------
+// 2. Pool Allocator API
+// -----------------------------------------------------------------------------
+fn demo_pool_api() {
+    print("=== 2. Pool Allocator API ===\n\n");
+
+    print("  PooledAllocator class:\n\n");
+
+    print("    // Create a pool with default block size\n");
+    print("    let pool = PooledAllocator.new(4096);\n\n");
+
+    print("    // Acquire a buffer from the pool\n");
+    print("    let buf1 = pool.acquire(1024);\n");
+    print("    // Use buf1...\n\n");
+
+    print("    // Release back to pool (reused, not freed)\n");
+    print("    let buf1Str = buf1.toString();\n");
+    print("    pool.release(buf1Str);\n\n");
+
+    print("    // Subsequent acquire may return the same buffer\n");
+    print("    let buf2 = pool.acquire(1024);\n");
+    print("    // buf2 may be the same memory as buf1\n\n");
+
+    print("    // Pool statistics\n");
+    print("    let stats = pool.stats();\n");
+    print("    print(\"Hit rate: \" + stats.hitRate());\n");
+    print("    print(\"Acquires: \" + stats.acquires);\n");
+    print("    print(\"Releases: \" + stats.releases);\n");
+    print("    print(\"Pool hits: \" + stats.poolHits);\n\n");
+
+    print("    // Clear the pool\n");
+    print("    pool.clear();\n\n");
+
+    printOk("pool API documented");
+}
+
+// -----------------------------------------------------------------------------
+// 3. Pool Stats
+// -----------------------------------------------------------------------------
+fn demo_pool_stats() {
+    print("=== 3. Pool Statistics ===\n\n");
+
+    print("  PoolStats class fields:\n\n");
+    print("    acquires: int   — total number of acquire() calls\n");
+    print("    releases: int   — total number of release() calls\n");
+    print("    poolHits: int   — number of acquires served from pool\n");
+    print("    hitRate(): float — poolHits / acquires (0.0 to 1.0)\n\n");
+
+    print("  Usage pattern:\n");
+    print("    let pool = PooledAllocator.new(4096);\n");
+    print("    let s1 = pool.stats();  // acquires: 0, poolHits: 0\n");
+    print("    let buf = pool.acquire(256);\n");
+    print("    let s2 = pool.stats();  // acquires: 1, poolHits: 0\n");
+    print("    pool.release(buf.toString());\n");
+    print("    let buf2 = pool.acquire(256);\n");
+    print("    let s3 = pool.stats();  // acquires: 2, poolHits: 1\n");
+    print("    print(\"Hit rate: \" + s3.hitRate() * 100 + \"%\");\n\n");
+
+    printOk("pool stats documented");
+}
+
+// -----------------------------------------------------------------------------
+// 4. Release Helper
+// -----------------------------------------------------------------------------
+fn demo_release_helper() {
+    print("=== 4. Release Helper ===\n\n");
+
+    print("  The releaseTo function provides a convenience wrapper:\n\n");
+    print("    import { releaseTo } from \"pool\";\n");
+    print("    let pool = PooledAllocator.new(4096);\n");
+    print("    let buf = pool.acquire(512);\n");
+    print("    // ... use buf ...\n");
+    print("    releaseTo(buf.toString(), pool);\n\n");
+
+    print("  This is equivalent to:\n");
+    print("    pool.release(buf.toString());\n\n");
+
+    printOk("release helper documented");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+    print("╔══════════════════════════════════╗\n");
+    print("║     Buffer Pool Module Demo     ║\n");
+    print("╚══════════════════════════════════╝\n\n");
+
+    demo_pool_concepts();
+    demo_pool_api();
+    demo_pool_stats();
+    demo_release_helper();
+
+    print("\nAll Pool demos completed!\n");
+}

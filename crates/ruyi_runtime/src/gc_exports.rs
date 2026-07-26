@@ -60,8 +60,11 @@ pub extern "C" fn ruyi_gc_alloc(size: i64) -> *mut u8 {
 #[no_mangle]
 pub extern "C" fn ruyi_gc_collect() {
     let task_ids = crate::async_gc_roots::snapshot();
-    if let Ok(scheduler) = crate::async_runtime::GLOBAL_SCHEDULER.try_lock() {
-        let tasks = scheduler.inner.tasks.lock().unwrap();
+    // Read the scheduler core directly: contending on the outer
+    // `GLOBAL_SCHEDULER` lock here used to skip the async-root scan
+    // entirely, allowing async-held objects to be swept mid-await.
+    {
+        let tasks = crate::async_runtime::GLOBAL_INNER.tasks.lock().unwrap();
         CURRENT_COLLECTOR.with(|collector| {
             let collector = collector.borrow_mut();
             let allowed: std::collections::HashSet<usize> = task_ids.into_iter().collect();
@@ -94,11 +97,6 @@ pub extern "C" fn ruyi_gc_collect() {
             }
             collector.collect_full();
         });
-    } else {
-        CURRENT_COLLECTOR.with(|collector| {
-            let collector = collector.borrow_mut();
-            collector.collect_full();
-        })
     }
 }
 

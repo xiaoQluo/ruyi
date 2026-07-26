@@ -1,0 +1,323 @@
+/**
+ * Ruyi Example — 错误处理 (Error Handling)
+ *
+ * 覆盖:
+ * - try / catch / finally 语法结构
+ * - 错误类型层次: Error, TypeError, RangeError 等
+ * - 自定义错误类与错误码
+ * - assert() 断言校验
+ * - 返回值错误处理模式（当前平台推荐）
+ * - finally 保证执行
+ *
+ * 注意: 当前平台 (LLVM 14 macOS) 不支持运行时栈展开，
+ * throw/catch 语法可通过编译但 catch 块不会被触发。
+ * 本示例以「不触发 throw」的方式演示完整语法结构。
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+// -----------------------------------------------------------------------------
+// Helper
+// -----------------------------------------------------------------------------
+fn printOk(label: string) {
+    print("  ✓ " + label + "\n");
+}
+
+fn check(label: string, condition: bool) {
+    if (condition) {
+        print("  ✓ " + label + "\n");
+    } else {
+        print("  ✗ FAILED: " + label + "\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 10.1 try / catch / finally 基本结构
+// -----------------------------------------------------------------------------
+fn basicTryCatch() {
+    print("--- 10.1 Basic try/catch/finally ---\n\n");
+
+    // try 块正常执行，catch 不会触发
+    try {
+        print("  Inside try block\n");
+        let x = 42;
+        print("  Computed value: " + x + "\n");
+    } catch (e) {
+        print("  Caught error (not reached)\n");
+    } finally {
+        print("  Finally block always executes\n");
+    }
+
+    // 嵌套 try
+    let outerDone = false;
+    let innerDone = false;
+    try {
+        outerDone = true;
+        try {
+            innerDone = true;
+        } catch (e) {
+            // 不会到达
+        }
+    } catch (e) {
+        // 不会到达
+    }
+    check("嵌套 try 执行", outerDone && innerDone);
+
+    printOk("basic try/catch OK");
+}
+
+// -----------------------------------------------------------------------------
+// 10.2 错误类型层次
+// -----------------------------------------------------------------------------
+fn errorHierarchyDemo() {
+    print("--- 10.2 错误类型层次 ---\n\n");
+
+    // 创建各种错误类型对象
+    let baseErr = Error.new("基础错误");
+    let typeErr = TypeError.new("类型不匹配");
+    let rangeErr = RangeError.new("索引越界");
+    let arithErr = ArithmeticError.new("除数为零");
+    let parseErr = ParseError.new("语法错误");
+
+    // 检查消息
+    check("Error", baseErr.getMessage() === "基础错误");
+    check("TypeError", typeErr.message === "类型不匹配");
+    check("RangeError", rangeErr.message === "索引越界");
+    check("ArithmeticError", arithErr.message === "除数为零");
+    check("ParseError", parseErr.message === "语法错误");
+
+    // toString() 返回消息文本
+    check("toString()", baseErr.toString() === "基础错误");
+
+    print("  Error hierarchy: Error → TypeError, RangeError, ...\n");
+    printOk("error hierarchy OK");
+}
+
+// -----------------------------------------------------------------------------
+// 10.3 自定义错误类型
+// -----------------------------------------------------------------------------
+class ValidationError {
+    field: string;
+    message: string;
+
+    fn new(field: string, message: string) {
+        self.field = field;
+        self.message = message;
+    }
+
+    fn describe(): string {
+        return "[" + self.field + "] " + self.message;
+    }
+}
+
+class HttpError {
+    status: int;
+    body: string;
+
+    fn new(status: int, body: string) {
+        self.status = status;
+        self.body = body;
+    }
+}
+
+fn customErrorDemo() {
+    print("--- 10.3 自定义错误类型 ---\n\n");
+
+    // 创建验证错误
+    let err1 = ValidationError.new("age", "年龄不能为负数");
+    check("ValidationError.field", err1.field === "age");
+    check("ValidationError.describe()", err1.describe() === "[age] 年龄不能为负数");
+    print("  " + err1.describe() + "\n");
+
+    let err2 = ValidationError.new("email", "邮箱格式无效");
+    print("  " + err2.describe() + "\n");
+
+    // HTTP 错误
+    let httpErr = HttpError.new(404, "Not Found");
+    check("HttpError.status", httpErr.status === 404);
+    check("HttpError.body", httpErr.body === "Not Found");
+    print("  HTTP " + httpErr.status + ": " + httpErr.body + "\n");
+
+    printOk("custom errors OK");
+}
+
+// -----------------------------------------------------------------------------
+// 10.4 返回值错误处理模式
+// -----------------------------------------------------------------------------
+// 当前平台推荐: 用返回值代替 throw/catch
+
+fn safeDivide(a: int, b: int): int {
+    if (b === 0) {
+        return -999;  // 错误标记值
+    }
+    return a / b;
+}
+
+fn validateAge(age: int): string {
+    if (age < 0) {
+        return "ERROR: age cannot be negative";
+    }
+    if (age > 150) {
+        return "ERROR: age seems unrealistic";
+    }
+    return "OK";
+}
+
+fn returnValueDemo() {
+    print("--- 10.4 返回值错误处理 ---\n\n");
+
+    // 正常除法
+    let r1 = safeDivide(10, 2);
+    check("10 / 2 = 5", r1 === 5);
+    print("  10 / 2 = " + r1 + "\n");
+
+    // 除零错误
+    let r2 = safeDivide(10, 0);
+    check("10 / 0 → 错误标记", r2 === -999);
+    print("  10 / 0 → " + r2 + " (error marker)\n");
+
+    // 参数校验
+    let v1 = validateAge(25);
+    check("age=25 有效", v1 === "OK");
+    print("  validateAge(25) → " + v1 + "\n");
+
+    let v2 = validateAge(-5);
+    check("age=-5 无效", v2 !== "OK");
+    print("  validateAge(-5) → " + v2 + "\n");
+
+    let v3 = validateAge(200);
+    check("age=200 无效", v3 !== "OK");
+    print("  validateAge(200) → " + v3 + "\n");
+
+    printOk("return-value errors OK");
+}
+
+// -----------------------------------------------------------------------------
+// 10.5 assert 断言
+// -----------------------------------------------------------------------------
+fn assertDemo() {
+    print("--- 10.5 assert 断言 ---\n\n");
+
+    // 数学不变量
+    assert(2 + 2 === 4, "算术公理");
+    print("  ✓ assert(2+2===4)\n");
+
+    // 字符串约束
+    let greeting = "hello";
+    assert(greeting.length() === 5, "greeting 长度应为5");
+    print("  ✓ assert(长度约束)\n");
+
+    // 数组边界
+    let arr = [1, 2, 3, 4, 5];
+    let idx = 3;
+    assert(idx >= 0, "索引非负");
+    assert(idx < arr.length(), "索引在范围内");
+    print("  ✓ assert(数组边界): arr[" + idx + "]=" + arr[idx] + "\n");
+
+    // 业务规则
+    let score = 85;
+    assert(score >= 0, "分数非负");
+    assert(score <= 100, "分数不超过100");
+    print("  ✓ assert(业务规则): score=" + score + "\n");
+
+    printOk("assert OK");
+}
+
+// -----------------------------------------------------------------------------
+// 10.6 finally 保证执行
+// -----------------------------------------------------------------------------
+fn finallyWithReturn(): int {
+    try {
+        return 42;
+    } finally {
+        print("  finally executes before return\n");
+    }
+}
+
+fn finallyGuaranteeDemo() {
+    print("--- 10.6 finally 保证 ---\n\n");
+
+    // finally 在正常路径执行
+    let result = finallyWithReturn();
+    check("returned 42", result === 42);
+
+    // finally 在 try 正常完成后执行
+    let log = "";
+    try {
+        log = log + "try;";
+    } catch (e) {
+        log = log + "catch;";
+    } finally {
+        log = log + "finally;";
+    }
+    check("执行顺序: try→finally", log === "try;finally;");
+    print("  执行顺序: " + log + "\n");
+
+    printOk("finally OK");
+}
+
+// -----------------------------------------------------------------------------
+// 10.7 错误处理最佳实践
+// -----------------------------------------------------------------------------
+fn bestPracticesDemo() {
+    print("--- 10.7 最佳实践 ---\n\n");
+
+    // 1. 尽早校验参数
+    fn processInput(data: string): string {
+        if (data.length() === 0) {
+            return "ERROR: empty input";
+        }
+        if (data.length() > 100) {
+            return "ERROR: input too long";
+        }
+        return "processed: " + data;
+    }
+
+    let r1 = processInput("hello");
+    check("正常输入", r1 === "processed: hello");
+    print("  processInput(\"hello\") → " + r1 + "\n");
+
+    let r2 = processInput("");
+    check("空输入拦截", r2 === "ERROR: empty input");
+    print("  processInput(\"\") → " + r2 + "\n");
+
+    // 2. 用 try/catch 包裹可能失败的操作
+    try {
+        let arr = [10, 20, 30];
+        let sum = arr[0] + arr[1] + arr[2];
+        print("  数组求和: " + sum + "\n");
+        check("数组操作成功", sum === 60);
+    } catch (e) {
+        print("  数组操作失败\n");
+    }
+
+    // 3. 错误信息应包含上下文
+    let err = ValidationError.new("username", "长度必须在3-20字符之间");
+    print("  错误上下文: " + err.describe() + "\n");
+
+    printOk("best practices OK");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+    print("=== Error Handling Demo ===\n\n");
+
+    basicTryCatch();
+    print("\n");
+    errorHierarchyDemo();
+    print("\n");
+    customErrorDemo();
+    print("\n");
+    returnValueDemo();
+    print("\n");
+    assertDemo();
+    print("\n");
+    finallyGuaranteeDemo();
+    print("\n");
+    bestPracticesDemo();
+
+    print("\nAll error handling demos completed!\n");
+}

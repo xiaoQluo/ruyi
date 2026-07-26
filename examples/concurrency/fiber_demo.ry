@@ -1,0 +1,189 @@
+/**
+ * Ruyi Example — Fiber Module (Lightweight Concurrency)
+ *
+ * Demonstrates:
+ * - Fiber.spawn(): creating lightweight fibers
+ * - Fiber.join() / detach(): lifecycle management
+ * - Fiber.sleep(): pausing execution
+ * - Fiber.id(): current fiber ID
+ * - Cooperative multitasking pattern
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { Fiber } from "fiber";
+import { Channel } from "channel";
+
+// -----------------------------------------------------------------------------
+// Helper
+// -----------------------------------------------------------------------------
+fn printOk(label: string) {
+    print("  ✓ " + label + "\n");
+}
+
+fn check(label: string, condition: bool) {
+    if (condition) {
+        print("  ✓ " + label + "\n");
+    } else {
+        print("  ✗ FAILED: " + label + "\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 1. Basic Fiber Lifecycle
+// -----------------------------------------------------------------------------
+fn demo_basic_lifecycle() {
+    print("=== 1. Basic Fiber Lifecycle ===\n\n");
+
+    print("  Fibers are lightweight, cooperative concurrency primitives.\n");
+    print("  Each fiber runs in its own lightweight context (256 KiB stack).\n\n");
+
+    let done = Channel.new(1);
+
+    let f = Fiber.spawn(fn(arg) {
+        let fid = Fiber.id();
+        print("  Fiber " + fid + " started\n");
+        Fiber.sleep(5);
+        print("  Fiber " + fid + " completed\n");
+        done.send(1);
+    });
+
+    check("Fiber.isFinished() before join", !f.isFinished());
+
+    f.join();
+    let dummy = done.recv();
+
+    check("Fiber.isFinished() after join", f.isFinished());
+    printOk("basic lifecycle OK");
+}
+
+// -----------------------------------------------------------------------------
+// 2. Fiber vs Thread
+// -----------------------------------------------------------------------------
+fn demo_fiber_vs_thread() {
+    print("=== 2. Fiber vs Thread ===\n\n");
+
+    print("  Comparison:\n\n");
+    print("  ┌──────────────┬─────────────────┬─────────────────┐\n");
+    print("  │ Feature      │ Fiber           │ Thread          │\n");
+    print("  ├──────────────┼─────────────────┼─────────────────┤\n");
+    print("  │ Stack size   │ 256 KiB         │ 2 MiB           │\n");
+    print("  │ Scheduling   │ Cooperative     │ Preemptive (OS) │\n");
+    print("  │ Spawn cost   │ Low             │ Higher          │\n");
+    print("  │ Use case     │ Fine-grained    │ Heavy compute   │\n");
+    print("  │ GC           │ Shared?         │ Independent     │\n");
+    print("  └──────────────┴─────────────────┴─────────────────┘\n\n");
+
+    printOk("comparison documented");
+}
+
+// -----------------------------------------------------------------------------
+// 3. Cooperative Multitasking
+// -----------------------------------------------------------------------------
+fn demo_cooperative() {
+    print("=== 3. Cooperative Multitasking ===\n\n");
+
+    print("  Fibers are cooperative — they must explicitly yield control:\n");
+    print("    - Fiber.sleep(ms):  voluntarily pause\n");
+    print("    - Fiber.yield():    yield to scheduler (if available)\n\n");
+
+    let done = Channel.new(2);
+
+    Fiber.spawn(fn(arg) {
+        print("  Fiber A: step 1\n");
+        Fiber.sleep(1);
+        print("  Fiber A: step 2\n");
+        done.send(1);
+    });
+
+    Fiber.spawn(fn(arg) {
+        print("  Fiber B: step 1\n");
+        Fiber.sleep(1);
+        print("  Fiber B: step 2\n");
+        done.send(2);
+    });
+
+    let dummy = done.recv();
+    let dummy2 = done.recv();
+
+    printOk("cooperative multitasking OK");
+}
+
+// -----------------------------------------------------------------------------
+// 4. Fiber Management
+// -----------------------------------------------------------------------------
+fn demo_management() {
+    print("=== 4. Fiber Management ===\n\n");
+
+    // Detach a fiber (let it run independently)
+    let detachDone = Channel.new(1);
+
+    let d = Fiber.spawn(fn(arg) {
+        Fiber.sleep(5);
+        detachDone.send(1);
+    });
+    d.detach();
+
+    check("Fiber.isFinished() after detach", !d.isFinished());
+
+    // Wait for detached fiber to finish
+    let dummy = detachDone.recv();
+
+    print("  Fiber.detach() allows a fiber to run independently.\n");
+    print("  The parent does not wait; the fiber cleans up on its own.\n\n");
+
+    printOk("fiber management OK");
+}
+
+// -----------------------------------------------------------------------------
+// 5. Multiple Fibers
+// -----------------------------------------------------------------------------
+fn demo_multiple_fibers() {
+    print("=== 5. Multiple Fibers ===\n\n");
+
+    let totalWork: int = 0;
+    let mdone = Channel.new(3);
+
+    Fiber.spawn(fn(arg) {
+        let i = 0;
+        while (i < 100) { i = i + 1; }
+        mdone.send(1);
+    });
+
+    Fiber.spawn(fn(arg) {
+        let i = 0;
+        while (i < 100) { i = i + 1; }
+        mdone.send(2);
+    });
+
+    Fiber.spawn(fn(arg) {
+        let i = 0;
+        while (i < 100) { i = i + 1; }
+        mdone.send(3);
+    });
+
+    let dummy = mdone.recv();
+    let dummy2 = mdone.recv();
+    let dummy3 = mdone.recv();
+
+    check("3 fibers completed", true);
+    printOk("multiple fibers OK");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+    print("╔══════════════════════════════════╗\n");
+    print("║       Fiber Module Demo         ║\n");
+    print("╚══════════════════════════════════╝\n\n");
+
+    demo_basic_lifecycle();
+    demo_fiber_vs_thread();
+    demo_cooperative();
+    demo_management();
+    demo_multiple_fibers();
+
+    print("\nAll Fiber demos completed!\n");
+}

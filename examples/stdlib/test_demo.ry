@@ -1,0 +1,190 @@
+/**
+ * Ruyi Example — 测试框架模块
+ *
+ * 覆盖:
+ * - assert_eq(): 严格相等断言
+ * - assert_true(): 布尔真断言
+ * - assert_false(): 布尔假断言
+ * - assert_not_null(): 非空断言
+ * - 断言失败时抛出 AssertionError
+ * - 配合 try/catch 演示断言失败处理
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { assert_eq, assert_true, assert_false, assert_not_null } from "test";
+
+// =============================================================================
+// 1. assert_eq — 严格相等断言
+// =============================================================================
+fn demo_assert_eq() {
+  print("=== 1. assert_eq 严格相等 ===\n\n");
+
+  // 整数相等
+  assert_eq(2 + 2, 4);
+  print("assert_eq(2+2, 4): PASS\n");
+
+  // 字符串相等
+  assert_eq("hello" + " world", "hello world");
+  print("assert_eq(string concat): PASS\n");
+
+  // 布尔相等
+  assert_eq(true, true);
+  print("assert_eq(true, true): PASS\n");
+
+  print("\n");
+}
+
+// =============================================================================
+// 2. assert_true / assert_false — 布尔断言
+// =============================================================================
+fn demo_assert_bool() {
+  print("=== 2. assert_true / assert_false ===\n\n");
+
+  assert_true(10 > 5);
+  print("assert_true(10 > 5): PASS\n");
+
+  assert_true("abc".length() === 3);
+  print("assert_true(length === 3): PASS\n");
+
+  assert_false(1 === 2);
+  print("assert_false(1 === 2): PASS\n");
+
+  assert_false("hello".length() === 0);
+  print("assert_false(length === 0): PASS\n");
+
+  print("\n");
+}
+
+// =============================================================================
+// 3. assert_not_null — 非空断言
+// =============================================================================
+fn demo_assert_not_null() {
+  print("=== 3. assert_not_null ===\n\n");
+
+  let value = "I exist";
+  assert_not_null(value);
+  print("assert_not_null(\"I exist\"): PASS\n");
+
+  let num = 42;
+  assert_not_null(num);
+  print("assert_not_null(42): PASS\n");
+
+  print("\n");
+}
+
+// =============================================================================
+// 4. 断言失败 — 捕获 AssertionError
+// =============================================================================
+fn demo_assertion_failure() {
+  print("=== 4. 断言失败处理 ===\n\n");
+
+  // assert_eq 失败
+  try {
+    assert_eq(1, 2);
+  } catch (e) {
+    print("捕获 assert_eq 失败: ");
+    print(e);
+    print("\n");
+  }
+
+  // assert_true 失败
+  try {
+    assert_true(false);
+  } catch (e) {
+    print("捕获 assert_true 失败: ");
+    print(e);
+    print("\n");
+  }
+
+  // assert_false 失败
+  try {
+    assert_false(true);
+  } catch (e) {
+    print("捕获 assert_false 失败: ");
+    print(e);
+    print("\n");
+  }
+
+  // assert_not_null 失败
+  try {
+    let nullVal = null;
+    assert_not_null(nullVal);
+  } catch (e) {
+    print("捕获 assert_not_null 失败: ");
+    print(e);
+    print("\n");
+  }
+
+  print("\n");
+}
+
+// =============================================================================
+// 5. 实用模式 — 简易测试运行器
+// =============================================================================
+fn demo_test_runner() {
+  print("=== 5. 简易测试运行器模式 ===\n\n");
+
+  let passed = 0;
+  let failed = 0;
+
+  // 测试用例 1: 加法
+  try {
+    assert_eq(1 + 1, 2);
+    passed = passed + 1;
+    print("  [PASS] 1 + 1 === 2\n");
+  } catch (e) {
+    failed = failed + 1;
+    print("  [FAIL] 1 + 1 === 2\n");
+  }
+
+  // 测试用例 2: 字符串长度
+  try {
+    assert_eq("Ruyi".length(), 4);
+    passed = passed + 1;
+    print("  [PASS] \"Ruyi\".length() === 4\n");
+  } catch (e) {
+    failed = failed + 1;
+    print("  [FAIL] \"Ruyi\".length() === 4\n");
+  }
+
+  // 测试用例 3: 数组操作
+  try {
+    let arr = [1, 2, 3];
+    assert_eq(arr.length(), 3);
+    assert_true(arr[0] === 1);
+    passed = passed + 1;
+    print("  [PASS] array basics\n");
+  } catch (e) {
+    failed = failed + 1;
+    print("  [FAIL] array basics\n");
+  }
+
+  // 测试用例 4: 故意失败（演示）
+  try {
+    assert_eq(999, 1000);
+    passed = passed + 1;
+    print("  [PASS] 999 === 1000\n");
+  } catch (e) {
+    failed = failed + 1;
+    print("  [FAIL] 999 === 1000 (预期失败)\n");
+  }
+
+  print("\n结果: ");
+  print(passed);
+  print(" passed, ");
+  print(failed);
+  print(" failed\n\n");
+}
+
+// =============================================================================
+// 主入口
+// =============================================================================
+demo_assert_eq();
+demo_assert_bool();
+demo_assert_not_null();
+demo_assertion_failure();
+demo_test_runner();
+
+print("[test_demo] 完成\n");
