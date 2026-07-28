@@ -26,4 +26,4 @@ webpki-roots = "0.26"
 
 [features]
 default = ["inkwell"]
-inkwell = ["dep:inkwell", "ruyi_exception/llvm14"]
+inkwell = ["dep:inkwell", "ruyi_exception/llvm20"]

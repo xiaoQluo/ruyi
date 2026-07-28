@@ -260,7 +260,7 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
                 if llvm_ty.is_pointer_type() {
                     let loaded = self
                         .builder()
-                        .build_load(*ptr, "root_val")
+                        .build_load(self.context.ptr_type(Default::default()), *ptr, "root_val").unwrap()
                         .into_pointer_value();
                     super::builtins::build_gc_remove_root(self.builder(), self.module, loaded);
                 }
@@ -302,7 +302,7 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
             if llvm_ty.is_pointer_type() {
                 let loaded = self
                     .builder()
-                    .build_load(ptr, "root_val")
+                    .build_load(self.context.ptr_type(Default::default()), ptr, "root_val").unwrap()
                     .into_pointer_value();
                 super::builtins::build_gc_add_root(self.builder(), self.module, loaded);
             }
@@ -894,7 +894,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         // ARC classes skip GC tracing (destructor and trace_fn are null).
         let mut arc_type_id: u64 = 1000;
         let i64_ty = ctx.context.i64_type();
-        let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
+        let i8_ptr = ctx.context.ptr_type(Default::default());
         let type_info_struct = ctx.context.struct_type(
             &[i64_ty.into(), i8_ptr.into(), i8_ptr.into(), i8_ptr.into()],
             false,
@@ -1029,7 +1029,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                     .map(Type::from_annotation)
                     .unwrap_or(Type::Dynamic);
                 let llvm_ty = ruyi_type_to_llvm(ctx.context, &param_ty);
-                let ptr = ctx.builder().build_alloca(llvm_ty, &param_name);
+                let ptr = ctx.builder().build_alloca(llvm_ty, &param_name).unwrap();
                 // Main has no external params, so just initialize with zero
                 let zero = match param_ty {
                     Type::Int => {
@@ -1046,12 +1046,11 @@ impl<'ctx> CodeGenerator<'ctx> {
                     }
                     _ => BasicValueEnum::PointerValue(
                         ctx.context
-                            .i8_type()
                             .ptr_type(Default::default())
                             .const_null(),
                     ),
                 };
-                ctx.builder().build_store(ptr, zero);
+                ctx.builder().build_store(ptr, zero).unwrap();
                 if crate::codegen::builtins::is_gc_managed(&param_ty) {
                     ctx.add_gc_root(ptr, param_ty.clone());
                 }
@@ -1077,24 +1076,24 @@ impl<'ctx> CodeGenerator<'ctx> {
                     let future_ptr = ctx
                         .builder
                         .build_call(async_main, &[], "async_main_call")
+                        .unwrap()
                         .try_as_basic_value()
-                        .left()
-                        .unwrap();
+                        .unwrap_basic();
                     let spawn_fn = ctx
                         .module
                         .get_function("ruyi_spawn")
                         .expect("ruyi_spawn not declared");
                     ctx.builder()
-                        .build_call(spawn_fn, &[future_ptr.into()], "spawn_main");
+                        .build_call(spawn_fn, &[future_ptr.into()], "spawn_main").unwrap();
                     let scheduler_fn = ctx
                         .module
                         .get_function("ruyi_run_scheduler")
                         .expect("ruyi_run_scheduler not declared");
-                    ctx.builder().build_call(scheduler_fn, &[], "run_scheduler");
+                    ctx.builder().build_call(scheduler_fn, &[], "run_scheduler").unwrap();
                 }
             }
             let zero = BasicValueEnum::IntValue(i32_ty.const_int(0, false));
-            ctx.builder().build_return(Some(&zero));
+            ctx.builder().build_return(Some(&zero)).unwrap();
         }
 
         Ok(())
@@ -1243,10 +1242,10 @@ fn compile_monomorphized_function<'ctx>(
     for (i, param_ty) in mono_func.param_types.iter().enumerate() {
         let param_name = format!("arg_{}", i);
         let llvm_ty = ruyi_type_to_llvm(ctx.context, param_ty);
-        let ptr = ctx.builder().build_alloca(llvm_ty, &param_name);
+        let ptr = ctx.builder().build_alloca(llvm_ty, &param_name).unwrap();
 
         if let Some(param_value) = function.get_nth_param(i as u32) {
-            ctx.builder().build_store(ptr, param_value);
+            ctx.builder().build_store(ptr, param_value).unwrap();
         }
 
         if super::builtins::is_gc_managed(param_ty) {
@@ -1268,27 +1267,27 @@ fn compile_monomorphized_function<'ctx>(
         ctx.emit_gc_root_removals();
         match &mono_func.return_type {
             Type::Void | Type::Never => {
-                ctx.builder().build_return(None);
+                ctx.builder().build_return(None).unwrap();
             }
             Type::Int => {
                 let zero = ctx.context.i64_type().const_int(0, true);
                 ctx.builder()
-                    .build_return(Some(&BasicValueEnum::IntValue(zero)));
+                    .build_return(Some(&BasicValueEnum::IntValue(zero))).unwrap();
             }
             Type::Float => {
                 let zero = ctx.context.f64_type().const_float(0.0);
                 ctx.builder()
-                    .build_return(Some(&BasicValueEnum::FloatValue(zero)));
+                    .build_return(Some(&BasicValueEnum::FloatValue(zero))).unwrap();
             }
             Type::Bool => {
                 let zero = ctx.context.bool_type().const_int(0, false);
                 ctx.builder()
-                    .build_return(Some(&BasicValueEnum::IntValue(zero)));
+                    .build_return(Some(&BasicValueEnum::IntValue(zero))).unwrap();
             }
             Type::Byte => {
                 let zero = ctx.context.i8_type().const_int(0, false);
                 ctx.builder()
-                    .build_return(Some(&BasicValueEnum::IntValue(zero)));
+                    .build_return(Some(&BasicValueEnum::IntValue(zero))).unwrap();
             }
             _ => {
                 // Generate a zero value matching the LLVM function's actual
@@ -1312,13 +1311,12 @@ fn compile_monomorphized_function<'ctx>(
                     _ => {
                         let null_ptr = ctx
                             .context
-                            .i8_type()
                             .ptr_type(Default::default())
                             .const_null();
                         BasicValueEnum::PointerValue(null_ptr)
                     }
                 };
-                ctx.builder().build_return(Some(&default_val));
+                ctx.builder().build_return(Some(&default_val)).unwrap();
             }
         }
     }
@@ -1400,7 +1398,7 @@ fn compile_top_level_let_inits<'ctx>(
                 } else {
                     init_result.value
                 };
-                ctx.builder().build_store(global.as_pointer_value(), value);
+                ctx.builder().build_store(global.as_pointer_value(), value).unwrap();
                 // Record the declared type; keep Dynamic when annotated as dyn
                 // so later reads know to extract struct fields.
                 let recorded_ty = ty;
@@ -1472,12 +1470,12 @@ pub(crate) fn ruyi_type_to_zero<'ctx>(
         | Type::Function { .. }
         | Type::Generic { .. }
         | Type::TypeVar(_) => BasicValueEnum::PointerValue(
-            context.i8_type().ptr_type(Default::default()).const_null(),
+            context.ptr_type(Default::default()).const_null(),
         ),
         Type::Nullable(_) => {
             // Nullable wraps an inner type; use null pointer.
             BasicValueEnum::PointerValue(
-                context.i8_type().ptr_type(Default::default()).const_null(),
+                context.ptr_type(Default::default()).const_null(),
             )
         }
         Type::Dynamic => {
@@ -1506,8 +1504,8 @@ mod tests {
         let bb = context.append_basic_block(func, "entry");
         ctx.builder().position_at_end(bb);
 
-        let i8_ptr_type = context.i8_type().ptr_type(Default::default());
-        let exception_ptr = ctx.builder().build_alloca(i8_ptr_type, "exc_ptr");
+        let i8_ptr_type = context.ptr_type(Default::default());
+        let exception_ptr = ctx.builder().build_alloca(i8_ptr_type, "exc_ptr").unwrap();
 
         let frame = TryFrame {
             landing_pad_bb: bb,

@@ -13,5 +13,5 @@ pub mod landing_pad;
 
 pub use landing_pad::TryTypeId;
 
-#[cfg(feature = "llvm14")]
+#[cfg(feature = "llvm20")]
 pub use landing_pad::LandingPadGenerator;

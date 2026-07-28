@@ -6,7 +6,6 @@
  * @author Ruyi Team
  * @date 2026-05-01
  */
-use inkwell::types::BasicType;
 use inkwell::values::BasicValueEnum;
 
 use ruyi_exception::landing_pad::LandingPadGenerator;
@@ -83,11 +82,11 @@ pub fn compile_stmt<'ctx>(
             if let Some(try_ctx) = ctx.current_try() {
                 if let Some(finally_bb) = try_ctx.finally_bb {
                     ctx.pending_break_target = Some(target_bb);
-                    ctx.builder().build_unconditional_branch(finally_bb);
+                    ctx.builder().build_unconditional_branch(finally_bb).unwrap();
                     return Ok(());
                 }
             }
-            ctx.builder().build_unconditional_branch(target_bb);
+            ctx.builder().build_unconditional_branch(target_bb).unwrap();
             Ok(())
         }
         Statement::Continue(target) => {
@@ -105,11 +104,11 @@ pub fn compile_stmt<'ctx>(
             if let Some(try_ctx) = ctx.current_try() {
                 if let Some(finally_bb) = try_ctx.finally_bb {
                     ctx.pending_continue_target = Some(target_bb);
-                    ctx.builder().build_unconditional_branch(finally_bb);
+                    ctx.builder().build_unconditional_branch(finally_bb).unwrap();
                     return Ok(());
                 }
             }
-            ctx.builder().build_unconditional_branch(target_bb);
+            ctx.builder().build_unconditional_branch(target_bb).unwrap();
             Ok(())
         }
         Statement::Match { value, arms } => super::patterns::compile_match_stmt(ctx, value, arms),
@@ -173,7 +172,7 @@ fn compile_if<'ctx>(
     let merge_bb = ctx.context.append_basic_block(func, "if_merge");
 
     ctx.builder()
-        .build_conditional_branch(cond_val, then_bb, else_bb);
+        .build_conditional_branch(cond_val, then_bb, else_bb).unwrap();
 
     ctx.builder().position_at_end(then_bb);
     compile_stmt(ctx, then_branch)?;
@@ -184,7 +183,7 @@ fn compile_if<'ctx>(
         .get_terminator()
         .is_none()
     {
-        ctx.builder().build_unconditional_branch(merge_bb);
+        ctx.builder().build_unconditional_branch(merge_bb).unwrap();
     }
 
     ctx.builder().position_at_end(else_bb);
@@ -198,7 +197,7 @@ fn compile_if<'ctx>(
         .get_terminator()
         .is_none()
     {
-        ctx.builder().build_unconditional_branch(merge_bb);
+        ctx.builder().build_unconditional_branch(merge_bb).unwrap();
     }
 
     ctx.builder().position_at_end(merge_bb);
@@ -220,7 +219,7 @@ fn compile_while<'ctx>(
     let label = ctx.pending_loop_label.take();
     ctx.push_loop(end_bb, cond_bb, label);
 
-    ctx.builder().build_unconditional_branch(cond_bb);
+    ctx.builder().build_unconditional_branch(cond_bb).unwrap();
 
     ctx.builder().position_at_end(cond_bb);
     let cond_result = compile_expr(ctx, condition)?;
@@ -229,7 +228,7 @@ fn compile_while<'ctx>(
         _ => return Err("Condition must be boolean".to_string()),
     };
     ctx.builder()
-        .build_conditional_branch(cond_val, body_bb, end_bb);
+        .build_conditional_branch(cond_val, body_bb, end_bb).unwrap();
 
     ctx.builder().position_at_end(body_bb);
     compile_stmt(ctx, body)?;
@@ -240,7 +239,7 @@ fn compile_while<'ctx>(
         .get_terminator()
         .is_none()
     {
-        ctx.builder().build_unconditional_branch(cond_bb);
+        ctx.builder().build_unconditional_branch(cond_bb).unwrap();
     }
 
     ctx.builder().position_at_end(end_bb);
@@ -284,7 +283,7 @@ fn compile_for<'ctx>(
     let update_bb = ctx.context.append_basic_block(func, "for_update");
     let end_bb = ctx.context.append_basic_block(func, "for_end");
 
-    ctx.builder().build_unconditional_branch(cond_bb);
+    ctx.builder().build_unconditional_branch(cond_bb).unwrap();
 
     ctx.builder().position_at_end(cond_bb);
     if let Some(cond) = condition {
@@ -294,9 +293,9 @@ fn compile_for<'ctx>(
             _ => return Err("Condition must be boolean".to_string()),
         };
         ctx.builder()
-            .build_conditional_branch(cond_val, body_bb, end_bb);
+            .build_conditional_branch(cond_val, body_bb, end_bb).unwrap();
     } else {
-        ctx.builder().build_unconditional_branch(body_bb);
+        ctx.builder().build_unconditional_branch(body_bb).unwrap();
     }
 
     let label = ctx.pending_loop_label.take();
@@ -311,7 +310,7 @@ fn compile_for<'ctx>(
         .get_terminator()
         .is_none()
     {
-        ctx.builder().build_unconditional_branch(update_bb);
+        ctx.builder().build_unconditional_branch(update_bb).unwrap();
     }
 
     ctx.builder().position_at_end(update_bb);
@@ -325,7 +324,7 @@ fn compile_for<'ctx>(
         .get_terminator()
         .is_none()
     {
-        ctx.builder().build_unconditional_branch(cond_bb);
+        ctx.builder().build_unconditional_branch(cond_bb).unwrap();
     }
 
     ctx.builder().position_at_end(end_bb);
@@ -349,9 +348,9 @@ fn compile_for_in<'ctx>(
     body: &Statement,
 ) -> Result<(), String> {
     let func = ctx.current_function().ok_or("No current function")?;
-    let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
+    let i8_ptr = ctx.context.ptr_type(Default::default());
     let i64_ty = ctx.context.i64_type();
-    let i64_ptr_ty = i64_ty.ptr_type(Default::default());
+    let i64_ptr_ty = ctx.context.ptr_type(Default::default());
 
     let iter_result = compile_expr(ctx, iterable)?;
 
@@ -361,16 +360,16 @@ fn compile_for_in<'ctx>(
 
         let len_ptr = ctx
             .builder()
-            .build_bitcast(array_ptr, i64_ptr_ty, "len_ptr")
+            .build_bit_cast(array_ptr, i64_ptr_ty, "len_ptr").unwrap()
             .into_pointer_value();
-        let len = ctx.builder().build_load(len_ptr, "len").into_int_value();
+        let len = ctx.builder().build_load(i64_ty, len_ptr, "len").unwrap().into_int_value();
 
-        let idx_ptr = ctx.builder().build_alloca(i64_ty, "for_in_idx");
+        let idx_ptr = ctx.builder().build_alloca(i64_ty, "for_in_idx").unwrap();
         ctx.builder()
-            .build_store(idx_ptr, i64_ty.const_int(0, false));
+            .build_store(idx_ptr, i64_ty.const_int(0, false)).unwrap();
 
         // for-in 的循环变量是整数索引
-        let var_ptr = ctx.builder().build_alloca(i64_ty, variable);
+        let var_ptr = ctx.builder().build_alloca(i64_ty, variable).unwrap();
         let old_var = ctx
             .variables
             .insert(variable.to_string(), (var_ptr, Type::Int));
@@ -379,24 +378,24 @@ fn compile_for_in<'ctx>(
         let body_bb = ctx.context.append_basic_block(func, "for_in_body");
         let end_bb = ctx.context.append_basic_block(func, "for_in_end");
 
-        ctx.builder().build_unconditional_branch(cond_bb);
+        ctx.builder().build_unconditional_branch(cond_bb).unwrap();
 
         ctx.builder().position_at_end(cond_bb);
-        let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
+        let idx = ctx.builder().build_load(i64_ty, idx_ptr, "idx").unwrap().into_int_value();
         let cond =
             ctx.builder()
-                .build_int_compare(inkwell::IntPredicate::SLT, idx, len, "for_in_cond");
+                .build_int_compare(inkwell::IntPredicate::SLT, idx, len, "for_in_cond").unwrap();
         ctx.builder()
-            .build_conditional_branch(cond, body_bb, end_bb);
+            .build_conditional_branch(cond, body_bb, end_bb).unwrap();
 
         let label = ctx.pending_loop_label.take();
         ctx.push_loop(end_bb, cond_bb, label);
 
         ctx.builder().position_at_end(body_bb);
-        let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
+        let idx = ctx.builder().build_load(i64_ty, idx_ptr, "idx").unwrap().into_int_value();
         let one = i64_ty.const_int(1, false);
         // 将当前索引存入循环变量
-        ctx.builder().build_store(var_ptr, idx);
+        ctx.builder().build_store(var_ptr, idx).unwrap();
 
         compile_stmt(ctx, body)?;
 
@@ -407,9 +406,9 @@ fn compile_for_in<'ctx>(
             .get_terminator()
             .is_none()
         {
-            let next_idx = ctx.builder().build_int_add(idx, one, "next_idx");
-            ctx.builder().build_store(idx_ptr, next_idx);
-            ctx.builder().build_unconditional_branch(cond_bb);
+            let next_idx = ctx.builder().build_int_add(idx, one, "next_idx").unwrap();
+            ctx.builder().build_store(idx_ptr, next_idx).unwrap();
+            ctx.builder().build_unconditional_branch(cond_bb).unwrap();
         }
 
         ctx.builder().position_at_end(end_bb);
@@ -425,13 +424,13 @@ fn compile_for_in<'ctx>(
     }
 
     if let crate::typechecker::types::Type::Object(fields) = &iter_result.ty {
-        let var_ptr = ctx.builder().build_alloca(i8_ptr, variable);
+        let var_ptr = ctx.builder().build_alloca(i8_ptr, variable).unwrap();
         let old_var = ctx
             .variables
             .insert(variable.to_string(), (var_ptr, Type::String));
         for f in fields {
-            let s = ctx.builder().build_global_string_ptr(&f.name, "obj_key");
-            ctx.builder().build_store(var_ptr, s.as_pointer_value());
+            let s = ctx.builder().build_global_string_ptr(&f.name, "obj_key").unwrap();
+            ctx.builder().build_store(var_ptr, s.as_pointer_value()).unwrap();
             compile_stmt(ctx, body)?;
         }
         ctx.builder()
@@ -453,22 +452,22 @@ fn compile_for_in<'ctx>(
     let keys_arr = ctx
         .builder()
         .build_call(keys_fn, &[obj_ptr.into()], "keys_arr")
-        .try_as_basic_value()
-        .left()
         .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
         .into_pointer_value();
 
     let len_ptr = ctx
         .builder()
-        .build_bitcast(keys_arr, i64_ptr_ty, "len_ptr")
+        .build_bit_cast(keys_arr, i64_ptr_ty, "len_ptr").unwrap()
         .into_pointer_value();
-    let len = ctx.builder().build_load(len_ptr, "len").into_int_value();
+    let len = ctx.builder().build_load(i64_ty, len_ptr, "len").unwrap().into_int_value();
 
-    let idx_ptr = ctx.builder().build_alloca(i64_ty, "for_in_idx");
+    let idx_ptr = ctx.builder().build_alloca(i64_ty, "for_in_idx").unwrap();
     ctx.builder()
-        .build_store(idx_ptr, i64_ty.const_int(0, false));
+        .build_store(idx_ptr, i64_ty.const_int(0, false)).unwrap();
 
-    let var_ptr = ctx.builder().build_alloca(i8_ptr, variable);
+    let var_ptr = ctx.builder().build_alloca(i8_ptr, variable).unwrap();
     let old_var = ctx
         .variables
         .insert(variable.to_string(), (var_ptr, Type::String));
@@ -477,44 +476,45 @@ fn compile_for_in<'ctx>(
     let body_bb = ctx.context.append_basic_block(func, "for_in_body");
     let end_bb = ctx.context.append_basic_block(func, "for_in_end");
 
-    ctx.builder().build_unconditional_branch(cond_bb);
+    ctx.builder().build_unconditional_branch(cond_bb).unwrap();
 
     ctx.builder().position_at_end(cond_bb);
-    let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
+    let idx = ctx.builder().build_load(i64_ty, idx_ptr, "idx").unwrap().into_int_value();
     let cond = ctx
         .builder()
-        .build_int_compare(inkwell::IntPredicate::SLT, idx, len, "for_in_cond");
+        .build_int_compare(inkwell::IntPredicate::SLT, idx, len, "for_in_cond").unwrap();
     ctx.builder()
-        .build_conditional_branch(cond, body_bb, end_bb);
+        .build_conditional_branch(cond, body_bb, end_bb).unwrap();
 
     let label = ctx.pending_loop_label.take();
     ctx.push_loop(end_bb, cond_bb, label);
 
     ctx.builder().position_at_end(body_bb);
-    let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
+    let idx = ctx.builder().build_load(i64_ty, idx_ptr, "idx").unwrap().into_int_value();
     let one = i64_ty.const_int(1, false);
     let elem_offset = ctx
         .builder()
-        .build_int_mul(idx, i64_ty.const_int(8, false), "elem_offset");
+        .build_int_mul(idx, i64_ty.const_int(8, false), "elem_offset").unwrap();
     let data_start = i64_ty.const_int(16, false);
     let elem_offset_with_header =
         ctx.builder()
-            .build_int_add(data_start, elem_offset, "elem_offset_hdr");
+            .build_int_add(data_start, elem_offset, "elem_offset_hdr").unwrap();
     let elem_offset_i32 = ctx.builder().build_int_cast(
         elem_offset_with_header,
         ctx.context.i32_type(),
         "elem_offset_i32",
-    );
+    ).unwrap();
     let elem_ptr = unsafe {
         ctx.builder()
-            .build_gep(keys_arr, &[elem_offset_i32], "elem_ptr")
+            .build_gep(ctx.context.i8_type(), keys_arr, &[elem_offset_i32], "elem_ptr")
+            .unwrap()
     };
     let elem_i64_ptr = ctx
         .builder()
-        .build_bitcast(elem_ptr, i64_ptr_ty, "elem_i64_ptr")
+        .build_bit_cast(elem_ptr, i64_ptr_ty, "elem_i64_ptr").unwrap()
         .into_pointer_value();
-    let key_val = ctx.builder().build_load(elem_i64_ptr, "key_val");
-    ctx.builder().build_store(var_ptr, key_val);
+    let key_val = ctx.builder().build_load(ctx.context.ptr_type(Default::default()), elem_i64_ptr, "key_val").unwrap();
+    ctx.builder().build_store(var_ptr, key_val).unwrap();
 
     compile_stmt(ctx, body)?;
 
@@ -525,9 +525,9 @@ fn compile_for_in<'ctx>(
         .get_terminator()
         .is_none()
     {
-        let next_idx = ctx.builder().build_int_add(idx, one, "next_idx");
-        ctx.builder().build_store(idx_ptr, next_idx);
-        ctx.builder().build_unconditional_branch(cond_bb);
+        let next_idx = ctx.builder().build_int_add(idx, one, "next_idx").unwrap();
+        ctx.builder().build_store(idx_ptr, next_idx).unwrap();
+        ctx.builder().build_unconditional_branch(cond_bb).unwrap();
     }
 
     ctx.builder().position_at_end(end_bb);
@@ -549,9 +549,9 @@ fn compile_for_of<'ctx>(
     body: &Statement,
 ) -> Result<(), String> {
     let func = ctx.current_function().ok_or("No current function")?;
-    let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
+    let i8_ptr = ctx.context.ptr_type(Default::default());
     let i64_ty = ctx.context.i64_type();
-    let i64_ptr_ty = i64_ty.ptr_type(Default::default());
+    let i64_ptr_ty = ctx.context.ptr_type(Default::default());
 
     let iter_result = compile_expr(ctx, iterable)?;
 
@@ -561,14 +561,14 @@ fn compile_for_of<'ctx>(
 
             let len_ptr = ctx
                 .builder()
-                .build_bitcast(array_ptr, i64_ptr_ty, "len_ptr")
+                .build_bit_cast(array_ptr, i64_ptr_ty, "len_ptr").unwrap()
                 .into_pointer_value();
-            let len = ctx.builder().build_load(len_ptr, "len").into_int_value();
+            let len = ctx.builder().build_load(i64_ty, len_ptr, "len").unwrap().into_int_value();
 
-            let idx_ptr = ctx.builder().build_alloca(i64_ty, "for_of_idx");
-            let var_ptr = ctx.builder().build_alloca(i64_ty, variable);
+            let idx_ptr = ctx.builder().build_alloca(i64_ty, "for_of_idx").unwrap();
+            let var_ptr = ctx.builder().build_alloca(i64_ty, variable).unwrap();
             ctx.builder()
-                .build_store(idx_ptr, i64_ty.const_int(0, false));
+                .build_store(idx_ptr, i64_ty.const_int(0, false)).unwrap();
             let old_var = ctx
                 .variables
                 .insert(variable.to_string(), (var_ptr, Type::Int));
@@ -577,47 +577,48 @@ fn compile_for_of<'ctx>(
             let body_bb = ctx.context.append_basic_block(func, "for_of_body");
             let end_bb = ctx.context.append_basic_block(func, "for_of_end");
 
-            ctx.builder().build_unconditional_branch(cond_bb);
+            ctx.builder().build_unconditional_branch(cond_bb).unwrap();
 
             ctx.builder().position_at_end(cond_bb);
-            let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
+            let idx = ctx.builder().build_load(i64_ty, idx_ptr, "idx").unwrap().into_int_value();
             let cond = ctx.builder().build_int_compare(
                 inkwell::IntPredicate::SLT,
                 idx,
                 len,
                 "for_of_cond",
-            );
+            ).unwrap();
             ctx.builder()
-                .build_conditional_branch(cond, body_bb, end_bb);
+                .build_conditional_branch(cond, body_bb, end_bb).unwrap();
 
             let label = ctx.pending_loop_label.take();
             ctx.push_loop(end_bb, cond_bb, label);
 
             ctx.builder().position_at_end(body_bb);
-            let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
+            let idx = ctx.builder().build_load(i64_ty, idx_ptr, "idx").unwrap().into_int_value();
             let one = i64_ty.const_int(1, false);
             let elem_offset =
                 ctx.builder()
-                    .build_int_mul(idx, i64_ty.const_int(8, false), "elem_offset");
+                    .build_int_mul(idx, i64_ty.const_int(8, false), "elem_offset").unwrap();
             let data_start = i64_ty.const_int(16, false);
             let elem_offset_with_header =
                 ctx.builder()
-                    .build_int_add(data_start, elem_offset, "elem_offset_hdr");
+                    .build_int_add(data_start, elem_offset, "elem_offset_hdr").unwrap();
             let elem_offset_i32 = ctx.builder().build_int_cast(
                 elem_offset_with_header,
                 ctx.context.i32_type(),
                 "elem_offset_i32",
-            );
+            ).unwrap();
             let elem_ptr = unsafe {
                 ctx.builder()
-                    .build_gep(array_ptr, &[elem_offset_i32], "elem_ptr")
+                    .build_gep(ctx.context.i8_type(), array_ptr, &[elem_offset_i32], "elem_ptr")
+                    .unwrap()
             };
             let elem_i64_ptr = ctx
                 .builder()
-                .build_bitcast(elem_ptr, i64_ptr_ty, "elem_i64_ptr")
+                .build_bit_cast(elem_ptr, i64_ptr_ty, "elem_i64_ptr").unwrap()
                 .into_pointer_value();
-            let elem_val = ctx.builder().build_load(elem_i64_ptr, "elem_val");
-            ctx.builder().build_store(var_ptr, elem_val);
+            let elem_val = ctx.builder().build_load(i64_ty, elem_i64_ptr, "elem_val").unwrap();
+            ctx.builder().build_store(var_ptr, elem_val).unwrap();
 
             compile_stmt(ctx, body)?;
 
@@ -628,9 +629,9 @@ fn compile_for_of<'ctx>(
                 .get_terminator()
                 .is_none()
             {
-                let next_idx = ctx.builder().build_int_add(idx, one, "next_idx");
-                ctx.builder().build_store(idx_ptr, next_idx);
-                ctx.builder().build_unconditional_branch(cond_bb);
+                let next_idx = ctx.builder().build_int_add(idx, one, "next_idx").unwrap();
+                ctx.builder().build_store(idx_ptr, next_idx).unwrap();
+                ctx.builder().build_unconditional_branch(cond_bb).unwrap();
             }
 
             ctx.builder().position_at_end(end_bb);
@@ -656,17 +657,17 @@ fn compile_for_of<'ctx>(
             let len = ctx
                 .builder()
                 .build_call(str_len_fn, &[str_ptr.into()], "str_len")
-                .try_as_basic_value()
-                .left()
                 .unwrap()
+                .try_as_basic_value()
+                .unwrap_basic()
                 .into_int_value();
 
-            let idx_ptr = ctx.builder().build_alloca(i64_ty, "for_of_str_idx");
+            let idx_ptr = ctx.builder().build_alloca(i64_ty, "for_of_str_idx").unwrap();
             ctx.builder()
-                .build_store(idx_ptr, i64_ty.const_int(0, false));
+                .build_store(idx_ptr, i64_ty.const_int(0, false)).unwrap();
 
             // Loop variable is a single-char string (i8*)
-            let var_ptr = ctx.builder().build_alloca(i8_ptr, variable);
+            let var_ptr = ctx.builder().build_alloca(i8_ptr, variable).unwrap();
             let old_var = ctx
                 .variables
                 .insert(variable.to_string(), (var_ptr, Type::String));
@@ -675,24 +676,24 @@ fn compile_for_of<'ctx>(
             let body_bb = ctx.context.append_basic_block(func, "for_of_str_body");
             let end_bb = ctx.context.append_basic_block(func, "for_of_str_end");
 
-            ctx.builder().build_unconditional_branch(cond_bb);
+            ctx.builder().build_unconditional_branch(cond_bb).unwrap();
 
             ctx.builder().position_at_end(cond_bb);
-            let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
+            let idx = ctx.builder().build_load(i64_ty, idx_ptr, "idx").unwrap().into_int_value();
             let cond = ctx.builder().build_int_compare(
                 inkwell::IntPredicate::SLT,
                 idx,
                 len,
                 "for_of_str_cond",
-            );
+            ).unwrap();
             ctx.builder()
-                .build_conditional_branch(cond, body_bb, end_bb);
+                .build_conditional_branch(cond, body_bb, end_bb).unwrap();
 
             let label = ctx.pending_loop_label.take();
             ctx.push_loop(end_bb, cond_bb, label);
 
             ctx.builder().position_at_end(body_bb);
-            let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
+            let idx = ctx.builder().build_load(i64_ty, idx_ptr, "idx").unwrap().into_int_value();
             let one = i64_ty.const_int(1, false);
 
             // Call __string_char_at(str, idx) to get single-char string
@@ -703,11 +704,11 @@ fn compile_for_of<'ctx>(
             let ch = ctx
                 .builder()
                 .build_call(char_at_fn, &[str_ptr.into(), idx.into()], "char_at")
-                .try_as_basic_value()
-                .left()
                 .unwrap()
+                .try_as_basic_value()
+                .unwrap_basic()
                 .into_pointer_value();
-            ctx.builder().build_store(var_ptr, ch);
+            ctx.builder().build_store(var_ptr, ch).unwrap();
 
             compile_stmt(ctx, body)?;
 
@@ -718,9 +719,9 @@ fn compile_for_of<'ctx>(
                 .get_terminator()
                 .is_none()
             {
-                let next_idx = ctx.builder().build_int_add(idx, one, "next_idx");
-                ctx.builder().build_store(idx_ptr, next_idx);
-                ctx.builder().build_unconditional_branch(cond_bb);
+                let next_idx = ctx.builder().build_int_add(idx, one, "next_idx").unwrap();
+                ctx.builder().build_store(idx_ptr, next_idx).unwrap();
+                ctx.builder().build_unconditional_branch(cond_bb).unwrap();
             }
 
             ctx.builder().position_at_end(end_bb);
@@ -738,8 +739,8 @@ fn compile_for_of<'ctx>(
             let iterable_ptr = iter_result.value.into_pointer_value();
 
             let temp_name = "__for_of_iterable";
-            let temp_ptr = ctx.builder().build_alloca(i8_ptr, temp_name);
-            ctx.builder().build_store(temp_ptr, iterable_ptr);
+            let temp_ptr = ctx.builder().build_alloca(i8_ptr, temp_name).unwrap();
+            ctx.builder().build_store(temp_ptr, iterable_ptr).unwrap();
             let old_temp = ctx
                 .variables
                 .insert(temp_name.to_string(), (temp_ptr, iter_result.ty.clone()));
@@ -755,8 +756,8 @@ fn compile_for_of<'ctx>(
             let iter_obj_result = compile_expr(ctx, &iter_call)?;
 
             let iter_name = "__for_of_iterator";
-            let iter_ptr = ctx.builder().build_alloca(i8_ptr, iter_name);
-            ctx.builder().build_store(iter_ptr, iter_obj_result.value);
+            let iter_ptr = ctx.builder().build_alloca(i8_ptr, iter_name).unwrap();
+            ctx.builder().build_store(iter_ptr, iter_obj_result.value).unwrap();
             let old_iter = ctx
                 .variables
                 .insert(iter_name.to_string(), (iter_ptr, Type::Dynamic));
@@ -765,7 +766,7 @@ fn compile_for_of<'ctx>(
             let body_bb = ctx.context.append_basic_block(func, "for_of_body");
             let end_bb = ctx.context.append_basic_block(func, "for_of_end");
 
-            ctx.builder().build_unconditional_branch(cond_bb);
+            ctx.builder().build_unconditional_branch(cond_bb).unwrap();
 
             ctx.builder().position_at_end(cond_bb);
             let next_call = crate::parser::ast::Expr::Call {
@@ -778,22 +779,22 @@ fn compile_for_of<'ctx>(
             };
             let next_result = compile_expr(ctx, &next_call)?;
             let next_ptr = next_result.value.into_pointer_value();
-            let next_int = ctx.builder().build_ptr_to_int(next_ptr, i64_ty, "next_int");
+            let next_int = ctx.builder().build_ptr_to_int(next_ptr, i64_ty, "next_int").unwrap();
             let is_null = ctx.builder().build_int_compare(
                 inkwell::IntPredicate::EQ,
                 next_int,
                 i64_ty.const_int(0, false),
                 "is_null",
-            );
+            ).unwrap();
             ctx.builder()
-                .build_conditional_branch(is_null, end_bb, body_bb);
+                .build_conditional_branch(is_null, end_bb, body_bb).unwrap();
 
             let label = ctx.pending_loop_label.take();
             ctx.push_loop(end_bb, cond_bb, label);
 
             ctx.builder().position_at_end(body_bb);
-            let var_ptr = ctx.builder().build_alloca(i8_ptr, variable);
-            ctx.builder().build_store(var_ptr, next_result.value);
+            let var_ptr = ctx.builder().build_alloca(i8_ptr, variable).unwrap();
+            ctx.builder().build_store(var_ptr, next_result.value).unwrap();
             let old_var = ctx
                 .variables
                 .insert(variable.to_string(), (var_ptr, Type::Dynamic));
@@ -807,7 +808,7 @@ fn compile_for_of<'ctx>(
                 .get_terminator()
                 .is_none()
             {
-                ctx.builder().build_unconditional_branch(cond_bb);
+                ctx.builder().build_unconditional_branch(cond_bb).unwrap();
             }
 
             ctx.builder().position_at_end(end_bb);
@@ -841,9 +842,9 @@ fn compile_return<'ctx>(
     if let (Some(result_ptr), Some(return_bb)) = (ctx.async_result_ptr, ctx.async_return_bb) {
         if let Some(e) = expr {
             let result = compile_expr(ctx, e)?;
-            ctx.builder().build_store(result_ptr, result.value);
+            ctx.builder().build_store(result_ptr, result.value).unwrap();
         }
-        ctx.builder().build_unconditional_branch(return_bb);
+        ctx.builder().build_unconditional_branch(return_bb).unwrap();
         return Ok(());
     }
 
@@ -856,20 +857,20 @@ fn compile_return<'ctx>(
                 if ctx.pending_return_value.is_none() {
                     let alloca = ctx
                         .builder()
-                        .build_alloca(result.value.get_type(), "pending_ret_val");
+                        .build_alloca(result.value.get_type(), "pending_ret_val").unwrap();
                     ctx.pending_return_value = Some(alloca);
                 }
                 if let Some(ret_ptr) = ctx.pending_return_value {
-                    ctx.builder().build_store(ret_ptr, result.value);
+                    ctx.builder().build_store(ret_ptr, result.value).unwrap();
                 }
             }
             // 设置 pending return 标志
             if let Some(flag_ptr) = ctx.pending_return_flag {
                 ctx.builder()
-                    .build_store(flag_ptr, ctx.context.bool_type().const_int(1, false));
+                    .build_store(flag_ptr, ctx.context.bool_type().const_int(1, false)).unwrap();
             }
             // 跳转到 finally 块
-            ctx.builder().build_unconditional_branch(finally_bb);
+            ctx.builder().build_unconditional_branch(finally_bb).unwrap();
             // 创建不可达块以保持 builder 位置
             if let Some(func) = ctx.current_function() {
                 let unreachable_bb = ctx.context.append_basic_block(func, "return.unreachable");
@@ -897,21 +898,22 @@ fn compile_return<'ctx>(
                     if actual_llvm_ty.is_pointer_type() && expected_llvm_ty.is_pointer_type() {
                         // Pointer to pointer: bitcast
                         ctx.builder()
-                            .build_bitcast(result.value, expected_llvm_ty, "ret_cast")
+                            .build_bit_cast(result.value, expected_llvm_ty, "ret_cast")
+                            .unwrap()
                     } else if actual_llvm_ty.is_pointer_type() && expected_llvm_ty.is_int_type() {
                         // Pointer to int (e.g., null to i64 for Nullable<T>): ptrtoint
                         BasicValueEnum::IntValue(ctx.builder().build_ptr_to_int(
                             result.value.into_pointer_value(),
                             expected_llvm_ty.into_int_type(),
                             "ret_ptr_to_int",
-                        ))
+                        ).unwrap())
                     } else if actual_llvm_ty.is_int_type() && expected_llvm_ty.is_pointer_type() {
                         // Int to pointer: inttoptr
                         BasicValueEnum::PointerValue(ctx.builder().build_int_to_ptr(
                             result.value.into_int_value(),
                             expected_llvm_ty.into_pointer_type(),
                             "ret_int_to_ptr",
-                        ))
+                        ).unwrap())
                     } else if actual_llvm_ty.is_struct_type() && expected_llvm_ty.is_int_type() {
                         // Struct to int (e.g., Dynamic {i64, i8*} → i64):
                         // Extract field 1 (data_ptr) and convert to int.
@@ -925,7 +927,7 @@ fn compile_return<'ctx>(
                             data_ptr,
                             expected_llvm_ty.into_int_type(),
                             "ret_s2i",
-                        ))
+                        ).unwrap())
                     } else if actual_llvm_ty.is_struct_type() && expected_llvm_ty.is_pointer_type()
                     {
                         // Struct to pointer (e.g., Dynamic {i64, i8*} → i8*):
@@ -961,7 +963,7 @@ fn compile_return<'ctx>(
                                 return_value.into_pointer_value(),
                                 fn_ret_ty.into_int_type(),
                                 "ret_fn_ptr2int",
-                            ))
+                            ).unwrap())
                         } else if val_ty.is_struct_type() && fn_ret_ty.is_int_type() {
                             let sv = return_value.into_struct_value();
                             let data_ptr = ctx
@@ -973,16 +975,17 @@ fn compile_return<'ctx>(
                                 data_ptr,
                                 fn_ret_ty.into_int_type(),
                                 "ret_fn_s2i",
-                            ))
+                            ).unwrap())
                         } else if val_ty.is_int_type() && fn_ret_ty.is_pointer_type() {
                             BasicValueEnum::PointerValue(ctx.builder().build_int_to_ptr(
                                 return_value.into_int_value(),
                                 fn_ret_ty.into_pointer_type(),
                                 "ret_fn_int2ptr",
-                            ))
+                            ).unwrap())
                         } else if val_ty.is_pointer_type() && fn_ret_ty.is_pointer_type() {
                             ctx.builder()
-                                .build_bitcast(return_value, fn_ret_ty, "ret_fn_p2p")
+                                .build_bit_cast(return_value, fn_ret_ty, "ret_fn_p2p")
+                                .unwrap()
                         } else if val_ty.is_int_type() && fn_ret_ty.is_int_type() {
                             let val_int = return_value.into_int_value();
                             let src_bits = val_int.get_type().get_bit_width();
@@ -992,13 +995,13 @@ fn compile_return<'ctx>(
                                     val_int,
                                     fn_ret_ty.into_int_type(),
                                     "ret_fn_trunc",
-                                ))
+                                ).unwrap())
                             } else {
                                 BasicValueEnum::IntValue(ctx.builder().build_int_z_extend(
                                     val_int,
                                     fn_ret_ty.into_int_type(),
                                     "ret_fn_zext",
-                                ))
+                                ).unwrap())
                             }
                         } else if val_ty.is_int_type() && fn_ret_ty.is_struct_type() {
                             // Int to Dynamic struct: box as {type_tag=1, inttoptr(value)}
@@ -1012,9 +1015,9 @@ fn compile_return<'ctx>(
                                 .into_struct_value();
                             let data_ptr = ctx.builder().build_int_to_ptr(
                                 return_value.into_int_value(),
-                                ctx.context.i8_type().ptr_type(Default::default()),
+                                ctx.context.ptr_type(Default::default()),
                                 "box_int_data",
-                            );
+                            ).unwrap();
                             ds = ctx
                                 .builder()
                                 .build_insert_value(ds, data_ptr, 1, "box_data")
@@ -1025,11 +1028,11 @@ fn compile_return<'ctx>(
                             // Pointer to Dynamic struct: box as {0, ptr}
                             let dyn_st = fn_ret_ty.into_struct_type();
                             let mut ds = dyn_st.const_zero();
-                            let casted = ctx.builder().build_bitcast(
+                            let casted = ctx.builder().build_bit_cast(
                                 return_value,
-                                ctx.context.i8_type().ptr_type(Default::default()),
+                                ctx.context.ptr_type(Default::default()),
                                 "box_data_ptr",
-                            );
+                            ).unwrap();
                             ds = ctx
                                 .builder()
                                 .build_insert_value(ds, casted, 1, "box_data")
@@ -1054,17 +1057,17 @@ fn compile_return<'ctx>(
                     }
                 } else {
                     // LLVM function returns void — ignore the expression value
-                    ctx.builder().build_return(None);
+                    ctx.builder().build_return(None).unwrap();
                     return Ok(());
                 }
             } else {
                 return_value
             };
-            ctx.builder().build_return(Some(&return_value));
+            ctx.builder().build_return(Some(&return_value)).unwrap();
             Ok(())
         }
         None => {
-            ctx.builder().build_return(None);
+            ctx.builder().build_return(None).unwrap();
             Ok(())
         }
     }
@@ -1143,7 +1146,7 @@ fn compile_throw<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>, expr: &Expr) -> R
     match msg {
         crate::parser::ast::Argument::Expr(e) => match e.as_ref() {
             Expr::StringLiteral(s) => {
-                let str_ptr = ctx.builder().build_global_string_ptr(s, "throw_msg");
+                let str_ptr = ctx.builder().build_global_string_ptr(s, "throw_msg").unwrap();
                 let exc_ptr = str_ptr.as_pointer_value();
                 emit_throw_call(ctx, exc_ptr, throw_class.as_deref())?;
             }
@@ -1177,7 +1180,7 @@ fn compile_try<'ctx>(
     finally: Option<&[Statement]>,
 ) -> Result<(), String> {
     let func = ctx.current_function().ok_or("No current function")?;
-    let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
+    let i8_ptr = ctx.context.ptr_type(Default::default());
     let i64_ty = ctx.context.i64_type();
 
     let try_body_bb = ctx.context.append_basic_block(func, "try_body");
@@ -1198,17 +1201,17 @@ fn compile_try<'ctx>(
         None
     };
 
-    let exception_ptr = ctx.builder().build_alloca(i8_ptr, "exc_ptr");
+    let exception_ptr = ctx.builder().build_alloca(i8_ptr, "exc_ptr").unwrap();
     ctx.builder()
-        .build_store(exception_ptr, i8_ptr.const_null());
+        .build_store(exception_ptr, i8_ptr.const_null()).unwrap();
 
     let clear_fn = ctx
         .module
         .get_function("ruyi_clear_pending_exception")
         .expect("ruyi_clear_pending_exception not declared");
-    ctx.builder().build_call(clear_fn, &[], "clear_exc");
+    ctx.builder().build_call(clear_fn, &[], "clear_exc").unwrap();
 
-    ctx.builder().build_unconditional_branch(try_body_bb);
+    ctx.builder().build_unconditional_branch(try_body_bb).unwrap();
     ctx.builder().position_at_end(try_body_bb);
 
     // EX-C1/C2 修复：如果有 finally 块，设置 pending control flow 支持
@@ -1219,9 +1222,9 @@ fn compile_try<'ctx>(
 
     if finally_bb.is_some() {
         let bool_ty = ctx.context.bool_type();
-        let flag_alloca = ctx.builder().build_alloca(bool_ty, "pending_ret_flag");
+        let flag_alloca = ctx.builder().build_alloca(bool_ty, "pending_ret_flag").unwrap();
         ctx.builder()
-            .build_store(flag_alloca, bool_ty.const_int(0, false));
+            .build_store(flag_alloca, bool_ty.const_int(0, false)).unwrap();
         ctx.pending_return_flag = Some(flag_alloca);
         // pending_return_value 在 compile_return 中懒分配
         ctx.pending_return_value = None;
@@ -1252,9 +1255,9 @@ fn compile_try<'ctx>(
     let body_end = ctx.builder().get_insert_block().unwrap();
     if body_end.get_terminator().is_none() {
         if let Some(fb) = finally_bb {
-            ctx.builder().build_unconditional_branch(fb);
+            ctx.builder().build_unconditional_branch(fb).unwrap();
         } else {
-            ctx.builder().build_unconditional_branch(merge_bb);
+            ctx.builder().build_unconditional_branch(merge_bb).unwrap();
         }
     }
 
@@ -1291,7 +1294,7 @@ fn compile_try<'ctx>(
 
         // Extract exception pointer and store it for catch blocks to access
         let exc_ptr = lp_gen.extract_exception_ptr(landing_pad_val);
-        ctx.builder().build_store(exception_ptr, exc_ptr);
+        ctx.builder().build_store(exception_ptr, exc_ptr).unwrap();
 
         // Dispatch from landing-pad to first catch handler (catch-all mode).
         // Must be called while builder is still positioned inside landing_pad_bb
@@ -1303,7 +1306,7 @@ fn compile_try<'ctx>(
         if let Some(cb) = catch_bb {
             ctx.builder().position_at_end(cb);
             ctx.builder()
-                .build_unconditional_branch(catch_handlers[0].1);
+                .build_unconditional_branch(catch_handlers[0].1).unwrap();
         }
 
         // Compile per-clause catch handlers
@@ -1315,12 +1318,12 @@ fn compile_try<'ctx>(
 
             let exc_val = ctx
                 .builder()
-                .build_load(exception_ptr, "exc_val")
+                .build_load(i8_ptr, exception_ptr, "exc_val").unwrap()
                 .into_pointer_value();
             if let Some(pattern) = &catch_clause.pattern {
                 if let crate::parser::ast::Pattern::Identifier(name) = pattern {
-                    let local_ptr = ctx.builder().build_alloca(i8_ptr, name);
-                    ctx.builder().build_store(local_ptr, exc_val);
+                    let local_ptr = ctx.builder().build_alloca(i8_ptr, name).unwrap();
+                    ctx.builder().build_store(local_ptr, exc_val).unwrap();
                     let var_ty = catch_clause
                         .ty
                         .as_ref()
@@ -1335,9 +1338,9 @@ fn compile_try<'ctx>(
             let catch_end = ctx.builder().get_insert_block().unwrap();
             if catch_end.get_terminator().is_none() {
                 if let Some(fb) = finally_bb {
-                    ctx.builder().build_unconditional_branch(fb);
+                    ctx.builder().build_unconditional_branch(fb).unwrap();
                 } else {
-                    ctx.builder().build_unconditional_branch(merge_bb);
+                    ctx.builder().build_unconditional_branch(merge_bb).unwrap();
                 }
             }
         }
@@ -1364,34 +1367,34 @@ fn compile_try<'ctx>(
                 // 无 catch：检查是否有未捕获异常需要传播
                 let exc_val = ctx
                     .builder()
-                    .build_load(exception_ptr, "exc_val")
+                    .build_load(i8_ptr, exception_ptr, "exc_val").unwrap()
                     .into_pointer_value();
-                let exc_int = ctx.builder().build_ptr_to_int(exc_val, i64_ty, "exc_int");
+                let exc_int = ctx.builder().build_ptr_to_int(exc_val, i64_ty, "exc_int").unwrap();
                 let is_null = ctx.builder().build_int_compare(
                     inkwell::IntPredicate::EQ,
                     exc_int,
                     i64_ty.const_int(0, false),
                     "is_null",
-                );
+                ).unwrap();
                 let pb = propagate_bb.unwrap();
                 let normal_bb = ctx.context.append_basic_block(func, "finally.normal");
                 ctx.builder()
-                    .build_conditional_branch(is_null, normal_bb, pb);
+                    .build_conditional_branch(is_null, normal_bb, pb).unwrap();
 
                 ctx.builder().position_at_end(pb);
                 let exc_val2 = ctx
                     .builder()
-                    .build_load(exception_ptr, "exc_val2")
+                    .build_load(i8_ptr, exception_ptr, "exc_val2").unwrap()
                     .into_pointer_value();
                 let throw_fn = ctx.module.get_function("ruyi_rethrow").unwrap_or_else(|| {
-                    let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
+                    let i8_ptr = ctx.context.ptr_type(Default::default());
                     let fn_type = ctx.context.void_type().fn_type(&[i8_ptr.into()], false);
                     ctx.module.add_function("ruyi_rethrow", fn_type, None)
                 });
                 ctx.builder()
-                    .build_call(throw_fn, &[exc_val2.into()], "rethrow");
+                    .build_call(throw_fn, &[exc_val2.into()], "rethrow").unwrap();
                 ctx.emit_gc_root_removals();
-                ctx.builder().build_return(None);
+                ctx.builder().build_return(None).unwrap();
 
                 ctx.builder().position_at_end(normal_bb);
                 merge_bb
@@ -1403,20 +1406,21 @@ fn compile_try<'ctx>(
             if let Some(flag_ptr) = ctx.pending_return_flag {
                 let flag_val = ctx
                     .builder()
-                    .build_load(flag_ptr, "ret_flag_val")
+                    .build_load(ctx.context.bool_type(), flag_ptr, "ret_flag_val").unwrap()
                     .into_int_value();
                 let ret_bb = ctx.context.append_basic_block(func, "finally.return");
                 let no_ret_bb = ctx.context.append_basic_block(func, "finally.no_return");
                 ctx.builder()
-                    .build_conditional_branch(flag_val, ret_bb, no_ret_bb);
+                    .build_conditional_branch(flag_val, ret_bb, no_ret_bb).unwrap();
 
                 ctx.builder().position_at_end(ret_bb);
                 ctx.emit_gc_root_removals();
                 if let Some(ret_ptr) = ctx.pending_return_value {
-                    let ret_val = ctx.builder().build_load(ret_ptr, "pending_ret_val");
-                    ctx.builder().build_return(Some(&ret_val));
+                    let ret_ty = func.get_type().get_return_type().unwrap();
+                    let ret_val = ctx.builder().build_load(ret_ty, ret_ptr, "pending_ret_val").unwrap();
+                    ctx.builder().build_return(Some(&ret_val)).unwrap();
                 } else {
-                    ctx.builder().build_return(None);
+                    ctx.builder().build_return(None).unwrap();
                 }
 
                 ctx.builder().position_at_end(no_ret_bb);
@@ -1430,16 +1434,16 @@ fn compile_try<'ctx>(
                 // 复用 return flag 来标记 break（break 和 return 不会同时发生）
                 let has_break = if let Some(flag_ptr) = ctx.pending_return_flag {
                     ctx.builder()
-                        .build_load(flag_ptr, "break_flag_val")
+                        .build_load(ctx.context.bool_type(), flag_ptr, "break_flag_val").unwrap()
                         .into_int_value()
                 } else {
                     ctx.context.bool_type().const_int(0, false)
                 };
                 ctx.builder()
-                    .build_conditional_branch(has_break, break_bb, no_break_bb);
+                    .build_conditional_branch(has_break, break_bb, no_break_bb).unwrap();
 
                 ctx.builder().position_at_end(break_bb);
-                ctx.builder().build_unconditional_branch(break_target);
+                ctx.builder().build_unconditional_branch(break_target).unwrap();
 
                 ctx.builder().position_at_end(no_break_bb);
             }
@@ -1450,16 +1454,16 @@ fn compile_try<'ctx>(
                 let no_cont_bb = ctx.context.append_basic_block(func, "finally.no_continue");
                 let has_cont = if let Some(flag_ptr) = ctx.pending_return_flag {
                     ctx.builder()
-                        .build_load(flag_ptr, "cont_flag_val")
+                        .build_load(ctx.context.bool_type(), flag_ptr, "cont_flag_val").unwrap()
                         .into_int_value()
                 } else {
                     ctx.context.bool_type().const_int(0, false)
                 };
                 ctx.builder()
-                    .build_conditional_branch(has_cont, cont_bb, no_cont_bb);
+                    .build_conditional_branch(has_cont, cont_bb, no_cont_bb).unwrap();
 
                 ctx.builder().position_at_end(cont_bb);
-                ctx.builder().build_unconditional_branch(continue_target);
+                ctx.builder().build_unconditional_branch(continue_target).unwrap();
 
                 ctx.builder().position_at_end(no_cont_bb);
             }
@@ -1467,7 +1471,7 @@ fn compile_try<'ctx>(
             // 正常流程：跳转到 merge
             let end_bb = ctx.builder().get_insert_block().unwrap();
             if end_bb.get_terminator().is_none() {
-                ctx.builder().build_unconditional_branch(next_bb);
+                ctx.builder().build_unconditional_branch(next_bb).unwrap();
             }
         }
     }
@@ -1493,26 +1497,26 @@ fn emit_throw_call<'ctx>(
             .module
             .get_function("ruyi_throw_typed")
             .unwrap_or_else(|| {
-                let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
+                let i8_ptr = ctx.context.ptr_type(Default::default());
                 let fn_type = ctx
                     .context
                     .void_type()
                     .fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
                 ctx.module.add_function("ruyi_throw_typed", fn_type, None)
             });
-        let name_ptr = ctx.builder().build_global_string_ptr(name, "throw_class");
+        let name_ptr = ctx.builder().build_global_string_ptr(name, "throw_class").unwrap();
         ctx.builder().build_call(
             typed_throw_fn,
             &[name_ptr.as_pointer_value().into(), exc_ptr.into()],
             "throw_typed",
-        );
+        ).unwrap();
     } else {
         let throw_fn = ctx
             .module
             .get_function("ruyi_throw")
             .expect("ruyi_throw not declared");
         ctx.builder()
-            .build_call(throw_fn, &[exc_ptr.into()], "throw");
+            .build_call(throw_fn, &[exc_ptr.into()], "throw").unwrap();
     }
     emit_throw_branch(ctx, exc_ptr)
 }
@@ -1523,21 +1527,21 @@ fn emit_throw_branch<'ctx>(
     exc_ptr: inkwell::values::PointerValue<'ctx>,
 ) -> Result<(), String> {
     if let Some(try_ctx) = ctx.current_try() {
-        ctx.builder().build_store(try_ctx.exception_ptr, exc_ptr);
+        ctx.builder().build_store(try_ctx.exception_ptr, exc_ptr).unwrap();
         if let Some(catch_bb) = try_ctx.catch_bb {
-            ctx.builder().build_unconditional_branch(catch_bb);
+            ctx.builder().build_unconditional_branch(catch_bb).unwrap();
         } else if let Some(finally_bb) = try_ctx.finally_bb {
-            ctx.builder().build_unconditional_branch(finally_bb);
+            ctx.builder().build_unconditional_branch(finally_bb).unwrap();
         } else {
-            ctx.builder().build_unconditional_branch(try_ctx.merge_bb);
+            ctx.builder().build_unconditional_branch(try_ctx.merge_bb).unwrap();
         }
         if let Some(func) = ctx.current_function() {
             let unreachable_bb = ctx.context.append_basic_block(func, "throw.unreachable");
             ctx.builder().position_at_end(unreachable_bb);
-            ctx.builder().build_unreachable();
+            ctx.builder().build_unreachable().unwrap();
         }
     } else {
-        ctx.builder().build_unreachable();
+        ctx.builder().build_unreachable().unwrap();
     }
 
     Ok(())
@@ -1583,13 +1587,13 @@ fn build_exception_check<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>) -> Result
     let i64_ty = ctx.context.i64_type();
     let pending_int = ctx
         .builder()
-        .build_ptr_to_int(pending, i64_ty, "pending_int");
+        .build_ptr_to_int(pending, i64_ty, "pending_int").unwrap();
     let is_null = ctx.builder().build_int_compare(
         inkwell::IntPredicate::EQ,
         pending_int,
         i64_ty.const_int(0, false),
         "no_exc",
-    );
+    ).unwrap();
 
     let try_ctx = ctx.current_try().unwrap();
     let continue_bb = ctx.context.append_basic_block(func, "after_exc_check");
@@ -1601,12 +1605,12 @@ fn build_exception_check<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>) -> Result
         .unwrap_or(try_ctx.merge_bb);
 
     ctx.builder()
-        .build_conditional_branch(is_null, continue_bb, store_exc_bb);
+        .build_conditional_branch(is_null, continue_bb, store_exc_bb).unwrap();
 
     ctx.builder().position_at_end(store_exc_bb);
-    ctx.builder().build_store(try_ctx.exception_ptr, pending);
+    ctx.builder().build_store(try_ctx.exception_ptr, pending).unwrap();
     build_ruyi_clear_pending_exception(ctx.builder(), ctx.module);
-    ctx.builder().build_unconditional_branch(dest_bb);
+    ctx.builder().build_unconditional_branch(dest_bb).unwrap();
 
     ctx.builder().position_at_end(continue_bb);
     Ok(())
@@ -1629,14 +1633,14 @@ fn compile_if_let<'ctx>(
     let is_match = pattern_is_matching(ctx, pattern, &val)?;
 
     ctx.builder()
-        .build_conditional_branch(is_match, then_bb, else_bb);
+        .build_conditional_branch(is_match, then_bb, else_bb).unwrap();
 
     ctx.builder().position_at_end(then_bb);
     bind_pattern_in_codegen(ctx, pattern, &val)?;
     compile_stmt(ctx, then_branch)?;
     if let Some(bb) = ctx.builder().get_insert_block() {
         if bb.get_terminator().is_none() {
-            ctx.builder().build_unconditional_branch(merge_bb);
+            ctx.builder().build_unconditional_branch(merge_bb).unwrap();
         }
     }
 
@@ -1646,7 +1650,7 @@ fn compile_if_let<'ctx>(
     }
     if let Some(bb) = ctx.builder().get_insert_block() {
         if bb.get_terminator().is_none() {
-            ctx.builder().build_unconditional_branch(merge_bb);
+            ctx.builder().build_unconditional_branch(merge_bb).unwrap();
         }
     }
 
@@ -1665,22 +1669,23 @@ fn compile_while_let<'ctx>(
     let body_bb = ctx.context.append_basic_block(func, "while_let_body");
     let exit_bb = ctx.context.append_basic_block(func, "while_let_exit");
 
-    ctx.builder().build_unconditional_branch(header_bb);
+    ctx.builder().build_unconditional_branch(header_bb).unwrap();
 
     ctx.builder().position_at_end(header_bb);
     let val = compile_expr(ctx, value)?;
+    let val_llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &val.ty);
     let val_ptr = ctx.builder().build_alloca(
-        super::types::ruyi_type_to_llvm(ctx.context, &val.ty),
+        val_llvm_ty,
         "while_let_val",
-    );
-    ctx.builder().build_store(val_ptr, val.value);
+    ).unwrap();
+    ctx.builder().build_store(val_ptr, val.value).unwrap();
 
     let is_match = pattern_is_matching(ctx, pattern, &val)?;
     ctx.builder()
-        .build_conditional_branch(is_match, body_bb, exit_bb);
+        .build_conditional_branch(is_match, body_bb, exit_bb).unwrap();
 
     ctx.builder().position_at_end(body_bb);
-    let loaded_val = ctx.builder().build_load(val_ptr, "while_let_loaded");
+    let loaded_val = ctx.builder().build_load(val_llvm_ty, val_ptr, "while_let_loaded").unwrap();
     let loaded_result = ExprResult {
         value: loaded_val,
         ty: val.ty.clone(),
@@ -1692,7 +1697,7 @@ fn compile_while_let<'ctx>(
     ctx.pop_loop();
     if let Some(bb) = ctx.builder().get_insert_block() {
         if bb.get_terminator().is_none() {
-            ctx.builder().build_unconditional_branch(header_bb);
+            ctx.builder().build_unconditional_branch(header_bb).unwrap();
         }
     }
 
@@ -1713,20 +1718,20 @@ fn pattern_is_matching<'ctx>(
                 let is_non_null = match val.value {
                     BasicValueEnum::PointerValue(p) => {
                         let i64_ty = ctx.context.i64_type();
-                        let ptr_int = ctx.builder().build_ptr_to_int(p, i64_ty, "ptr_int");
+                        let ptr_int = ctx.builder().build_ptr_to_int(p, i64_ty, "ptr_int").unwrap();
                         ctx.builder().build_int_compare(
                             inkwell::IntPredicate::NE,
                             ptr_int,
                             i64_ty.const_int(0, false),
                             "is_non_null",
-                        )
+                        ).unwrap()
                     }
                     BasicValueEnum::IntValue(v) => ctx.builder().build_int_compare(
                         inkwell::IntPredicate::NE,
                         v,
                         ctx.context.i64_type().const_all_ones(),
                         "is_non_null_int",
-                    ),
+                    ).unwrap(),
                     _ => {
                         return Err(
                             "Nullable match requires pointer or integer scrutinee".to_string()
@@ -1745,7 +1750,7 @@ fn pattern_is_matching<'ctx>(
                 val.value.into_int_value(),
                 lit_val.value.into_int_value(),
                 "lit_match",
-            );
+            ).unwrap();
             Ok(cmp)
         }
         P::Object(_) | P::Array(_) => Ok(ctx.context.bool_type().const_int(1, false)),
@@ -1754,7 +1759,7 @@ fn pattern_is_matching<'ctx>(
             let mut result = ctx.context.bool_type().const_int(0, false);
             for p in patterns {
                 let m = pattern_is_matching(ctx, p, val)?;
-                result = ctx.builder().build_or(result, m, "or_match");
+                result = ctx.builder().build_or(result, m, "or_match").unwrap();
             }
             Ok(result)
         }
@@ -1790,9 +1795,9 @@ pub(super) fn bind_pattern_in_codegen<'ctx>(
                         .into_struct_value();
                     let data = ctx.builder().build_int_to_ptr(
                         val.value.into_int_value(),
-                        ctx.context.i8_type().ptr_type(Default::default()),
+                        ctx.context.ptr_type(Default::default()),
                         "box_int_data",
-                    );
+                    ).unwrap();
                     ds = ctx
                         .builder()
                         .build_insert_value(ds, data, 1, "box_data")
@@ -1803,11 +1808,11 @@ pub(super) fn bind_pattern_in_codegen<'ctx>(
                     // Pointer → Dynamic struct: box as {0, ptr}
                     let dyn_st = llvm_ty.into_struct_type();
                     let mut ds = dyn_st.const_zero();
-                    let casted = ctx.builder().build_bitcast(
+                    let casted = ctx.builder().build_bit_cast(
                         val.value,
-                        ctx.context.i8_type().ptr_type(Default::default()),
+                        ctx.context.ptr_type(Default::default()),
                         "box_data_ptr",
-                    );
+                    ).unwrap();
                     ds = ctx
                         .builder()
                         .build_insert_value(ds, casted, 1, "box_data")
@@ -1826,15 +1831,15 @@ pub(super) fn bind_pattern_in_codegen<'ctx>(
                         data_ptr,
                         llvm_ty.into_int_type(),
                         "unbox_s2i",
-                    ))
+                    ).unwrap())
                 } else {
                     val.value
                 }
             } else {
                 val.value
             };
-            let ptr = ctx.builder().build_alloca(llvm_ty, name);
-            ctx.builder().build_store(ptr, store_val);
+            let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
+            ctx.builder().build_store(ptr, store_val).unwrap();
             ctx.define_variable(name.clone(), (ptr, val.ty.clone()));
         }
         P::Object(fields) => {
@@ -1853,16 +1858,16 @@ pub(super) fn bind_pattern_in_codegen<'ctx>(
                         .get(class_name)
                         .ok_or_else(|| format!("Unknown class: {}", class_name))?
                         .clone();
-                    let struct_type = ctx
+                    let struct_type = *ctx
                         .class_struct_types
                         .get(class_name)
                         .ok_or_else(|| format!("No struct type for class: {}", class_name))?;
 
                     let struct_ptr = ctx.builder().build_pointer_cast(
                         obj_ptr,
-                        struct_type.ptr_type(Default::default()),
+                        ctx.context.ptr_type(Default::default()),
                         "obj_struct_cast",
-                    );
+                    ).unwrap();
 
                     for field in fields {
                         match field {
@@ -1877,17 +1882,19 @@ pub(super) fn bind_pattern_in_codegen<'ctx>(
                                         .ok_or_else(|| format!("Unknown field: {}", key))?;
                                 let (_, field_ty) = &class_fields[field_index];
 
+                                let field_llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, field_ty);
                                 let field_ptr = unsafe {
                                     ctx.builder().build_gep(
+                                        struct_type,
                                         struct_ptr,
                                         &[
                                             i32_ty.const_int(0, false),
                                             i32_ty.const_int(field_index as u64, false),
                                         ],
                                         &format!("{}_ptr", key),
-                                    )
+                                    ).unwrap()
                                 };
-                                let field_val = ctx.builder().build_load(field_ptr, key);
+                                let field_val = ctx.builder().build_load(field_llvm_ty, field_ptr, key).unwrap();
                                 let field_result = super::expr::ExprResult {
                                     value: field_val,
                                     ty: field_ty.clone(),
@@ -1901,21 +1908,22 @@ pub(super) fn bind_pattern_in_codegen<'ctx>(
                                     .ok_or_else(|| format!("Unknown field: {}", name))?;
                                 let (_, field_ty) = &class_fields[field_index];
 
+                                let llvm_ty =
+                                    super::types::ruyi_type_to_llvm(ctx.context, field_ty);
                                 let field_ptr = unsafe {
                                     ctx.builder().build_gep(
+                                        struct_type,
                                         struct_ptr,
                                         &[
                                             i32_ty.const_int(0, false),
                                             i32_ty.const_int(field_index as u64, false),
                                         ],
                                         &format!("{}_ptr", name),
-                                    )
+                                    ).unwrap()
                                 };
-                                let field_val = ctx.builder().build_load(field_ptr, name);
-                                let llvm_ty =
-                                    super::types::ruyi_type_to_llvm(ctx.context, field_ty);
-                                let ptr = ctx.builder().build_alloca(llvm_ty, name);
-                                ctx.builder().build_store(ptr, field_val);
+                                let field_val = ctx.builder().build_load(llvm_ty, field_ptr, name).unwrap();
+                                let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
+                                ctx.builder().build_store(ptr, field_val).unwrap();
                                 ctx.define_variable(name.clone(), (ptr, field_ty.clone()));
                             }
                             ObjectPatternField::ShorthandDefault(name, default_expr) => {
@@ -1924,21 +1932,22 @@ pub(super) fn bind_pattern_in_codegen<'ctx>(
                                     class_fields.iter().position(|(n, _)| n == name)
                                 {
                                     let (_, field_ty) = &class_fields[field_index];
+                                    let llvm_ty =
+                                        super::types::ruyi_type_to_llvm(ctx.context, field_ty);
                                     let field_ptr = unsafe {
                                         ctx.builder().build_gep(
+                                            struct_type,
                                             struct_ptr,
                                             &[
                                                 i32_ty.const_int(0, false),
                                                 i32_ty.const_int(field_index as u64, false),
                                             ],
                                             &format!("{}_ptr", name),
-                                        )
+                                        ).unwrap()
                                     };
-                                    let field_val = ctx.builder().build_load(field_ptr, name);
-                                    let llvm_ty =
-                                        super::types::ruyi_type_to_llvm(ctx.context, field_ty);
-                                    let ptr = ctx.builder().build_alloca(llvm_ty, name);
-                                    ctx.builder().build_store(ptr, field_val);
+                                    let field_val = ctx.builder().build_load(llvm_ty, field_ptr, name).unwrap();
+                                    let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
+                                    ctx.builder().build_store(ptr, field_val).unwrap();
                                     ctx.define_variable(name.clone(), (ptr, field_ty.clone()));
                                 } else {
                                     let default_result =
@@ -1947,8 +1956,8 @@ pub(super) fn bind_pattern_in_codegen<'ctx>(
                                         ctx.context,
                                         &default_result.ty,
                                     );
-                                    let ptr = ctx.builder().build_alloca(llvm_ty, name);
-                                    ctx.builder().build_store(ptr, default_result.value);
+                                    let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
+                                    ctx.builder().build_store(ptr, default_result.value).unwrap();
                                     ctx.define_variable(
                                         name.clone(),
                                         (ptr, default_result.ty.clone()),
@@ -1974,22 +1983,23 @@ pub(super) fn bind_pattern_in_codegen<'ctx>(
                                 let field_ty = &type_fields[field_index].ty;
 
                                 let offset = i32_ty.const_int((field_index * 8) as u64, false);
+                                let field_llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, field_ty);
                                 let field_ptr = unsafe {
                                     ctx.builder().build_gep(
+                                        ctx.context.i8_type(),
                                         obj_ptr,
                                         &[offset],
                                         &format!("{}_ptr", key),
-                                    )
+                                    ).unwrap()
                                 };
-                                let typed_ptr = ctx.builder().build_bitcast(
+                                let typed_ptr = ctx.builder().build_bit_cast(
                                     field_ptr,
-                                    super::types::ruyi_type_to_llvm(ctx.context, field_ty)
-                                        .ptr_type(Default::default()),
+                                    ctx.context.ptr_type(Default::default()),
                                     &format!("{}_typed_ptr", key),
-                                );
+                                ).unwrap();
                                 let field_val = ctx
                                     .builder()
-                                    .build_load(typed_ptr.into_pointer_value(), key);
+                                    .build_load(field_llvm_ty, typed_ptr.into_pointer_value(), key).unwrap();
                                 let field_result = super::expr::ExprResult {
                                     value: field_val,
                                     ty: field_ty.clone(),
@@ -2004,26 +2014,26 @@ pub(super) fn bind_pattern_in_codegen<'ctx>(
                                 let field_ty = &type_fields[field_index].ty;
 
                                 let offset = i32_ty.const_int((field_index * 8) as u64, false);
+                                let llvm_ty =
+                                    super::types::ruyi_type_to_llvm(ctx.context, field_ty);
                                 let field_ptr = unsafe {
                                     ctx.builder().build_gep(
+                                        ctx.context.i8_type(),
                                         obj_ptr,
                                         &[offset],
                                         &format!("{}_ptr", name),
-                                    )
+                                    ).unwrap()
                                 };
-                                let typed_ptr = ctx.builder().build_bitcast(
+                                let typed_ptr = ctx.builder().build_bit_cast(
                                     field_ptr,
-                                    super::types::ruyi_type_to_llvm(ctx.context, field_ty)
-                                        .ptr_type(Default::default()),
+                                    ctx.context.ptr_type(Default::default()),
                                     &format!("{}_typed_ptr", name),
-                                );
+                                ).unwrap();
                                 let field_val = ctx
                                     .builder()
-                                    .build_load(typed_ptr.into_pointer_value(), name);
-                                let llvm_ty =
-                                    super::types::ruyi_type_to_llvm(ctx.context, field_ty);
-                                let ptr = ctx.builder().build_alloca(llvm_ty, name);
-                                ctx.builder().build_store(ptr, field_val);
+                                    .build_load(llvm_ty, typed_ptr.into_pointer_value(), name).unwrap();
+                                let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
+                                ctx.builder().build_store(ptr, field_val).unwrap();
                                 ctx.define_variable(name.clone(), (ptr, field_ty.clone()));
                             }
                             ObjectPatternField::ShorthandDefault(name, default_expr) => {
@@ -2033,26 +2043,26 @@ pub(super) fn bind_pattern_in_codegen<'ctx>(
                                 {
                                     let field_ty = &type_fields[field_index].ty;
                                     let offset = i32_ty.const_int((field_index * 8) as u64, false);
+                                    let llvm_ty =
+                                        super::types::ruyi_type_to_llvm(ctx.context, field_ty);
                                     let field_ptr = unsafe {
                                         ctx.builder().build_gep(
+                                            ctx.context.i8_type(),
                                             obj_ptr,
                                             &[offset],
                                             &format!("{}_ptr", name),
-                                        )
+                                        ).unwrap()
                                     };
-                                    let typed_ptr = ctx.builder().build_bitcast(
+                                    let typed_ptr = ctx.builder().build_bit_cast(
                                         field_ptr,
-                                        super::types::ruyi_type_to_llvm(ctx.context, field_ty)
-                                            .ptr_type(Default::default()),
+                                        ctx.context.ptr_type(Default::default()),
                                         &format!("{}_typed_ptr", name),
-                                    );
+                                    ).unwrap();
                                     let field_val = ctx
                                         .builder()
-                                        .build_load(typed_ptr.into_pointer_value(), name);
-                                    let llvm_ty =
-                                        super::types::ruyi_type_to_llvm(ctx.context, field_ty);
-                                    let ptr = ctx.builder().build_alloca(llvm_ty, name);
-                                    ctx.builder().build_store(ptr, field_val);
+                                        .build_load(llvm_ty, typed_ptr.into_pointer_value(), name).unwrap();
+                                    let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
+                                    ctx.builder().build_store(ptr, field_val).unwrap();
                                     ctx.define_variable(name.clone(), (ptr, field_ty.clone()));
                                 } else {
                                     let default_result =
@@ -2061,8 +2071,8 @@ pub(super) fn bind_pattern_in_codegen<'ctx>(
                                         ctx.context,
                                         &default_result.ty,
                                     );
-                                    let ptr = ctx.builder().build_alloca(llvm_ty, name);
-                                    ctx.builder().build_store(ptr, default_result.value);
+                                    let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
+                                    ctx.builder().build_store(ptr, default_result.value).unwrap();
                                     ctx.define_variable(
                                         name.clone(),
                                         (ptr, default_result.ty.clone()),
@@ -2092,20 +2102,21 @@ pub(super) fn bind_pattern_in_codegen<'ctx>(
                                 let offset = i32_ty.const_int(field_idx * 8, false);
                                 let field_ptr = unsafe {
                                     ctx.builder().build_gep(
+                                        ctx.context.i8_type(),
                                         obj_ptr_raw,
                                         &[offset],
                                         &format!("{}_ptr", key),
-                                    )
+                                    ).unwrap()
                                 };
                                 let typed_ptr = ctx
                                     .builder()
-                                    .build_bitcast(
+                                    .build_bit_cast(
                                         field_ptr,
-                                        i64_ty.ptr_type(Default::default()),
+                                        ctx.context.ptr_type(Default::default()),
                                         &format!("{}_typed_ptr", key),
-                                    )
+                                    ).unwrap()
                                     .into_pointer_value();
-                                let field_val = ctx.builder().build_load(typed_ptr, key);
+                                let field_val = ctx.builder().build_load(i64_ty, typed_ptr, key).unwrap();
                                 let field_result = super::expr::ExprResult {
                                     value: field_val,
                                     ty: Type::Dynamic,
@@ -2118,24 +2129,25 @@ pub(super) fn bind_pattern_in_codegen<'ctx>(
                                 let offset = i32_ty.const_int(field_idx * 8, false);
                                 let field_ptr = unsafe {
                                     ctx.builder().build_gep(
+                                        ctx.context.i8_type(),
                                         obj_ptr_raw,
                                         &[offset],
                                         &format!("{}_ptr", name),
-                                    )
+                                    ).unwrap()
                                 };
                                 let typed_ptr = ctx
                                     .builder()
-                                    .build_bitcast(
+                                    .build_bit_cast(
                                         field_ptr,
-                                        i64_ty.ptr_type(Default::default()),
+                                        ctx.context.ptr_type(Default::default()),
                                         &format!("{}_typed_ptr", name),
-                                    )
+                                    ).unwrap()
                                     .into_pointer_value();
-                                let field_val = ctx.builder().build_load(typed_ptr, name);
+                                let field_val = ctx.builder().build_load(i64_ty, typed_ptr, name).unwrap();
                                 let llvm_ty =
                                     super::types::ruyi_type_to_llvm(ctx.context, &Type::Dynamic);
-                                let ptr = ctx.builder().build_alloca(llvm_ty, name);
-                                ctx.builder().build_store(ptr, field_val);
+                                let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
+                                ctx.builder().build_store(ptr, field_val).unwrap();
                                 ctx.define_variable(name.clone(), (ptr, Type::Dynamic));
                                 field_idx += 1;
                             }
@@ -2151,8 +2163,8 @@ pub(super) fn bind_pattern_in_codegen<'ctx>(
         P::As(inner, alias) => {
             bind_pattern_in_codegen(ctx, inner, val)?;
             let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &val.ty);
-            let ptr = ctx.builder().build_alloca(llvm_ty, alias);
-            ctx.builder().build_store(ptr, val.value);
+            let ptr = ctx.builder().build_alloca(llvm_ty, alias).unwrap();
+            ctx.builder().build_store(ptr, val.value).unwrap();
             ctx.define_variable(alias.clone(), (ptr, val.ty.clone()));
         }
         P::Or(patterns) => {
@@ -2162,8 +2174,8 @@ pub(super) fn bind_pattern_in_codegen<'ctx>(
         }
         P::Rest(name) => {
             let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &val.ty);
-            let ptr = ctx.builder().build_alloca(llvm_ty, name);
-            ctx.builder().build_store(ptr, val.value);
+            let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
+            ctx.builder().build_store(ptr, val.value).unwrap();
             ctx.define_variable(name.clone(), (ptr, val.ty.clone()));
         }
         P::Wildcard | P::Literal(_) => {}

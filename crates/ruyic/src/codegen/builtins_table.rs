@@ -1675,7 +1675,6 @@ pub fn sig_to_basic_type<'ctx>(
         BuiltinSig::Bool => context.bool_type().as_basic_type_enum(),
         BuiltinSig::Byte => context.i8_type().as_basic_type_enum(),
         BuiltinSig::String | BuiltinSig::Ptr => context
-            .i8_type()
             .ptr_type(inkwell::AddressSpace::default())
             .as_basic_type_enum(),
     }

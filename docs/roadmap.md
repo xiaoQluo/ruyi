@@ -419,7 +419,7 @@ Provide a world-class developer experience: fast feedback, smart editing, easy d
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| LLVM API volatility | High | Pin inkwell to LLVM 14; abstract LLVM calls behind traits |
+| LLVM API volatility | High | Pin inkwell to LLVM 20; abstract LLVM calls behind traits |
 | Async runtime bugs | High | Extensive async integration tests before v0.3 release |
 | Package registry scaling | Medium | Start with Git-based deps (v0.6); add registry incrementally |
 | LSP performance | Medium | Use tree-sitter for parsing; incremental type checking |

@@ -41,16 +41,16 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: &Type) -> BasicTypeEn
         Type::Float => BasicTypeEnum::FloatType(context.f64_type()),
         Type::Bool => BasicTypeEnum::IntType(context.bool_type()),
         Type::Byte => BasicTypeEnum::IntType(context.i8_type()),
-        Type::String => BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default())),
-        Type::Null => BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default())),
+        Type::String => BasicTypeEnum::PointerType(context.ptr_type(Default::default())),
+        Type::Null => BasicTypeEnum::PointerType(context.ptr_type(Default::default())),
         Type::Void | Type::Never => {
             // void/never cannot be BasicTypeEnum; use i8 as placeholder
             BasicTypeEnum::IntType(context.i8_type())
         }
-        Type::BigInt => BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default())),
+        Type::BigInt => BasicTypeEnum::PointerType(context.ptr_type(Default::default())),
         Type::Nullable(inner) => ruyi_type_to_llvm(context, inner),
         Type::Array(_) => {
-            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
         }
         Type::Tuple(types) => {
             let field_types: Vec<_> = types
@@ -61,50 +61,50 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: &Type) -> BasicTypeEn
             BasicTypeEnum::StructType(context.struct_type(&field_refs, false))
         }
         Type::Object(_) => {
-            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
         }
         Type::Function { .. } => {
-            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
         }
         Type::Named(name, _) => {
             if is_type_param_name(name) {
                 // 泛型参数统一用 i8*（与 TypeVar/Generic 对齐），
                 // 字段存取时由 emit_field_store / emit_field_load 做类型适配
-                BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+                BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
             } else {
-                BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+                BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
             }
         }
         Type::Generic { .. } => {
-            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
         }
         Type::TypeVar(_) => {
-            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
         }
         Type::Trait(_) => {
             let trait_obj_type = context.struct_type(
                 &[
-                    context.i8_type().ptr_type(Default::default()).into(),
-                    context.i8_type().ptr_type(Default::default()).into(),
+                    context.ptr_type(Default::default()).into(),
+                    context.ptr_type(Default::default()).into(),
                 ],
                 false,
             );
             BasicTypeEnum::StructType(trait_obj_type)
         }
         Type::Future(_) => {
-            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
         }
         Type::Self_ => {
             // `Self` should be resolved by the typechecker before codegen
             // reaches here. Treat any leftover as an opaque pointer so the
             // pipeline still produces a well-formed LLVM module.
-            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
         }
         Type::Dynamic => {
             let dyn_type = context.struct_type(
                 &[
                     context.i64_type().into(),
-                    context.i8_type().ptr_type(Default::default()).into(),
+                    context.ptr_type(Default::default()).into(),
                 ],
                 false,
             );
@@ -112,7 +112,7 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: &Type) -> BasicTypeEn
         }
         Type::Error => BasicTypeEnum::IntType(context.i8_type()),
         Type::Union(_) => {
-            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
         }
     }
 }
@@ -165,7 +165,7 @@ impl<'ctx> LlvmTypes<'ctx> {
     }
 
     pub fn ptr_type(&self) -> PointerType<'ctx> {
-        self.context.i8_type().ptr_type(Default::default())
+        self.context.ptr_type(Default::default())
     }
 
     pub fn void_type(&self) -> VoidType<'ctx> {
@@ -176,7 +176,7 @@ impl<'ctx> LlvmTypes<'ctx> {
         self.context.struct_type(
             &[
                 self.context.i64_type().into(),
-                self.context.i8_type().ptr_type(Default::default()).into(),
+                self.context.ptr_type(Default::default()).into(),
             ],
             false,
         )
@@ -189,7 +189,7 @@ impl<'ctx> LlvmTypes<'ctx> {
             &[
                 self.context.i64_type().into(), // type_tag (gc vtable pointer)
                 self.context.i64_type().into(), // field_count
-                self.context.i8_type().ptr_type(Default::default()).into(), // field storage (opaque)
+                self.context.ptr_type(Default::default()).into(), // field storage (opaque)
             ],
             false,
         )
@@ -202,7 +202,7 @@ impl<'ctx> LlvmTypes<'ctx> {
             &[
                 self.context.i64_type().into(),                             // length
                 self.context.i64_type().into(),                             // capacity
-                self.context.i8_type().ptr_type(Default::default()).into(), // element storage
+                self.context.ptr_type(Default::default()).into(), // element storage
             ],
             false,
         )
@@ -211,7 +211,7 @@ impl<'ctx> LlvmTypes<'ctx> {
     /// Get the LLVM type for a Ruyi bigint (arbitrary precision).
     /// Currently modeled as a pointer to opaque bigint data.
     pub fn ruyi_bigint_type(&self) -> PointerType<'ctx> {
-        self.context.i8_type().ptr_type(Default::default())
+        self.context.ptr_type(Default::default())
     }
 }
 

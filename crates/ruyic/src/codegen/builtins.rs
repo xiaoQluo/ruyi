@@ -84,7 +84,7 @@ fn declare_builtin_from_table<'ctx>(
 }
 
 fn declare_printf<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let i32_ty = context.i32_type();
     let fn_type = i32_ty.fn_type(&[i8_ptr.into()], true);
     module.add_function("printf", fn_type, None);
@@ -97,7 +97,7 @@ fn declare_alloc<'ctx>(context: &'ctx Context, module: &Module<'ctx>, gc_mode: G
         return;
     }
     let i64_ty = context.i64_type();
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let fn_type = i8_ptr.fn_type(&[i64_ty.into()], false);
     module.add_function(alloc.fn_name(), fn_type, None);
 }
@@ -109,21 +109,21 @@ fn declare_gc_collect<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
 }
 
 fn declare_gc_add_root<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let void_ty = context.void_type();
     let fn_type = void_ty.fn_type(&[i8_ptr.into()], false);
     module.add_function("ruyi_gc_add_root", fn_type, None);
 }
 
 fn declare_gc_remove_root<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let void_ty = context.void_type();
     let fn_type = void_ty.fn_type(&[i8_ptr.into()], false);
     module.add_function("ruyi_gc_remove_root", fn_type, None);
 }
 
 fn declare_gc_write_barrier<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let void_ty = context.void_type();
     let fn_type = void_ty.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
     module.add_function("ruyi_gc_write_barrier", fn_type, None);
@@ -131,13 +131,13 @@ fn declare_gc_write_barrier<'ctx>(context: &'ctx Context, module: &Module<'ctx>)
 
 fn declare_ruyi_throw<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     let void_ty = context.void_type();
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let fn_type = void_ty.fn_type(&[i8_ptr.into()], false);
     module.add_function("ruyi_throw", fn_type, None);
 }
 
 fn declare_ruyi_get_pending_exception<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let fn_type = i8_ptr.fn_type(&[], false);
     module.add_function("ruyi_get_pending_exception", fn_type, None);
 }
@@ -149,27 +149,27 @@ fn declare_ruyi_clear_pending_exception<'ctx>(context: &'ctx Context, module: &M
 }
 
 fn declare_ruyi_str_concat<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
     module.add_function("ruyi_str_concat", fn_type, None);
 }
 
 fn declare_ruyi_int_to_string<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let i64_ty = context.i64_type();
     let fn_type = i8_ptr.fn_type(&[i64_ty.into()], false);
     module.add_function("ruyi_int_to_string", fn_type, None);
 }
 
 fn declare_ruyi_float_to_string<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let f64_ty = context.f64_type();
     let fn_type = i8_ptr.fn_type(&[f64_ty.into()], false);
     module.add_function("ruyi_float_to_string", fn_type, None);
 }
 
 fn declare_ruyi_bool_to_string<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let i1_ty = context.bool_type();
     let fn_type = i8_ptr.fn_type(&[i1_ty.into()], false);
     module.add_function("ruyi_bool_to_string", fn_type, None);
@@ -190,9 +190,9 @@ pub fn build_ruyi_get_pending_exception<'ctx>(
         .expect("ruyi_get_pending_exception not declared");
     builder
         .build_call(fn_val, &[], "get_pending_exc")
-        .try_as_basic_value()
-        .left()
         .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
         .into_pointer_value()
 }
 
@@ -203,11 +203,11 @@ pub fn build_ruyi_clear_pending_exception<'ctx>(
     let fn_val = module
         .get_function("ruyi_clear_pending_exception")
         .expect("ruyi_clear_pending_exception not declared");
-    builder.build_call(fn_val, &[], "clear_pending_exc");
+    builder.build_call(fn_val, &[], "clear_pending_exc").unwrap();
 }
 
 fn declare_ruyi_begin_catch<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
     module.add_function("ruyi_begin_catch", fn_type, None);
 }
@@ -251,23 +251,23 @@ fn build_print_bool<'ctx>(
     let true_bb = context.append_basic_block(function, "print_bool_true");
     let false_bb = context.append_basic_block(function, "print_bool_false");
     let merge_bb = context.append_basic_block(function, "print_bool_merge");
-    builder.build_conditional_branch(value, true_bb, false_bb);
+    builder.build_conditional_branch(value, true_bb, false_bb).unwrap();
     builder.position_at_end(true_bb);
-    let fmt_true = builder.build_global_string_ptr("true\n", "fmt_bool_true");
+    let fmt_true = builder.build_global_string_ptr("true\n", "fmt_bool_true").unwrap();
     builder.build_call(
         printf,
         &[fmt_true.as_pointer_value().into()],
         "print_bool_true",
-    );
-    builder.build_unconditional_branch(merge_bb);
+    ).unwrap();
+    builder.build_unconditional_branch(merge_bb).unwrap();
     builder.position_at_end(false_bb);
-    let fmt_false = builder.build_global_string_ptr("false\n", "fmt_bool_false");
+    let fmt_false = builder.build_global_string_ptr("false\n", "fmt_bool_false").unwrap();
     builder.build_call(
         printf,
         &[fmt_false.as_pointer_value().into()],
         "print_bool_false",
-    );
-    builder.build_unconditional_branch(merge_bb);
+    ).unwrap();
+    builder.build_unconditional_branch(merge_bb).unwrap();
     builder.position_at_end(merge_bb);
 }
 
@@ -281,32 +281,32 @@ fn build_print_primitive<'ctx>(
 
     match value {
         BasicValueEnum::IntValue(v) => {
-            let fmt = builder.build_global_string_ptr("%ld\n", "fmt_int");
+            let fmt = builder.build_global_string_ptr("%ld\n", "fmt_int").unwrap();
             builder.build_call(
                 printf,
                 &[fmt.as_pointer_value().into(), v.into()],
                 "print_int",
-            );
+            ).unwrap();
         }
         BasicValueEnum::FloatValue(v) => {
-            let fmt = builder.build_global_string_ptr("%f\n", "fmt_float");
+            let fmt = builder.build_global_string_ptr("%f\n", "fmt_float").unwrap();
             builder.build_call(
                 printf,
                 &[fmt.as_pointer_value().into(), v.into()],
                 "print_float",
-            );
+            ).unwrap();
         }
         BasicValueEnum::PointerValue(v) => {
-            let fmt = builder.build_global_string_ptr("%s\n", "fmt_str");
+            let fmt = builder.build_global_string_ptr("%s\n", "fmt_str").unwrap();
             builder.build_call(
                 printf,
                 &[fmt.as_pointer_value().into(), v.into()],
                 "print_str",
-            );
+            ).unwrap();
         }
         _ => {
-            let fmt = builder.build_global_string_ptr("<unknown>\n", "fmt_unknown");
-            builder.build_call(printf, &[fmt.as_pointer_value().into()], "print_unknown");
+            let fmt = builder.build_global_string_ptr("<unknown>\n", "fmt_unknown").unwrap();
+            builder.build_call(printf, &[fmt.as_pointer_value().into()], "print_unknown").unwrap();
         }
     }
 }
@@ -331,12 +331,12 @@ fn build_print_array<'ctx>(
     let array_ptr = array_ptr.into_pointer_value();
     let i64_ty = context.i64_type();
     let i32_ty = context.i32_type();
-    let i64_ptr_ty = i64_ty.ptr_type(Default::default());
+    let i64_ptr_ty = context.ptr_type(Default::default());
 
     let len_ptr = builder
-        .build_bitcast(array_ptr, i64_ptr_ty, "len_ptr")
+        .build_bit_cast(array_ptr, i64_ptr_ty, "len_ptr").unwrap()
         .into_pointer_value();
-    let len = builder.build_load(len_ptr, "len").into_int_value();
+    let len = builder.build_load(i64_ty, len_ptr, "len").unwrap().into_int_value();
 
     let entry_bb = builder.get_insert_block().unwrap();
     let loop_header = context.append_basic_block(function, "array_loop_header");
@@ -347,68 +347,68 @@ fn build_print_array<'ctx>(
     let loop_merge = context.append_basic_block(function, "array_loop_merge");
 
     builder.position_at_end(entry_bb);
-    let fmt_open = builder.build_global_string_ptr("[", "fmt_open");
-    builder.build_call(printf, &[fmt_open.as_pointer_value().into()], "print_open");
-    builder.build_unconditional_branch(loop_header);
+    let fmt_open = builder.build_global_string_ptr("[", "fmt_open").unwrap();
+    builder.build_call(printf, &[fmt_open.as_pointer_value().into()], "print_open").unwrap();
+    builder.build_unconditional_branch(loop_header).unwrap();
 
     builder.position_at_end(loop_header);
-    let phi = builder.build_phi(i64_ty, "array_idx_phi");
+    let phi = builder.build_phi(i64_ty, "array_idx_phi").unwrap();
     let i = phi.as_basic_value().into_int_value();
-    let cond = builder.build_int_compare(IntPredicate::ULT, i, len, "array_loop_cond");
-    builder.build_conditional_branch(cond, loop_body, loop_merge);
+    let cond = builder.build_int_compare(IntPredicate::ULT, i, len, "array_loop_cond").unwrap();
+    builder.build_conditional_branch(cond, loop_body, loop_merge).unwrap();
 
     builder.position_at_end(loop_body);
     let zero = i64_ty.const_int(0, false);
-    let is_first = builder.build_int_compare(IntPredicate::EQ, i, zero, "is_first");
-    builder.build_conditional_branch(is_first, print_elem_bb, print_comma_bb);
+    let is_first = builder.build_int_compare(IntPredicate::EQ, i, zero, "is_first").unwrap();
+    builder.build_conditional_branch(is_first, print_elem_bb, print_comma_bb).unwrap();
 
     builder.position_at_end(print_comma_bb);
-    let fmt_comma = builder.build_global_string_ptr(", ", "fmt_comma");
+    let fmt_comma = builder.build_global_string_ptr(", ", "fmt_comma").unwrap();
     builder.build_call(
         printf,
         &[fmt_comma.as_pointer_value().into()],
         "print_comma",
-    );
-    builder.build_unconditional_branch(print_elem_bb);
+    ).unwrap();
+    builder.build_unconditional_branch(print_elem_bb).unwrap();
 
     builder.position_at_end(print_elem_bb);
     let one = i64_ty.const_int(1, false);
     let eight = i64_ty.const_int(8, false);
     let sixteen = i64_ty.const_int(16, false);
-    let elem_byte_offset = builder.build_int_mul(i, eight, "elem_byte_offset");
+    let elem_byte_offset = builder.build_int_mul(i, eight, "elem_byte_offset").unwrap();
     let elem_offset_with_header =
-        builder.build_int_add(sixteen, elem_byte_offset, "elem_offset_hdr");
+        builder.build_int_add(sixteen, elem_byte_offset, "elem_offset_hdr").unwrap();
     let elem_offset_i32 =
-        builder.build_int_cast(elem_offset_with_header, i32_ty, "elem_offset_i32");
-    let elem_ptr = unsafe { builder.build_gep(array_ptr, &[elem_offset_i32], "elem_ptr") };
+        builder.build_int_cast(elem_offset_with_header, i32_ty, "elem_offset_i32").unwrap();
+    let elem_ptr = unsafe { builder.build_gep(context.i8_type(), array_ptr, &[elem_offset_i32], "elem_ptr").unwrap() };
     let elem_i64_ptr = builder
-        .build_bitcast(elem_ptr, i64_ptr_ty, "elem_i64_ptr")
+        .build_bit_cast(elem_ptr, i64_ptr_ty, "elem_i64_ptr").unwrap()
         .into_pointer_value();
     let elem_val = builder
-        .build_load(elem_i64_ptr, "elem_val")
+        .build_load(i64_ty, elem_i64_ptr, "elem_val").unwrap()
         .into_int_value();
 
-    let fmt_elem = builder.build_global_string_ptr("%ld", "fmt_elem");
+    let fmt_elem = builder.build_global_string_ptr("%ld", "fmt_elem").unwrap();
     builder.build_call(
         printf,
         &[fmt_elem.as_pointer_value().into(), elem_val.into()],
         "print_elem",
-    );
-    builder.build_unconditional_branch(loop_increment);
+    ).unwrap();
+    builder.build_unconditional_branch(loop_increment).unwrap();
 
     builder.position_at_end(loop_increment);
-    let next_i = builder.build_int_add(i, one, "next_i");
-    builder.build_unconditional_branch(loop_header);
+    let next_i = builder.build_int_add(i, one, "next_i").unwrap();
+    builder.build_unconditional_branch(loop_header).unwrap();
 
     phi.add_incoming(&[(&zero, entry_bb), (&next_i, loop_increment)]);
 
     builder.position_at_end(loop_merge);
-    let fmt_close = builder.build_global_string_ptr("]\n", "fmt_close");
+    let fmt_close = builder.build_global_string_ptr("]\n", "fmt_close").unwrap();
     builder.build_call(
         printf,
         &[fmt_close.as_pointer_value().into()],
         "print_close",
-    );
+    ).unwrap();
 }
 
 /// Build a call to the active allocator via [`crate::codegen::gc_alloc::GcAllocFn`].
@@ -434,7 +434,7 @@ pub fn build_gc_add_root<'ctx>(
     let fn_val = module
         .get_function("ruyi_gc_add_root")
         .expect("ruyi_gc_add_root not declared");
-    builder.build_call(fn_val, &[ptr.into()], "gc_add_root");
+    builder.build_call(fn_val, &[ptr.into()], "gc_add_root").unwrap();
 }
 
 /// Build a call to `ruyi_gc_remove_root`.
@@ -446,7 +446,7 @@ pub fn build_gc_remove_root<'ctx>(
     let fn_val = module
         .get_function("ruyi_gc_remove_root")
         .expect("ruyi_gc_remove_root not declared");
-    builder.build_call(fn_val, &[ptr.into()], "gc_remove_root");
+    builder.build_call(fn_val, &[ptr.into()], "gc_remove_root").unwrap();
 }
 
 /// Build a call to `ruyi_gc_write_barrier`.
@@ -459,30 +459,30 @@ pub fn build_gc_write_barrier<'ctx>(
     let fn_val = module
         .get_function("ruyi_gc_write_barrier")
         .expect("ruyi_gc_write_barrier not declared");
-    builder.build_call(fn_val, &[parent.into(), field.into()], "gc_write_barrier");
+    builder.build_call(fn_val, &[parent.into(), field.into()], "gc_write_barrier").unwrap();
 }
 
 fn declare_ruyi_async_poll<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     let i32_ty = context.i32_type();
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let fn_type = i32_ty.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
     module.add_function("ruyi_async_poll", fn_type, None);
 }
 
 fn declare_ruyi_await<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
     module.add_function("ruyi_await", fn_type, None);
 }
 
 fn declare_ruyi_spawn<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
     module.add_function("ruyi_spawn", fn_type, None);
 }
 
 fn declare_ruyi_wake_task<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let void_ty = context.void_type();
     let fn_type = void_ty.fn_type(&[i8_ptr.into()], false);
     module.add_function("ruyi_wake_task", fn_type, None);
@@ -495,13 +495,13 @@ fn declare_ruyi_run_scheduler<'ctx>(context: &'ctx Context, module: &Module<'ctx
 }
 
 fn declare_ruyi_obj_keys<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
     module.add_function("ruyi_obj_keys", fn_type, None);
 }
 
 fn declare_ruyi_iter_next<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
     module.add_function("ruyi_iter_next", fn_type, None);
 }
@@ -518,9 +518,9 @@ pub fn build_ruyi_async_poll<'ctx>(
         .expect("ruyi_async_poll not declared");
     builder
         .build_call(fn_val, &[future.into(), waker.into()], "async_poll")
-        .try_as_basic_value()
-        .left()
         .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
         .into_int_value()
 }
 
@@ -534,9 +534,9 @@ pub fn build_ruyi_await<'ctx>(
         .expect("ruyi_await not declared");
     builder
         .build_call(fn_val, &[future.into()], "await")
-        .try_as_basic_value()
-        .left()
         .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
         .into_pointer_value()
 }
 
@@ -551,9 +551,9 @@ pub fn build_ruyi_spawn<'ctx>(
         .expect("ruyi_spawn not declared");
     builder
         .build_call(fn_val, &[future.into()], "spawn")
-        .try_as_basic_value()
-        .left()
         .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
         .into_pointer_value()
 }
 
@@ -591,7 +591,7 @@ pub fn is_gc_managed(ty: &crate::typechecker::types::Type) -> bool {
 }
 
 fn declare_ruyi_bigint_from_str<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
     module.add_function("ruyi_bigint_from_str", fn_type, None);
 }
@@ -606,15 +606,15 @@ pub fn build_ruyi_bigint_from_str<'ctx>(
         .ok_or("ruyi_bigint_from_str not declared")?;
     let result = builder
         .build_call(fn_val, &[string_ptr.into()], "bigint_from_str")
-        .try_as_basic_value()
-        .left()
         .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
         .into_pointer_value();
     Ok(result)
 }
 
 fn declare_ruyi_bigint_eq<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let fn_type = context
         .i8_type()
         .fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
@@ -632,15 +632,15 @@ pub fn build_ruyi_bigint_eq<'ctx>(
         .ok_or("ruyi_bigint_eq not declared")?;
     let result = builder
         .build_call(fn_val, &[a.into(), b.into()], "bigint_eq")
-        .try_as_basic_value()
-        .left()
         .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
         .into_int_value();
     Ok(result)
 }
 
 fn declare_ruyi_obj_get<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
-    let i8_ptr = context.i8_type().ptr_type(Default::default());
+    let i8_ptr = context.ptr_type(Default::default());
     let fn_type = i8_ptr.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
     module.add_function("ruyi_obj_get", fn_type, None);
 }
@@ -656,9 +656,9 @@ pub fn build_ruyi_obj_get<'ctx>(
         .expect("ruyi_obj_get not declared");
     builder
         .build_call(fn_val, &[obj.into(), key.into()], "obj_get")
-        .try_as_basic_value()
-        .left()
         .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
         .into_pointer_value()
 }
 
@@ -677,7 +677,7 @@ pub fn build_builtin_array_set<'ctx>(
         fn_val,
         &[arr.into(), index.into(), value.into()],
         "array_set",
-    );
+    ).unwrap();
 }
 
 /// Build a call to `__builtin_array_get(arr, index)`.
@@ -695,8 +695,8 @@ pub fn build_builtin_array_get<'ctx>(
         .expect("__builtin_array_get not declared");
     builder
         .build_call(fn_val, &[arr.into(), index.into()], "array_get")
-        .try_as_basic_value()
-        .left()
         .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
         .into_int_value()
 }

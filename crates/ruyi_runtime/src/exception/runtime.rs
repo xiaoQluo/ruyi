@@ -224,8 +224,9 @@ pub mod llvm {
         pub fn build_throw(&self, exception: PointerValue<'ctx>) {
             let throw_fn = self.get_throw_function();
             self.builder
-                .build_call(throw_fn, &[exception.into()], "ruyi.throw");
-            self.builder.build_unreachable();
+                .build_call(throw_fn, &[exception.into()], "ruyi.throw")
+                .unwrap();
+            self.builder.build_unreachable().unwrap();
         }
 
         /// Build a call to `ruyi_begin_catch` inside a catch handler.
@@ -233,16 +234,16 @@ pub mod llvm {
             let begin_catch_fn = self.get_begin_catch_function();
             self.builder
                 .build_call(begin_catch_fn, &[exception_ptr.into()], "ruyi.begin.catch")
-                .try_as_basic_value()
-                .left()
                 .unwrap()
+                .try_as_basic_value()
+                .unwrap_basic()
                 .into_pointer_value()
         }
 
         /// Build a call to `ruyi_end_catch`.
         pub fn build_end_catch(&self) {
             let end_catch_fn = self.get_end_catch_function();
-            self.builder.build_call(end_catch_fn, &[], "ruyi.end.catch");
+            self.builder.build_call(end_catch_fn, &[], "ruyi.end.catch").unwrap();
         }
 
         /// Build a call to `ruyi_finally`.
@@ -253,16 +254,15 @@ pub mod llvm {
             let finally_fn = self.get_finally_function();
             let arg = pending_exception.map(|p| p.into()).unwrap_or_else(|| {
                 self.context
-                    .i8_type()
                     .ptr_type(AddressSpace::default())
                     .const_null()
                     .into()
             });
             self.builder
                 .build_call(finally_fn, &[arg], "ruyi.finally")
-                .try_as_basic_value()
-                .left()
                 .unwrap()
+                .try_as_basic_value()
+                .unwrap_basic()
                 .into_pointer_value()
         }
 
@@ -301,13 +301,13 @@ pub mod llvm {
 
         fn get_throw_function(&self) -> FunctionValue<'ctx> {
             let void_ty = self.context.void_type();
-            let i8_ptr = self.context.i8_type().ptr_type(AddressSpace::default());
+            let i8_ptr = self.context.ptr_type(AddressSpace::default());
             let fn_type = void_ty.fn_type(&[i8_ptr.into()], false);
             get_or_insert_function(self.module, "ruyi_throw", fn_type)
         }
 
         fn get_begin_catch_function(&self) -> FunctionValue<'ctx> {
-            let i8_ptr = self.context.i8_type().ptr_type(AddressSpace::default());
+            let i8_ptr = self.context.ptr_type(AddressSpace::default());
             let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
             get_or_insert_function(self.module, "ruyi_begin_catch", fn_type)
         }
@@ -319,7 +319,7 @@ pub mod llvm {
         }
 
         fn get_finally_function(&self) -> FunctionValue<'ctx> {
-            let i8_ptr = self.context.i8_type().ptr_type(AddressSpace::default());
+            let i8_ptr = self.context.ptr_type(AddressSpace::default());
             let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
             get_or_insert_function(self.module, "ruyi_finally", fn_type)
         }

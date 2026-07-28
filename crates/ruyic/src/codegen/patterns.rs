@@ -55,8 +55,8 @@ pub fn bind_pattern<'ctx>(
     match pattern {
         Pattern::Identifier(name) => {
             let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &scrutinee.ty);
-            let ptr = ctx.builder().build_alloca(llvm_ty, name);
-            ctx.builder().build_store(ptr, scrutinee.value);
+            let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
+            ctx.builder().build_store(ptr, scrutinee.value).unwrap();
             ctx.define_variable(name.clone(), (ptr, scrutinee.ty.clone()));
             Ok(())
         }
@@ -64,8 +64,8 @@ pub fn bind_pattern<'ctx>(
         Pattern::As(inner, alias) => {
             bind_pattern(ctx, inner, scrutinee)?;
             let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &scrutinee.ty);
-            let ptr = ctx.builder().build_alloca(llvm_ty, alias);
-            ctx.builder().build_store(ptr, scrutinee.value);
+            let ptr = ctx.builder().build_alloca(llvm_ty, alias).unwrap();
+            ctx.builder().build_store(ptr, scrutinee.value).unwrap();
             ctx.define_variable(alias.clone(), (ptr, scrutinee.ty.clone()));
             Ok(())
         }
@@ -108,23 +108,24 @@ pub fn bind_array_pattern<'ctx>(
                 let offset = i32_ty.const_int((16 + idx * 8) as u64, false);
                 let elem_ptr = unsafe {
                     ctx.builder()
-                        .build_gep(array_ptr, &[offset], &format!("elem_ptr_{}", idx))
+                        .build_gep(ctx.context.i8_type(), array_ptr, &[offset], &format!("elem_ptr_{}", idx)).unwrap()
                 };
-                let typed_ptr = ctx.builder().build_bitcast(
+                let typed_ptr = ctx.builder().build_bit_cast(
                     elem_ptr,
-                    llvm_ty.ptr_type(Default::default()),
+                    ctx.context.ptr_type(Default::default()),
                     &format!("elem_typed_ptr_{}", idx),
-                );
+                ).unwrap();
                 let loaded = ctx.builder().build_load(
+                    llvm_ty,
                     typed_ptr.into_pointer_value(),
                     &format!("loaded_elem_{}", idx),
-                );
+                ).unwrap();
                 let name = match p {
                     Pattern::Identifier(n) => n.clone(),
                     _ => format!("_anon_{}", idx),
                 };
-                let ptr = ctx.builder().build_alloca(llvm_ty, &name);
-                ctx.builder().build_store(ptr, loaded);
+                let ptr = ctx.builder().build_alloca(llvm_ty, &name).unwrap();
+                ctx.builder().build_store(ptr, loaded).unwrap();
                 ctx.define_variable(name, (ptr, elem_ty));
 
                 idx += 1;
@@ -158,16 +159,16 @@ pub fn bind_object_pattern<'ctx>(
             .get(class_name)
             .ok_or_else(|| format!("Unknown class: {}", class_name))?
             .clone();
-        let struct_type = ctx
+        let struct_type = *ctx
             .class_struct_types
             .get(class_name)
             .ok_or_else(|| format!("No struct type for class: {}", class_name))?;
 
         let struct_ptr = ctx.builder().build_pointer_cast(
             obj_ptr,
-            struct_type.ptr_type(Default::default()),
+            ctx.context.ptr_type(Default::default()),
             "obj_struct_cast",
-        );
+        ).unwrap();
 
         for f in fields {
             match f {
@@ -183,15 +184,16 @@ pub fn bind_object_pattern<'ctx>(
 
                     let field_ptr = unsafe {
                         ctx.builder().build_gep(
+                            struct_type,
                             struct_ptr,
                             &[
                                 i32_ty.const_int(0, false),
                                 i32_ty.const_int(field_index as u64, false),
                             ],
                             &format!("{}_ptr", key),
-                        )
+                        ).unwrap()
                     };
-                    let field_val = ctx.builder().build_load(field_ptr, key);
+                    let field_val = ctx.builder().build_load(super::types::ruyi_type_to_llvm(ctx.context, field_ty), field_ptr, key).unwrap();
 
                     bind_pattern(ctx, inner, &ExprResult::new(field_val, field_ty.clone()))?;
                 }
@@ -204,19 +206,20 @@ pub fn bind_object_pattern<'ctx>(
 
                     let field_ptr = unsafe {
                         ctx.builder().build_gep(
+                            struct_type,
                             struct_ptr,
                             &[
                                 i32_ty.const_int(0, false),
                                 i32_ty.const_int(field_index as u64, false),
                             ],
                             &format!("{}_ptr", name),
-                        )
+                        ).unwrap()
                     };
-                    let field_val = ctx.builder().build_load(field_ptr, name);
+                    let field_val = ctx.builder().build_load(super::types::ruyi_type_to_llvm(ctx.context, field_ty), field_ptr, name).unwrap();
 
                     let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, field_ty);
-                    let ptr = ctx.builder().build_alloca(llvm_ty, name);
-                    ctx.builder().build_store(ptr, field_val);
+                    let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
+                    ctx.builder().build_store(ptr, field_val).unwrap();
                     ctx.define_variable(name.clone(), (ptr, field_ty.clone()));
                 }
                 _ => {}
@@ -238,17 +241,16 @@ pub fn bind_object_pattern<'ctx>(
                     let offset = i32_ty.const_int((field_index * 8) as u64, false);
                     let field_ptr = unsafe {
                         ctx.builder()
-                            .build_gep(obj_ptr, &[offset], &format!("{}_ptr", key))
+                            .build_gep(ctx.context.i8_type(), obj_ptr, &[offset], &format!("{}_ptr", key)).unwrap()
                     };
-                    let typed_ptr = ctx.builder().build_bitcast(
+                    let typed_ptr = ctx.builder().build_bit_cast(
                         field_ptr,
-                        super::types::ruyi_type_to_llvm(ctx.context, field_ty)
-                            .ptr_type(Default::default()),
+                        ctx.context.ptr_type(Default::default()),
                         &format!("{}_typed_ptr", key),
-                    );
+                    ).unwrap();
                     let field_val = ctx
                         .builder()
-                        .build_load(typed_ptr.into_pointer_value(), key);
+                        .build_load(super::types::ruyi_type_to_llvm(ctx.context, field_ty), typed_ptr.into_pointer_value(), key).unwrap();
 
                     bind_pattern(ctx, inner, &ExprResult::new(field_val, field_ty.clone()))?;
                 }
@@ -262,21 +264,20 @@ pub fn bind_object_pattern<'ctx>(
                     let offset = i32_ty.const_int((field_index * 8) as u64, false);
                     let field_ptr = unsafe {
                         ctx.builder()
-                            .build_gep(obj_ptr, &[offset], &format!("{}_ptr", name))
+                            .build_gep(ctx.context.i8_type(), obj_ptr, &[offset], &format!("{}_ptr", name)).unwrap()
                     };
-                    let typed_ptr = ctx.builder().build_bitcast(
+                    let typed_ptr = ctx.builder().build_bit_cast(
                         field_ptr,
-                        super::types::ruyi_type_to_llvm(ctx.context, field_ty)
-                            .ptr_type(Default::default()),
+                        ctx.context.ptr_type(Default::default()),
                         &format!("{}_typed_ptr", name),
-                    );
+                    ).unwrap();
                     let field_val = ctx
                         .builder()
-                        .build_load(typed_ptr.into_pointer_value(), name);
+                        .build_load(super::types::ruyi_type_to_llvm(ctx.context, field_ty), typed_ptr.into_pointer_value(), name).unwrap();
 
                     let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, field_ty);
-                    let ptr = ctx.builder().build_alloca(llvm_ty, name);
-                    ctx.builder().build_store(ptr, field_val);
+                    let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
+                    ctx.builder().build_store(ptr, field_val).unwrap();
                     ctx.define_variable(name.clone(), (ptr, field_ty.clone()));
                 }
                 _ => {}
@@ -305,7 +306,7 @@ fn compile_arm_bodies<'ctx>(
         compile_block(ctx, &arm.body)?;
         if let Some(bb) = ctx.builder().get_insert_block() {
             if bb.get_terminator().is_none() {
-                ctx.builder().build_unconditional_branch(merge_bb);
+                ctx.builder().build_unconditional_branch(merge_bb).unwrap();
             }
         }
     }
@@ -384,7 +385,7 @@ fn compile_int_match_switch<'ctx>(
     let default_block = default_bb.unwrap_or_else(|| {
         let trap = ctx.context.append_basic_block(func, "match_trap");
         ctx.builder().position_at_end(trap);
-        ctx.builder().build_unreachable();
+        ctx.builder().build_unreachable().unwrap();
         trap
     });
 
@@ -394,7 +395,7 @@ fn compile_int_match_switch<'ctx>(
     };
 
     ctx.builder()
-        .build_switch(scrutinee_int, default_block, &cases);
+        .build_switch(scrutinee_int, default_block, &cases).unwrap();
 
     compile_arm_bodies(ctx, arms, &arm_bbs, merge_bb, scrutinee)
 }
@@ -425,7 +426,7 @@ fn compile_int_match_sequential<'ctx>(
         .collect();
 
     let entry_bb = ctx.context.append_basic_block(func, "int_seq_entry");
-    ctx.builder().build_unconditional_branch(entry_bb);
+    ctx.builder().build_unconditional_branch(entry_bb).unwrap();
 
     // Create check blocks for all arms except the last
     let check_bbs: Vec<_> = (0..arms.len().saturating_sub(1))
@@ -456,11 +457,11 @@ fn compile_int_match_sequential<'ctx>(
                         scrutinee_int,
                         i64_ty.const_int(*n as u64, true),
                         &format!("int_seq_check_{}", i),
-                    );
+                    ).unwrap();
                     ctx.builder()
-                        .build_conditional_branch(is_match, arm_bbs[i], next_bb);
+                        .build_conditional_branch(is_match, arm_bbs[i], next_bb).unwrap();
                 } else {
-                    ctx.builder().build_unconditional_branch(next_bb);
+                    ctx.builder().build_unconditional_branch(next_bb).unwrap();
                 }
             }
             Pattern::Or(patterns) => {
@@ -473,23 +474,23 @@ fn compile_int_match_sequential<'ctx>(
                                 scrutinee_int,
                                 i64_ty.const_int(*n as u64, true),
                                 &format!("int_seq_or_check_{}", i),
-                            );
+                            ).unwrap();
                             final_match = ctx.builder().build_or(
                                 final_match,
                                 is_eq,
                                 &format!("int_seq_or_{}", i),
-                            );
+                            ).unwrap();
                         }
                     }
                 }
                 ctx.builder()
-                    .build_conditional_branch(final_match, arm_bbs[i], next_bb);
+                    .build_conditional_branch(final_match, arm_bbs[i], next_bb).unwrap();
             }
             Pattern::Wildcard | Pattern::Identifier(_) => {
-                ctx.builder().build_unconditional_branch(arm_bbs[i]);
+                ctx.builder().build_unconditional_branch(arm_bbs[i]).unwrap();
             }
             _ => {
-                ctx.builder().build_unconditional_branch(next_bb);
+                ctx.builder().build_unconditional_branch(next_bb).unwrap();
             }
         }
     }
@@ -522,7 +523,7 @@ fn compile_int_match_sequential<'ctx>(
 
         if let Some(bb) = ctx.builder().get_insert_block() {
             if bb.get_terminator().is_none() {
-                ctx.builder().build_unconditional_branch(merge_bb);
+                ctx.builder().build_unconditional_branch(merge_bb).unwrap();
             }
         }
     }
@@ -581,7 +582,7 @@ fn compile_bool_match<'ctx>(
     };
 
     ctx.builder()
-        .build_conditional_branch(cond_val, true_target, false_target);
+        .build_conditional_branch(cond_val, true_target, false_target).unwrap();
 
     compile_arm_bodies(ctx, arms, &arm_bbs, merge_bb, scrutinee)
 }
@@ -631,7 +632,7 @@ fn compile_string_match<'ctx>(
     // Build a chain of strcmp calls for each literal arm
     let i32_ty = ctx.context.i32_type();
     let strcmp_fn = ctx.module.get_function("strcmp").unwrap_or_else(|| {
-        let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
+        let i8_ptr = ctx.context.ptr_type(Default::default());
         let fn_type = i32_ty.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
         ctx.module.add_function("strcmp", fn_type, None)
     });
@@ -649,7 +650,7 @@ fn compile_string_match<'ctx>(
         }
 
         ctx.builder().position_at_end(check_bb);
-        let lit_global = ctx.builder().build_global_string_ptr(s, "match_str_lit");
+        let lit_global = ctx.builder().build_global_string_ptr(s, "match_str_lit").unwrap();
         let cmp_result = ctx
             .builder()
             .build_call(
@@ -657,16 +658,16 @@ fn compile_string_match<'ctx>(
                 &[scrutinee_ptr.into(), lit_global.as_pointer_value().into()],
                 "str_cmp",
             )
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_int_value();
         let is_equal = ctx.builder().build_int_compare(
             IntPredicate::EQ,
             cmp_result,
             i32_ty.const_int(0, false),
             "str_eq",
-        );
+        ).unwrap();
 
         let next_bb = if i + 1 < literal_arms.len() {
             ctx.context
@@ -676,7 +677,7 @@ fn compile_string_match<'ctx>(
         };
 
         ctx.builder()
-            .build_conditional_branch(is_equal, *target_bb, next_bb);
+            .build_conditional_branch(is_equal, *target_bb, next_bb).unwrap();
     }
 
     compile_arm_bodies(ctx, arms, &arm_bbs, merge_bb, scrutinee)
@@ -733,13 +734,13 @@ fn compile_nullable_match<'ctx>(
     // Generate null check
     let is_null = match scrutinee.value {
         BasicValueEnum::PointerValue(p) => {
-            let ptr_int = ctx.builder().build_ptr_to_int(p, i64_ty, "ptr_int");
+            let ptr_int = ctx.builder().build_ptr_to_int(p, i64_ty, "ptr_int").unwrap();
             ctx.builder().build_int_compare(
                 IntPredicate::EQ,
                 ptr_int,
                 i64_ty.const_int(0, false),
                 "is_null",
-            )
+            ).unwrap()
         }
         BasicValueEnum::IntValue(v) => {
             // For nullable primitives (erased to inner type), use -1 (all-ones) sentinel
@@ -748,7 +749,7 @@ fn compile_nullable_match<'ctx>(
                 v,
                 i64_ty.const_all_ones(),
                 "is_null_int",
-            )
+            ).unwrap()
         }
         _ => return Err("Nullable match requires pointer or integer scrutinee".to_string()),
     };
@@ -757,7 +758,7 @@ fn compile_nullable_match<'ctx>(
     let value_target = value_bb.or(default_bb).unwrap_or(merge_bb);
 
     ctx.builder()
-        .build_conditional_branch(is_null, null_target, value_target);
+        .build_conditional_branch(is_null, null_target, value_target).unwrap();
 
     compile_arm_bodies(ctx, arms, &arm_bbs, merge_bb, scrutinee)
 }
@@ -784,10 +785,10 @@ fn compile_array_match<'ctx>(
     // Get array length: first 8 bytes of array memory store the length
     let len_ptr = ctx.builder().build_pointer_cast(
         array_ptr,
-        i64_ty.ptr_type(Default::default()),
+        ctx.context.ptr_type(Default::default()),
         "array_len_ptr",
-    );
-    let array_len = ctx.builder().build_load(len_ptr, "array_len");
+    ).unwrap();
+    let array_len = ctx.builder().build_load(i64_ty, len_ptr, "array_len").unwrap();
 
     let mut arm_bbs = Vec::with_capacity(arms.len());
     let mut length_cases: Vec<(u64, inkwell::basic_block::BasicBlock<'ctx>)> = Vec::new();
@@ -877,7 +878,7 @@ fn compile_bigint_match<'ctx>(
         .collect();
 
     let entry_bb = ctx.context.append_basic_block(func, "bigint_match_entry");
-    ctx.builder().build_unconditional_branch(entry_bb);
+    ctx.builder().build_unconditional_branch(entry_bb).unwrap();
 
     for (i, arm) in arms.iter().enumerate() {
         let current = if i == 0 { entry_bb } else { check_bbs[i - 1] };
@@ -899,11 +900,11 @@ fn compile_bigint_match<'ctx>(
                         eq_i8,
                         ctx.context.i8_type().const_int(0, false),
                         &format!("bigint_eq_{}", i),
-                    );
+                    ).unwrap();
                     ctx.builder()
-                        .build_conditional_branch(is_match, arm_bbs[i], next);
+                        .build_conditional_branch(is_match, arm_bbs[i], next).unwrap();
                 } else {
-                    ctx.builder().build_unconditional_branch(next);
+                    ctx.builder().build_unconditional_branch(next).unwrap();
                 }
             }
             Pattern::Or(patterns) => {
@@ -925,7 +926,7 @@ fn compile_bigint_match<'ctx>(
                                 scrutinee_ptr,
                                 lit_ptr,
                             )?;
-                            final_match = ctx.builder().build_or(final_match, eq_i8, "bigint_or");
+                            final_match = ctx.builder().build_or(final_match, eq_i8, "bigint_or").unwrap();
                         }
                     }
                 }
@@ -935,18 +936,18 @@ fn compile_bigint_match<'ctx>(
                         final_match,
                         i8_ty.const_int(0, false),
                         &format!("bigint_or_match_{}", i),
-                    );
+                    ).unwrap();
                     ctx.builder()
-                        .build_conditional_branch(is_match, arm_bbs[i], next);
+                        .build_conditional_branch(is_match, arm_bbs[i], next).unwrap();
                 } else {
-                    ctx.builder().build_unconditional_branch(next);
+                    ctx.builder().build_unconditional_branch(next).unwrap();
                 }
             }
             Pattern::Wildcard | Pattern::Identifier(_) => {
-                ctx.builder().build_unconditional_branch(arm_bbs[i]);
+                ctx.builder().build_unconditional_branch(arm_bbs[i]).unwrap();
             }
             _ => {
-                ctx.builder().build_unconditional_branch(next);
+                ctx.builder().build_unconditional_branch(next).unwrap();
             }
         }
     }
@@ -993,7 +994,7 @@ fn compile_generic_match<'ctx>(
         }
     }
 
-    ctx.builder().build_unconditional_branch(target_bb);
+    ctx.builder().build_unconditional_branch(target_bb).unwrap();
     compile_arm_bodies(ctx, arms, &arm_bbs, merge_bb, scrutinee)
 }
 
@@ -1079,11 +1080,11 @@ fn compile_object_match<'ctx>(
 
     // Entry: branch to first check or first arm
     let entry_bb = ctx.context.append_basic_block(func, "obj_match_entry");
-    ctx.builder().build_unconditional_branch(entry_bb);
+    ctx.builder().build_unconditional_branch(entry_bb).unwrap();
     ctx.builder().position_at_end(entry_bb);
 
     let first_target = check_bbs.iter().find_map(|x| *x).unwrap_or(arm_bbs[0]);
-    ctx.builder().build_unconditional_branch(first_target);
+    ctx.builder().build_unconditional_branch(first_target).unwrap();
 
     // Build each check block
     for (arm_idx, check_bb_opt) in check_bbs.iter().enumerate() {
@@ -1167,7 +1168,7 @@ fn chain_object_checks<'ctx>(
     i32_ty: inkwell::types::IntType<'ctx>,
 ) -> Result<(), String> {
     if checks.is_empty() {
-        ctx.builder().build_unconditional_branch(success_bb);
+        ctx.builder().build_unconditional_branch(success_bb).unwrap();
         return Ok(());
     }
 
@@ -1176,42 +1177,43 @@ fn chain_object_checks<'ctx>(
     // Cast object pointer to struct type
     let struct_ptr = ctx.builder().build_pointer_cast(
         obj_ptr,
-        struct_type.ptr_type(Default::default()),
+        ctx.context.ptr_type(Default::default()),
         "obj_struct_cast",
-    );
+    ).unwrap();
 
     for (i, check) in checks.iter().enumerate() {
         let field_ptr = unsafe {
             ctx.builder().build_gep(
+                struct_type,
                 struct_ptr,
                 &[
                     i32_ty.const_int(0, false),
                     i32_ty.const_int(check.field_index as u64, false),
                 ],
                 &format!("field_ptr_{}", i),
-            )
+            ).unwrap()
         };
         let field_val = ctx
             .builder()
-            .build_load(field_ptr, &format!("field_val_{}", i));
+            .build_load(i64_ty, field_ptr, &format!("field_val_{}", i)).unwrap();
 
         let is_match = ctx.builder().build_int_compare(
             IntPredicate::EQ,
             field_val.into_int_value(),
             i64_ty.const_int(check.expected_value as u64, true),
             &format!("check_{}", i),
-        );
+        ).unwrap();
 
         if i + 1 < checks.len() {
             let next_check_bb = ctx
                 .context
                 .append_basic_block(func, &format!("next_check_{}", i));
             ctx.builder()
-                .build_conditional_branch(is_match, next_check_bb, fail_bb);
+                .build_conditional_branch(is_match, next_check_bb, fail_bb).unwrap();
             ctx.builder().position_at_end(next_check_bb);
         } else {
             ctx.builder()
-                .build_conditional_branch(is_match, success_bb, fail_bb);
+                .build_conditional_branch(is_match, success_bb, fail_bb).unwrap();
         }
     }
     Ok(())

@@ -3,17 +3,17 @@
 //! Provides helpers to emit `landingpad`, `invoke`, and `resume`
 //! instructions using inkwell.
 
-#[cfg(feature = "llvm14")]
+#[cfg(feature = "llvm20")]
 use inkwell::basic_block::BasicBlock;
-#[cfg(feature = "llvm14")]
+#[cfg(feature = "llvm20")]
 use inkwell::builder::Builder;
-#[cfg(feature = "llvm14")]
+#[cfg(feature = "llvm20")]
 use inkwell::context::Context;
-#[cfg(feature = "llvm14")]
+#[cfg(feature = "llvm20")]
 use inkwell::module::Module;
-#[cfg(feature = "llvm14")]
+#[cfg(feature = "llvm20")]
 use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue};
-#[cfg(feature = "llvm14")]
+#[cfg(feature = "llvm20")]
 use inkwell::AddressSpace;
 
 /**
@@ -30,14 +30,14 @@ pub type TryTypeId = u32;
  * @author Ruyi Team
  * @date 2026-07-08
  */
-#[cfg(feature = "llvm14")]
+#[cfg(feature = "llvm20")]
 pub struct LandingPadGenerator<'ctx, 'm, 'b> {
     context: &'ctx Context,
     module: &'m Module<'ctx>,
     builder: &'b Builder<'ctx>,
 }
 
-#[cfg(feature = "llvm14")]
+#[cfg(feature = "llvm20")]
 impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
     /**
      * Create a new landing-pad generator.
@@ -81,7 +81,7 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
         has_cleanup: bool,
         name: &str,
     ) -> BasicValueEnum<'ctx> {
-        let i8_ptr = self.context.i8_type().ptr_type(AddressSpace::default());
+        let i8_ptr = self.context.ptr_type(AddressSpace::default());
         let i32_ty = self.context.i32_type();
         let lpad_ty = self
             .context
@@ -97,6 +97,7 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
 
         self.builder
             .build_landing_pad(lpad_ty, personality, &clauses, has_cleanup, name)
+            .unwrap()
     }
 
     /**
@@ -125,6 +126,7 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
     ) -> inkwell::values::CallSiteValue<'ctx> {
         self.builder
             .build_invoke(fn_val, args, then_bb, catch_bb, name)
+            .unwrap()
     }
 
     /**
@@ -138,7 +140,7 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
      * @date 2026-07-08
      */
     pub fn build_resume(&self, landing_pad_val: BasicValueEnum<'ctx>) {
-        self.builder.build_resume(landing_pad_val);
+        self.builder.build_resume(landing_pad_val).unwrap();
     }
 
     /**
@@ -186,7 +188,7 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
      * @date 2026-07-08
      */
     pub fn build_eh_typeid_for(&self, type_id: TryTypeId) -> IntValue<'ctx> {
-        let i8_ptr = self.context.i8_type().ptr_type(AddressSpace::default());
+        let i8_ptr = self.context.ptr_type(AddressSpace::default());
         let i32_ty = self.context.i32_type();
         let fn_type = i32_ty.fn_type(&[i8_ptr.into()], false);
 
@@ -199,9 +201,9 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
                 &[type_info.as_basic_value_enum().into()],
                 "typeid",
             )
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_int_value()
     }
 
@@ -234,9 +236,9 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
     ) {
         if catch_handlers.is_empty() {
             if let Some(cleanup) = cleanup_bb {
-                self.builder.build_unconditional_branch(cleanup);
+                self.builder.build_unconditional_branch(cleanup).unwrap();
             } else {
-                self.builder.build_unconditional_branch(resume_bb);
+                self.builder.build_unconditional_branch(resume_bb).unwrap();
             }
             return;
         }
@@ -244,7 +246,7 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
         // EX-H1: If all handlers are catch-all (type_id == 0), use unconditional branch
         if catch_handlers.iter().all(|(id, _)| *id == 0) {
             let (_, first_handler) = catch_handlers[0];
-            self.builder.build_unconditional_branch(first_handler);
+            self.builder.build_unconditional_branch(first_handler).unwrap();
             return;
         }
 
@@ -280,9 +282,9 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
                 selector,
                 eh_typeid,
                 &format!("catch.matches.{}", i),
-            );
+            ).unwrap();
             self.builder
-                .build_conditional_branch(cmp, handler_bb, next_bb);
+                .build_conditional_branch(cmp, handler_bb, next_bb).unwrap();
 
             // Position builder at the next dispatch block (if any)
             if i + 1 < catch_handlers.len() {
@@ -303,9 +305,9 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
                 // (the last next_blocks entry). Emit cleanup/resume branch.
                 if self.builder.get_insert_block() == Some(bb) {
                     if let Some(cleanup) = cleanup_bb {
-                        self.builder.build_unconditional_branch(cleanup);
+                        self.builder.build_unconditional_branch(cleanup).unwrap();
                     } else {
-                        self.builder.build_unconditional_branch(resume_bb);
+                        self.builder.build_unconditional_branch(resume_bb).unwrap();
                     }
                 }
             } else if cleanup_bb.is_some() || catch_handlers.len() == 1 {
@@ -327,7 +329,7 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
     /// enables the landing-pad selector comparison in `build_catch_dispatch`.
     fn get_type_info_global(&self, type_id: TryTypeId) -> PointerValue<'ctx> {
         let name = format!("__ruyi_type_info_{}", type_id);
-        let i8_ptr = self.context.i8_type().ptr_type(AddressSpace::default());
+        let i8_ptr = self.context.ptr_type(AddressSpace::default());
 
         if let Some(global) = self.module.get_global(&name) {
             global.as_pointer_value()
@@ -346,17 +348,13 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
             );
             init_global.set_initializer(&init_array);
             let init_ptr = init_global.as_pointer_value();
-            let cast_ptr = self
-                .builder
-                .build_bitcast(init_ptr, i8_ptr, &format!("type_info_cast_{}", type_id))
-                .into_pointer_value();
-            global.set_initializer(&cast_ptr);
+            global.set_initializer(&init_ptr);
             global.as_pointer_value()
         }
     }
 }
 
-#[cfg(feature = "llvm14")]
+#[cfg(feature = "llvm20")]
 fn get_or_insert_function<'ctx>(
     module: &Module<'ctx>,
     name: &str,
@@ -390,7 +388,7 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "llvm14"))]
+#[cfg(all(test, feature = "llvm20"))]
 mod llvm_tests {
     use super::LandingPadGenerator;
     use inkwell::context::Context;
@@ -427,14 +425,14 @@ mod llvm_tests {
         gen.build_resume(lpad);
 
         builder.position_at_end(entry_bb);
-        builder.build_return(None);
+        builder.build_return(None).unwrap();
 
         let ir = module.print_to_string().to_string();
 
         // 确认 type_info global 有 initializer (定义式,不是外部声明)
         // EX-H1: globals now use unique string initializers instead of null
         assert!(
-            ir.contains("global i8*") && !ir.contains("external"),
+            ir.contains("global ptr") && !ir.contains("external"),
             "type_info global must be defined (not external declaration):\n{}",
             ir
         );
@@ -479,16 +477,16 @@ mod llvm_tests {
 
         // Handler blocks must be populated with valid IR
         builder.position_at_end(handler0_bb);
-        builder.build_return(None);
+        builder.build_return(None).unwrap();
 
         builder.position_at_end(handler1_bb);
-        builder.build_return(None);
+        builder.build_return(None).unwrap();
 
         builder.position_at_end(resume_bb);
-        builder.build_return(None);
+        builder.build_return(None).unwrap();
 
         builder.position_at_end(entry_bb);
-        builder.build_return(None);
+        builder.build_return(None).unwrap();
 
         let ir = module.print_to_string().to_string();
 

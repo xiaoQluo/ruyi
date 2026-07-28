@@ -127,17 +127,17 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: RuyiType) -> BasicTyp
         RuyiType::Float => BasicTypeEnum::FloatType(context.f64_type()),
         RuyiType::Bool => BasicTypeEnum::IntType(context.bool_type()),
         RuyiType::String => {
-            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
         }
         RuyiType::Null => {
-            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
         }
         RuyiType::Dyn => {
             // Tagged union: { type_id: i64, payload: i8* }
             let dyn_type = context.struct_type(
                 &[
                     context.i64_type().into(),
-                    context.i8_type().ptr_type(Default::default()).into(),
+                    context.ptr_type(Default::default()).into(),
                 ],
                 false,
             );
@@ -150,10 +150,10 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: RuyiType) -> BasicTyp
         RuyiType::Byte => BasicTypeEnum::IntType(context.i8_type()),
         RuyiType::Named(_) => {
             // Opaque pointer for user-defined types in the baseline.
-            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
         }
         RuyiType::Future => {
-            BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
+            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
         }
     }
 }
@@ -179,7 +179,7 @@ pub fn llvm_bool_type<'ctx>(context: &'ctx Context) -> IntType<'ctx> {
 #[cfg(feature = "inkwell")]
 /// Return the LLVM pointer type (used for Ruyi `string`, objects, etc.).
 pub fn llvm_ptr_type<'ctx>(context: &'ctx Context) -> PointerType<'ctx> {
-    context.i8_type().ptr_type(Default::default())
+    context.ptr_type(Default::default())
 }
 
 #[cfg(feature = "inkwell")]
@@ -188,7 +188,7 @@ pub fn llvm_dyn_type<'ctx>(context: &'ctx Context) -> StructType<'ctx> {
     context.struct_type(
         &[
             context.i64_type().into(),
-            context.i8_type().ptr_type(Default::default()).into(),
+            context.ptr_type(Default::default()).into(),
         ],
         false,
     )

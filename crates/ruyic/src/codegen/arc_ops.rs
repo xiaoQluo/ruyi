@@ -20,11 +20,11 @@ pub fn emit_arc_retain<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>, ptr: Pointe
     let fn_name = "ruyi_arc_retain";
     let func = ctx.module.get_function(fn_name).unwrap_or_else(|| {
         let void_ty = ctx.context.void_type();
-        let param_ty = ctx.context.i8_type().ptr_type(Default::default());
+        let param_ty = ctx.context.ptr_type(Default::default());
         let fn_ty = void_ty.fn_type(&[param_ty.into()], false);
         ctx.module.add_function(fn_name, fn_ty, None)
     });
-    ctx.builder().build_call(func, &[ptr.into()], "arc_retain");
+    ctx.builder().build_call(func, &[ptr.into()], "arc_retain").unwrap();
 }
 
 /// Emit a call to `ruyi_arc_release` for the given pointer.
@@ -36,11 +36,11 @@ pub fn emit_arc_release<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>, ptr: Point
     let fn_name = "ruyi_arc_release";
     let func = ctx.module.get_function(fn_name).unwrap_or_else(|| {
         let void_ty = ctx.context.void_type();
-        let param_ty = ctx.context.i8_type().ptr_type(Default::default());
+        let param_ty = ctx.context.ptr_type(Default::default());
         let fn_ty = void_ty.fn_type(&[param_ty.into()], false);
         ctx.module.add_function(fn_name, fn_ty, None)
     });
-    ctx.builder().build_call(func, &[ptr.into()], "arc_release");
+    ctx.builder().build_call(func, &[ptr.into()], "arc_release").unwrap();
 }
 
 /// Emit a call to `ruyi_arc_alloc`.
@@ -53,17 +53,17 @@ pub fn emit_arc_alloc<'ctx>(
 ) -> PointerValue<'ctx> {
     let fn_name = "ruyi_arc_alloc";
     let func = ctx.module.get_function(fn_name).unwrap_or_else(|| {
-        let ptr_ty = ctx.context.i8_type().ptr_type(Default::default());
+        let ptr_ty = ctx.context.ptr_type(Default::default());
         let i64_ty = ctx.context.i64_type();
         let fn_ty = ptr_ty.fn_type(&[i64_ty.into(), ptr_ty.into()], false);
         ctx.module.add_function(fn_name, fn_ty, None)
     });
     let call = ctx
         .builder
-        .build_call(func, &[size.into(), type_info.into()], "arc_alloc");
+        .build_call(func, &[size.into(), type_info.into()], "arc_alloc")
+        .unwrap();
     call.try_as_basic_value()
-        .left()
-        .unwrap()
+        .unwrap_basic()
         .into_pointer_value()
 }
 

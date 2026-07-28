@@ -79,13 +79,13 @@ fn compile_simple_binding<'ctx>(
     let (ty, _llvm_ty, ptr) = if let Some(annotation) = &binding.ty {
         let ty = Type::from_annotation(annotation);
         let llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
-        let ptr = ctx.builder().build_alloca(llvm_ty, name);
+        let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
         (ty, llvm_ty, ptr)
     } else if let Some(init) = &binding.init {
         let init_result = compile_expr(ctx, init)?;
         let ty = init_result.ty;
         let llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
-        let ptr = ctx.builder().build_alloca(llvm_ty, name);
+        let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
         // Box the value when the LLVM alloca type differs from the actual
         // value type (e.g., Dynamic struct vs i64 from generic erasure).
         let actual_ty = init_result.value.get_type();
@@ -105,14 +105,14 @@ fn compile_simple_binding<'ctx>(
                     data_ptr,
                     llvm_ty.into_int_type(),
                     "unbox_s2i",
-                ))
+                ).unwrap())
             } else {
                 init_result.value
             }
         } else {
             init_result.value
         };
-        ctx.builder().build_store(ptr, store_val);
+        ctx.builder().build_store(ptr, store_val).unwrap();
         ctx.define_variable(name.to_string(), (ptr, ty.clone()));
         if is_gc_managed(&ty) {
             ctx.add_gc_root(ptr, ty);
@@ -121,7 +121,7 @@ fn compile_simple_binding<'ctx>(
     } else {
         let ty = Type::Dynamic;
         let llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
-        let ptr = ctx.builder().build_alloca(llvm_ty, name);
+        let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
         (ty, llvm_ty, ptr)
     };
 
@@ -140,13 +140,13 @@ fn compile_simple_binding<'ctx>(
                 &init_result.ty,
                 trait_name,
             )?;
-            ctx.builder().build_store(ptr, trait_obj_val);
+            ctx.builder().build_store(ptr, trait_obj_val).unwrap();
         } else if ty == Type::Dynamic && init_result.ty != Type::Dynamic {
             // Dynamic boxing: construct {i64, i8*} struct
             let dyn_val = super::expr::build_box_dynamic(ctx, init_result.value, &init_result.ty);
-            ctx.builder().build_store(ptr, dyn_val);
+            ctx.builder().build_store(ptr, dyn_val).unwrap();
         } else {
-            ctx.builder().build_store(ptr, init_result.value);
+            ctx.builder().build_store(ptr, init_result.value).unwrap();
         }
     }
 
@@ -196,9 +196,9 @@ fn compile_array_destructure<'ctx>(
                 let elem_val = ctx
                     .builder()
                     .build_call(get_fn, &[arr_ptr.into(), idx_val.into()], "destr_elem")
+                    .unwrap()
                     .try_as_basic_value()
-                    .left()
-                    .unwrap();
+                    .unwrap_basic();
                 let elem_result = super::expr::ExprResult {
                     value: elem_val,
                     ty: elem_ty.clone(),
@@ -211,9 +211,9 @@ fn compile_array_destructure<'ctx>(
                 let elem_val = ctx
                     .builder()
                     .build_call(get_fn, &[arr_ptr.into(), idx_val.into()], "destr_elem")
+                    .unwrap()
                     .try_as_basic_value()
-                    .left()
-                    .unwrap();
+                    .unwrap_basic();
                 let elem_result = super::expr::ExprResult {
                     value: elem_val,
                     ty: elem_ty.clone(),
@@ -241,24 +241,24 @@ fn compile_array_destructure<'ctx>(
                     .ok_or("__builtin_array_push not declared")?;
 
                 let i64_ty = ctx.context.i64_type();
-                let i8_ptr_ty = ctx.context.i8_type().ptr_type(Default::default());
+                let i8_ptr_ty = ctx.context.ptr_type(Default::default());
 
                 // 获取数组长度
                 let arr_len = ctx
                     .builder()
                     .build_call(len_fn, &[arr_ptr.into()], "arr_len")
-                    .try_as_basic_value()
-                    .left()
                     .unwrap()
+                    .try_as_basic_value()
+                    .unwrap_basic()
                     .into_int_value();
 
                 // 创建新的空数组
                 let rest_arr = ctx
                     .builder()
                     .build_call(create_fn, &[], "rest_arr")
+                    .unwrap()
                     .try_as_basic_value()
-                    .left()
-                    .unwrap();
+                    .unwrap_basic();
 
                 let func = ctx.current_function().ok_or("No current function")?;
                 let cond_bb = ctx.context.append_basic_block(func, "rest_cond");
@@ -266,63 +266,63 @@ fn compile_array_destructure<'ctx>(
                 let end_bb = ctx.context.append_basic_block(func, "rest_end");
 
                 // 分配循环计数器并初始化
-                let idx_ptr = ctx.builder().build_alloca(i64_ty, "rest_idx_ptr");
+                let idx_ptr = ctx.builder().build_alloca(i64_ty, "rest_idx_ptr").unwrap();
                 ctx.builder()
-                    .build_store(idx_ptr, i64_ty.const_int(i, false));
+                    .build_store(idx_ptr, i64_ty.const_int(i, false)).unwrap();
                 // 分配 rest 数组指针（可变）
-                let rest_arr_ptr = ctx.builder().build_alloca(i8_ptr_ty, "rest_arr_ptr");
-                ctx.builder().build_store(rest_arr_ptr, rest_arr);
+                let rest_arr_ptr = ctx.builder().build_alloca(i8_ptr_ty, "rest_arr_ptr").unwrap();
+                ctx.builder().build_store(rest_arr_ptr, rest_arr).unwrap();
 
-                ctx.builder().build_unconditional_branch(cond_bb);
+                ctx.builder().build_unconditional_branch(cond_bb).unwrap();
 
                 // 条件块：idx < len
                 ctx.builder().position_at_end(cond_bb);
                 let cur_idx = ctx
                     .builder()
-                    .build_load(idx_ptr, "cur_idx")
+                    .build_load(i64_ty, idx_ptr, "cur_idx").unwrap()
                     .into_int_value();
                 let cond = ctx.builder().build_int_compare(
                     IntPredicate::SLT,
                     cur_idx,
                     arr_len,
                     "rest_cond",
-                );
+                ).unwrap();
                 ctx.builder()
-                    .build_conditional_branch(cond, body_bb, end_bb);
+                    .build_conditional_branch(cond, body_bb, end_bb).unwrap();
 
                 // 循环体：获取元素并 push
                 ctx.builder().position_at_end(body_bb);
                 let loop_idx = ctx
                     .builder()
-                    .build_load(idx_ptr, "loop_idx")
+                    .build_load(i64_ty, idx_ptr, "loop_idx").unwrap()
                     .into_int_value();
                 let elem = ctx
                     .builder()
                     .build_call(get_fn, &[arr_ptr.into(), loop_idx.into()], "rest_elem")
+                    .unwrap()
                     .try_as_basic_value()
-                    .left()
-                    .unwrap();
-                let cur_rest = ctx.builder().build_load(rest_arr_ptr, "cur_rest");
+                    .unwrap_basic();
+                let cur_rest = ctx.builder().build_load(i8_ptr_ty, rest_arr_ptr, "cur_rest").unwrap();
                 let new_rest = ctx
                     .builder()
                     .build_call(push_fn, &[cur_rest.into(), elem.into()], "rest_push")
+                    .unwrap()
                     .try_as_basic_value()
-                    .left()
-                    .unwrap();
-                ctx.builder().build_store(rest_arr_ptr, new_rest);
+                    .unwrap_basic();
+                ctx.builder().build_store(rest_arr_ptr, new_rest).unwrap();
                 let next_idx =
                     ctx.builder()
-                        .build_int_add(loop_idx, i64_ty.const_int(1, false), "next_idx");
-                ctx.builder().build_store(idx_ptr, next_idx);
-                ctx.builder().build_unconditional_branch(cond_bb);
+                        .build_int_add(loop_idx, i64_ty.const_int(1, false), "next_idx").unwrap();
+                ctx.builder().build_store(idx_ptr, next_idx).unwrap();
+                ctx.builder().build_unconditional_branch(cond_bb).unwrap();
 
                 // 结束块：绑定 rest 变量
                 ctx.builder().position_at_end(end_bb);
-                let final_rest = ctx.builder().build_load(rest_arr_ptr, "final_rest");
+                let final_rest = ctx.builder().build_load(i8_ptr_ty, rest_arr_ptr, "final_rest").unwrap();
                 let rest_ty = Type::Array(Box::new(elem_ty.clone()));
                 let llvm_rest_ty = ruyi_type_to_llvm(ctx.context, &rest_ty);
-                let var_ptr = ctx.builder().build_alloca(llvm_rest_ty, &rest_name);
-                ctx.builder().build_store(var_ptr, final_rest);
+                let var_ptr = ctx.builder().build_alloca(llvm_rest_ty, &rest_name).unwrap();
+                ctx.builder().build_store(var_ptr, final_rest).unwrap();
                 ctx.define_variable(rest_name, (var_ptr, rest_ty));
 
                 // Rest 必须是最后一个元素
@@ -520,8 +520,8 @@ pub fn compile_function<'ctx>(
         match &param.pattern {
             Pattern::Identifier(n) => {
                 let llvm_ty = ruyi_type_to_llvm(ctx.context, &param_ty);
-                let ptr = ctx.builder().build_alloca(llvm_ty, n);
-                ctx.builder().build_store(ptr, param_value);
+                let ptr = ctx.builder().build_alloca(llvm_ty, n).unwrap();
+                ctx.builder().build_store(ptr, param_value).unwrap();
                 if is_gc_managed(&param_ty) {
                     ctx.add_gc_root(ptr, param_ty.clone());
                 }
@@ -531,8 +531,8 @@ pub fn compile_function<'ctx>(
                 // 对象/数组解构参数：先存入临时变量，再解构绑定
                 let temp_name = format!("_param_{}", i);
                 let llvm_ty = ruyi_type_to_llvm(ctx.context, &param_ty);
-                let ptr = ctx.builder().build_alloca(llvm_ty, &temp_name);
-                ctx.builder().build_store(ptr, param_value);
+                let ptr = ctx.builder().build_alloca(llvm_ty, &temp_name).unwrap();
+                ctx.builder().build_store(ptr, param_value).unwrap();
                 if is_gc_managed(&param_ty) {
                     ctx.add_gc_root(ptr, param_ty.clone());
                 }
@@ -555,7 +555,7 @@ pub fn compile_function<'ctx>(
         if bb.get_terminator().is_none() {
             ctx.builder().position_at_end(bb);
             if ret_type == Type::Void {
-                ctx.builder().build_return(None);
+                ctx.builder().build_return(None).unwrap();
             } else {
                 // Generate a default value matching the LLVM function's actual
                 // return type (handles generic type erasure scenarios).
@@ -587,14 +587,13 @@ pub fn compile_function<'ctx>(
                             }
                             _ => BasicValueEnum::PointerValue(
                                 ctx.context
-                                    .i8_type()
                                     .ptr_type(Default::default())
                                     .const_null(),
                             ),
                         }
                     }
                 };
-                ctx.builder().build_return(Some(&default_val));
+                ctx.builder().build_return(Some(&default_val)).unwrap();
             }
         }
     }
@@ -756,7 +755,7 @@ fn compile_class<'ctx>(
             if let Some(init_expr) = init {
                 if let Ok(init_result) = compile_expr(ctx, init_expr) {
                     ctx.builder()
-                        .build_store(global.as_pointer_value(), init_result.value);
+                        .build_store(global.as_pointer_value(), init_result.value).unwrap();
                 }
             }
             ctx.static_fields.insert(global_name, field_ty);

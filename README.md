@@ -26,8 +26,8 @@ Ruyi removes problematic JavaScript features while retaining familiar syntax. It
 ### Prerequisites
 
 - **Rust** (2021 edition)
-- **LLVM 14** (required for full build)
-  - macOS: `brew install llvm@14` then set `LLVM_SYS_140_PREFIX`
+- **LLVM 20** (required for full build)
+  - macOS: `brew install llvm@20` then set `LLVM_SYS_201_PREFIX`
   - Linux: Install via your package manager (e.g. `apt install llvm-14-dev`)
 
 ### Build from Source

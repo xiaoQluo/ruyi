@@ -410,7 +410,7 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 
 | 风险 | 影响 | 缓解措施 |
 |------|------|----------|
-| LLVM API 变动 | 高 | 固定 inkwell 到 LLVM 14；用 trait 抽象 LLVM 调用 |
+| LLVM API 变动 | 高 | 固定 inkwell 到 LLVM 20；用 trait 抽象 LLVM 调用 |
 | async 运行时 bug | 高 | v0.3 发布前进行大量 async 集成测试 |
 | 包注册中心扩展 | 中 | 从基于 Git 的依赖开始（v0.6）；逐步增加注册中心 |
 | LSP 性能 | 中 | 使用 tree-sitter 解析；增量类型检查 |

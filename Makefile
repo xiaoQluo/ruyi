@@ -8,7 +8,7 @@
 # Configuration
 RUYI_HOME ?= $(HOME)/.ruyi
 BIN_DIR = $(RUYI_HOME)/bin
-LLVM_SYS_140_PREFIX ?= $(shell brew --prefix llvm@14 2>/dev/null || echo "/usr/local/opt/llvm@14")
+LLVM_SYS_201_PREFIX ?= $(shell brew --prefix llvm@20 2>/dev/null || echo "/usr/local/opt/llvm@20")
 
 # Default target
 .DEFAULT_GOAL := help

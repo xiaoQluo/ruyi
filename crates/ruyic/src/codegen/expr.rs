@@ -346,13 +346,13 @@ pub fn compile_expr<'ctx>(
                 BasicValueEnum::PointerValue(ptr) => {
                     let ptr_int =
                         ctx.builder()
-                            .build_ptr_to_int(ptr, ctx.context.i64_type(), "ptr_int");
+                            .build_ptr_to_int(ptr, ctx.context.i64_type(), "ptr_int").unwrap();
                     ctx.builder().build_int_compare(
                         inkwell::IntPredicate::EQ,
                         ptr_int,
                         ctx.context.i64_type().const_int(0, false),
                         "is_null",
-                    )
+                    ).unwrap()
                 }
                 BasicValueEnum::IntValue(v) if matches!(result.ty, Type::Nullable(_)) => {
                     // Nullable int sentinel check (all ones = null)
@@ -362,7 +362,7 @@ pub fn compile_expr<'ctx>(
                         v,
                         sentinel,
                         "is_null_sentinel",
-                    )
+                    ).unwrap()
                 }
                 _ => {
                     // 非指针/非 nullable 类型不可能是 null，直接返回
@@ -373,14 +373,14 @@ pub fn compile_expr<'ctx>(
             let null_bb = ctx.context.append_basic_block(func, "null_assert_fail");
             let ok_bb = ctx.context.append_basic_block(func, "null_assert_ok");
             ctx.builder()
-                .build_conditional_branch(is_null, null_bb, ok_bb);
+                .build_conditional_branch(is_null, null_bb, ok_bb).unwrap();
 
             // null 分支：抛出 NullAssertionError
             ctx.builder().position_at_end(null_bb);
             let msg = "NullAssertionError: value is null";
             let msg_ptr = ctx
                 .builder()
-                .build_global_string_ptr(msg, "null_assert_msg");
+                .build_global_string_ptr(msg, "null_assert_msg").unwrap();
             let throw_fn = ctx
                 .module
                 .get_function("ruyi_throw")
@@ -390,7 +390,7 @@ pub fn compile_expr<'ctx>(
                 &[msg_ptr.as_pointer_value().into()],
                 "throw_null_assert",
             );
-            ctx.builder().build_unreachable();
+            ctx.builder().build_unreachable().unwrap();
 
             // 正常分支：返回值
             ctx.builder().position_at_end(ok_bb);
@@ -641,7 +641,7 @@ fn compile_string_literal<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_, '_>,
     s: &str,
 ) -> Result<ExprResult<'ctx>, String> {
-    let global = ctx.builder().build_global_string_ptr(s, "str_lit");
+    let global = ctx.builder().build_global_string_ptr(s, "str_lit").unwrap();
     Ok(ExprResult::new(
         BasicValueEnum::PointerValue(global.as_pointer_value()),
         Type::String,
@@ -673,7 +673,7 @@ fn compile_template_literal<'ctx>(
     for part in parts {
         match part {
             TemplatePart::String(s) => {
-                let global = ctx.builder().build_global_string_ptr(s, "tmpl_str");
+                let global = ctx.builder().build_global_string_ptr(s, "tmpl_str").unwrap();
                 let str_ptr = global.as_pointer_value();
                 match result_ptr {
                     None => result_ptr = Some(str_ptr),
@@ -681,9 +681,9 @@ fn compile_template_literal<'ctx>(
                         let res = ctx
                             .builder()
                             .build_call(concat_fn, &[prev.into(), str_ptr.into()], "str_concat")
-                            .try_as_basic_value()
-                            .left()
                             .unwrap()
+                            .try_as_basic_value()
+                            .unwrap_basic()
                             .into_pointer_value();
                         result_ptr = Some(res);
                     }
@@ -698,9 +698,9 @@ fn compile_template_literal<'ctx>(
                         let res = ctx
                             .builder()
                             .build_call(concat_fn, &[prev.into(), expr_ptr.into()], "str_concat")
-                            .try_as_basic_value()
-                            .left()
                             .unwrap()
+                            .try_as_basic_value()
+                            .unwrap_basic()
                             .into_pointer_value();
                         result_ptr = Some(res);
                     }
@@ -731,7 +731,6 @@ fn compile_null_literal<'ctx>(
     } else {
         let null_ptr = ctx
             .context
-            .i8_type()
             .ptr_type(Default::default())
             .const_null();
         Ok(ExprResult::new(
@@ -745,7 +744,7 @@ pub fn compile_bigint_literal<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_, '_>,
     n: &str,
 ) -> Result<ExprResult<'ctx>, String> {
-    let global = ctx.builder().build_global_string_ptr(n, "bigint_lit");
+    let global = ctx.builder().build_global_string_ptr(n, "bigint_lit").unwrap();
     let str_ptr = global.as_pointer_value();
     let bigint_ptr =
         super::builtins::build_ruyi_bigint_from_str(ctx.builder(), ctx.module, str_ptr)?;
@@ -761,7 +760,7 @@ fn compile_identifier<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     match ctx.lookup_variable(name) {
         Some((ptr, ty)) => {
-            let val = ctx.builder().build_load(ptr, name);
+            let val = ctx.builder().build_load(ruyi_type_to_llvm(ctx.context, &ty), ptr, name).unwrap();
             Ok(ExprResult::new(val, ty))
         }
         None => {
@@ -802,7 +801,7 @@ fn compile_member_access<'ctx>(
                             BasicValueEnum::IntValue(v) => v,
                             BasicValueEnum::FloatValue(v) => ctx
                                 .builder()
-                                .build_float_to_signed_int(v, ctx.context.i64_type(), "idx_f2i"),
+                                .build_float_to_signed_int(v, ctx.context.i64_type(), "idx_f2i").unwrap(),
                             _ => return Err("Array index must be an integer".to_string()),
                         }
                     }
@@ -817,24 +816,25 @@ fn compile_member_access<'ctx>(
                     let stride = i64_ty.const_int(16, false);
                     let byte_offset = ctx.builder().build_int_add(
                         header_size,
-                        ctx.builder().build_int_mul(index_val, stride, "dyn_stride"),
+                        ctx.builder().build_int_mul(index_val, stride, "dyn_stride").unwrap(),
                         "dyn_offset",
-                    );
+                    ).unwrap();
                     let offset_i32 = ctx.builder().build_int_truncate(
                         byte_offset,
                         ctx.context.i32_type(),
                         "off32",
-                    );
+                    ).unwrap();
                     let elem_gep = unsafe {
                         ctx.builder()
-                            .build_gep(arr_ptr, &[offset_i32], "dyn_elem_gep")
+                            .build_gep(ctx.context.i8_type(), arr_ptr, &[offset_i32], "dyn_elem_gep")
+                            .unwrap()
                     };
                     let struct_ptr = ctx.builder().build_pointer_cast(
                         elem_gep,
-                        dyn_struct_ty.ptr_type(Default::default()),
+                        ctx.context.ptr_type(Default::default()),
                         "dyn_struct_ptr",
-                    );
-                    let loaded = ctx.builder().build_load(struct_ptr, "dyn_elem");
+                    ).unwrap();
+                    let loaded = ctx.builder().build_load(dyn_struct_ty, struct_ptr, "dyn_elem").unwrap();
                     return Ok(ExprResult::new(loaded, Type::Dynamic));
                 }
 
@@ -851,11 +851,11 @@ fn compile_member_access<'ctx>(
                 // pointer, not an int).
                 return Ok(match elem_ty.as_ref() {
                     Type::Float => {
-                        let f = ctx.builder().build_bitcast(
+                        let f = ctx.builder().build_bit_cast(
                             elem_val,
                             ctx.context.f64_type(),
                             "elem_f64",
-                        );
+                        ).unwrap();
                         ExprResult::new(f, Type::Float)
                     }
                     Type::String
@@ -865,9 +865,9 @@ fn compile_member_access<'ctx>(
                     | Type::Function { .. } => {
                         let ptr = ctx.builder().build_int_to_ptr(
                             elem_val,
-                            ctx.context.i8_type().ptr_type(Default::default()),
+                            ctx.context.ptr_type(Default::default()),
                             "elem_ptr",
-                        );
+                        ).unwrap();
                         ExprResult::new(BasicValueEnum::PointerValue(ptr), *elem_ty.clone())
                     }
                     _ => ExprResult::new(BasicValueEnum::IntValue(elem_val), Type::Int),
@@ -894,14 +894,15 @@ fn compile_member_access<'ctx>(
                     );
                     let field_ptr = unsafe {
                         ctx.builder()
-                            .build_gep(obj_ptr, &[offset], &format!("{}_ptr", field.name))
+                            .build_gep(ctx.context.i8_type(), obj_ptr, &[offset], &format!("{}_ptr", field.name))
+                            .unwrap()
                     };
                     let typed_ptr = ctx.builder().build_pointer_cast(
                         field_ptr,
-                        ruyi_type_to_llvm(ctx.context, &field.ty).ptr_type(Default::default()),
+                        ctx.context.ptr_type(Default::default()),
                         &format!("{}_typed", field.name),
-                    );
-                    let field_val = ctx.builder().build_load(typed_ptr, &field.name);
+                    ).unwrap();
+                    let field_val = ctx.builder().build_load(ruyi_type_to_llvm(ctx.context, &field.ty), typed_ptr, &field.name).unwrap();
                     return Ok(ExprResult::new(field_val, field.ty.clone()));
                 }
             }
@@ -931,13 +932,13 @@ fn compile_member_access<'ctx>(
                             let llvm_ty = ruyi_type_to_llvm(ctx.context, &field_ty);
                             let typed_ptr = ctx
                                 .builder()
-                                .build_bitcast(
+                                .build_bit_cast(
                                     global.as_pointer_value(),
-                                    llvm_ty.ptr_type(Default::default()),
+                                    ctx.context.ptr_type(Default::default()),
                                     "static_field_ptr",
-                                )
+                                ).unwrap()
                                 .into_pointer_value();
-                            let value = ctx.builder().build_load(typed_ptr, field_name);
+                            let value = ctx.builder().build_load(llvm_ty, typed_ptr, field_name).unwrap();
                             return Ok(ExprResult::new(value, field_ty));
                         }
                     }
@@ -958,12 +959,12 @@ fn value_to_i8_ptr<'ctx>(
     ctx: &CodegenContext<'ctx, '_, '_>,
     value: &BasicValueEnum<'ctx>,
 ) -> Result<inkwell::values::PointerValue<'ctx>, String> {
-    let i8_ptr_ty = ctx.context.i8_type().ptr_type(Default::default());
+    let i8_ptr_ty = ctx.context.ptr_type(Default::default());
     match value {
         BasicValueEnum::PointerValue(p) => {
             Ok(ctx
                 .builder()
-                .build_pointer_cast(*p, i8_ptr_ty, "cast_i8_ptr"))
+                .build_pointer_cast(*p, i8_ptr_ty, "cast_i8_ptr").unwrap())
         }
         BasicValueEnum::IntValue(v) => {
             let func = ctx
@@ -972,9 +973,9 @@ fn value_to_i8_ptr<'ctx>(
                 .ok_or_else(|| "ruyi_int_to_string not declared".to_string())?;
             let call = ctx
                 .builder()
-                .build_call(func, &[(*v).into()], "int_to_str")
+                .build_call(func, &[(*v).into()], "int_to_str").unwrap()
                 .try_as_basic_value()
-                .left()
+                .basic()
                 .ok_or_else(|| "ruyi_int_to_string did not return a value".to_string())?;
             Ok(call.into_pointer_value())
         }
@@ -985,9 +986,9 @@ fn value_to_i8_ptr<'ctx>(
                 .ok_or_else(|| "ruyi_float_to_string not declared".to_string())?;
             let call = ctx
                 .builder()
-                .build_call(func, &[(*v).into()], "float_to_str")
+                .build_call(func, &[(*v).into()], "float_to_str").unwrap()
                 .try_as_basic_value()
-                .left()
+                .basic()
                 .ok_or_else(|| "ruyi_float_to_string did not return a value".to_string())?;
             Ok(call.into_pointer_value())
         }
@@ -1020,7 +1021,7 @@ fn compile_tuple_field_access<'ctx>(
     let field_val = ctx
         .builder()
         .build_extract_value(struct_val, index as u32, &format!("tuple_field_{}", index))
-        .ok_or_else(|| format!("Failed to extract tuple field at index {}", index))?;
+        .unwrap();
 
     Ok(ExprResult::new(field_val, field_ty))
 }
@@ -1068,20 +1069,21 @@ fn class_field_access<'ctx>(
         .ok_or_else(|| format!("No struct type for class: {}", class_name))?;
     let struct_ptr = ctx.builder().build_pointer_cast(
         obj_ptr,
-        struct_type.ptr_type(Default::default()),
+        ctx.context.ptr_type(Default::default()),
         &format!("{}_cast", class_name),
-    );
+    ).unwrap();
     let field_index = fields.iter().position(|(n, _)| n == field_name).unwrap();
     let i32_ty = ctx.context.i32_type();
     let field_ptr = unsafe {
         ctx.builder().build_gep(
+            *struct_type,
             struct_ptr,
             &[
                 i32_ty.const_int(0, false),
                 i32_ty.const_int(field_index as u64, false),
             ],
             &format!("{}_ptr", field_name),
-        )
+        ).unwrap()
     };
     Ok((field_ptr, field_ty))
 }
@@ -1118,7 +1120,7 @@ fn emit_field_store<'ctx>(
     // Dynamic boxing 优先级最高
     if *field_ty == Type::Dynamic && *value_ty != Type::Dynamic {
         let dyn_val = build_box_dynamic(ctx, value, value_ty);
-        ctx.builder().build_store(field_ptr, dyn_val);
+        ctx.builder().build_store(field_ptr, dyn_val).unwrap();
         return;
     }
 
@@ -1126,7 +1128,7 @@ fn emit_field_store<'ctx>(
 
     // 非泛型字段：类型匹配时直接 store
     if !is_generic_type_param(field_ty) && field_llvm_ty == value.get_type() {
-        ctx.builder().build_store(field_ptr, value);
+        ctx.builder().build_store(field_ptr, value).unwrap();
         return;
     }
 
@@ -1137,35 +1139,35 @@ fn emit_field_store<'ctx>(
                 // i64 / i1 → inttoptr i8*
                 let ptr_val = ctx.builder().build_int_to_ptr(
                     int_val,
-                    ctx.context.i8_type().ptr_type(Default::default()),
+                    ctx.context.ptr_type(Default::default()),
                     "field_int_to_ptr",
-                );
-                ctx.builder().build_store(field_ptr, ptr_val);
+                ).unwrap();
+                ctx.builder().build_store(field_ptr, ptr_val).unwrap();
             }
             BasicValueEnum::FloatValue(float_val) => {
                 // f64 → bitcast i64 → inttoptr i8*
-                let as_int = ctx.builder().build_bitcast(
+                let as_int = ctx.builder().build_bit_cast(
                     float_val,
                     ctx.context.i64_type(),
                     "field_f64_as_i64",
-                );
+                ).unwrap();
                 let as_ptr = ctx.builder().build_int_to_ptr(
                     as_int.into_int_value(),
-                    ctx.context.i8_type().ptr_type(Default::default()),
+                    ctx.context.ptr_type(Default::default()),
                     "field_f64_to_ptr",
-                );
-                ctx.builder().build_store(field_ptr, as_ptr);
+                ).unwrap();
+                ctx.builder().build_store(field_ptr, as_ptr).unwrap();
             }
             _ => {
                 // 指针类型（i8*）直接 store
-                ctx.builder().build_store(field_ptr, value);
+                ctx.builder().build_store(field_ptr, value).unwrap();
             }
         }
         return;
     }
 
     // 兑底：直接 store
-    ctx.builder().build_store(field_ptr, value);
+    ctx.builder().build_store(field_ptr, value).unwrap();
 }
 
 /**
@@ -1192,32 +1194,32 @@ fn emit_field_load<'ctx>(
     if *field_ty == Type::Float && !llvm_ty.is_float_type() {
         let i64_ptr = ctx
             .builder()
-            .build_bitcast(
+            .build_bit_cast(
                 field_ptr,
-                ctx.context.i64_type().ptr_type(Default::default()),
+                ctx.context.ptr_type(Default::default()),
                 "field_i64_ptr",
-            )
+            ).unwrap()
             .into_pointer_value();
         let loaded = ctx
             .builder()
-            .build_load(i64_ptr, field_name)
+            .build_load(ctx.context.i64_type(), i64_ptr, field_name).unwrap()
             .into_int_value();
         let float_val = ctx
             .builder()
-            .build_bitcast(loaded, ctx.context.f64_type(), "field_float");
+            .build_bit_cast(loaded, ctx.context.f64_type(), "field_float").unwrap();
         return BasicValueEnum::FloatValue(float_val.into_float_value());
     }
 
     // 将 field_ptr 转换为正确类型的指针后加载
     let typed_ptr = ctx
         .builder()
-        .build_bitcast(
+        .build_bit_cast(
             field_ptr,
-            llvm_ty.ptr_type(Default::default()),
+            ctx.context.ptr_type(Default::default()),
             "field_typed_ptr",
-        )
+        ).unwrap()
         .into_pointer_value();
-    ctx.builder().build_load(typed_ptr, field_name)
+    ctx.builder().build_load(llvm_ty, typed_ptr, field_name).unwrap()
 }
 
 fn compile_simple_member_access<'ctx>(
@@ -1241,15 +1243,16 @@ fn compile_simple_member_access<'ctx>(
             .const_int((field_index * 8) as u64, false);
         let field_ptr = unsafe {
             ctx.builder()
-                .build_gep(obj_ptr, &[offset], &format!("{}_ptr", field_name))
+                .build_gep(ctx.context.i8_type(), obj_ptr, &[offset], &format!("{}_ptr", field_name))
+                .unwrap()
         };
         let llvm_ty = ruyi_type_to_llvm(ctx.context, field_ty);
         let typed_ptr = ctx.builder().build_pointer_cast(
             field_ptr,
-            llvm_ty.ptr_type(Default::default()),
+            ctx.context.ptr_type(Default::default()),
             "field_typed_ptr",
-        );
-        let value = ctx.builder().build_load(typed_ptr, field_name);
+        ).unwrap();
+        let value = ctx.builder().build_load(llvm_ty, typed_ptr, field_name).unwrap();
         return Ok(ExprResult::new(value, field_ty.clone()));
     }
 
@@ -1288,9 +1291,9 @@ fn compile_simple_member_access<'ctx>(
             .ok_or_else(|| format!("Getter function not found: {}", getter_fn_name))?;
         let result = ctx
             .builder()
-            .build_call(getter_fn, &[obj_ptr.into()], &format!("get_{}", field_name))
+            .build_call(getter_fn, &[obj_ptr.into()], &format!("get_{}", field_name)).unwrap()
             .try_as_basic_value()
-            .left()
+            .basic()
             .ok_or_else(|| format!("Getter {} returned void", getter_fn_name))?;
         // Determine return type from the function's declared return type
         let ret_ty = ctx
@@ -1322,33 +1325,33 @@ fn compile_optional_member_access<'ctx>(
 
     let func = ctx.current_function().ok_or("No current function")?;
     let i64_ty = ctx.context.i64_type();
-    let obj_int = ctx.builder().build_ptr_to_int(obj_ptr, i64_ty, "obj_int");
+    let obj_int = ctx.builder().build_ptr_to_int(obj_ptr, i64_ty, "obj_int").unwrap();
     let is_null = ctx.builder().build_int_compare(
         inkwell::IntPredicate::EQ,
         obj_int,
         i64_ty.const_int(0, false),
         "is_null",
-    );
+    ).unwrap();
 
     let non_null_bb = ctx.context.append_basic_block(func, "opt_non_null");
     let null_bb = ctx.context.append_basic_block(func, "opt_null");
     let merge_bb = ctx.context.append_basic_block(func, "opt_merge");
 
     ctx.builder()
-        .build_conditional_branch(is_null, null_bb, non_null_bb);
+        .build_conditional_branch(is_null, null_bb, non_null_bb).unwrap();
 
     ctx.builder().position_at_end(null_bb);
     let llvm_ty = ruyi_type_to_llvm(ctx.context, &field_ty);
     let null_val = build_zero_value(llvm_ty);
-    ctx.builder().build_unconditional_branch(merge_bb);
+    ctx.builder().build_unconditional_branch(merge_bb).unwrap();
 
     ctx.builder().position_at_end(non_null_bb);
     let value = emit_field_load(ctx, field_ptr, &field_ty, field_name);
-    ctx.builder().build_unconditional_branch(merge_bb);
+    ctx.builder().build_unconditional_branch(merge_bb).unwrap();
     let non_null_bb_end = ctx.builder().get_insert_block().unwrap();
 
     ctx.builder().position_at_end(merge_bb);
-    let phi = ctx.builder().build_phi(llvm_ty, "opt_phi");
+    let phi = ctx.builder().build_phi(llvm_ty, "opt_phi").unwrap();
     phi.add_incoming(&[(&null_val, null_bb), (&value, non_null_bb_end)]);
 
     let result_ty = field_ty.make_nullable();
@@ -1369,6 +1372,7 @@ fn build_zero_value<'ctx>(ty: inkwell::types::BasicTypeEnum<'ctx>) -> BasicValue
         inkwell::types::BasicTypeEnum::StructType(t) => BasicValueEnum::StructValue(t.const_zero()),
         inkwell::types::BasicTypeEnum::ArrayType(t) => BasicValueEnum::ArrayValue(t.const_zero()),
         inkwell::types::BasicTypeEnum::VectorType(t) => BasicValueEnum::VectorValue(t.const_zero()),
+        _ => panic!("Unsupported type in build_zero_value"),
     }
 }
 
@@ -1423,12 +1427,12 @@ fn compile_instanceof<'ctx>(
     let i64_ty = ctx.context.i64_type();
     let typeid_ptr = ctx.builder().build_pointer_cast(
         obj_ptr,
-        i64_ty.ptr_type(Default::default()),
+        ctx.context.ptr_type(Default::default()),
         "typeid_i64_ptr",
-    );
+    ).unwrap();
     let actual_id = ctx
         .builder()
-        .build_load(typeid_ptr, "actual_typeid")
+        .build_load(i64_ty, typeid_ptr, "actual_typeid").unwrap()
         .into_int_value();
 
     // Compare against each accepted ID (target + ancestors).
@@ -1441,8 +1445,8 @@ fn compile_instanceof<'ctx>(
             actual_id,
             expected,
             "instanceof_cmp",
-        );
-        result = ctx.builder().build_or(result, cmp, "instanceof_or");
+        ).unwrap();
+        result = ctx.builder().build_or(result, cmp, "instanceof_or").unwrap();
     }
 
     Ok(ExprResult::new(
@@ -1527,9 +1531,9 @@ fn compile_add<'ctx>(
         let res = ctx
             .builder()
             .build_call(concat_fn, &[l.into(), r.into()], "str_concat")
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_pointer_value();
         return Ok(ExprResult::new(
             BasicValueEnum::PointerValue(res),
@@ -1548,9 +1552,9 @@ fn compile_add<'ctx>(
         let r_str = ctx
             .builder()
             .build_call(int_to_str_fn, &[r_int.into()], "int_to_str")
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_pointer_value();
         let concat_fn = ctx
             .module
@@ -1559,9 +1563,9 @@ fn compile_add<'ctx>(
         let res = ctx
             .builder()
             .build_call(concat_fn, &[l.into(), r_str.into()], "str_concat")
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_pointer_value();
         return Ok(ExprResult::new(
             BasicValueEnum::PointerValue(res),
@@ -1580,9 +1584,9 @@ fn compile_add<'ctx>(
         let r_str = ctx
             .builder()
             .build_call(float_to_str_fn, &[r_float.into()], "float_to_str")
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_pointer_value();
         let concat_fn = ctx
             .module
@@ -1591,9 +1595,9 @@ fn compile_add<'ctx>(
         let res = ctx
             .builder()
             .build_call(concat_fn, &[l.into(), r_str.into()], "str_concat")
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_pointer_value();
         return Ok(ExprResult::new(
             BasicValueEnum::PointerValue(res),
@@ -1612,9 +1616,9 @@ fn compile_add<'ctx>(
         let l_str = ctx
             .builder()
             .build_call(int_to_str_fn, &[l_int.into()], "int_to_str")
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_pointer_value();
         let concat_fn = ctx
             .module
@@ -1623,9 +1627,9 @@ fn compile_add<'ctx>(
         let res = ctx
             .builder()
             .build_call(concat_fn, &[l_str.into(), r.into()], "str_concat")
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_pointer_value();
         return Ok(ExprResult::new(
             BasicValueEnum::PointerValue(res),
@@ -1644,9 +1648,9 @@ fn compile_add<'ctx>(
         let l_str = ctx
             .builder()
             .build_call(float_to_str_fn, &[l_float.into()], "float_to_str")
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_pointer_value();
         let concat_fn = ctx
             .module
@@ -1655,9 +1659,9 @@ fn compile_add<'ctx>(
         let res = ctx
             .builder()
             .build_call(concat_fn, &[l_str.into(), r.into()], "str_concat")
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_pointer_value();
         return Ok(ExprResult::new(
             BasicValueEnum::PointerValue(res),
@@ -1676,9 +1680,9 @@ fn compile_add<'ctx>(
         let r_str = ctx
             .builder()
             .build_call(bool_to_str_fn, &[r_bool.into()], "bool_to_str")
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_pointer_value();
         let concat_fn = ctx
             .module
@@ -1687,9 +1691,9 @@ fn compile_add<'ctx>(
         let res = ctx
             .builder()
             .build_call(concat_fn, &[l.into(), r_str.into()], "str_concat")
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_pointer_value();
         return Ok(ExprResult::new(
             BasicValueEnum::PointerValue(res),
@@ -1708,9 +1712,9 @@ fn compile_add<'ctx>(
         let l_str = ctx
             .builder()
             .build_call(bool_to_str_fn, &[l_bool.into()], "bool_to_str")
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_pointer_value();
         let concat_fn = ctx
             .module
@@ -1719,9 +1723,9 @@ fn compile_add<'ctx>(
         let res = ctx
             .builder()
             .build_call(concat_fn, &[l_str.into(), r.into()], "str_concat")
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_pointer_value();
         return Ok(ExprResult::new(
             BasicValueEnum::PointerValue(res),
@@ -1747,9 +1751,9 @@ fn compile_add<'ctx>(
         let res = ctx
             .builder()
             .build_call(concat_fn, &[l.into(), r.into()], "str_concat")
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_pointer_value();
         return Ok(ExprResult::new(
             BasicValueEnum::PointerValue(res),
@@ -1759,11 +1763,11 @@ fn compile_add<'ctx>(
 
     match (&left.value, &right.value) {
         (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
-            let res = ctx.builder().build_int_add(*l, *r, "add");
+            let res = ctx.builder().build_int_add(*l, *r, "add").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
         }
         (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
-            let res = ctx.builder().build_float_add(*l, *r, "fadd");
+            let res = ctx.builder().build_float_add(*l, *r, "fadd").unwrap();
             Ok(ExprResult::new(
                 BasicValueEnum::FloatValue(res),
                 Type::Float,
@@ -1772,8 +1776,8 @@ fn compile_add<'ctx>(
         (BasicValueEnum::IntValue(l), BasicValueEnum::FloatValue(r)) => {
             let l_f = ctx
                 .builder()
-                .build_signed_int_to_float(*l, ctx.context.f64_type(), "itof");
-            let res = ctx.builder().build_float_add(l_f, *r, "fadd");
+                .build_signed_int_to_float(*l, ctx.context.f64_type(), "itof").unwrap();
+            let res = ctx.builder().build_float_add(l_f, *r, "fadd").unwrap();
             Ok(ExprResult::new(
                 BasicValueEnum::FloatValue(res),
                 Type::Float,
@@ -1782,8 +1786,8 @@ fn compile_add<'ctx>(
         (BasicValueEnum::FloatValue(l), BasicValueEnum::IntValue(r)) => {
             let r_f = ctx
                 .builder()
-                .build_signed_int_to_float(*r, ctx.context.f64_type(), "itof");
-            let res = ctx.builder().build_float_add(*l, r_f, "fadd");
+                .build_signed_int_to_float(*r, ctx.context.f64_type(), "itof").unwrap();
+            let res = ctx.builder().build_float_add(*l, r_f, "fadd").unwrap();
             Ok(ExprResult::new(
                 BasicValueEnum::FloatValue(res),
                 Type::Float,
@@ -1798,7 +1802,7 @@ fn compile_add<'ctx>(
                 .build_extract_value(*s, 0, "dyn_int")
                 .unwrap()
                 .into_int_value();
-            let res = ctx.builder().build_int_add(l_int, *r, "add");
+            let res = ctx.builder().build_int_add(l_int, *r, "add").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
         }
         (BasicValueEnum::IntValue(l), BasicValueEnum::StructValue(s))
@@ -1809,7 +1813,7 @@ fn compile_add<'ctx>(
                 .build_extract_value(*s, 0, "dyn_int")
                 .unwrap()
                 .into_int_value();
-            let res = ctx.builder().build_int_add(*l, r_int, "add");
+            let res = ctx.builder().build_int_add(*l, r_int, "add").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
         }
         (BasicValueEnum::StructValue(l), BasicValueEnum::StructValue(r))
@@ -1825,7 +1829,7 @@ fn compile_add<'ctx>(
                 .build_extract_value(*r, 0, "dyn_r")
                 .unwrap()
                 .into_int_value();
-            let res = ctx.builder().build_int_add(l_int, r_int, "add");
+            let res = ctx.builder().build_int_add(l_int, r_int, "add").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
         }
         // PointerValue (String) + StructValue (Dynamic): 提取 i8* 做字符串拼接
@@ -1844,9 +1848,9 @@ fn compile_add<'ctx>(
             let res = ctx
                 .builder()
                 .build_call(concat_fn, &[(*l).into(), r_ptr.into()], "str_concat")
-                .try_as_basic_value()
-                .left()
                 .unwrap()
+                .try_as_basic_value()
+                .unwrap_basic()
                 .into_pointer_value();
             Ok(ExprResult::new(
                 BasicValueEnum::PointerValue(res),
@@ -1868,9 +1872,9 @@ fn compile_add<'ctx>(
             let res = ctx
                 .builder()
                 .build_call(concat_fn, &[l_ptr.into(), (*r).into()], "str_concat")
-                .try_as_basic_value()
-                .left()
                 .unwrap()
+                .try_as_basic_value()
+                .unwrap_basic()
                 .into_pointer_value();
             Ok(ExprResult::new(
                 BasicValueEnum::PointerValue(res),
@@ -1890,9 +1894,9 @@ fn compile_add<'ctx>(
             let res = ctx
                 .builder()
                 .build_call(concat_fn, &[(*l).into(), (*r).into()], "str_concat")
-                .try_as_basic_value()
-                .left()
                 .unwrap()
+                .try_as_basic_value()
+                .unwrap_basic()
                 .into_pointer_value();
             Ok(ExprResult::new(
                 BasicValueEnum::PointerValue(res),
@@ -1913,11 +1917,11 @@ fn compile_sub<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     match (&left.value, &right.value) {
         (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
-            let res = ctx.builder().build_int_sub(*l, *r, "sub");
+            let res = ctx.builder().build_int_sub(*l, *r, "sub").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
         }
         (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
-            let res = ctx.builder().build_float_sub(*l, *r, "fsub");
+            let res = ctx.builder().build_float_sub(*l, *r, "fsub").unwrap();
             Ok(ExprResult::new(
                 BasicValueEnum::FloatValue(res),
                 Type::Float,
@@ -1926,8 +1930,8 @@ fn compile_sub<'ctx>(
         (BasicValueEnum::IntValue(l), BasicValueEnum::FloatValue(r)) => {
             let l_f = ctx
                 .builder()
-                .build_signed_int_to_float(*l, ctx.context.f64_type(), "itof");
-            let res = ctx.builder().build_float_sub(l_f, *r, "fsub");
+                .build_signed_int_to_float(*l, ctx.context.f64_type(), "itof").unwrap();
+            let res = ctx.builder().build_float_sub(l_f, *r, "fsub").unwrap();
             Ok(ExprResult::new(
                 BasicValueEnum::FloatValue(res),
                 Type::Float,
@@ -1936,8 +1940,8 @@ fn compile_sub<'ctx>(
         (BasicValueEnum::FloatValue(l), BasicValueEnum::IntValue(r)) => {
             let r_f = ctx
                 .builder()
-                .build_signed_int_to_float(*r, ctx.context.f64_type(), "itof");
-            let res = ctx.builder().build_float_sub(*l, r_f, "fsub");
+                .build_signed_int_to_float(*r, ctx.context.f64_type(), "itof").unwrap();
+            let res = ctx.builder().build_float_sub(*l, r_f, "fsub").unwrap();
             Ok(ExprResult::new(
                 BasicValueEnum::FloatValue(res),
                 Type::Float,
@@ -1957,11 +1961,11 @@ fn compile_mul<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     match (&left.value, &right.value) {
         (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
-            let res = ctx.builder().build_int_mul(*l, *r, "mul");
+            let res = ctx.builder().build_int_mul(*l, *r, "mul").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
         }
         (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
-            let res = ctx.builder().build_float_mul(*l, *r, "fmul");
+            let res = ctx.builder().build_float_mul(*l, *r, "fmul").unwrap();
             Ok(ExprResult::new(
                 BasicValueEnum::FloatValue(res),
                 Type::Float,
@@ -1971,7 +1975,7 @@ fn compile_mul<'ctx>(
             ctx,
             left,
             right,
-            |l, r| ctx.builder().build_float_mul(l, r, "fmul"),
+            |l, r| ctx.builder().build_float_mul(l, r, "fmul").unwrap(),
             "*",
         ),
     }
@@ -1995,7 +1999,7 @@ where
         (BasicValueEnum::IntValue(l), BasicValueEnum::FloatValue(r)) => {
             let l_f = ctx
                 .builder()
-                .build_signed_int_to_float(*l, ctx.context.f64_type(), "itof");
+                .build_signed_int_to_float(*l, ctx.context.f64_type(), "itof").unwrap();
             let res = float_op(l_f, *r);
             Ok(ExprResult::new(
                 BasicValueEnum::FloatValue(res),
@@ -2005,7 +2009,7 @@ where
         (BasicValueEnum::FloatValue(l), BasicValueEnum::IntValue(r)) => {
             let r_f = ctx
                 .builder()
-                .build_signed_int_to_float(*r, ctx.context.f64_type(), "itof");
+                .build_signed_int_to_float(*r, ctx.context.f64_type(), "itof").unwrap();
             let res = float_op(*l, r_f);
             Ok(ExprResult::new(
                 BasicValueEnum::FloatValue(res),
@@ -2042,12 +2046,12 @@ fn build_numeric_cmp<'ctx>(
                     std::cmp::max(l.get_type().get_bit_width(), r.get_type().get_bit_width());
                 let wide_ty = ctx.context.custom_width_int_type(max_bits);
                 let l_e = if l.get_type().get_bit_width() < max_bits {
-                    ctx.builder().build_int_z_extend(*l, wide_ty, "cmp_zext_l")
+                    ctx.builder().build_int_z_extend(*l, wide_ty, "cmp_zext_l").unwrap()
                 } else {
                     *l
                 };
                 let r_e = if r.get_type().get_bit_width() < max_bits {
-                    ctx.builder().build_int_z_extend(*r, wide_ty, "cmp_zext_r")
+                    ctx.builder().build_int_z_extend(*r, wide_ty, "cmp_zext_r").unwrap()
                 } else {
                     *r
                 };
@@ -2057,7 +2061,7 @@ fn build_numeric_cmp<'ctx>(
             };
             let res = ctx
                 .builder()
-                .build_int_compare(int_pred, l_ext, r_ext, op_name);
+                .build_int_compare(int_pred, l_ext, r_ext, op_name).unwrap();
             Ok(Some(ExprResult::new(
                 BasicValueEnum::IntValue(res),
                 Type::Bool,
@@ -2066,7 +2070,7 @@ fn build_numeric_cmp<'ctx>(
         (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
             let res =
                 ctx.builder()
-                    .build_float_compare(float_pred, *l, *r, &format!("f{}", op_name));
+                    .build_float_compare(float_pred, *l, *r, &format!("f{}", op_name)).unwrap();
             Ok(Some(ExprResult::new(
                 BasicValueEnum::IntValue(res),
                 Type::Bool,
@@ -2076,13 +2080,13 @@ fn build_numeric_cmp<'ctx>(
         (BasicValueEnum::IntValue(l), BasicValueEnum::FloatValue(r)) => {
             let l_f = ctx
                 .builder()
-                .build_signed_int_to_float(*l, ctx.context.f64_type(), "itof");
+                .build_signed_int_to_float(*l, ctx.context.f64_type(), "itof").unwrap();
             let res = ctx.builder().build_float_compare(
                 float_pred,
                 l_f,
                 *r,
                 &format!("mixed_f{}", op_name),
-            );
+            ).unwrap();
             Ok(Some(ExprResult::new(
                 BasicValueEnum::IntValue(res),
                 Type::Bool,
@@ -2092,13 +2096,13 @@ fn build_numeric_cmp<'ctx>(
         (BasicValueEnum::FloatValue(l), BasicValueEnum::IntValue(r)) => {
             let r_f = ctx
                 .builder()
-                .build_signed_int_to_float(*r, ctx.context.f64_type(), "itof");
+                .build_signed_int_to_float(*r, ctx.context.f64_type(), "itof").unwrap();
             let res = ctx.builder().build_float_compare(
                 float_pred,
                 *l,
                 r_f,
                 &format!("mixed_f{}", op_name),
-            );
+            ).unwrap();
             Ok(Some(ExprResult::new(
                 BasicValueEnum::IntValue(res),
                 Type::Bool,
@@ -2115,11 +2119,11 @@ fn compile_div<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     match (&left.value, &right.value) {
         (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
-            let res = ctx.builder().build_int_signed_div(*l, *r, "sdiv");
+            let res = ctx.builder().build_int_signed_div(*l, *r, "sdiv").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
         }
         (BasicValueEnum::FloatValue(l), BasicValueEnum::FloatValue(r)) => {
-            let res = ctx.builder().build_float_div(*l, *r, "fdiv");
+            let res = ctx.builder().build_float_div(*l, *r, "fdiv").unwrap();
             Ok(ExprResult::new(
                 BasicValueEnum::FloatValue(res),
                 Type::Float,
@@ -2129,7 +2133,7 @@ fn compile_div<'ctx>(
             ctx,
             left,
             right,
-            |l, r| ctx.builder().build_float_div(l, r, "fdiv"),
+            |l, r| ctx.builder().build_float_div(l, r, "fdiv").unwrap(),
             "/",
         ),
     }
@@ -2142,14 +2146,14 @@ fn compile_rem<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     match (&left.value, &right.value) {
         (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
-            let res = ctx.builder().build_int_signed_rem(*l, *r, "srem");
+            let res = ctx.builder().build_int_signed_rem(*l, *r, "srem").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
         }
         _ => build_mixed_arith(
             ctx,
             left,
             right,
-            |l, r| ctx.builder().build_float_rem(l, r, "frem"),
+            |l, r| ctx.builder().build_float_rem(l, r, "frem").unwrap(),
             "%",
         ),
     }
@@ -2166,20 +2170,20 @@ fn compile_power<'ctx>(
         (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
             let l_f = ctx
                 .builder()
-                .build_signed_int_to_float(*l, ctx.context.f64_type(), "itof");
+                .build_signed_int_to_float(*l, ctx.context.f64_type(), "itof").unwrap();
             let r_f = ctx
                 .builder()
-                .build_signed_int_to_float(*r, ctx.context.f64_type(), "itof");
+                .build_signed_int_to_float(*r, ctx.context.f64_type(), "itof").unwrap();
             let res = ctx
                 .builder()
                 .build_call(pow_fn, &[l_f.into(), r_f.into()], "pow")
-                .try_as_basic_value()
-                .left()
                 .unwrap()
+                .try_as_basic_value()
+                .unwrap_basic()
                 .into_float_value();
             let res_int =
                 ctx.builder()
-                    .build_float_to_signed_int(res, ctx.context.i64_type(), "ftoi");
+                    .build_float_to_signed_int(res, ctx.context.i64_type(), "ftoi").unwrap();
             Ok(ExprResult::new(
                 BasicValueEnum::IntValue(res_int),
                 Type::Int,
@@ -2189,9 +2193,9 @@ fn compile_power<'ctx>(
             let res = ctx
                 .builder()
                 .build_call(pow_fn, &[(*l).into(), (*r).into()], "pow")
-                .try_as_basic_value()
-                .left()
                 .unwrap()
+                .try_as_basic_value()
+                .unwrap_basic()
                 .into_float_value();
             Ok(ExprResult::new(
                 BasicValueEnum::FloatValue(res),
@@ -2201,13 +2205,13 @@ fn compile_power<'ctx>(
         (BasicValueEnum::IntValue(l), BasicValueEnum::FloatValue(r)) => {
             let l_f = ctx
                 .builder()
-                .build_signed_int_to_float(*l, ctx.context.f64_type(), "itof");
+                .build_signed_int_to_float(*l, ctx.context.f64_type(), "itof").unwrap();
             let res = ctx
                 .builder()
                 .build_call(pow_fn, &[l_f.into(), (*r).into()], "pow")
-                .try_as_basic_value()
-                .left()
                 .unwrap()
+                .try_as_basic_value()
+                .unwrap_basic()
                 .into_float_value();
             Ok(ExprResult::new(
                 BasicValueEnum::FloatValue(res),
@@ -2217,13 +2221,13 @@ fn compile_power<'ctx>(
         (BasicValueEnum::FloatValue(l), BasicValueEnum::IntValue(r)) => {
             let r_f = ctx
                 .builder()
-                .build_signed_int_to_float(*r, ctx.context.f64_type(), "itof");
+                .build_signed_int_to_float(*r, ctx.context.f64_type(), "itof").unwrap();
             let res = ctx
                 .builder()
                 .build_call(pow_fn, &[(*l).into(), r_f.into()], "pow")
-                .try_as_basic_value()
-                .left()
                 .unwrap()
+                .try_as_basic_value()
+                .unwrap_basic()
                 .into_float_value();
             Ok(ExprResult::new(
                 BasicValueEnum::FloatValue(res),
@@ -2255,8 +2259,12 @@ fn compile_eq<'ctx>(
             if matches!(&left.ty, Type::Generic { .. })
                 && matches!(&right.ty, Type::Generic { .. }) =>
         {
-            let l_struct = ctx.builder().build_load(*l, "l_enum_loaded");
-            let r_struct = ctx.builder().build_load(*r, "r_enum_loaded");
+            let enum_struct_ty = ctx.context.struct_type(
+                &[ctx.context.i8_type().into(), ctx.context.ptr_type(Default::default()).into()],
+                false,
+            );
+            let l_struct = ctx.builder().build_load(enum_struct_ty, *l, "l_enum_loaded").unwrap();
+            let r_struct = ctx.builder().build_load(enum_struct_ty, *r, "r_enum_loaded").unwrap();
             let l_struct = match l_struct {
                 BasicValueEnum::StructValue(s) => s,
                 _ => return Err(format!("Enum pointer loaded to {:?}, not struct", l_struct)),
@@ -2277,7 +2285,7 @@ fn compile_eq<'ctx>(
                 .into_int_value();
             let tag_eq = ctx
                 .builder()
-                .build_int_compare(IntPredicate::EQ, l_tag, r_tag, "tag_eq");
+                .build_int_compare(IntPredicate::EQ, l_tag, r_tag, "tag_eq").unwrap();
             let l_val = ctx
                 .builder()
                 .build_extract_value(l_struct, 1, "l_val")
@@ -2290,14 +2298,14 @@ fn compile_eq<'ctx>(
                 .into_pointer_value();
             let li = ctx
                 .builder()
-                .build_ptr_to_int(l_val, ctx.context.i64_type(), "l_val_int");
+                .build_ptr_to_int(l_val, ctx.context.i64_type(), "l_val_int").unwrap();
             let ri = ctx
                 .builder()
-                .build_ptr_to_int(r_val, ctx.context.i64_type(), "r_val_int");
+                .build_ptr_to_int(r_val, ctx.context.i64_type(), "r_val_int").unwrap();
             let val_eq = ctx
                 .builder()
-                .build_int_compare(IntPredicate::EQ, li, ri, "val_eq");
-            let result = ctx.builder().build_and(tag_eq, val_eq, "enum_eq");
+                .build_int_compare(IntPredicate::EQ, li, ri, "val_eq").unwrap();
+            let result = ctx.builder().build_and(tag_eq, val_eq, "enum_eq").unwrap();
             Ok(ExprResult::new(
                 BasicValueEnum::IntValue(result),
                 Type::Bool,
@@ -2308,19 +2316,19 @@ fn compile_eq<'ctx>(
                 && matches!(&right.ty, Type::Generic { .. }) =>
         {
             let i8_ty = ctx.context.i8_type();
-            let i8_ptr_ty = i8_ty.ptr_type(Default::default());
+            let i8_ptr_ty = ctx.context.ptr_type(Default::default());
             let option_struct = ctx
                 .context
                 .struct_type(&[i8_ty.into(), i8_ptr_ty.into()], false);
             let l_struct_ptr = ctx
                 .builder()
-                .build_bitcast(
+                .build_bit_cast(
                     *l,
-                    option_struct.ptr_type(Default::default()),
+                    ctx.context.ptr_type(Default::default()),
                     "l_struct_ptr",
-                )
+                ).unwrap()
                 .into_pointer_value();
-            let l_struct = ctx.builder().build_load(l_struct_ptr, "l_enum_loaded");
+            let l_struct = ctx.builder().build_load(option_struct, l_struct_ptr, "l_enum_loaded").unwrap();
             let l_struct = match l_struct {
                 BasicValueEnum::StructValue(s) => s,
                 _ => return Err(format!("Enum pointer loaded to {:?}, not struct", l_struct)),
@@ -2337,7 +2345,7 @@ fn compile_eq<'ctx>(
                 .into_int_value();
             let tag_eq = ctx
                 .builder()
-                .build_int_compare(IntPredicate::EQ, l_tag, r_tag, "tag_eq");
+                .build_int_compare(IntPredicate::EQ, l_tag, r_tag, "tag_eq").unwrap();
             let l_val = ctx
                 .builder()
                 .build_extract_value(l_struct, 1, "l_val")
@@ -2350,14 +2358,14 @@ fn compile_eq<'ctx>(
                 .into_pointer_value();
             let li = ctx
                 .builder()
-                .build_ptr_to_int(l_val, ctx.context.i64_type(), "l_val_int");
+                .build_ptr_to_int(l_val, ctx.context.i64_type(), "l_val_int").unwrap();
             let ri = ctx
                 .builder()
-                .build_ptr_to_int(r_val, ctx.context.i64_type(), "r_val_int");
+                .build_ptr_to_int(r_val, ctx.context.i64_type(), "r_val_int").unwrap();
             let val_eq = ctx
                 .builder()
-                .build_int_compare(IntPredicate::EQ, li, ri, "val_eq");
-            let result = ctx.builder().build_and(tag_eq, val_eq, "enum_eq");
+                .build_int_compare(IntPredicate::EQ, li, ri, "val_eq").unwrap();
+            let result = ctx.builder().build_and(tag_eq, val_eq, "enum_eq").unwrap();
             Ok(ExprResult::new(
                 BasicValueEnum::IntValue(result),
                 Type::Bool,
@@ -2367,7 +2375,11 @@ fn compile_eq<'ctx>(
             if matches!(&left.ty, Type::Generic { .. })
                 && matches!(&right.ty, Type::Generic { .. }) =>
         {
-            let r_struct = ctx.builder().build_load(*r, "r_enum_loaded");
+            let enum_struct_ty = ctx.context.struct_type(
+                &[ctx.context.i8_type().into(), ctx.context.ptr_type(Default::default()).into()],
+                false,
+            );
+            let r_struct = ctx.builder().build_load(enum_struct_ty, *r, "r_enum_loaded").unwrap();
             let r_struct = match r_struct {
                 BasicValueEnum::StructValue(s) => s,
                 _ => return Err(format!("Enum pointer loaded to {:?}, not struct", r_struct)),
@@ -2384,7 +2396,7 @@ fn compile_eq<'ctx>(
                 .into_int_value();
             let tag_eq = ctx
                 .builder()
-                .build_int_compare(IntPredicate::EQ, l_tag, r_tag, "tag_eq");
+                .build_int_compare(IntPredicate::EQ, l_tag, r_tag, "tag_eq").unwrap();
             let l_val = ctx
                 .builder()
                 .build_extract_value(*l, 1, "l_val")
@@ -2397,14 +2409,14 @@ fn compile_eq<'ctx>(
                 .into_pointer_value();
             let li = ctx
                 .builder()
-                .build_ptr_to_int(l_val, ctx.context.i64_type(), "l_val_int");
+                .build_ptr_to_int(l_val, ctx.context.i64_type(), "l_val_int").unwrap();
             let ri = ctx
                 .builder()
-                .build_ptr_to_int(r_val, ctx.context.i64_type(), "r_val_int");
+                .build_ptr_to_int(r_val, ctx.context.i64_type(), "r_val_int").unwrap();
             let val_eq = ctx
                 .builder()
-                .build_int_compare(IntPredicate::EQ, li, ri, "val_eq");
-            let result = ctx.builder().build_and(tag_eq, val_eq, "enum_eq");
+                .build_int_compare(IntPredicate::EQ, li, ri, "val_eq").unwrap();
+            let result = ctx.builder().build_and(tag_eq, val_eq, "enum_eq").unwrap();
             Ok(ExprResult::new(
                 BasicValueEnum::IntValue(result),
                 Type::Bool,
@@ -2413,13 +2425,13 @@ fn compile_eq<'ctx>(
         (BasicValueEnum::PointerValue(l), BasicValueEnum::PointerValue(r)) => {
             let l_int = ctx
                 .builder()
-                .build_ptr_to_int(*l, ctx.context.i64_type(), "l_ptr_int");
+                .build_ptr_to_int(*l, ctx.context.i64_type(), "l_ptr_int").unwrap();
             let r_int = ctx
                 .builder()
-                .build_ptr_to_int(*r, ctx.context.i64_type(), "r_ptr_int");
+                .build_ptr_to_int(*r, ctx.context.i64_type(), "r_ptr_int").unwrap();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::EQ, l_int, r_int, "ptr_eq");
+                .build_int_compare(IntPredicate::EQ, l_int, r_int, "ptr_eq").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         (BasicValueEnum::StructValue(l), BasicValueEnum::StructValue(r)) => {
@@ -2439,30 +2451,30 @@ fn compile_eq<'ctx>(
                 let field_eq = match (l_field, r_field) {
                     (BasicValueEnum::IntValue(lv), BasicValueEnum::IntValue(rv)) => ctx
                         .builder()
-                        .build_int_compare(IntPredicate::EQ, lv, rv, &format!("field_eq_{}", i)),
+                        .build_int_compare(IntPredicate::EQ, lv, rv, &format!("field_eq_{}", i)).unwrap(),
                     (BasicValueEnum::PointerValue(lp), BasicValueEnum::PointerValue(rp)) => {
                         let li = ctx.builder().build_ptr_to_int(
                             lp,
                             ctx.context.i64_type(),
                             &format!("l_ptr_int_{}", i),
-                        );
+                        ).unwrap();
                         let ri = ctx.builder().build_ptr_to_int(
                             rp,
                             ctx.context.i64_type(),
                             &format!("r_ptr_int_{}", i),
-                        );
+                        ).unwrap();
                         ctx.builder().build_int_compare(
                             IntPredicate::EQ,
                             li,
                             ri,
                             &format!("field_eq_{}", i),
-                        )
+                        ).unwrap()
                     }
                     _ => ctx.context.bool_type().const_int(0, false),
                 };
                 result = ctx
                     .builder()
-                    .build_and(result, field_eq, &format!("and_{}", i));
+                    .build_and(result, field_eq, &format!("and_{}", i)).unwrap();
             }
             Ok(ExprResult::new(
                 BasicValueEnum::IntValue(result),
@@ -2477,7 +2489,7 @@ fn compile_eq<'ctx>(
             let sentinel = ctx.context.i64_type().const_all_ones();
             let res =
                 ctx.builder()
-                    .build_int_compare(IntPredicate::EQ, *l, sentinel, "nullable_eq_null");
+                    .build_int_compare(IntPredicate::EQ, *l, sentinel, "nullable_eq_null").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // Reverse: null PointerValue compared with nullable IntValue
@@ -2487,7 +2499,7 @@ fn compile_eq<'ctx>(
             let sentinel = ctx.context.i64_type().const_all_ones();
             let res =
                 ctx.builder()
-                    .build_int_compare(IntPredicate::EQ, *r, sentinel, "null_eq_nullable");
+                    .build_int_compare(IntPredicate::EQ, *r, sentinel, "null_eq_nullable").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // StructValue (Dynamic) vs PointerValue (null): 检查 struct 的数据指针是否为 null
@@ -2502,14 +2514,14 @@ fn compile_eq<'ctx>(
                 if let BasicValueEnum::PointerValue(p) = data_ptr {
                     let ptr_int =
                         ctx.builder()
-                            .build_ptr_to_int(p, ctx.context.i64_type(), "ptr_int");
+                            .build_ptr_to_int(p, ctx.context.i64_type(), "ptr_int").unwrap();
                     let zero = ctx.context.i64_type().const_int(0, false);
                     let res = ctx.builder().build_int_compare(
                         IntPredicate::EQ,
                         ptr_int,
                         zero,
                         "dyn_null",
-                    );
+                    ).unwrap();
                     Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
                 } else {
                     Ok(ExprResult::new(
@@ -2536,14 +2548,14 @@ fn compile_eq<'ctx>(
                 if let BasicValueEnum::PointerValue(p) = data_ptr {
                     let ptr_int =
                         ctx.builder()
-                            .build_ptr_to_int(p, ctx.context.i64_type(), "ptr_int");
+                            .build_ptr_to_int(p, ctx.context.i64_type(), "ptr_int").unwrap();
                     let zero = ctx.context.i64_type().const_int(0, false);
                     let res = ctx.builder().build_int_compare(
                         IntPredicate::EQ,
                         ptr_int,
                         zero,
                         "dyn_null",
-                    );
+                    ).unwrap();
                     Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
                 } else {
                     Ok(ExprResult::new(
@@ -2569,13 +2581,13 @@ fn compile_eq<'ctx>(
                 .into_pointer_value();
             let l_int = ctx
                 .builder()
-                .build_ptr_to_int(dyn_str, ctx.context.i64_type(), "l_pi");
+                .build_ptr_to_int(dyn_str, ctx.context.i64_type(), "l_pi").unwrap();
             let r_int = ctx
                 .builder()
-                .build_ptr_to_int(*r, ctx.context.i64_type(), "r_pi");
+                .build_ptr_to_int(*r, ctx.context.i64_type(), "r_pi").unwrap();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::EQ, l_int, r_int, "dyn_eq_str");
+                .build_int_compare(IntPredicate::EQ, l_int, r_int, "dyn_eq_str").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         (BasicValueEnum::PointerValue(l), BasicValueEnum::StructValue(s))
@@ -2588,13 +2600,13 @@ fn compile_eq<'ctx>(
                 .into_pointer_value();
             let l_int = ctx
                 .builder()
-                .build_ptr_to_int(*l, ctx.context.i64_type(), "l_pi");
+                .build_ptr_to_int(*l, ctx.context.i64_type(), "l_pi").unwrap();
             let r_int = ctx
                 .builder()
-                .build_ptr_to_int(dyn_str, ctx.context.i64_type(), "r_pi");
+                .build_ptr_to_int(dyn_str, ctx.context.i64_type(), "r_pi").unwrap();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::EQ, l_int, r_int, "str_eq_dyn");
+                .build_int_compare(IntPredicate::EQ, l_int, r_int, "str_eq_dyn").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // ── Dynamic vs Int: extract i64 value from data ptr and compare ──
@@ -2608,10 +2620,10 @@ fn compile_eq<'ctx>(
                 .into_pointer_value();
             let dyn_val =
                 ctx.builder()
-                    .build_ptr_to_int(dyn_data_ptr, ctx.context.i64_type(), "dyn_int_val");
+                    .build_ptr_to_int(dyn_data_ptr, ctx.context.i64_type(), "dyn_int_val").unwrap();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::EQ, dyn_val, *r, "dyn_eq_int");
+                .build_int_compare(IntPredicate::EQ, dyn_val, *r, "dyn_eq_int").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         (BasicValueEnum::IntValue(l), BasicValueEnum::StructValue(s))
@@ -2624,10 +2636,10 @@ fn compile_eq<'ctx>(
                 .into_pointer_value();
             let dyn_val =
                 ctx.builder()
-                    .build_ptr_to_int(dyn_data_ptr, ctx.context.i64_type(), "dyn_int_val");
+                    .build_ptr_to_int(dyn_data_ptr, ctx.context.i64_type(), "dyn_int_val").unwrap();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::EQ, *l, dyn_val, "int_eq_dyn");
+                .build_int_compare(IntPredicate::EQ, *l, dyn_val, "int_eq_dyn").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // IntValue vs PointerValue (不兼容类型): === 永远为 false
@@ -2667,13 +2679,13 @@ fn compile_ne<'ctx>(
         (BasicValueEnum::PointerValue(l), BasicValueEnum::PointerValue(r)) => {
             let l_int = ctx
                 .builder()
-                .build_ptr_to_int(*l, ctx.context.i64_type(), "l_ptr_int");
+                .build_ptr_to_int(*l, ctx.context.i64_type(), "l_ptr_int").unwrap();
             let r_int = ctx
                 .builder()
-                .build_ptr_to_int(*r, ctx.context.i64_type(), "r_ptr_int");
+                .build_ptr_to_int(*r, ctx.context.i64_type(), "r_ptr_int").unwrap();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::NE, l_int, r_int, "ptr_ne");
+                .build_int_compare(IntPredicate::NE, l_int, r_int, "ptr_ne").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // Nullable IntValue compared with null PointerValue:
@@ -2683,7 +2695,7 @@ fn compile_ne<'ctx>(
             let sentinel = ctx.context.i64_type().const_all_ones();
             let res =
                 ctx.builder()
-                    .build_int_compare(IntPredicate::NE, *l, sentinel, "nullable_ne_null");
+                    .build_int_compare(IntPredicate::NE, *l, sentinel, "nullable_ne_null").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // Reverse: null PointerValue compared with nullable IntValue
@@ -2693,7 +2705,7 @@ fn compile_ne<'ctx>(
             let sentinel = ctx.context.i64_type().const_all_ones();
             let res =
                 ctx.builder()
-                    .build_int_compare(IntPredicate::NE, *r, sentinel, "null_ne_nullable");
+                    .build_int_compare(IntPredicate::NE, *r, sentinel, "null_ne_nullable").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // StructValue (Dynamic) vs PointerValue (null): !== 检查 struct 是否不为 null
@@ -2708,14 +2720,14 @@ fn compile_ne<'ctx>(
                 if let BasicValueEnum::PointerValue(p) = data_ptr {
                     let ptr_int =
                         ctx.builder()
-                            .build_ptr_to_int(p, ctx.context.i64_type(), "ptr_int");
+                            .build_ptr_to_int(p, ctx.context.i64_type(), "ptr_int").unwrap();
                     let zero = ctx.context.i64_type().const_int(0, false);
                     let res = ctx.builder().build_int_compare(
                         IntPredicate::NE,
                         ptr_int,
                         zero,
                         "dyn_not_null",
-                    );
+                    ).unwrap();
                     Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
                 } else {
                     Ok(ExprResult::new(
@@ -2742,14 +2754,14 @@ fn compile_ne<'ctx>(
                 if let BasicValueEnum::PointerValue(p) = data_ptr {
                     let ptr_int =
                         ctx.builder()
-                            .build_ptr_to_int(p, ctx.context.i64_type(), "ptr_int");
+                            .build_ptr_to_int(p, ctx.context.i64_type(), "ptr_int").unwrap();
                     let zero = ctx.context.i64_type().const_int(0, false);
                     let res = ctx.builder().build_int_compare(
                         IntPredicate::NE,
                         ptr_int,
                         zero,
                         "dyn_not_null",
-                    );
+                    ).unwrap();
                     Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
                 } else {
                     Ok(ExprResult::new(
@@ -2791,32 +2803,32 @@ fn compile_ne<'ctx>(
                 let field_eq = match (l_field, r_field) {
                     (BasicValueEnum::IntValue(lv), BasicValueEnum::IntValue(rv)) => ctx
                         .builder()
-                        .build_int_compare(IntPredicate::EQ, lv, rv, &format!("field_eq_{}", i)),
+                        .build_int_compare(IntPredicate::EQ, lv, rv, &format!("field_eq_{}", i)).unwrap(),
                     (BasicValueEnum::PointerValue(lp), BasicValueEnum::PointerValue(rp)) => {
                         let li = ctx.builder().build_ptr_to_int(
                             lp,
                             ctx.context.i64_type(),
                             &format!("l_ptr_int_{}", i),
-                        );
+                        ).unwrap();
                         let ri = ctx.builder().build_ptr_to_int(
                             rp,
                             ctx.context.i64_type(),
                             &format!("r_ptr_int_{}", i),
-                        );
+                        ).unwrap();
                         ctx.builder().build_int_compare(
                             IntPredicate::EQ,
                             li,
                             ri,
                             &format!("field_eq_{}", i),
-                        )
+                        ).unwrap()
                     }
                     _ => ctx.context.bool_type().const_int(0, false),
                 };
                 result = ctx
                     .builder()
-                    .build_and(result, field_eq, &format!("and_{}", i));
+                    .build_and(result, field_eq, &format!("and_{}", i)).unwrap();
             }
-            let res = ctx.builder().build_not(result, "struct_ne");
+            let res = ctx.builder().build_not(result, "struct_ne").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // ── Dynamic vs String: extract string pointer and compare ──
@@ -2830,13 +2842,13 @@ fn compile_ne<'ctx>(
                 .into_pointer_value();
             let l_int = ctx
                 .builder()
-                .build_ptr_to_int(dyn_str, ctx.context.i64_type(), "l_pi");
+                .build_ptr_to_int(dyn_str, ctx.context.i64_type(), "l_pi").unwrap();
             let r_int = ctx
                 .builder()
-                .build_ptr_to_int(*r, ctx.context.i64_type(), "r_pi");
+                .build_ptr_to_int(*r, ctx.context.i64_type(), "r_pi").unwrap();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::NE, l_int, r_int, "dyn_ne_str");
+                .build_int_compare(IntPredicate::NE, l_int, r_int, "dyn_ne_str").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         (BasicValueEnum::PointerValue(l), BasicValueEnum::StructValue(s))
@@ -2849,13 +2861,13 @@ fn compile_ne<'ctx>(
                 .into_pointer_value();
             let l_int = ctx
                 .builder()
-                .build_ptr_to_int(*l, ctx.context.i64_type(), "l_pi");
+                .build_ptr_to_int(*l, ctx.context.i64_type(), "l_pi").unwrap();
             let r_int = ctx
                 .builder()
-                .build_ptr_to_int(dyn_str, ctx.context.i64_type(), "r_pi");
+                .build_ptr_to_int(dyn_str, ctx.context.i64_type(), "r_pi").unwrap();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::NE, l_int, r_int, "str_ne_dyn");
+                .build_int_compare(IntPredicate::NE, l_int, r_int, "str_ne_dyn").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // ── Dynamic vs Int: extract i64 value from data ptr and compare ──
@@ -2869,10 +2881,10 @@ fn compile_ne<'ctx>(
                 .into_pointer_value();
             let dyn_val =
                 ctx.builder()
-                    .build_ptr_to_int(dyn_data_ptr, ctx.context.i64_type(), "dyn_int_val");
+                    .build_ptr_to_int(dyn_data_ptr, ctx.context.i64_type(), "dyn_int_val").unwrap();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::NE, dyn_val, *r, "dyn_ne_int");
+                .build_int_compare(IntPredicate::NE, dyn_val, *r, "dyn_ne_int").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         (BasicValueEnum::IntValue(l), BasicValueEnum::StructValue(s))
@@ -2885,10 +2897,10 @@ fn compile_ne<'ctx>(
                 .into_pointer_value();
             let dyn_val =
                 ctx.builder()
-                    .build_ptr_to_int(dyn_data_ptr, ctx.context.i64_type(), "dyn_int_val");
+                    .build_ptr_to_int(dyn_data_ptr, ctx.context.i64_type(), "dyn_int_val").unwrap();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::NE, *l, dyn_val, "int_ne_dyn");
+                .build_int_compare(IntPredicate::NE, *l, dyn_val, "int_ne_dyn").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         _ => Err("Invalid operands for !==".to_string()),
@@ -2916,13 +2928,13 @@ fn compile_lt<'ctx>(
         (BasicValueEnum::PointerValue(l), BasicValueEnum::PointerValue(r)) => {
             let l_int = ctx
                 .builder()
-                .build_ptr_to_int(*l, ctx.context.i64_type(), "l_ptr");
+                .build_ptr_to_int(*l, ctx.context.i64_type(), "l_ptr").unwrap();
             let r_int = ctx
                 .builder()
-                .build_ptr_to_int(*r, ctx.context.i64_type(), "r_ptr");
+                .build_ptr_to_int(*r, ctx.context.i64_type(), "r_ptr").unwrap();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::ULT, l_int, r_int, "lt");
+                .build_int_compare(IntPredicate::ULT, l_int, r_int, "lt").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // Tagged dyn struct comparison: extract i64 value and compare
@@ -2939,7 +2951,7 @@ fn compile_lt<'ctx>(
                 .into_int_value();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::SLT, l_val, r_val, "lt");
+                .build_int_compare(IntPredicate::SLT, l_val, r_val, "lt").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // Mixed: int vs dyn struct
@@ -2951,7 +2963,7 @@ fn compile_lt<'ctx>(
                 .into_int_value();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::SLT, *l, r_val, "lt");
+                .build_int_compare(IntPredicate::SLT, *l, r_val, "lt").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // Mixed: dyn struct vs int
@@ -2963,7 +2975,7 @@ fn compile_lt<'ctx>(
                 .into_int_value();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::SLT, l_val, *r, "lt");
+                .build_int_compare(IntPredicate::SLT, l_val, *r, "lt").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         _ => Err(format!(
@@ -2994,13 +3006,13 @@ fn compile_gt<'ctx>(
         (BasicValueEnum::PointerValue(l), BasicValueEnum::PointerValue(r)) => {
             let l_int = ctx
                 .builder()
-                .build_ptr_to_int(*l, ctx.context.i64_type(), "l_ptr");
+                .build_ptr_to_int(*l, ctx.context.i64_type(), "l_ptr").unwrap();
             let r_int = ctx
                 .builder()
-                .build_ptr_to_int(*r, ctx.context.i64_type(), "r_ptr");
+                .build_ptr_to_int(*r, ctx.context.i64_type(), "r_ptr").unwrap();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::UGT, l_int, r_int, "gt");
+                .build_int_compare(IntPredicate::UGT, l_int, r_int, "gt").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // Tagged dyn struct comparison: extract i64 value and compare
@@ -3017,7 +3029,7 @@ fn compile_gt<'ctx>(
                 .into_int_value();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::SGT, l_val, r_val, "gt");
+                .build_int_compare(IntPredicate::SGT, l_val, r_val, "gt").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // Mixed: int vs dyn struct
@@ -3029,7 +3041,7 @@ fn compile_gt<'ctx>(
                 .into_int_value();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::SGT, *l, r_val, "gt");
+                .build_int_compare(IntPredicate::SGT, *l, r_val, "gt").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // Mixed: dyn struct vs int
@@ -3041,7 +3053,7 @@ fn compile_gt<'ctx>(
                 .into_int_value();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::SGT, l_val, *r, "gt");
+                .build_int_compare(IntPredicate::SGT, l_val, *r, "gt").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         _ => Err("Invalid operands for >".to_string()),
@@ -3069,13 +3081,13 @@ fn compile_le<'ctx>(
         (BasicValueEnum::PointerValue(l), BasicValueEnum::PointerValue(r)) => {
             let l_int = ctx
                 .builder()
-                .build_ptr_to_int(*l, ctx.context.i64_type(), "l_ptr");
+                .build_ptr_to_int(*l, ctx.context.i64_type(), "l_ptr").unwrap();
             let r_int = ctx
                 .builder()
-                .build_ptr_to_int(*r, ctx.context.i64_type(), "r_ptr");
+                .build_ptr_to_int(*r, ctx.context.i64_type(), "r_ptr").unwrap();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::ULE, l_int, r_int, "le");
+                .build_int_compare(IntPredicate::ULE, l_int, r_int, "le").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // Tagged dyn struct comparison: extract i64 value and compare
@@ -3092,7 +3104,7 @@ fn compile_le<'ctx>(
                 .into_int_value();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::SLE, l_val, r_val, "le");
+                .build_int_compare(IntPredicate::SLE, l_val, r_val, "le").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // Mixed: int vs dyn struct
@@ -3104,7 +3116,7 @@ fn compile_le<'ctx>(
                 .into_int_value();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::SLE, *l, r_val, "le");
+                .build_int_compare(IntPredicate::SLE, *l, r_val, "le").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // Mixed: dyn struct vs int
@@ -3116,7 +3128,7 @@ fn compile_le<'ctx>(
                 .into_int_value();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::SLE, l_val, *r, "le");
+                .build_int_compare(IntPredicate::SLE, l_val, *r, "le").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         _ => Err("Invalid operands for <=".to_string()),
@@ -3144,13 +3156,13 @@ fn compile_ge<'ctx>(
         (BasicValueEnum::PointerValue(l), BasicValueEnum::PointerValue(r)) => {
             let l_int = ctx
                 .builder()
-                .build_ptr_to_int(*l, ctx.context.i64_type(), "l_ptr");
+                .build_ptr_to_int(*l, ctx.context.i64_type(), "l_ptr").unwrap();
             let r_int = ctx
                 .builder()
-                .build_ptr_to_int(*r, ctx.context.i64_type(), "r_ptr");
+                .build_ptr_to_int(*r, ctx.context.i64_type(), "r_ptr").unwrap();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::UGE, l_int, r_int, "ge");
+                .build_int_compare(IntPredicate::UGE, l_int, r_int, "ge").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // Tagged dyn struct comparison: extract i64 value and compare
@@ -3167,7 +3179,7 @@ fn compile_ge<'ctx>(
                 .into_int_value();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::SGE, l_val, r_val, "ge");
+                .build_int_compare(IntPredicate::SGE, l_val, r_val, "ge").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // Mixed: int vs dyn struct
@@ -3179,7 +3191,7 @@ fn compile_ge<'ctx>(
                 .into_int_value();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::SGE, *l, r_val, "ge");
+                .build_int_compare(IntPredicate::SGE, *l, r_val, "ge").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         // Mixed: dyn struct vs int
@@ -3191,7 +3203,7 @@ fn compile_ge<'ctx>(
                 .into_int_value();
             let res = ctx
                 .builder()
-                .build_int_compare(IntPredicate::SGE, l_val, *r, "ge");
+                .build_int_compare(IntPredicate::SGE, l_val, *r, "ge").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         _ => Err("Invalid operands for >=".to_string()),
@@ -3205,7 +3217,7 @@ fn compile_and<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     match (&left.value, &right.value) {
         (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
-            let res = ctx.builder().build_and(*l, *r, "and");
+            let res = ctx.builder().build_and(*l, *r, "and").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         _ => Err("Invalid operands for &&".to_string()),
@@ -3219,7 +3231,7 @@ fn compile_or<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     match (&left.value, &right.value) {
         (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
-            let res = ctx.builder().build_or(*l, *r, "or");
+            let res = ctx.builder().build_or(*l, *r, "or").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         _ => Err("Invalid operands for ||".to_string()),
@@ -3233,7 +3245,7 @@ fn compile_bitwise_and<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     match (&left.value, &right.value) {
         (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
-            let res = ctx.builder().build_and(*l, *r, "band");
+            let res = ctx.builder().build_and(*l, *r, "band").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
         }
         _ => Err("Invalid operands for &".to_string()),
@@ -3247,7 +3259,7 @@ fn compile_bitwise_or<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     match (&left.value, &right.value) {
         (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
-            let res = ctx.builder().build_or(*l, *r, "bor");
+            let res = ctx.builder().build_or(*l, *r, "bor").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
         }
         _ => Err("Invalid operands for |".to_string()),
@@ -3261,7 +3273,7 @@ fn compile_bitwise_xor<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     match (&left.value, &right.value) {
         (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
-            let res = ctx.builder().build_xor(*l, *r, "bxor");
+            let res = ctx.builder().build_xor(*l, *r, "bxor").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
         }
         _ => Err("Invalid operands for ^".to_string()),
@@ -3275,7 +3287,7 @@ fn compile_shl<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     match (&left.value, &right.value) {
         (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
-            let res = ctx.builder().build_left_shift(*l, *r, "shl");
+            let res = ctx.builder().build_left_shift(*l, *r, "shl").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
         }
         _ => Err("Invalid operands for <<".to_string()),
@@ -3289,7 +3301,7 @@ fn compile_shr<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     match (&left.value, &right.value) {
         (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
-            let res = ctx.builder().build_right_shift(*l, *r, true, "shr");
+            let res = ctx.builder().build_right_shift(*l, *r, true, "shr").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
         }
         _ => Err("Invalid operands for >>".to_string()),
@@ -3303,7 +3315,7 @@ fn compile_ushr<'ctx>(
 ) -> Result<ExprResult<'ctx>, String> {
     match (&left.value, &right.value) {
         (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
-            let res = ctx.builder().build_right_shift(*l, *r, false, "ushr");
+            let res = ctx.builder().build_right_shift(*l, *r, false, "ushr").unwrap();
             Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
         }
         _ => Err("Invalid operands for >>>".to_string()),
@@ -3322,11 +3334,11 @@ fn compile_nullish<'ctx>(
     if let BasicValueEnum::PointerValue(ptr) = left_result.value {
         let is_null = ctx
             .builder()
-            .build_ptr_to_int(ptr, ctx.context.i64_type(), "ptr_to_int");
+            .build_ptr_to_int(ptr, ctx.context.i64_type(), "ptr_to_int").unwrap();
         let zero = ctx.context.i64_type().const_int(0, false);
         let cond = ctx
             .builder()
-            .build_int_compare(IntPredicate::EQ, is_null, zero, "is_null");
+            .build_int_compare(IntPredicate::EQ, is_null, zero, "is_null").unwrap();
 
         let current_bb = ctx.builder().get_insert_block().unwrap();
         let func = current_bb.get_parent().unwrap();
@@ -3335,20 +3347,20 @@ fn compile_nullish<'ctx>(
         let merge_bb = ctx.context.append_basic_block(func, "nullish_merge");
 
         ctx.builder()
-            .build_conditional_branch(cond, then_bb, else_bb);
+            .build_conditional_branch(cond, then_bb, else_bb).unwrap();
 
         ctx.builder().position_at_end(then_bb);
         let right_result = compile_expr(ctx, right_expr)?;
-        ctx.builder().build_unconditional_branch(merge_bb);
+        ctx.builder().build_unconditional_branch(merge_bb).unwrap();
         let then_bb_end = ctx.builder().get_insert_block().unwrap();
 
         ctx.builder().position_at_end(else_bb);
-        ctx.builder().build_unconditional_branch(merge_bb);
+        ctx.builder().build_unconditional_branch(merge_bb).unwrap();
 
         ctx.builder().position_at_end(merge_bb);
         let phi = ctx
             .builder()
-            .build_phi(left_result.value.get_type(), "nullish_phi");
+            .build_phi(left_result.value.get_type(), "nullish_phi").unwrap();
         phi.add_incoming(&[
             (&right_result.value, then_bb_end),
             (&left_result.value, else_bb),
@@ -3415,12 +3427,12 @@ fn compile_unary<'ctx>(
         UnaryOp::Minus => match operand_result.value {
             BasicValueEnum::IntValue(v) => {
                 let zero = ctx.context.i64_type().const_int(0, false);
-                let res = ctx.builder().build_int_sub(zero, v, "neg");
+                let res = ctx.builder().build_int_sub(zero, v, "neg").unwrap();
                 Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
             }
             BasicValueEnum::FloatValue(v) => {
                 let zero = ctx.context.f64_type().const_float(0.0);
-                let res = ctx.builder().build_float_sub(zero, v, "fneg");
+                let res = ctx.builder().build_float_sub(zero, v, "fneg").unwrap();
                 Ok(ExprResult::new(
                     BasicValueEnum::FloatValue(res),
                     Type::Float,
@@ -3431,7 +3443,7 @@ fn compile_unary<'ctx>(
         UnaryOp::Not => match operand_result.value {
             BasicValueEnum::IntValue(v) => {
                 let one = ctx.context.bool_type().const_int(1, false);
-                let res = ctx.builder().build_xor(v, one, "not");
+                let res = ctx.builder().build_xor(v, one, "not").unwrap();
                 Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
             }
             _ => Err(format!(
@@ -3442,7 +3454,7 @@ fn compile_unary<'ctx>(
         UnaryOp::Tilde => match operand_result.value {
             BasicValueEnum::IntValue(v) => {
                 let minus_one = ctx.context.i64_type().const_int(u64::MAX, true);
-                let res = ctx.builder().build_xor(v, minus_one, "bitnot");
+                let res = ctx.builder().build_xor(v, minus_one, "bitnot").unwrap();
                 Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Int))
             }
             _ => Err("Invalid operand for ~".to_string()),
@@ -3480,7 +3492,7 @@ fn compile_unary<'ctx>(
             };
             let global = ctx
                 .builder()
-                .build_global_string_ptr(type_name, "typeof_str");
+                .build_global_string_ptr(type_name, "typeof_str").unwrap();
             Ok(ExprResult::new(
                 BasicValueEnum::PointerValue(global.as_pointer_value()),
                 Type::String,
@@ -3513,6 +3525,7 @@ fn build_call_or_invoke<'ctx>(
                     BasicMetadataValueEnum::StructValue(sv) => sv.as_basic_value_enum(),
                     BasicMetadataValueEnum::ArrayValue(av) => av.as_basic_value_enum(),
                     BasicMetadataValueEnum::VectorValue(vv) => vv.as_basic_value_enum(),
+                    BasicMetadataValueEnum::ScalableVectorValue(sv) => sv.as_basic_value_enum(),
                     BasicMetadataValueEnum::MetadataValue(_) => {
                         unreachable!("MetadataValue not used as function argument")
                     }
@@ -3523,7 +3536,7 @@ fn build_call_or_invoke<'ctx>(
             ctx.builder().position_at_end(then_bb);
             invoke
         }
-        None => ctx.builder().build_call(func, args, name),
+        None => ctx.builder().build_call(func, args, name).unwrap(),
     }
 }
 
@@ -3551,9 +3564,9 @@ fn emit_spread_args<'ctx>(
                 let len_val = ctx
                     .builder()
                     .build_call(len_fn, &[arr_ptr.into()], "spread_len")
-                    .try_as_basic_value()
-                    .left()
                     .unwrap()
+                    .try_as_basic_value()
+                    .unwrap_basic()
                     .into_int_value();
                 let get_fn = ctx
                     .module
@@ -3563,8 +3576,8 @@ fn emit_spread_args<'ctx>(
                 let one = ctx.context.i64_type().const_int(1, false);
                 let idx_ptr = ctx
                     .builder()
-                    .build_alloca(ctx.context.i64_type(), "spread_idx");
-                ctx.builder().build_store(idx_ptr, zero);
+                    .build_alloca(ctx.context.i64_type(), "spread_idx").unwrap();
+                ctx.builder().build_store(idx_ptr, zero).unwrap();
                 let loop_bb = ctx.context.append_basic_block(
                     ctx.current_function.ok_or("No current function")?,
                     "spread_loop",
@@ -3573,17 +3586,17 @@ fn emit_spread_args<'ctx>(
                     ctx.current_function.ok_or("No current function")?,
                     "spread_done",
                 );
-                ctx.builder().build_unconditional_branch(loop_bb);
+                ctx.builder().build_unconditional_branch(loop_bb).unwrap();
                 ctx.builder().position_at_end(loop_bb);
-                let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
+                let idx = ctx.builder().build_load(ctx.context.i64_type(), idx_ptr, "idx").unwrap().into_int_value();
                 let at_end = ctx.builder().build_int_compare(
                     inkwell::IntPredicate::UGE,
                     idx,
                     len_val,
                     "at_end",
-                );
+                ).unwrap();
                 ctx.builder()
-                    .build_conditional_branch(at_end, done_bb, loop_bb);
+                    .build_conditional_branch(at_end, done_bb, loop_bb).unwrap();
                 let body_bb = ctx.context.append_basic_block(
                     ctx.current_function.ok_or("No current function")?,
                     "spread_body",
@@ -3592,14 +3605,14 @@ fn emit_spread_args<'ctx>(
                 let elem = ctx
                     .builder()
                     .build_call(get_fn, &[arr_ptr.into(), idx.into()], "spread_elem")
-                    .try_as_basic_value()
-                    .left()
                     .unwrap()
+                    .try_as_basic_value()
+                    .unwrap_basic()
                     .into_int_value();
                 arg_values.push(elem.into());
-                let next_idx = ctx.builder().build_int_add(idx, one, "next_idx");
-                ctx.builder().build_store(idx_ptr, next_idx);
-                ctx.builder().build_unconditional_branch(loop_bb);
+                let next_idx = ctx.builder().build_int_add(idx, one, "next_idx").unwrap();
+                ctx.builder().build_store(idx_ptr, next_idx).unwrap();
+                ctx.builder().build_unconditional_branch(loop_bb).unwrap();
                 ctx.builder().position_at_end(done_bb);
             }
         }
@@ -3640,21 +3653,21 @@ fn compile_dynamic_method_call<'ctx>(
     //   real pointer (> 3) = string
     if method_name == "toString" {
         let func = ctx.current_function().ok_or("No current function")?;
-        let i8_ptr_ty = ctx.context.i8_type().ptr_type(Default::default());
+        let i8_ptr_ty = ctx.context.ptr_type(Default::default());
         let i64_ty = ctx.context.i64_type();
 
         // Convert data_ptr to i64 to check the tag value
-        let ptr_as_int = ctx.builder().build_ptr_to_int(data_ptr, i64_ty, "ptr_tag");
+        let ptr_as_int = ctx.builder().build_ptr_to_int(data_ptr, i64_ty, "ptr_tag").unwrap();
         let three = i64_ty.const_int(3, false);
         let is_primitive =
             ctx.builder()
-                .build_int_compare(IntPredicate::ULE, ptr_as_int, three, "is_prim");
+                .build_int_compare(IntPredicate::ULE, ptr_as_int, three, "is_prim").unwrap();
 
         let prim_bb = ctx.context.append_basic_block(func, "dyn_ts_prim");
         let str_bb = ctx.context.append_basic_block(func, "dyn_ts_str");
         let merge_bb = ctx.context.append_basic_block(func, "dyn_ts_merge");
         ctx.builder()
-            .build_conditional_branch(is_primitive, prim_bb, str_bb);
+            .build_conditional_branch(is_primitive, prim_bb, str_bb).unwrap();
 
         // ── Primitive: dispatch on tag value (1=int, 2=float, 3=bool) ──
         ctx.builder().position_at_end(prim_bb);
@@ -3668,9 +3681,9 @@ fn compile_dynamic_method_call<'ctx>(
 
         let is_int = ctx
             .builder()
-            .build_int_compare(IntPredicate::EQ, ptr_as_int, one, "is_int");
+            .build_int_compare(IntPredicate::EQ, ptr_as_int, one, "is_int").unwrap();
         ctx.builder()
-            .build_conditional_branch(is_int, int_bb, check_float_bb);
+            .build_conditional_branch(is_int, int_bb, check_float_bb).unwrap();
 
         // int → ruyi_int_to_string(field0)
         ctx.builder().position_at_end(int_bb);
@@ -3681,19 +3694,19 @@ fn compile_dynamic_method_call<'ctx>(
         let int_str = ctx
             .builder()
             .build_call(int_fn, &[tag.into()], "int_to_str")
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_pointer_value();
-        ctx.builder().build_unconditional_branch(merge_bb);
+        ctx.builder().build_unconditional_branch(merge_bb).unwrap();
 
         // check float
         ctx.builder().position_at_end(check_float_bb);
         let is_float =
             ctx.builder()
-                .build_int_compare(IntPredicate::EQ, ptr_as_int, two, "is_float");
+                .build_int_compare(IntPredicate::EQ, ptr_as_int, two, "is_float").unwrap();
         ctx.builder()
-            .build_conditional_branch(is_float, float_bb, bool_bb);
+            .build_conditional_branch(is_float, float_bb, bool_bb).unwrap();
 
         // float → ruyi_float_to_string(bitcast field0 → f64)
         ctx.builder().position_at_end(float_bb);
@@ -3703,15 +3716,15 @@ fn compile_dynamic_method_call<'ctx>(
             .ok_or("ruyi_float_to_string not declared")?;
         let f64_val = ctx
             .builder()
-            .build_bitcast(tag, ctx.context.f64_type(), "tag_f64");
+            .build_bit_cast(tag, ctx.context.f64_type(), "tag_f64").unwrap();
         let float_str = ctx
             .builder()
             .build_call(float_fn, &[f64_val.into()], "float_to_str")
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_pointer_value();
-        ctx.builder().build_unconditional_branch(merge_bb);
+        ctx.builder().build_unconditional_branch(merge_bb).unwrap();
 
         // bool → ruyi_bool_to_string(trunc field0 → i1)
         ctx.builder().position_at_end(bool_bb);
@@ -3721,23 +3734,23 @@ fn compile_dynamic_method_call<'ctx>(
             .ok_or("ruyi_bool_to_string not declared")?;
         let b1 = ctx
             .builder()
-            .build_int_truncate(tag, ctx.context.bool_type(), "tag_b1");
+            .build_int_truncate(tag, ctx.context.bool_type(), "tag_b1").unwrap();
         let bool_str = ctx
             .builder()
             .build_call(bool_fn, &[b1.into()], "bool_to_str")
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_pointer_value();
-        ctx.builder().build_unconditional_branch(merge_bb);
+        ctx.builder().build_unconditional_branch(merge_bb).unwrap();
 
         // string → data_ptr is already i8*
         ctx.builder().position_at_end(str_bb);
-        ctx.builder().build_unconditional_branch(merge_bb);
+        ctx.builder().build_unconditional_branch(merge_bb).unwrap();
 
         // Merge via phi
         ctx.builder().position_at_end(merge_bb);
-        let phi = ctx.builder().build_phi(i8_ptr_ty, "dyn_ts_result");
+        let phi = ctx.builder().build_phi(i8_ptr_ty, "dyn_ts_result").unwrap();
         phi.add_incoming(&[
             (&int_str, int_bb),
             (&float_str, float_bb),
@@ -3801,15 +3814,15 @@ fn compile_dynamic_method_call<'ctx>(
 
     let func = ctx.current_function().ok_or("No current function")?;
     let i64_ty = ctx.context.i64_type();
-    let i64_ptr_ty = i64_ty.ptr_type(Default::default());
+    let i64_ptr_ty = ctx.context.ptr_type(Default::default());
 
     // Load __typeid from byte offset 0 of data_ptr.
     let casted_ptr = ctx
         .builder()
-        .build_pointer_cast(data_ptr, i64_ptr_ty, "typeid_cast");
+        .build_pointer_cast(data_ptr, i64_ptr_ty, "typeid_cast").unwrap();
     let typeid = ctx
         .builder()
-        .build_load(casted_ptr, "typeid")
+        .build_load(i64_ty, casted_ptr, "typeid").unwrap()
         .into_int_value();
 
     // Save the entry block so we can add a branch to the first check block.
@@ -3820,7 +3833,7 @@ fn compile_dynamic_method_call<'ctx>(
 
     // Determine the effective return type by checking all candidates.
     // If they all agree (ignoring void), use that type; otherwise Dynamic.
-    let i8_ptr_ty = ctx.context.i8_type().ptr_type(Default::default());
+    let i8_ptr_ty = ctx.context.ptr_type(Default::default());
     let candidate_ret_types: Vec<Type> = candidate_classes
         .iter()
         .map(|(_, cn)| {
@@ -3873,7 +3886,7 @@ fn compile_dynamic_method_call<'ctx>(
         // From previous dyn_next block, branch to this iteration's check block.
         if let Some(prev_else) = prev_check_bb {
             ctx.builder().position_at_end(prev_else);
-            ctx.builder().build_unconditional_branch(check_bb);
+            ctx.builder().build_unconditional_branch(check_bb).unwrap();
         }
 
         // Remember the first check block so entry can branch to it.
@@ -3885,7 +3898,7 @@ fn compile_dynamic_method_call<'ctx>(
         let expected_id = i64_ty.const_int(*type_id, false);
         let matches =
             ctx.builder()
-                .build_int_compare(IntPredicate::EQ, typeid, expected_id, "typeid_match");
+                .build_int_compare(IntPredicate::EQ, typeid, expected_id, "typeid_match").unwrap();
 
         // If last candidate, else goes to merge with a default zero value.
         let else_bb = if i < candidate_classes.len() - 1 {
@@ -3895,7 +3908,7 @@ fn compile_dynamic_method_call<'ctx>(
             merge_bb
         };
         ctx.builder()
-            .build_conditional_branch(matches, call_bb, else_bb);
+            .build_conditional_branch(matches, call_bb, else_bb).unwrap();
 
         // Call block: invoke {Class}_{method}(data_ptr, args...).
         ctx.builder().position_at_end(call_bb);
@@ -3914,8 +3927,8 @@ fn compile_dynamic_method_call<'ctx>(
             call_args.push((*v).into());
         }
 
-        let call_site = ctx.builder().build_call(target_fn, &call_args, "dyn_call");
-        let call_val = call_site.try_as_basic_value().left();
+        let call_site = ctx.builder().build_call(target_fn, &call_args, "dyn_call").unwrap();
+        let call_val = call_site.try_as_basic_value().basic();
 
         // Box the call result into a Dynamic struct for phi compatibility.
         let candidate_ty = &candidate_ret_types[i];
@@ -3939,7 +3952,7 @@ fn compile_dynamic_method_call<'ctx>(
             (_, Some(BasicValueEnum::IntValue(v))) => {
                 // int/bool/byte: tag = inttoptr(1), data = inttoptr(value)
                 let tag = i64_ty.const_int(1, false);
-                let data = ctx.builder().build_int_to_ptr(v, i8_ptr_ty, "d2p");
+                let data = ctx.builder().build_int_to_ptr(v, i8_ptr_ty, "d2p").unwrap();
                 let s = dyn_struct_ty.const_zero();
                 let s = ctx
                     .builder()
@@ -3956,10 +3969,10 @@ fn compile_dynamic_method_call<'ctx>(
             (_, Some(BasicValueEnum::FloatValue(v))) => {
                 let bits = ctx
                     .builder()
-                    .build_bitcast(v, i64_ty, "fbits")
+                    .build_bit_cast(v, i64_ty, "fbits").unwrap()
                     .into_int_value();
                 let tag = i64_ty.const_int(2, false);
-                let data = ctx.builder().build_int_to_ptr(bits, i8_ptr_ty, "d2p");
+                let data = ctx.builder().build_int_to_ptr(bits, i8_ptr_ty, "d2p").unwrap();
                 let s = dyn_struct_ty.const_zero();
                 let s = ctx
                     .builder()
@@ -3976,7 +3989,7 @@ fn compile_dynamic_method_call<'ctx>(
             (_, Some(BasicValueEnum::PointerValue(p))) => {
                 // string/named: tag = 0, data = ptr
                 let tag = i64_ty.const_int(0, false);
-                let data = ctx.builder().build_pointer_cast(p, i8_ptr_ty, "dc");
+                let data = ctx.builder().build_pointer_cast(p, i8_ptr_ty, "dc").unwrap();
                 let s = dyn_struct_ty.const_zero();
                 let s = ctx
                     .builder()
@@ -3996,7 +4009,7 @@ fn compile_dynamic_method_call<'ctx>(
             }
         };
         incoming.push((boxed, call_bb));
-        ctx.builder().build_unconditional_branch(merge_bb);
+        ctx.builder().build_unconditional_branch(merge_bb).unwrap();
 
         prev_check_bb = Some(else_bb);
         last_check_bb = Some(check_bb);
@@ -4005,7 +4018,7 @@ fn compile_dynamic_method_call<'ctx>(
     // Branch from the entry block to the first check block.
     if let Some(first_chk) = first_check_bb {
         ctx.builder().position_at_end(entry_bb);
-        ctx.builder().build_unconditional_branch(first_chk);
+        ctx.builder().build_unconditional_branch(first_chk).unwrap();
     }
 
     // Default Dynamic struct for the no-match path.
@@ -4045,7 +4058,7 @@ fn compile_dynamic_method_call<'ctx>(
         ));
     }
 
-    let phi = ctx.builder().build_phi(phi_type, "dyn_dispatch_result");
+    let phi = ctx.builder().build_phi(phi_type, "dyn_dispatch_result").unwrap();
     let incoming_refs: Vec<(
         &dyn inkwell::values::BasicValue<'ctx>,
         inkwell::basic_block::BasicBlock,
@@ -4067,14 +4080,14 @@ fn compile_dynamic_method_call<'ctx>(
     let result_value: BasicValueEnum<'ctx> = match &effective_ret_ty {
         Type::String => BasicValueEnum::PointerValue(result_data),
         Type::Int | Type::Byte => {
-            let v = ctx.builder().build_ptr_to_int(result_data, i64_ty, "d2i");
+            let v = ctx.builder().build_ptr_to_int(result_data, i64_ty, "d2i").unwrap();
             BasicValueEnum::IntValue(v)
         }
         Type::Bool => {
-            let v64 = ctx.builder().build_ptr_to_int(result_data, i64_ty, "d2i");
+            let v64 = ctx.builder().build_ptr_to_int(result_data, i64_ty, "d2i").unwrap();
             let v1 = ctx
                 .builder()
-                .build_int_truncate(v64, ctx.context.bool_type(), "d2b");
+                .build_int_truncate(v64, ctx.context.bool_type(), "d2b").unwrap();
             BasicValueEnum::IntValue(v1)
         }
         Type::Named(_, _) => BasicValueEnum::PointerValue(result_data),
@@ -4132,33 +4145,24 @@ fn compile_call<'ctx>(
             if let Expr::Identifier(var_name) = object.as_ref() {
                 if let Some((ptr, ty)) = ctx.lookup_variable(var_name) {
                     if let Type::Trait(trait_name) = &ty {
+                        let trait_obj_ty = ctx.context.struct_type(
+                            &[ctx.context.ptr_type(Default::default()).into(), ctx.context.ptr_type(Default::default()).into()],
+                            false,
+                        );
                         let trait_obj_struct = ctx
                             .builder()
-                            .build_load(ptr, "trait_obj_load")
+                            .build_load(trait_obj_ty, ptr, "trait_obj_load").unwrap()
                             .into_struct_value();
-                        let data_ptr = match ctx.builder().build_extract_value(
+                        let data_ptr = ctx.builder().build_extract_value(
                             trait_obj_struct,
                             0,
                             "trait_data",
-                        ) {
-                            Some(v) => v.into_pointer_value(),
-                            None => {
-                                return Err(
-                                    "Failed to extract data pointer from trait object".to_string()
-                                )
-                            }
-                        };
-                        let vtable_ptr = match ctx.builder().build_extract_value(
+                        ).unwrap().into_pointer_value();
+                        let vtable_ptr = ctx.builder().build_extract_value(
                             trait_obj_struct,
                             1,
                             "trait_vtable",
-                        ) {
-                            Some(v) => v.into_pointer_value(),
-                            None => {
-                                return Err("Failed to extract vtable pointer from trait object"
-                                    .to_string())
-                            }
-                        };
+                        ).unwrap().into_pointer_value();
                         let trait_obj = super::traits::TraitObject {
                             data: data_ptr,
                             vtable: vtable_ptr,
@@ -4335,18 +4339,18 @@ fn compile_call<'ctx>(
                     // receiver handling below).
                     let slot = match result.value {
                         BasicValueEnum::PointerValue(p) => {
-                            let slot = ctx.builder().build_alloca(p.get_type(), "idx_recv_slot");
-                            ctx.builder().build_store(slot, p);
+                            let slot = ctx.builder().build_alloca(p.get_type(), "idx_recv_slot").unwrap();
+                            ctx.builder().build_store(slot, p).unwrap();
                             slot
                         }
                         BasicValueEnum::IntValue(iv) => {
-                            let slot = ctx.builder().build_alloca(iv.get_type(), "idx_recv_slot");
-                            ctx.builder().build_store(slot, iv);
+                            let slot = ctx.builder().build_alloca(iv.get_type(), "idx_recv_slot").unwrap();
+                            ctx.builder().build_store(slot, iv).unwrap();
                             slot
                         }
                         BasicValueEnum::FloatValue(fv) => {
-                            let slot = ctx.builder().build_alloca(fv.get_type(), "idx_recv_slot");
-                            ctx.builder().build_store(slot, fv);
+                            let slot = ctx.builder().build_alloca(fv.get_type(), "idx_recv_slot").unwrap();
+                            ctx.builder().build_store(slot, fv).unwrap();
                             slot
                         }
                         _ => {
@@ -4436,7 +4440,7 @@ fn compile_call<'ctx>(
                     };
                     let obj_ptr = ctx
                         .builder()
-                        .build_load(inner_var_ptr, "obj")
+                        .build_load(ctx.context.ptr_type(Default::default()), inner_var_ptr, "obj").unwrap()
                         .into_pointer_value();
                     let offset = ctx
                         .context
@@ -4444,7 +4448,8 @@ fn compile_call<'ctx>(
                         .const_int((field_index * 8) as u64, false);
                     let field_ptr = unsafe {
                         ctx.builder()
-                            .build_gep(obj_ptr, &[offset], &format!("{}_ptr", inner_field))
+                            .build_gep(ctx.context.i8_type(), obj_ptr, &[offset], &format!("{}_ptr", inner_field))
+                            .unwrap()
                     };
                     let class_name = match field_ty {
                         Type::Named(ref n, _) => n.clone(),
@@ -4467,8 +4472,8 @@ fn compile_call<'ctx>(
                 Expr::StringLiteral(_) => {
                     let str_result = compile_expr(ctx, object.as_ref())?;
                     let str_ptr = str_result.value.into_pointer_value();
-                    let slot = ctx.builder().build_alloca(str_ptr.get_type(), "str_slot");
-                    ctx.builder().build_store(slot, str_ptr);
+                    let slot = ctx.builder().build_alloca(str_ptr.get_type(), "str_slot").unwrap();
+                    ctx.builder().build_store(slot, str_ptr).unwrap();
                     (Some(slot), "String".to_string(), Some(Type::String))
                 }
                 Expr::Call {
@@ -4529,18 +4534,18 @@ fn compile_call<'ctx>(
                     // are both supported.
                     let slot = match result.value {
                         BasicValueEnum::PointerValue(p) => {
-                            let slot = ctx.builder().build_alloca(p.get_type(), "call_recv_slot");
-                            ctx.builder().build_store(slot, p);
+                            let slot = ctx.builder().build_alloca(p.get_type(), "call_recv_slot").unwrap();
+                            ctx.builder().build_store(slot, p).unwrap();
                             slot
                         }
                         BasicValueEnum::IntValue(iv) => {
-                            let slot = ctx.builder().build_alloca(iv.get_type(), "call_recv_slot");
-                            ctx.builder().build_store(slot, iv);
+                            let slot = ctx.builder().build_alloca(iv.get_type(), "call_recv_slot").unwrap();
+                            ctx.builder().build_store(slot, iv).unwrap();
                             slot
                         }
                         BasicValueEnum::FloatValue(fv) => {
-                            let slot = ctx.builder().build_alloca(fv.get_type(), "call_recv_slot");
-                            ctx.builder().build_store(slot, fv);
+                            let slot = ctx.builder().build_alloca(fv.get_type(), "call_recv_slot").unwrap();
+                            ctx.builder().build_store(slot, fv).unwrap();
                             slot
                         }
                         _ => {
@@ -4578,29 +4583,25 @@ fn compile_call<'ctx>(
                 {
                     let obj = ctx
                         .builder()
-                        .build_load(recv_slot, "fn_recv")
+                        .build_load(ctx.context.ptr_type(Default::default()), recv_slot, "fn_recv").unwrap()
                         .into_pointer_value();
                     let (field_ptr, field_ty) =
                         class_field_access(ctx, obj, &class_name, &method_name)?;
                     let func_ptr =
                         emit_field_load(ctx, field_ptr, &field_ty, "fn_field").into_pointer_value();
                     let fn_type = function_type_from_ruyi(ctx.context, &fn_params, &fn_ret);
-                    let fn_ptr_type = fn_type.ptr_type(Default::default());
+                    let fn_ptr_type = ctx.context.ptr_type(Default::default());
                     let casted_ptr = ctx
                         .builder()
-                        .build_bitcast(func_ptr, fn_ptr_type, "fn_cast")
+                        .build_bit_cast(func_ptr, fn_ptr_type, "fn_cast").unwrap()
                         .into_pointer_value();
-                    let callable: inkwell::values::CallableValue<'ctx> =
-                        casted_ptr.try_into().map_err(|_| {
-                            "Failed to create callable from function pointer field".to_string()
-                        })?;
                     let mut arg_values: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> =
                         Vec::new();
                     emit_spread_args(ctx, args, &mut arg_values)?;
                     let call_site =
                         ctx.builder()
-                            .build_call(callable, &arg_values, "fn_field_call");
-                    let value = call_site.try_as_basic_value().left();
+                            .build_indirect_call(fn_type, casted_ptr, &arg_values, "fn_field_call").unwrap();
+                    let value = call_site.try_as_basic_value().basic();
                     return match value {
                         Some(v) => Ok(ExprResult::new(v, *fn_ret)),
                         None => Ok(ExprResult::new(
@@ -4769,24 +4770,20 @@ fn compile_call<'ctx>(
                 return_type: fn_ret,
             } = ty
             {
-                let func_ptr_val = ctx.builder().build_load(ptr, "func_ptr");
+                let func_ptr_val = ctx.builder().build_load(ctx.context.ptr_type(Default::default()), ptr, "func_ptr").unwrap();
                 let func_ptr = func_ptr_val.into_pointer_value();
 
                 let mut arg_values: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> = Vec::new();
                 emit_spread_args(ctx, args, &mut arg_values)?;
 
                 let fn_type = function_type_from_ruyi(ctx.context, &fn_params, &fn_ret);
-                let fn_ptr_type = fn_type.ptr_type(Default::default());
+                let fn_ptr_type = ctx.context.ptr_type(Default::default());
                 let casted_ptr = ctx
                     .builder()
-                    .build_bitcast(func_ptr, fn_ptr_type, "fn_cast")
+                    .build_bit_cast(func_ptr, fn_ptr_type, "fn_cast").unwrap()
                     .into_pointer_value();
-                let callable: inkwell::values::CallableValue<'ctx> = casted_ptr
-                    .try_into()
-                    .map_err(|_| "Failed to create callable from function pointer".to_string())?;
-
-                let call_site = ctx.builder().build_call(callable, &arg_values, "call");
-                let value = call_site.try_as_basic_value().left();
+                let call_site = ctx.builder().build_indirect_call(fn_type, casted_ptr, &arg_values, "call").unwrap();
+                let value = call_site.try_as_basic_value().basic();
 
                 return match value {
                     Some(v) => Ok(ExprResult::new(v, *fn_ret)),
@@ -4808,15 +4805,15 @@ fn compile_call<'ctx>(
     let mut arg_types: Vec<Type> = Vec::new(); // track types for rest args boxing
     if let Some(self_ptr) = self_arg {
         if name.starts_with("ruyi_") {
-            let loaded = ctx.builder().build_load(self_ptr, "obj");
+            let loaded = ctx.builder().build_load(ctx.context.ptr_type(Default::default()), self_ptr, "obj").unwrap();
             arg_values.push(loaded.into());
         } else {
             let self_ptr_ty = self_ptr.get_type();
-            let is_i8_ptr = self_ptr_ty == ctx.context.i8_type().ptr_type(Default::default());
+            let is_i8_ptr = self_ptr_ty == ctx.context.ptr_type(Default::default());
             if is_i8_ptr {
                 arg_values.push(self_ptr.into());
             } else {
-                let loaded = ctx.builder().build_load(self_ptr, "obj");
+                let loaded = ctx.builder().build_load(ctx.context.ptr_type(Default::default()), self_ptr, "obj").unwrap();
                 arg_values.push(loaded.into());
             }
         }
@@ -4835,7 +4832,7 @@ fn compile_call<'ctx>(
                 let result = compile_expr(ctx, e)?;
                 let func_param_idx = self_arg_offset + arg_idx;
                 let expected_ty = func_param_types.get(func_param_idx);
-                let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
+                let i8_ptr = ctx.context.ptr_type(Default::default());
 
                 // Check if this arg is part of rest params — skip type adjustment
                 let is_rest_arg = rest_info
@@ -4895,7 +4892,7 @@ fn compile_call<'ctx>(
                     // Skip boxing for FFI functions where dyn maps to i8*/i64.
                     if let Some(expected) = expected_ty {
                         let dyn_llvm_ty = ruyi_type_to_llvm(ctx.context, &Type::Dynamic);
-                        if *expected == dyn_llvm_ty {
+                        if *expected == dyn_llvm_ty.into() {
                             let dyn_val = build_box_dynamic(ctx, result.value, &result.ty);
                             arg_values.push(dyn_val.into());
                             arg_types.push(Type::Dynamic);
@@ -4918,21 +4915,21 @@ fn compile_call<'ctx>(
                     match result.value {
                         BasicValueEnum::PointerValue(pv) => {
                             if pv.get_type() != i8_ptr {
-                                ctx.builder().build_bitcast(pv, i8_ptr, "ptr_cast").into()
+                                ctx.builder().build_bit_cast(pv, i8_ptr, "ptr_cast").unwrap().into()
                             } else {
                                 pv.into()
                             }
                         }
                         BasicValueEnum::IntValue(iv) => ctx
                             .builder()
-                            .build_int_to_ptr(iv, i8_ptr, "int_to_ptr")
+                            .build_int_to_ptr(iv, i8_ptr, "int_to_ptr").unwrap()
                             .into(),
                         BasicValueEnum::FloatValue(fv) => {
                             let i64_val =
                                 ctx.builder()
-                                    .build_bitcast(fv, ctx.context.i64_type(), "f_to_i");
+                                    .build_bit_cast(fv, ctx.context.i64_type(), "f_to_i").unwrap();
                             ctx.builder()
-                                .build_int_to_ptr(i64_val.into_int_value(), i8_ptr, "int_to_ptr")
+                                .build_int_to_ptr(i64_val.into_int_value(), i8_ptr, "int_to_ptr").unwrap()
                                 .into()
                         }
                         other => other.into(),
@@ -4942,10 +4939,10 @@ fn compile_call<'ctx>(
                     match result.value {
                         BasicValueEnum::PointerValue(pv) => ctx
                             .builder()
-                            .build_ptr_to_int(pv, i64_ty, "ptr_to_i64")
+                            .build_ptr_to_int(pv, i64_ty, "ptr_to_i64").unwrap()
                             .into(),
                         BasicValueEnum::FloatValue(fv) => {
-                            ctx.builder().build_bitcast(fv, i64_ty, "f_to_i64").into()
+                            ctx.builder().build_bit_cast(fv, i64_ty, "f_to_i64").unwrap().into()
                         }
                         other => other.into(),
                     }
@@ -4972,16 +4969,16 @@ fn compile_call<'ctx>(
                 let len_val = ctx
                     .builder()
                     .build_call(len_fn, &[arr_ptr.into()], "spread_len")
-                    .try_as_basic_value()
-                    .left()
                     .unwrap()
+                    .try_as_basic_value()
+                    .unwrap_basic()
                     .into_int_value();
                 let zero = ctx.context.i64_type().const_int(0, false);
                 let one = ctx.context.i64_type().const_int(1, false);
                 let idx_ptr = ctx
                     .builder()
-                    .build_alloca(ctx.context.i64_type(), "spread_idx2");
-                ctx.builder().build_store(idx_ptr, zero);
+                    .build_alloca(ctx.context.i64_type(), "spread_idx2").unwrap();
+                ctx.builder().build_store(idx_ptr, zero).unwrap();
                 let loop_bb = ctx.context.append_basic_block(
                     ctx.current_function.ok_or("No current function")?,
                     "spread_loop2",
@@ -4990,17 +4987,17 @@ fn compile_call<'ctx>(
                     ctx.current_function.ok_or("No current function")?,
                     "spread_done2",
                 );
-                ctx.builder().build_unconditional_branch(loop_bb);
+                ctx.builder().build_unconditional_branch(loop_bb).unwrap();
                 ctx.builder().position_at_end(loop_bb);
-                let idx = ctx.builder().build_load(idx_ptr, "idx2").into_int_value();
+                let idx = ctx.builder().build_load(ctx.context.i64_type(), idx_ptr, "idx2").unwrap().into_int_value();
                 let at_end = ctx.builder().build_int_compare(
                     inkwell::IntPredicate::UGE,
                     idx,
                     len_val,
                     "at_end2",
-                );
+                ).unwrap();
                 ctx.builder()
-                    .build_conditional_branch(at_end, done_bb, loop_bb);
+                    .build_conditional_branch(at_end, done_bb, loop_bb).unwrap();
                 let body_bb = ctx.context.append_basic_block(
                     ctx.current_function.ok_or("No current function")?,
                     "spread_body2",
@@ -5009,14 +5006,14 @@ fn compile_call<'ctx>(
                 let elem = ctx
                     .builder()
                     .build_call(get_fn, &[arr_ptr.into(), idx.into()], "spread_elem2")
-                    .try_as_basic_value()
-                    .left()
                     .unwrap()
+                    .try_as_basic_value()
+                    .unwrap_basic()
                     .into_int_value();
                 arg_values.push(elem.into());
-                let next_idx = ctx.builder().build_int_add(idx, one, "next_idx2");
-                ctx.builder().build_store(idx_ptr, next_idx);
-                ctx.builder().build_unconditional_branch(loop_bb);
+                let next_idx = ctx.builder().build_int_add(idx, one, "next_idx2").unwrap();
+                ctx.builder().build_store(idx_ptr, next_idx).unwrap();
+                ctx.builder().build_unconditional_branch(loop_bb).unwrap();
                 ctx.builder().position_at_end(done_bb);
             }
         }
@@ -5083,28 +5080,29 @@ fn compile_call<'ctx>(
             let byte_offset = ctx.builder().build_int_add(
                 header_size,
                 ctx.builder()
-                    .build_int_mul(index_val, stride, "dyn_stride2"),
+                    .build_int_mul(index_val, stride, "dyn_stride2").unwrap(),
                 "dyn_offset2",
-            );
+            ).unwrap();
             let offset_i32 =
                 ctx.builder()
-                    .build_int_truncate(byte_offset, ctx.context.i32_type(), "off32b");
+                    .build_int_truncate(byte_offset, ctx.context.i32_type(), "off32b").unwrap();
             let elem_gep = unsafe {
                 ctx.builder()
-                    .build_gep(arr_ptr, &[offset_i32], "dyn_elem_gep2")
+                    .build_gep(ctx.context.i8_type(), arr_ptr, &[offset_i32], "dyn_elem_gep2")
+                    .unwrap()
             };
             let struct_ptr = ctx.builder().build_pointer_cast(
                 elem_gep,
-                dyn_struct_ty.ptr_type(Default::default()),
+                ctx.context.ptr_type(Default::default()),
                 "dyn_struct_ptr2",
-            );
-            let loaded = ctx.builder().build_load(struct_ptr, "dyn_elem2");
+            ).unwrap();
+            let loaded = ctx.builder().build_load(dyn_struct_ty, struct_ptr, "dyn_elem2").unwrap();
             return Ok(ExprResult::new(loaded, Type::Dynamic));
         }
     }
 
     let call_site = build_call_or_invoke(ctx, func, &arg_values, "call");
-    let mut value = call_site.try_as_basic_value().left();
+    let mut value = call_site.try_as_basic_value().basic();
 
     let is_async = ctx.module.get_function(&format!("{}$poll", name)).is_some();
 
@@ -5148,19 +5146,19 @@ fn compile_call<'ctx>(
                     let resolved_elem_ty = ctx.resolve_type_aliases(elem_ty);
                     let (new_val, new_ty) = match &resolved_elem_ty {
                         Type::Float => {
-                            let f = ctx.builder().build_bitcast(
+                            let f = ctx.builder().build_bit_cast(
                                 word,
                                 ctx.context.f64_type(),
                                 "elem_f64",
-                            );
+                            ).unwrap();
                             (f, Type::Float)
                         }
                         Type::String | Type::Array(_) | Type::Object(_) | Type::Function { .. } => {
                             let ptr = ctx.builder().build_int_to_ptr(
                                 word,
-                                ctx.context.i8_type().ptr_type(Default::default()),
+                                ctx.context.ptr_type(Default::default()),
                                 "elem_ptr",
-                            );
+                            ).unwrap();
                             (BasicValueEnum::PointerValue(ptr), resolved_elem_ty.clone())
                         }
                         // Named types: only convert to pointer if it's a real class,
@@ -5170,9 +5168,9 @@ fn compile_call<'ctx>(
                         Type::Named(name, _) if ctx.class_struct_types.contains_key(name) => {
                             let ptr = ctx.builder().build_int_to_ptr(
                                 word,
-                                ctx.context.i8_type().ptr_type(Default::default()),
+                                ctx.context.ptr_type(Default::default()),
                                 "elem_ptr",
-                            );
+                            ).unwrap();
                             (BasicValueEnum::PointerValue(ptr), resolved_elem_ty.clone())
                         }
                         // Named types that are aliases already resolved above should
@@ -5242,14 +5240,14 @@ fn compile_call<'ctx>(
                         v.into_pointer_value(),
                         expected_llvm.into_int_type(),
                         "call_ptr_to_int",
-                    )));
+                    ).unwrap()));
                 } else if actual_llvm.is_int_type() && expected_llvm.is_pointer_type() {
                     value = Some(BasicValueEnum::PointerValue(
                         ctx.builder().build_int_to_ptr(
                             v.into_int_value(),
                             expected_llvm.into_pointer_type(),
                             "call_int_to_ptr",
-                        ),
+                        ).unwrap(),
                     ));
                 } else if actual_llvm.is_struct_type() && expected_llvm.is_pointer_type() {
                     // Dynamic struct → i8*：提取 data_ptr
@@ -5272,7 +5270,7 @@ fn compile_call<'ctx>(
                         data_ptr,
                         expected_llvm.into_int_type(),
                         "call_s2i",
-                    )));
+                    ).unwrap()));
                 }
             }
         }
@@ -5284,7 +5282,7 @@ fn compile_call<'ctx>(
         if matches!(&ret_ty, Type::Array(_)) {
             if let Some(v) = value {
                 if let BasicValueEnum::PointerValue(new_ptr) = v {
-                    ctx.builder().build_store(self_ptr, new_ptr);
+                    ctx.builder().build_store(self_ptr, new_ptr).unwrap();
                 }
             }
         }
@@ -5311,7 +5309,7 @@ pub(crate) fn build_box_dynamic<'ctx>(
 ) -> BasicValueEnum<'ctx> {
     let dyn_llvm_ty = ruyi_type_to_llvm(ctx.context, &Type::Dynamic).into_struct_type();
     let i64_ty = ctx.context.i64_type();
-    let i8_ptr_ty = ctx.context.i8_type().ptr_type(Default::default());
+    let i8_ptr_ty = ctx.context.ptr_type(Default::default());
     let zero_i64 = i64_ty.const_int(0, false);
     let _null_ptr = i8_ptr_ty.const_null();
 
@@ -5323,7 +5321,7 @@ pub(crate) fn build_box_dynamic<'ctx>(
             let ptr = value.into_pointer_value();
             let data = ctx
                 .builder()
-                .build_pointer_cast(ptr, i8_ptr_ty, "box_dyn_data");
+                .build_pointer_cast(ptr, i8_ptr_ty, "box_dyn_data").unwrap();
             s = ctx
                 .builder()
                 .build_insert_value(s, tag_val, 0, "box_tag")
@@ -5339,7 +5337,7 @@ pub(crate) fn build_box_dynamic<'ctx>(
             let int_val = value.into_int_value();
             let extended = if int_val.get_type().get_bit_width() < 64 {
                 ctx.builder()
-                    .build_int_z_extend(int_val, i64_ty, "box_int_ext")
+                    .build_int_z_extend(int_val, i64_ty, "box_int_ext").unwrap()
             } else {
                 int_val
             };
@@ -5353,7 +5351,7 @@ pub(crate) fn build_box_dynamic<'ctx>(
             // Data: field 1 = inttoptr(value)
             let data = ctx
                 .builder()
-                .build_int_to_ptr(extended, i8_ptr_ty, "box_int_data");
+                .build_int_to_ptr(extended, i8_ptr_ty, "box_int_data").unwrap();
             s = ctx
                 .builder()
                 .build_insert_value(s, data, 1, "box_int_ptr")
@@ -5362,7 +5360,7 @@ pub(crate) fn build_box_dynamic<'ctx>(
         }
         Type::Float => {
             let f = value.into_float_value();
-            let bits = ctx.builder().build_bitcast(f, i64_ty, "box_fbits");
+            let bits = ctx.builder().build_bit_cast(f, i64_ty, "box_fbits").unwrap();
             s = ctx
                 .builder()
                 .build_insert_value(s, bits, 0, "box_float")
@@ -5371,7 +5369,7 @@ pub(crate) fn build_box_dynamic<'ctx>(
             // Tag: field 1 = inttoptr(2) to mark this as a float
             let float_tag =
                 ctx.builder()
-                    .build_int_to_ptr(i64_ty.const_int(2, false), i8_ptr_ty, "float_tag");
+                    .build_int_to_ptr(i64_ty.const_int(2, false), i8_ptr_ty, "float_tag").unwrap();
             s = ctx
                 .builder()
                 .build_insert_value(s, float_tag, 1, "box_float_tag")
@@ -5380,7 +5378,7 @@ pub(crate) fn build_box_dynamic<'ctx>(
         }
         Type::Bool => {
             let b = value.into_int_value();
-            let extended = ctx.builder().build_int_z_extend(b, i64_ty, "box_bool_ext");
+            let extended = ctx.builder().build_int_z_extend(b, i64_ty, "box_bool_ext").unwrap();
             s = ctx
                 .builder()
                 .build_insert_value(s, extended, 0, "box_bool")
@@ -5389,7 +5387,7 @@ pub(crate) fn build_box_dynamic<'ctx>(
             // Tag: field 1 = inttoptr(3) to mark this as a bool
             let bool_tag =
                 ctx.builder()
-                    .build_int_to_ptr(i64_ty.const_int(3, false), i8_ptr_ty, "bool_tag");
+                    .build_int_to_ptr(i64_ty.const_int(3, false), i8_ptr_ty, "bool_tag").unwrap();
             s = ctx
                 .builder()
                 .build_insert_value(s, bool_tag, 1, "box_bool_tag")
@@ -5400,7 +5398,7 @@ pub(crate) fn build_box_dynamic<'ctx>(
             let ptr = value.into_pointer_value();
             let data = ctx
                 .builder()
-                .build_pointer_cast(ptr, i8_ptr_ty, "box_str_data");
+                .build_pointer_cast(ptr, i8_ptr_ty, "box_str_data").unwrap();
             s = ctx
                 .builder()
                 .build_insert_value(s, zero_i64, 0, "box_str_tag")
@@ -5419,7 +5417,7 @@ pub(crate) fn build_box_dynamic<'ctx>(
                 BasicValueEnum::IntValue(v) => {
                     // Box as int: {type_tag=1, inttoptr(value)}
                     let extended = if v.get_type().get_bit_width() < 64 {
-                        ctx.builder().build_int_z_extend(v, i64_ty, "box_dyn_ext")
+                        ctx.builder().build_int_z_extend(v, i64_ty, "box_dyn_ext").unwrap()
                     } else {
                         v
                     };
@@ -5431,7 +5429,7 @@ pub(crate) fn build_box_dynamic<'ctx>(
                         .into_struct_value();
                     let data = ctx
                         .builder()
-                        .build_int_to_ptr(extended, i8_ptr_ty, "box_dyn_data");
+                        .build_int_to_ptr(extended, i8_ptr_ty, "box_dyn_data").unwrap();
                     s = ctx
                         .builder()
                         .build_insert_value(s, data, 1, "box_dyn_ptr")
@@ -5442,7 +5440,7 @@ pub(crate) fn build_box_dynamic<'ctx>(
                     // Box as pointer/string: {0, ptr}
                     let data = ctx
                         .builder()
-                        .build_pointer_cast(p, i8_ptr_ty, "box_dyn_ptr");
+                        .build_pointer_cast(p, i8_ptr_ty, "box_dyn_ptr").unwrap();
                     s = ctx
                         .builder()
                         .build_insert_value(s, data, 1, "box_dyn_ptr")
@@ -5453,7 +5451,7 @@ pub(crate) fn build_box_dynamic<'ctx>(
                     // Box as float: {type_tag=2, inttoptr(bitcast(f64→i64))}
                     let bits = ctx
                         .builder()
-                        .build_bitcast(f, i64_ty, "box_dyn_fbits")
+                        .build_bit_cast(f, i64_ty, "box_dyn_fbits").unwrap()
                         .into_int_value();
                     let type_tag = i64_ty.const_int(2, false);
                     s = ctx
@@ -5463,7 +5461,7 @@ pub(crate) fn build_box_dynamic<'ctx>(
                         .into_struct_value();
                     let data = ctx
                         .builder()
-                        .build_int_to_ptr(bits, i8_ptr_ty, "box_dyn_data");
+                        .build_int_to_ptr(bits, i8_ptr_ty, "box_dyn_data").unwrap();
                     s = ctx
                         .builder()
                         .build_insert_value(s, data, 1, "box_dyn_ptr")
@@ -5546,13 +5544,13 @@ fn compile_assignment<'ctx>(
                         &effective.ty,
                         trait_name,
                     )?;
-                    ctx.builder().build_store(ptr, trait_obj_val);
+                    ctx.builder().build_store(ptr, trait_obj_val).unwrap();
                 } else if var_ty == Type::Dynamic && effective.ty != Type::Dynamic {
                     // Named→Dynamic boxing: construct {i64, i8*} struct
                     let dyn_val = build_box_dynamic(ctx, effective.value, &effective.ty);
-                    ctx.builder().build_store(ptr, dyn_val);
+                    ctx.builder().build_store(ptr, dyn_val).unwrap();
                 } else {
-                    ctx.builder().build_store(ptr, effective.value);
+                    ctx.builder().build_store(ptr, effective.value).unwrap();
                 }
                 Ok(effective)
             } else {
@@ -5580,17 +5578,18 @@ fn compile_assignment<'ctx>(
                             .const_int((field_index * 8) as u64, false);
                         let field_ptr = unsafe {
                             ctx.builder().build_gep(
+                                ctx.context.i8_type(),
                                 obj_ptr,
                                 &[offset],
                                 &format!("{}_ptr", field_name),
-                            )
+                            ).unwrap()
                         };
                         let typed_ptr = ctx.builder().build_pointer_cast(
                             field_ptr,
-                            ruyi_type_to_llvm(ctx.context, field_ty).ptr_type(Default::default()),
+                            ctx.context.ptr_type(Default::default()),
                             &format!("{}_typed", field_name),
-                        );
-                        ctx.builder().build_store(typed_ptr, effective.value);
+                        ).unwrap();
+                        ctx.builder().build_store(typed_ptr, effective.value).unwrap();
                         return Ok(effective);
                     }
 
@@ -5633,7 +5632,7 @@ fn compile_assignment<'ctx>(
                             BasicValueEnum::IntValue(v) => v,
                             BasicValueEnum::FloatValue(v) => ctx
                                 .builder()
-                                .build_float_to_signed_int(v, ctx.context.i64_type(), "idx_f2i"),
+                                .build_float_to_signed_int(v, ctx.context.i64_type(), "idx_f2i").unwrap(),
                             _ => return Err("Array index must be an integer".to_string()),
                         };
                     let effective_val = match effective.value {
@@ -5642,7 +5641,7 @@ fn compile_assignment<'ctx>(
                             v,
                             ctx.context.i64_type(),
                             "f2i",
-                        ),
+                        ).unwrap(),
                         _ => {
                             return Err("Unsupported element type for array assignment".to_string())
                         }
@@ -5681,22 +5680,22 @@ fn compile_conditional<'ctx>(
     let merge_bb = ctx.context.append_basic_block(func, "merge");
 
     ctx.builder()
-        .build_conditional_branch(cond_val, then_bb, else_bb);
+        .build_conditional_branch(cond_val, then_bb, else_bb).unwrap();
 
     ctx.builder().position_at_end(then_bb);
     let then_result = compile_expr(ctx, then_branch)?;
-    ctx.builder().build_unconditional_branch(merge_bb);
+    ctx.builder().build_unconditional_branch(merge_bb).unwrap();
     let then_bb_end = ctx.builder().get_insert_block().unwrap();
 
     ctx.builder().position_at_end(else_bb);
     let else_result = compile_expr(ctx, else_branch)?;
-    ctx.builder().build_unconditional_branch(merge_bb);
+    ctx.builder().build_unconditional_branch(merge_bb).unwrap();
     let else_bb_end = ctx.builder().get_insert_block().unwrap();
 
     ctx.builder().position_at_end(merge_bb);
 
     let phi_ty = ruyi_type_to_llvm(ctx.context, &then_result.ty);
-    let phi = ctx.builder().build_phi(phi_ty, "cond_phi");
+    let phi = ctx.builder().build_phi(phi_ty, "cond_phi").unwrap();
     phi.add_incoming(&[
         (&then_result.value, then_bb_end),
         (&else_result.value, else_bb_end),
@@ -5725,11 +5724,11 @@ fn compile_if_expr<'ctx>(
     let merge_bb = ctx.context.append_basic_block(func, "merge");
 
     ctx.builder()
-        .build_conditional_branch(cond_val, then_bb, else_bb);
+        .build_conditional_branch(cond_val, then_bb, else_bb).unwrap();
 
     ctx.builder().position_at_end(then_bb);
     let then_result = compile_expr(ctx, then_branch)?;
-    ctx.builder().build_unconditional_branch(merge_bb);
+    ctx.builder().build_unconditional_branch(merge_bb).unwrap();
     let then_bb_end = ctx.builder().get_insert_block().unwrap();
 
     ctx.builder().position_at_end(else_bb);
@@ -5741,13 +5740,13 @@ fn compile_if_expr<'ctx>(
             Type::Void,
         )
     };
-    ctx.builder().build_unconditional_branch(merge_bb);
+    ctx.builder().build_unconditional_branch(merge_bb).unwrap();
     let else_bb_end = ctx.builder().get_insert_block().unwrap();
 
     ctx.builder().position_at_end(merge_bb);
 
     let phi_ty = ruyi_type_to_llvm(ctx.context, &then_result.ty);
-    let phi = ctx.builder().build_phi(phi_ty, "if_phi");
+    let phi = ctx.builder().build_phi(phi_ty, "if_phi").unwrap();
     phi.add_incoming(&[
         (&then_result.value, then_bb_end),
         (&else_result.value, else_bb_end),
@@ -5778,32 +5777,33 @@ fn compile_array_literal<'ctx>(
 
     let len_ptr = ctx
         .builder()
-        .build_bitcast(
+        .build_bit_cast(
             ptr,
-            ctx.context.i64_type().ptr_type(Default::default()),
+            ctx.context.ptr_type(Default::default()),
             "len_ptr",
-        )
+        ).unwrap()
         .into_pointer_value();
     ctx.builder()
-        .build_store(len_ptr, ctx.context.i64_type().const_int(len, false));
+        .build_store(len_ptr, ctx.context.i64_type().const_int(len, false)).unwrap();
 
     let cap_ptr = unsafe {
         ctx.builder().build_gep(
+            ctx.context.i8_type(),
             ptr,
             &[ctx.context.i32_type().const_int(8, false)],
             "cap_ptr",
-        )
+        ).unwrap()
     };
     let cap_i64_ptr = ctx
         .builder()
-        .build_bitcast(
+        .build_bit_cast(
             cap_ptr,
-            ctx.context.i64_type().ptr_type(Default::default()),
+            ctx.context.ptr_type(Default::default()),
             "cap_i64_ptr",
-        )
+        ).unwrap()
         .into_pointer_value();
     ctx.builder()
-        .build_store(cap_i64_ptr, ctx.context.i64_type().const_int(cap, false));
+        .build_store(cap_i64_ptr, ctx.context.i64_type().const_int(cap, false)).unwrap();
 
     let mut elem_ty: Option<Type> = None;
     for (i, elem) in elements.iter().enumerate() {
@@ -5819,29 +5819,29 @@ fn compile_array_literal<'ctx>(
                     _ => {}
                 }
                 let offset = ctx.context.i32_type().const_int((16 + i * 8) as u64, false);
-                let elem_ptr = unsafe { ctx.builder().build_gep(ptr, &[offset], "elem_ptr") };
+                let elem_ptr = unsafe { ctx.builder().build_gep(ctx.context.i8_type(), ptr, &[offset], "elem_ptr").unwrap() };
                 let i64_ptr = ctx
                     .builder()
-                    .build_bitcast(
+                    .build_bit_cast(
                         elem_ptr,
-                        ctx.context.i64_type().ptr_type(Default::default()),
+                        ctx.context.ptr_type(Default::default()),
                         "elem_i64_ptr",
-                    )
+                    ).unwrap()
                     .into_pointer_value();
 
                 let stored_val = match val.value {
                     BasicValueEnum::IntValue(v) => v.as_basic_value_enum(),
                     BasicValueEnum::FloatValue(v) => ctx
                         .builder()
-                        .build_bitcast(v, ctx.context.i64_type(), "f_to_i")
+                        .build_bit_cast(v, ctx.context.i64_type(), "f_to_i").unwrap()
                         .as_basic_value_enum(),
                     BasicValueEnum::PointerValue(v) => ctx
                         .builder()
-                        .build_ptr_to_int(v, ctx.context.i64_type(), "ptr_to_i")
+                        .build_ptr_to_int(v, ctx.context.i64_type(), "ptr_to_i").unwrap()
                         .as_basic_value_enum(),
                     _ => val.value,
                 };
-                ctx.builder().build_store(i64_ptr, stored_val);
+                ctx.builder().build_store(i64_ptr, stored_val).unwrap();
 
                 if super::builtins::is_gc_managed(&val.ty) {
                     if let BasicValueEnum::PointerValue(pv) = val.value {
@@ -5852,17 +5852,17 @@ fn compile_array_literal<'ctx>(
             crate::parser::ast::ArrayElement::Elision => {
                 // Elision: 存储零值
                 let offset = ctx.context.i32_type().const_int((16 + i * 8) as u64, false);
-                let elem_ptr = unsafe { ctx.builder().build_gep(ptr, &[offset], "elem_ptr") };
+                let elem_ptr = unsafe { ctx.builder().build_gep(ctx.context.i8_type(), ptr, &[offset], "elem_ptr").unwrap() };
                 let i64_ptr = ctx
                     .builder()
-                    .build_bitcast(
+                    .build_bit_cast(
                         elem_ptr,
-                        ctx.context.i64_type().ptr_type(Default::default()),
+                        ctx.context.ptr_type(Default::default()),
                         "elem_i64_ptr",
-                    )
+                    ).unwrap()
                     .into_pointer_value();
                 ctx.builder()
-                    .build_store(i64_ptr, ctx.context.i64_type().const_int(0, false));
+                    .build_store(i64_ptr, ctx.context.i64_type().const_int(0, false)).unwrap();
             }
             crate::parser::ast::ArrayElement::Spread(_) => {
                 unreachable!("spread element should be handled by dynamic path")
@@ -5884,7 +5884,7 @@ fn compile_array_literal_with_spread<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_, '_>,
     elements: &[crate::parser::ast::ArrayElement],
 ) -> Result<ExprResult<'ctx>, String> {
-    let i8_ptr_ty = ctx.context.i8_type().ptr_type(Default::default());
+    let i8_ptr_ty = ctx.context.ptr_type(Default::default());
     let i64_ty = ctx.context.i64_type();
 
     let create_fn = ctx
@@ -5906,15 +5906,15 @@ fn compile_array_literal_with_spread<'ctx>(
 
     // 使用 alloca 保存数组指针，push 可能触发重新分配，
     // 必须通过内存位置跟踪最新的指针值。
-    let arr_ptr_alloca = ctx.builder().build_alloca(i8_ptr_ty, "arr_ptr_alloca");
+    let arr_ptr_alloca = ctx.builder().build_alloca(i8_ptr_ty, "arr_ptr_alloca").unwrap();
     let initial_arr = ctx
         .builder()
         .build_call(create_fn, &[], "arr_create")
-        .try_as_basic_value()
-        .left()
         .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
         .into_pointer_value();
-    ctx.builder().build_store(arr_ptr_alloca, initial_arr);
+    ctx.builder().build_store(arr_ptr_alloca, initial_arr).unwrap();
 
     let mut elem_ty: Option<Type> = None;
 
@@ -5931,27 +5931,27 @@ fn compile_array_literal_with_spread<'ctx>(
                     BasicValueEnum::IntValue(v) => v,
                     BasicValueEnum::FloatValue(v) => ctx
                         .builder()
-                        .build_bitcast(v, i64_ty, "f_to_i")
+                        .build_bit_cast(v, i64_ty, "f_to_i").unwrap()
                         .into_int_value(),
                     BasicValueEnum::PointerValue(v) => {
-                        ctx.builder().build_ptr_to_int(v, i64_ty, "ptr_to_i")
+                        ctx.builder().build_ptr_to_int(v, i64_ty, "ptr_to_i").unwrap()
                     }
                     _ => i64_ty.const_int(0, false),
                 };
                 // 从 alloca 加载当前数组指针
                 let cur_arr = ctx
                     .builder()
-                    .build_load(arr_ptr_alloca, "cur_arr")
+                    .build_load(ctx.context.ptr_type(Default::default()), arr_ptr_alloca, "cur_arr").unwrap()
                     .into_pointer_value();
                 // push 返回（可能重新分配的）新数组指针
                 let new_arr = ctx
                     .builder()
                     .build_call(push_fn, &[cur_arr.into(), word.into()], "arr_push")
-                    .try_as_basic_value()
-                    .left()
                     .unwrap()
+                    .try_as_basic_value()
+                    .unwrap_basic()
                     .into_pointer_value();
-                ctx.builder().build_store(arr_ptr_alloca, new_arr);
+                ctx.builder().build_store(arr_ptr_alloca, new_arr).unwrap();
             }
             crate::parser::ast::ArrayElement::Spread(expr) => {
                 let spread_result = compile_expr(ctx, expr)?;
@@ -5973,51 +5973,51 @@ fn compile_array_literal_with_spread<'ctx>(
                 let src_len = ctx
                     .builder()
                     .build_call(len_fn, &[src_arr.into()], "spread_len")
-                    .try_as_basic_value()
-                    .left()
                     .unwrap()
+                    .try_as_basic_value()
+                    .unwrap_basic()
                     .into_int_value();
 
                 let func = ctx.current_function().ok_or("No current function")?;
-                let idx_ptr = ctx.builder().build_alloca(i64_ty, "spread_idx");
+                let idx_ptr = ctx.builder().build_alloca(i64_ty, "spread_idx").unwrap();
                 ctx.builder()
-                    .build_store(idx_ptr, i64_ty.const_int(0, false));
+                    .build_store(idx_ptr, i64_ty.const_int(0, false)).unwrap();
 
                 let loop_bb = ctx.context.append_basic_block(func, "spread_loop");
                 let body_bb = ctx.context.append_basic_block(func, "spread_body");
                 let done_bb = ctx.context.append_basic_block(func, "spread_done");
 
-                ctx.builder().build_unconditional_branch(loop_bb);
+                ctx.builder().build_unconditional_branch(loop_bb).unwrap();
 
                 // 循环条件：idx < src_len
                 ctx.builder().position_at_end(loop_bb);
-                let idx = ctx.builder().build_load(idx_ptr, "idx").into_int_value();
+                let idx = ctx.builder().build_load(ctx.context.i64_type(), idx_ptr, "idx").unwrap().into_int_value();
                 let at_end = ctx.builder().build_int_compare(
                     inkwell::IntPredicate::UGE,
                     idx,
                     src_len,
                     "spread_at_end",
-                );
+                ).unwrap();
                 ctx.builder()
-                    .build_conditional_branch(at_end, done_bb, body_bb);
+                    .build_conditional_branch(at_end, done_bb, body_bb).unwrap();
 
                 // 循环体：取元素并 push
                 ctx.builder().position_at_end(body_bb);
                 let idx_val = ctx
                     .builder()
-                    .build_load(idx_ptr, "idx_val")
+                    .build_load(i64_ty, idx_ptr, "idx_val").unwrap()
                     .into_int_value();
                 let spread_elem = ctx
                     .builder()
                     .build_call(get_fn, &[src_arr.into(), idx_val.into()], "spread_elem")
-                    .try_as_basic_value()
-                    .left()
                     .unwrap()
+                    .try_as_basic_value()
+                    .unwrap_basic()
                     .into_int_value();
                 // 从 alloca 加载当前数组指针
                 let cur_arr = ctx
                     .builder()
-                    .build_load(arr_ptr_alloca, "cur_arr_sp")
+                    .build_load(ctx.context.ptr_type(Default::default()), arr_ptr_alloca, "cur_arr_sp").unwrap()
                     .into_pointer_value();
                 let new_arr = ctx
                     .builder()
@@ -6026,17 +6026,17 @@ fn compile_array_literal_with_spread<'ctx>(
                         &[cur_arr.into(), spread_elem.into()],
                         "spread_push",
                     )
-                    .try_as_basic_value()
-                    .left()
                     .unwrap()
+                    .try_as_basic_value()
+                    .unwrap_basic()
                     .into_pointer_value();
-                ctx.builder().build_store(arr_ptr_alloca, new_arr);
+                ctx.builder().build_store(arr_ptr_alloca, new_arr).unwrap();
                 // 递增索引
                 let next_idx =
                     ctx.builder()
-                        .build_int_add(idx_val, i64_ty.const_int(1, false), "next_idx");
-                ctx.builder().build_store(idx_ptr, next_idx);
-                ctx.builder().build_unconditional_branch(loop_bb);
+                        .build_int_add(idx_val, i64_ty.const_int(1, false), "next_idx").unwrap();
+                ctx.builder().build_store(idx_ptr, next_idx).unwrap();
+                ctx.builder().build_unconditional_branch(loop_bb).unwrap();
 
                 // 循环结束
                 ctx.builder().position_at_end(done_bb);
@@ -6044,7 +6044,7 @@ fn compile_array_literal_with_spread<'ctx>(
             crate::parser::ast::ArrayElement::Elision => {
                 let cur_arr = ctx
                     .builder()
-                    .build_load(arr_ptr_alloca, "cur_arr_el")
+                    .build_load(ctx.context.ptr_type(Default::default()), arr_ptr_alloca, "cur_arr_el").unwrap()
                     .into_pointer_value();
                 let new_arr = ctx
                     .builder()
@@ -6053,11 +6053,11 @@ fn compile_array_literal_with_spread<'ctx>(
                         &[cur_arr.into(), i64_ty.const_int(0, false).into()],
                         "elision_push",
                     )
-                    .try_as_basic_value()
-                    .left()
                     .unwrap()
+                    .try_as_basic_value()
+                    .unwrap_basic()
                     .into_pointer_value();
-                ctx.builder().build_store(arr_ptr_alloca, new_arr);
+                ctx.builder().build_store(arr_ptr_alloca, new_arr).unwrap();
             }
         }
     }
@@ -6065,7 +6065,7 @@ fn compile_array_literal_with_spread<'ctx>(
     // 从 alloca 加载最终的数组指针
     let final_arr = ctx
         .builder()
-        .build_load(arr_ptr_alloca, "final_arr")
+        .build_load(ctx.context.ptr_type(Default::default()), arr_ptr_alloca, "final_arr").unwrap()
         .into_pointer_value();
 
     Ok(ExprResult::new(
@@ -6097,48 +6097,49 @@ fn compile_rest_args_to_array<'ctx>(
 
     let len_ptr = ctx
         .builder()
-        .build_bitcast(
+        .build_bit_cast(
             ptr,
-            ctx.context.i64_type().ptr_type(Default::default()),
+            ctx.context.ptr_type(Default::default()),
             "len_ptr",
-        )
+        ).unwrap()
         .into_pointer_value();
     ctx.builder()
-        .build_store(len_ptr, ctx.context.i64_type().const_int(len, false));
+        .build_store(len_ptr, ctx.context.i64_type().const_int(len, false)).unwrap();
 
     let cap_ptr = unsafe {
         ctx.builder().build_gep(
+            ctx.context.i8_type(),
             ptr,
             &[ctx.context.i32_type().const_int(8, false)],
             "cap_ptr",
-        )
+        ).unwrap()
     };
     let cap_i64_ptr = ctx
         .builder()
-        .build_bitcast(
+        .build_bit_cast(
             cap_ptr,
-            ctx.context.i64_type().ptr_type(Default::default()),
+            ctx.context.ptr_type(Default::default()),
             "cap_i64_ptr",
-        )
+        ).unwrap()
         .into_pointer_value();
     ctx.builder()
-        .build_store(cap_i64_ptr, ctx.context.i64_type().const_int(cap, false));
+        .build_store(cap_i64_ptr, ctx.context.i64_type().const_int(cap, false)).unwrap();
 
     if matches!(elem_ty, Type::Dynamic) {
         // Dynamic rest args: store full {i64, i8*} structs to preserve type info
         let dyn_struct_ty = ruyi_type_to_llvm(ctx.context, &Type::Dynamic).into_struct_type();
-        let dyn_struct_ptr_ty = dyn_struct_ty.ptr_type(Default::default());
+        let dyn_struct_ptr_ty = ctx.context.ptr_type(Default::default());
         for (i, (val, arg_ty)) in rest_args.iter().zip(rest_types.iter()).enumerate() {
             let offset = ctx
                 .context
                 .i32_type()
                 .const_int((16 + i * 16) as u64, false);
-            let raw_elem_ptr = unsafe { ctx.builder().build_gep(ptr, &[offset], "dyn_elem_ptr") };
+            let raw_elem_ptr = unsafe { ctx.builder().build_gep(ctx.context.i8_type(), ptr, &[offset], "dyn_elem_ptr").unwrap() };
             let elem_ptr = ctx.builder().build_pointer_cast(
                 raw_elem_ptr,
                 dyn_struct_ptr_ty,
                 "dyn_elem_typed_ptr",
-            );
+            ).unwrap();
             // Convert BasicMetadataValueEnum back to BasicValueEnum for boxing
             let basic_val: BasicValueEnum<'ctx> = match val {
                 inkwell::values::BasicMetadataValueEnum::IntValue(v) => {
@@ -6153,35 +6154,35 @@ fn compile_rest_args_to_array<'ctx>(
                 _ => continue,
             };
             let dyn_struct = build_box_dynamic(ctx, basic_val, arg_ty);
-            ctx.builder().build_store(elem_ptr, dyn_struct);
+            ctx.builder().build_store(elem_ptr, dyn_struct).unwrap();
         }
     } else {
         // Non-Dynamic: store as i64 values (legacy behavior)
         for (i, val) in rest_args.iter().enumerate() {
             let offset = ctx.context.i32_type().const_int((16 + i * 8) as u64, false);
-            let elem_ptr = unsafe { ctx.builder().build_gep(ptr, &[offset], "elem_ptr") };
+            let elem_ptr = unsafe { ctx.builder().build_gep(ctx.context.i8_type(), ptr, &[offset], "elem_ptr").unwrap() };
             let i64_ptr = ctx
                 .builder()
-                .build_bitcast(
+                .build_bit_cast(
                     elem_ptr,
-                    ctx.context.i64_type().ptr_type(Default::default()),
+                    ctx.context.ptr_type(Default::default()),
                     "elem_i64_ptr",
-                )
+                ).unwrap()
                 .into_pointer_value();
 
             let stored_val = match val {
                 inkwell::values::BasicMetadataValueEnum::IntValue(v) => v.as_basic_value_enum(),
                 inkwell::values::BasicMetadataValueEnum::FloatValue(v) => ctx
                     .builder()
-                    .build_bitcast(*v, ctx.context.i64_type(), "f_to_i")
+                    .build_bit_cast(*v, ctx.context.i64_type(), "f_to_i").unwrap()
                     .as_basic_value_enum(),
                 inkwell::values::BasicMetadataValueEnum::PointerValue(v) => ctx
                     .builder()
-                    .build_ptr_to_int(*v, ctx.context.i64_type(), "ptr_to_i")
+                    .build_ptr_to_int(*v, ctx.context.i64_type(), "ptr_to_i").unwrap()
                     .as_basic_value_enum(),
                 _ => continue,
             };
-            ctx.builder().build_store(i64_ptr, stored_val);
+            ctx.builder().build_store(i64_ptr, stored_val).unwrap();
         }
     }
 
@@ -6335,20 +6336,21 @@ fn compile_object_literal<'ctx>(
                                     .const_int((src_idx * 8) as u64, false);
                                 let src_field_ptr = unsafe {
                                     ctx.builder().build_gep(
+                                        ctx.context.i8_type(),
                                         src_ptr,
                                         &[src_offset],
                                         "spread_src_field",
-                                    )
+                                    ).unwrap()
                                 };
                                 let src_i64_ptr = ctx
                                     .builder()
-                                    .build_bitcast(
+                                    .build_bit_cast(
                                         src_field_ptr,
-                                        ctx.context.i64_type().ptr_type(Default::default()),
+                                        ctx.context.ptr_type(Default::default()),
                                         "spread_src_i64_ptr",
-                                    )
+                                    ).unwrap()
                                     .into_pointer_value();
-                                let loaded = ctx.builder().build_load(src_i64_ptr, "spread_val");
+                                let loaded = ctx.builder().build_load(ctx.context.i64_type(), src_i64_ptr, "spread_val").unwrap();
 
                                 // 写入目标对象对应槽位
                                 let tgt_offset = ctx
@@ -6357,17 +6359,18 @@ fn compile_object_literal<'ctx>(
                                     .const_int((target_slot * 8) as u64, false);
                                 let tgt_field_ptr = unsafe {
                                     ctx.builder()
-                                        .build_gep(ptr, &[tgt_offset], "spread_tgt_field")
+                                        .build_gep(ctx.context.i8_type(), ptr, &[tgt_offset], "spread_tgt_field")
+                                        .unwrap()
                                 };
                                 let tgt_i64_ptr = ctx
                                     .builder()
-                                    .build_bitcast(
+                                    .build_bit_cast(
                                         tgt_field_ptr,
-                                        ctx.context.i64_type().ptr_type(Default::default()),
+                                        ctx.context.ptr_type(Default::default()),
                                         "spread_tgt_i64_ptr",
-                                    )
+                                    ).unwrap()
                                     .into_pointer_value();
-                                ctx.builder().build_store(tgt_i64_ptr, loaded);
+                                ctx.builder().build_store(tgt_i64_ptr, loaded).unwrap();
 
                                 // 为 GC 管理的指针类型写屏障
                                 if super::builtins::is_gc_managed(&sf.ty) {
@@ -6421,29 +6424,29 @@ fn store_value_at_slot<'ctx>(
     val: &ExprResult<'ctx>,
 ) -> Result<(), String> {
     let offset = ctx.context.i32_type().const_int((slot * 8) as u64, false);
-    let field_ptr = unsafe { ctx.builder().build_gep(ptr, &[offset], "field_ptr") };
+    let field_ptr = unsafe { ctx.builder().build_gep(ctx.context.i8_type(), ptr, &[offset], "field_ptr").unwrap() };
     let i64_ptr = ctx
         .builder()
-        .build_bitcast(
+        .build_bit_cast(
             field_ptr,
-            ctx.context.i64_type().ptr_type(Default::default()),
+            ctx.context.ptr_type(Default::default()),
             "field_i64_ptr",
-        )
+        ).unwrap()
         .into_pointer_value();
 
     let stored_val = match val.value {
         BasicValueEnum::IntValue(v) => v.as_basic_value_enum(),
         BasicValueEnum::FloatValue(v) => ctx
             .builder()
-            .build_bitcast(v, ctx.context.i64_type(), "f_to_i")
+            .build_bit_cast(v, ctx.context.i64_type(), "f_to_i").unwrap()
             .as_basic_value_enum(),
         BasicValueEnum::PointerValue(v) => ctx
             .builder()
-            .build_ptr_to_int(v, ctx.context.i64_type(), "ptr_to_i")
+            .build_ptr_to_int(v, ctx.context.i64_type(), "ptr_to_i").unwrap()
             .as_basic_value_enum(),
         _ => val.value,
     };
-    ctx.builder().build_store(i64_ptr, stored_val);
+    ctx.builder().build_store(i64_ptr, stored_val).unwrap();
 
     if super::builtins::is_gc_managed(&val.ty) {
         if let BasicValueEnum::PointerValue(pv) = val.value {
@@ -6512,7 +6515,7 @@ pub(crate) fn compile_new<'ctx>(
     if let Some(ctor) = ctx.module.get_function(&ctor_name) {
         let mut arg_values = vec![ptr.into()];
         emit_spread_args(ctx, args, &mut arg_values)?;
-        ctx.builder().build_call(ctor, &arg_values, "ctor_call");
+        ctx.builder().build_call(ctor, &arg_values, "ctor_call").unwrap();
     }
 
     // Store the runtime type ID at struct index 0 (__typeid field) so
@@ -6521,21 +6524,22 @@ pub(crate) fn compile_new<'ctx>(
         let struct_ty = ctx.class_struct_types.get(&class_name).unwrap();
         let struct_ptr = ctx.builder().build_pointer_cast(
             ptr,
-            struct_ty.ptr_type(Default::default()),
+            ctx.context.ptr_type(Default::default()),
             "typeid_cast",
-        );
+        ).unwrap();
         let typeid_ptr = unsafe {
             ctx.builder().build_gep(
+                *struct_ty,
                 struct_ptr,
                 &[
                     ctx.context.i32_type().const_int(0, false),
                     ctx.context.i32_type().const_int(0, false),
                 ],
                 "typeid_ptr",
-            )
+            ).unwrap()
         };
         ctx.builder()
-            .build_store(typeid_ptr, ctx.context.i64_type().const_int(type_id, false));
+            .build_store(typeid_ptr, ctx.context.i64_type().const_int(type_id, false)).unwrap();
     }
 
     // 对于泛型类，尝试从构造函数参数推断具体类型参数，
@@ -6623,11 +6627,11 @@ fn compile_super_new<'ctx>(
 
     let ctor_name = format!("{}_new", parent_class);
     if let Some(ctor) = ctx.module.get_function(&ctor_name) {
-        let self_loaded = ctx.builder().build_load(self_ptr_copy, "super_self");
+        let self_loaded = ctx.builder().build_load(ctx.context.ptr_type(Default::default()), self_ptr_copy, "super_self").unwrap();
         let mut arg_values = vec![self_loaded.into()];
         emit_spread_args(ctx, args, &mut arg_values)?;
         ctx.builder()
-            .build_call(ctor, &arg_values, "super_ctor_call");
+            .build_call(ctor, &arg_values, "super_ctor_call").unwrap();
     }
 
     Ok(ExprResult::new(
@@ -6645,7 +6649,7 @@ fn compile_enum_variant<'ctx>(
     tag: u64,
 ) -> Result<ExprResult<'ctx>, String> {
     let i8_ty = ctx.context.i8_type();
-    let i8_ptr_ty = i8_ty.ptr_type(Default::default());
+    let i8_ptr_ty = ctx.context.ptr_type(Default::default());
     let option_struct = *ctx
         .enum_struct_types
         .entry("Option".to_string())
@@ -6653,25 +6657,25 @@ fn compile_enum_variant<'ctx>(
             ctx.context
                 .struct_type(&[i8_ty.into(), i8_ptr_ty.into()], false)
         });
-    let ptr = ctx.builder().build_alloca(option_struct, "enum_variant");
+    let ptr = ctx.builder().build_alloca(option_struct, "enum_variant").unwrap();
 
-    let tag_ptr = ctx.builder().build_struct_gep(ptr, 0, "tag_ptr").unwrap();
+    let tag_ptr = ctx.builder().build_struct_gep(option_struct, ptr, 0, "tag_ptr").unwrap();
     ctx.builder()
-        .build_store(tag_ptr, i8_ty.const_int(tag, false));
+        .build_store(tag_ptr, i8_ty.const_int(tag, false)).unwrap();
 
-    let value_ptr = ctx.builder().build_struct_gep(ptr, 1, "value_ptr").unwrap();
+    let value_ptr = ctx.builder().build_struct_gep(option_struct, ptr, 1, "value_ptr").unwrap();
     if tag == 1 && !args.is_empty() {
         if let crate::parser::ast::Argument::Expr(e) = &args[0] {
             let result = compile_expr(ctx, e)?;
             let casted = match result.value {
                 BasicValueEnum::PointerValue(p) => {
-                    ctx.builder().build_bitcast(p, i8_ptr_ty, "value_cast")
+                    ctx.builder().build_bit_cast(p, i8_ptr_ty, "value_cast").unwrap()
                 }
                 BasicValueEnum::IntValue(i) => BasicValueEnum::PointerValue(
-                    ctx.builder().build_int_to_ptr(i, i8_ptr_ty, "value_cast"),
+                    ctx.builder().build_int_to_ptr(i, i8_ptr_ty, "value_cast").unwrap(),
                 ),
                 BasicValueEnum::FloatValue(f) => {
-                    ctx.builder().build_bitcast(f, i8_ptr_ty, "value_cast")
+                    ctx.builder().build_bit_cast(f, i8_ptr_ty, "value_cast").unwrap()
                 }
                 _ => return Err("Unsupported enum variant value type".to_string()),
             };
@@ -6679,13 +6683,17 @@ fn compile_enum_variant<'ctx>(
                 BasicValueEnum::PointerValue(p) => p,
                 _ => return Err("Enum variant value must be a pointer".to_string()),
             };
-            ctx.builder().build_store(value_ptr, ptr_val);
+            ctx.builder().build_store(value_ptr, ptr_val).unwrap();
         }
     } else {
-        ctx.builder().build_store(value_ptr, i8_ptr_ty.const_null());
+        ctx.builder().build_store(value_ptr, i8_ptr_ty.const_null()).unwrap();
     }
 
-    let loaded = ctx.builder().build_load(ptr, "enum_loaded");
+    let enum_struct_ty = ctx.context.struct_type(
+        &[ctx.context.i8_type().into(), ctx.context.ptr_type(Default::default()).into()],
+        false,
+    );
+    let loaded = ctx.builder().build_load(enum_struct_ty, ptr, "enum_loaded").unwrap();
     Ok(ExprResult::new(
         loaded,
         Type::Generic {
@@ -6713,9 +6721,9 @@ fn compile_match_expr<'ctx>(
 
     let result_ty = Type::Dynamic;
     let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &result_ty);
-    let result_ptr = ctx.builder().build_alloca(llvm_ty, "match_result");
+    let result_ptr = ctx.builder().build_alloca(llvm_ty, "match_result").unwrap();
 
-    ctx.builder().build_unconditional_branch(arm_bbs[0]);
+    ctx.builder().build_unconditional_branch(arm_bbs[0]).unwrap();
 
     for (i, arm) in arms.iter().enumerate() {
         ctx.builder().position_at_end(arm_bbs[i]);
@@ -6736,7 +6744,7 @@ fn compile_match_expr<'ctx>(
                 guard_val.value.into_int_value(),
                 body_bb,
                 next_bb,
-            );
+            ).unwrap();
             ctx.builder().position_at_end(body_bb);
         }
 
@@ -6759,15 +6767,16 @@ fn compile_match_expr<'ctx>(
                     inkwell::types::BasicTypeEnum::StructType(t) => t.get_undef().into(),
                     inkwell::types::BasicTypeEnum::ArrayType(t) => t.get_undef().into(),
                     inkwell::types::BasicTypeEnum::VectorType(t) => t.get_undef().into(),
+                    _ => panic!("Unsupported type in match undef"),
                 };
-                ctx.builder().build_store(result_ptr, undef);
-                ctx.builder().build_unconditional_branch(merge_bb);
+                ctx.builder().build_store(result_ptr, undef).unwrap();
+                ctx.builder().build_unconditional_branch(merge_bb).unwrap();
             }
         }
     }
 
     ctx.builder().position_at_end(merge_bb);
-    let loaded = ctx.builder().build_load(result_ptr, "match_result_final");
+    let loaded = ctx.builder().build_load(ruyi_type_to_llvm(ctx.context, &result_ty), result_ptr, "match_result_final").unwrap();
     Ok(ExprResult::new(loaded, result_ty))
 }
 
@@ -6783,7 +6792,7 @@ fn compile_stmt_for_match<'ctx>(
         Statement::Expression(expr) => {
             let result = compile_expr(ctx, expr)?;
             if is_last {
-                ctx.builder().build_store(result_ptr, result.value);
+                ctx.builder().build_store(result_ptr, result.value).unwrap();
             }
             Ok(())
         }

@@ -108,10 +108,7 @@ pub fn generate_vtables<'ctx>(
                 continue;
             }
 
-            let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
-            let method_ptr_type = i8_ptr
-                .fn_type(&[i8_ptr.into()], false)
-                .ptr_type(Default::default());
+            let method_ptr_type = ctx.context.ptr_type(Default::default());
 
             let vtable_fields: Vec<BasicTypeEnum<'ctx>> = method_names
                 .iter()
@@ -145,10 +142,7 @@ pub fn emit_vtable_initializers<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_, '_>,
     registry: &VTableRegistry<'ctx>,
 ) {
-    let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
-    let method_ptr_type = i8_ptr
-        .fn_type(&[i8_ptr.into()], false)
-        .ptr_type(Default::default());
+    let method_ptr_type = ctx.context.ptr_type(Default::default());
 
     for vtable in registry.vtables.values() {
         let func_ptrs: Vec<BasicValueEnum<'ctx>> = vtable
@@ -195,22 +189,22 @@ pub fn create_trait_object<'ctx>(
     } else {
         let alloca = ctx
             .builder
-            .build_alloca(ruyi_type_to_llvm(ctx.context, value_ty), "trait_data");
-        ctx.builder().build_store(alloca, value);
+            .build_alloca(ruyi_type_to_llvm(ctx.context, value_ty), "trait_data").unwrap();
+        ctx.builder().build_store(alloca, value).unwrap();
         alloca
     };
 
-    let void_data = ctx.builder().build_bitcast(
+    let void_data = ctx.builder().build_bit_cast(
         data_ptr,
-        ctx.context.i8_type().ptr_type(Default::default()),
+        ctx.context.ptr_type(Default::default()),
         "data_void",
-    );
+    ).unwrap();
 
-    let vtable_ptr = ctx.builder().build_bitcast(
+    let vtable_ptr = ctx.builder().build_bit_cast(
         vtable.vtable_global.as_pointer_value(),
-        ctx.context.i8_type().ptr_type(Default::default()),
+        ctx.context.ptr_type(Default::default()),
         "vtable_ptr",
-    );
+    ).unwrap();
 
     Some(TraitObject {
         data: void_data.into_pointer_value(),
@@ -238,22 +232,22 @@ pub fn build_dynamic_dispatch<'ctx>(
         )
     })?;
 
-    let vtable_ptr_type = vtable.vtable_type.ptr_type(Default::default());
+    let vtable_ptr_type = ctx.context.ptr_type(Default::default());
     let vtable_typed = ctx
         .builder
-        .build_bitcast(trait_obj.vtable, vtable_ptr_type, "vtable_typed");
+        .build_bit_cast(trait_obj.vtable, vtable_ptr_type, "vtable_typed").unwrap();
 
     let vtable_loaded = ctx
         .builder
-        .build_load(vtable_typed.into_pointer_value(), "vtable_loaded");
+        .build_load(vtable.vtable_type, vtable_typed.into_pointer_value(), "vtable_loaded").unwrap();
 
     let method_ptr = match ctx.builder().build_extract_value(
         vtable_loaded.into_struct_value(),
         *idx as u32,
         &format!("method_{}", method_name),
     ) {
-        Some(val) => val,
-        None => {
+        Ok(val) => val,
+        Err(_) => {
             return Err(format!(
                 "Failed to extract method {} from vtable",
                 method_name
@@ -269,14 +263,15 @@ pub fn build_dynamic_dispatch<'ctx>(
 
     let call_site = {
         let fn_ptr = method_ptr.into_pointer_value();
-        let callable: inkwell::values::CallableValue<'ctx> = fn_ptr
-            .try_into()
-            .map_err(|_| format!("Failed to create callable for method {}", method_name))?;
+        let ptr_ty = ctx.context.ptr_type(Default::default());
+        let ret_ty = ctx.context.ptr_type(Default::default());
+        let fn_type = ret_ty.fn_type(&vec![ptr_ty.into(); call_args.len()], false);
         ctx.builder()
-            .build_call(callable, &call_args, &format!("dyn_call_{}", method_name))
+            .build_indirect_call(fn_type, fn_ptr, &call_args, &format!("dyn_call_{}", method_name))
+            .unwrap()
     };
 
-    let value = call_site.try_as_basic_value().left();
+    let value = call_site.try_as_basic_value().basic();
     match value {
         Some(v) => Ok(v),
         None => Ok(BasicValueEnum::IntValue(
@@ -323,8 +318,8 @@ pub fn build_trait_object_value<'ctx>(
     // since the data/vtable pointers may be SSA values (not just constants).
     let trait_obj_type = ctx.context.struct_type(
         &[
-            ctx.context.i8_type().ptr_type(Default::default()).into(),
-            ctx.context.i8_type().ptr_type(Default::default()).into(),
+            ctx.context.ptr_type(Default::default()).into(),
+            ctx.context.ptr_type(Default::default()).into(),
         ],
         false,
     );
@@ -333,12 +328,12 @@ pub fn build_trait_object_value<'ctx>(
     let with_data = ctx
         .builder()
         .build_insert_value(undef, trait_obj.data, 0, "trait_obj_data")
-        .ok_or("Failed to insert data into trait object")?
+        .unwrap()
         .into_struct_value();
     let with_vtable = ctx
         .builder()
         .build_insert_value(with_data, trait_obj.vtable, 1, "trait_obj_vtable")
-        .ok_or("Failed to insert vtable into trait object")?
+        .unwrap()
         .into_struct_value();
 
     Ok(with_vtable)

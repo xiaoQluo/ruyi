@@ -78,8 +78,8 @@ make help                   # Display all available targets
 
 ## Setup Requirements
 
-- **LLVM 14 is required** for the full build (inkwell binding). Without it, `cargo build` fails on `llvm-sys`.
-  - macOS: `brew install llvm@14` then set `LLVM_SYS_140_PREFIX`
+- **LLVM 20 is required** for the full build (inkwell binding). Without it, `cargo build` fails on `llvm-sys`.
+  - macOS: `brew install llvm@20` then set `LLVM_SYS_201_PREFIX`
   - Runtime-only development: `--no-default-features` on `ruyi_runtime` skips inkwell
 - Rust 2021 edition, workspace resolver = "2"
 
@@ -116,7 +116,7 @@ make help                   # Display all available targets
 
 | Crate | Purpose |
 |-------|---------|
-| `inkwell` | LLVM bindings (llvm14-0 feature) |
+| `inkwell` | LLVM bindings (llvm20-1 feature) |
 | `clap` | CLI parsing (derive) |
 | `thiserror` / `anyhow` | Error handling |
 | `log` / `env_logger` | Logging |
