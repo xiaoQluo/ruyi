@@ -114,10 +114,67 @@ pub fn ruyi_match_exception(
 
 /// Capture a stack trace for the current call stack.
 ///
-/// In a full implementation this would walk the stack using the
-/// unwind library. The current version returns a placeholder.
+/// EX-H4: Uses `std::backtrace::Backtrace` to walk the native call stack
+/// and extract function names, source files and line numbers. Falls
+/// back gracefully when backtrace support is unavailable (e.g.,
+/// stripped binaries or unsupported platforms).
+///
+/// @author Ruyi Team
+/// @date 2026-07-26
 pub fn capture_stack_trace() -> Vec<crate::exception::StackFrame> {
-    Vec::new()
+    use std::backtrace::Backtrace;
+
+    let bt = Backtrace::capture();
+    let bt_str = format!("{}", bt);
+
+    let mut frames = Vec::new();
+
+    // Parse the backtrace output:
+    // Each frame has 2 lines:
+    //   N: <function_name>
+    //            at <file>:<line>
+    let lines: Vec<&str> = bt_str.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i].trim();
+        // Try to match a frame line: "N: <name>"
+        if let Some(rest) = line.strip_prefix("  ") {
+            let rest = rest.trim();
+            if let Some(colon_pos) = rest.find(": ") {
+                let func_name = rest[colon_pos + 2..].trim();
+                // Skip internal runtime frames
+                if !func_name.contains("capture_stack_trace")
+                    && !func_name.contains("throw_exception")
+                    && !func_name.contains("ruyi_throw")
+                {
+                    // Next line should have the location
+                    let mut file = String::new();
+                    let mut line_num = 0u32;
+                    if i + 1 < lines.len() {
+                        let loc = lines[i + 1].trim();
+                        if let Some(at_rest) = loc.strip_prefix("at ") {
+                            let at_rest = at_rest.trim();
+                            if let Some(last_colon) = at_rest.rfind(':') {
+                                file = at_rest[..last_colon].to_string();
+                                line_num = at_rest[last_colon + 1..].parse().unwrap_or(0);
+                            }
+                            i += 1; // consumed location line
+                        }
+                    }
+                    frames.push(crate::exception::StackFrame::new(
+                        func_name,
+                        if file.is_empty() { "<unknown>" } else { &file },
+                        line_num,
+                    ));
+                }
+            }
+        }
+        i += 1;
+    }
+
+    // Limit to a reasonable depth
+    frames.truncate(64);
+    frames
 }
 
 #[cfg(feature = "inkwell")]

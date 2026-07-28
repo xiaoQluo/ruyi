@@ -1,0 +1,107 @@
+/**
+ * Ruyi Standard Library — RWLock
+ *
+ * Read-write lock for protecting shared state with
+ * concurrent read access and exclusive write access.
+ *
+ * Built on `std::sync::RwLock<()>` via FFI.
+ *
+ * Multiple readers can hold the lock simultaneously.
+ * Writers require exclusive access.
+ *
+ * Usage:
+ *   import { RWLock } from "./rwlock";
+ *
+ *   let rw = RWLock.new();
+ *
+ *   // Read lock (shared)
+ *   rw.readLock();
+ *   // ... read shared data ...
+ *   rw.readUnlock();
+ *
+ *   // Write lock (exclusive)
+ *   rw.writeLock();
+ *   // ... modify shared data ...
+ *   rw.writeUnlock();
+ *
+ *   // Non-blocking
+ *   if (rw.tryReadLock()) {
+ *       // ... read shared data ...
+ *       rw.readUnlock();
+ *   }
+ *   if (rw.tryWriteLock()) {
+ *       // ... modify shared data ...
+ *       rw.writeUnlock();
+ *   }
+ *
+ *   rw.free();
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+export class RWLock {
+    _ptr: dyn;
+    _guard: dyn;
+
+    /** Creates a new unlocked RWLock. Must be freed with free() when done. */
+    static fn new(): RWLock {
+        let rw = new RWLock();
+        rw._ptr = __rwlock_new();
+        return rw;
+    }
+
+    /** Acquire a read lock (shared). Multiple readers allowed simultaneously. */
+    fn readLock(): void {
+        self._guard = __rwlock_read_lock(self._ptr);
+    }
+
+    /** Release a read lock. */
+    fn readUnlock(): void {
+        if (self._guard !== null) {
+            __rwlock_read_unlock(self._guard);
+            self._guard = null;
+        }
+    }
+
+    /** Try to acquire a read lock without blocking.
+     *  Returns true on success, false if a writer holds the lock. */
+    fn tryReadLock(): bool {
+        let g = __rwlock_try_read_lock(self._ptr);
+        if (g !== null) {
+            self._guard = g;
+            return true;
+        }
+        return false;
+    }
+
+    /** Acquire a write lock (exclusive). Blocks until available. */
+    fn writeLock(): void {
+        self._guard = __rwlock_write_lock(self._ptr);
+    }
+
+    /** Release a write lock. */
+    fn writeUnlock(): void {
+        if (self._guard !== null) {
+            __rwlock_write_unlock(self._guard);
+            self._guard = null;
+        }
+    }
+
+    /** Try to acquire a write lock without blocking.
+     *  Returns true on success, false if the lock is held. */
+    fn tryWriteLock(): bool {
+        let g = __rwlock_try_write_lock(self._ptr);
+        if (g !== null) {
+            self._guard = g;
+            return true;
+        }
+        return false;
+    }
+
+    /** Deallocate the RWLock. Must NOT be locked when called. */
+    fn free(): void {
+        self._guard = null;
+        __rwlock_free(self._ptr);
+    }
+}

@@ -22,6 +22,21 @@
 // ============================================================
 
 /**
+ * Internal array copy using builtin operations only.
+ * Avoids dependency on collections.ry's slice method.
+ */
+fn copyArray<T>(arr: Array<T>): Array<T> {
+    let result: Array<T> = [];
+    let len = arr.length();
+    let i = 0;
+    while (i < len) {
+        result.push(arr.get(i));
+        i = i + 1;
+    }
+    return result;
+}
+
+/**
  * Lexicographic string comparison using charCodeAt.
  * Returns -1 when a < b, 0 when a === b, 1 when a > b.
  *
@@ -67,7 +82,7 @@ fn compareStrings(a: string, b: string): int {
  * @return New sorted array
  */
 export fn quickSort<T>(arr: Array<T>, comparator: fn(T, T) -> int): Array<T> {
-    let result = arr.slice(0, arr.length());
+    let result = copyArray(arr);
     let n = result.length();
     if (n <= 1) {
         return result;
@@ -525,7 +540,7 @@ export fn maxWith<T>(arr: Array<T>, comparator: fn(T, T) -> int): T? {
  */
 export fn reverse<T>(arr: Array<T>): Array<T> {
     let n = arr.length();
-    let result = arr.slice(0, n);
+    let result = copyArray(arr);
     let i = 0;
     let half = n / 2;
     while (i < half) {
@@ -545,5 +560,5 @@ export fn reverse<T>(arr: Array<T>): Array<T> {
  * @return New copy of the array
  */
 export fn copy<T>(arr: Array<T>): Array<T> {
-    return arr.slice(0, arr.length());
+    return copyArray(arr);
 }

@@ -1,0 +1,228 @@
+// =============================================================================
+// Destructuring — Ruyi Destructuring Bindings
+// =============================================================================
+// Covers: object destructuring, array destructuring, nested destructuring,
+//         default values, rest in destructuring, parameter destructuring
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 1. Object Destructuring — Extract Fields
+// -----------------------------------------------------------------------------
+fn objectDestructureDemo() {
+  print("--- Object Destructuring ---\n");
+
+  let point = { x: 10.0, y: 20.0, label: "origin" };
+
+  // Extract specific fields
+  let { x, y } = point;
+  print("x = ");
+  print(x);
+  print(", y = ");
+  print(y);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 2. Object Destructuring — Rename Fields
+// -----------------------------------------------------------------------------
+fn objectRenameDemo() {
+  print("--- Object Destructuring (Rename) ---\n");
+
+  let user = { firstName: "Alice", lastName: "Smith" };
+
+  // Rename during extraction
+  let { firstName: first, lastName: last } = user;
+
+  print("first: ");
+  print(first);
+  print(", last: ");
+  print(last);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 3. Object Destructuring — Default Values
+// -----------------------------------------------------------------------------
+fn objectDefaultDemo() {
+  print("--- Object Destructuring (Defaults) ---\n");
+
+  let config = { theme: "dark" };
+
+  // Provide defaults for missing fields
+  let { theme, fontSize = 16, language = "en" } = config;
+
+  print("theme: ");
+  print(theme);
+  print(", fontSize: ");
+  print(fontSize);
+  print(", language: ");
+  print(language);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 4. Array Destructuring
+// -----------------------------------------------------------------------------
+fn arrayDestructureDemo() {
+  print("--- Array Destructuring ---\n");
+
+  let rgb = [255, 128, 64];
+
+  // Extract elements by position
+  let [r, g, b] = rgb;
+
+  print("r=");
+  print(r);
+  print(", g=");
+  print(g);
+  print(", b=");
+  print(b);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 5. Array Destructuring — Skip Elements
+// -----------------------------------------------------------------------------
+fn arraySkipDemo() {
+  print("--- Array Destructuring (Skip) ---\n");
+
+  let values = [1, 2, 3, 4, 5];
+
+  // Skip elements with empty slots
+  let [first, , third, , fifth] = values;
+
+  print("first: ");
+  print(first);
+  print(", third: ");
+  print(third);
+  print(", fifth: ");
+  print(fifth);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 6. Array Destructuring — Rest Element
+// -----------------------------------------------------------------------------
+fn arrayRestDemo() {
+  print("--- Array Destructuring (Rest) ---\n");
+
+  let numbers = [10, 20, 30, 40, 50];
+
+  // Capture head + rest
+  let [head, ...tail] = numbers;
+
+  print("head: ");
+  print(head);
+  print("\ntail: [");
+  for (let n of tail) {
+    print(n);
+    print(" ");
+  }
+  print("]\n");
+}
+
+// -----------------------------------------------------------------------------
+// 7. Array Destructuring — Default Values
+// -----------------------------------------------------------------------------
+fn arrayDefaultDemo() {
+  print("--- Array Destructuring (Defaults) ---\n");
+
+  let short = [1];
+
+  let [a, b = 10, c = 20] = short;
+
+  print("a=");
+  print(a);
+  print(", b=");
+  print(b);
+  print(", c=");
+  print(c);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 8. Nested Destructuring
+// -----------------------------------------------------------------------------
+fn nestedDestructureDemo() {
+  print("--- Nested Destructuring ---\n");
+
+  let data = {
+    id: 1,
+    info: {
+      name: "Alice",
+      email: "alice@example.com"
+    },
+    tags: ["admin", "active"]
+  };
+
+  // Deep extraction
+  let {
+    info: { name, email },
+    tags: [role, status]
+  } = data;
+
+  print("name: ");
+  print(name);
+  print(", email: ");
+  print(email);
+  print("\nrole: ");
+  print(role);
+  print(", status: ");
+  print(status);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 9. Parameter Destructuring
+// -----------------------------------------------------------------------------
+fn processPoint({ x, y }) {
+  print("Processing point (");
+  print(x);
+  print(", ");
+  print(y);
+  print(")\n");
+}
+
+fn processUser({ name, age = 0 }) {
+  print("User: ");
+  print(name);
+  print(", age: ");
+  print(age);
+  print("\n");
+}
+
+fn paramDestructureDemo() {
+  print("--- Parameter Destructuring ---\n");
+
+  processPoint({ x: 5.0, y: 10.0 });
+
+  processUser({ name: "Bob" });
+  processUser({ name: "Alice", age: 25 });
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+  print("=== Destructuring Demo ===\n\n");
+
+  objectDestructureDemo();
+  print("\n");
+  objectRenameDemo();
+  print("\n");
+  objectDefaultDemo();
+  print("\n");
+  arrayDestructureDemo();
+  print("\n");
+  arraySkipDemo();
+  print("\n");
+  arrayRestDemo();
+  print("\n");
+  arrayDefaultDemo();
+  print("\n");
+  nestedDestructureDemo();
+  print("\n");
+  paramDestructureDemo();
+
+  print("\nAll destructuring demos completed successfully!\n");
+}

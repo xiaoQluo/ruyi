@@ -1,4 +1,8 @@
-#![allow(clippy::manual_strip, clippy::unnecessary_map_or, clippy::needless_borrow)]
+#![allow(
+    clippy::manual_strip,
+    clippy::unnecessary_map_or,
+    clippy::needless_borrow
+)]
 
 /**
  * C FFI implementations backing `stdlib/json.ry`.

@@ -145,6 +145,11 @@ pub fn emit_vtable_initializers<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_, '_>,
     registry: &VTableRegistry<'ctx>,
 ) {
+    let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
+    let method_ptr_type = i8_ptr
+        .fn_type(&[i8_ptr.into()], false)
+        .ptr_type(Default::default());
+
     for vtable in registry.vtables.values() {
         let func_ptrs: Vec<BasicValueEnum<'ctx>> = vtable
             .method_indices
@@ -155,14 +160,13 @@ pub fn emit_vtable_initializers<'ctx>(
                     method_name, vtable.trait_name, vtable.for_type
                 );
                 if let Some(func) = ctx.module.get_function(&func_name) {
-                    BasicValueEnum::PointerValue(func.as_global_value().as_pointer_value())
+                    // Bitcast the function pointer to the vtable's declared
+                    // method pointer type (i8* (i8*)*) to avoid type mismatch
+                    // in the global struct initializer.
+                    let func_ptr = func.as_global_value().as_pointer_value();
+                    BasicValueEnum::PointerValue(func_ptr.const_cast(method_ptr_type))
                 } else {
-                    BasicValueEnum::PointerValue(
-                        ctx.context
-                            .i8_type()
-                            .ptr_type(Default::default())
-                            .const_null(),
-                    )
+                    BasicValueEnum::PointerValue(method_ptr_type.const_null())
                 }
             })
             .collect();
@@ -182,10 +186,7 @@ pub fn create_trait_object<'ctx>(
     value_ty: &Type,
     trait_name: &str,
 ) -> Option<TraitObject<'ctx>> {
-    let type_name = match value_ty {
-        Type::Named(name, _) | Type::Generic { base: name, .. } => name.clone(),
-        _ => return None,
-    };
+    let type_name = type_to_vtable_key(value_ty)?;
 
     let vtable = registry.get_vtable(trait_name, &type_name)?;
 
@@ -284,10 +285,70 @@ pub fn build_dynamic_dispatch<'ctx>(
     }
 }
 
+/// Map a Type to the vtable registry key string.
+fn type_to_vtable_key(ty: &Type) -> Option<String> {
+    match ty {
+        Type::Named(name, _) | Type::Generic { base: name, .. } => Some(name.clone()),
+        Type::String => Some("string".to_string()),
+        Type::Int => Some("int".to_string()),
+        Type::Float => Some("float".to_string()),
+        Type::Bool => Some("bool".to_string()),
+        Type::Byte => Some("byte".to_string()),
+        Type::Array(_) => Some("Array".to_string()),
+        _ => None,
+    }
+}
+
+/// Build a trait object struct value ({ data_ptr, vtable_ptr }) for storage
+/// into a `dyn Trait` typed variable.
+pub fn build_trait_object_value<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
+    value: BasicValueEnum<'ctx>,
+    value_ty: &Type,
+    trait_name: &str,
+) -> Result<inkwell::values::StructValue<'ctx>, String> {
+    let registry = ctx
+        .vtable_registry
+        .clone()
+        .ok_or("VTable registry not initialized")?;
+    let trait_obj =
+        create_trait_object(ctx, &registry, value, value_ty, trait_name).ok_or_else(|| {
+            format!(
+                "Cannot create trait object for type {:?} as dyn {}",
+                value_ty, trait_name
+            )
+        })?;
+
+    // Use insertvalue to build the struct at the IR instruction level,
+    // since the data/vtable pointers may be SSA values (not just constants).
+    let trait_obj_type = ctx.context.struct_type(
+        &[
+            ctx.context.i8_type().ptr_type(Default::default()).into(),
+            ctx.context.i8_type().ptr_type(Default::default()).into(),
+        ],
+        false,
+    );
+
+    let undef = trait_obj_type.get_undef();
+    let with_data = ctx
+        .builder()
+        .build_insert_value(undef, trait_obj.data, 0, "trait_obj_data")
+        .ok_or("Failed to insert data into trait object")?
+        .into_struct_value();
+    let with_vtable = ctx
+        .builder()
+        .build_insert_value(with_data, trait_obj.vtable, 1, "trait_obj_vtable")
+        .ok_or("Failed to insert vtable into trait object")?
+        .into_struct_value();
+
+    Ok(with_vtable)
+}
+
 fn type_annotation_to_string(annotation: &crate::parser::ast::TypeAnnotation) -> String {
     match annotation {
         crate::parser::ast::TypeAnnotation::Identifier(name) => name.clone(),
         crate::parser::ast::TypeAnnotation::Generic { base, .. } => base.clone(),
+        crate::parser::ast::TypeAnnotation::Builtin(name) => name.clone(),
         _ => String::new(),
     }
 }

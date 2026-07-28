@@ -422,9 +422,6 @@ export class ArrayIterator<T> {
         }
         return null;
     }
-}
-
-impl<T> Iterator<T> for ArrayIterator<T> {}
 
     // ── Spec 4.9 Iterator extensions ──────────────────────────
 
@@ -530,6 +527,8 @@ impl<T> Iterator<T> for ArrayIterator<T> {}
     }
 }
 
+impl<T> Iterator<T> for ArrayIterator<T> {}
+
 // ============================================================
 // Lazy Iterator Adapter Classes (Spec 4.9)
 // ============================================================
@@ -557,6 +556,8 @@ export class TakeWhileIterator<T> {
         return null;
     }
 }
+
+impl<T> Iterator<T> for TakeWhileIterator<T> {}
 
 /**
  * Iterator adapter that skips elements while the predicate is true.
@@ -591,6 +592,8 @@ export class SkipWhileIterator<T> {
     }
 }
 
+impl<T> Iterator<T> for SkipWhileIterator<T> {}
+
 /**
  * Iterator adapter that concatenates two iterators.
  */
@@ -617,6 +620,8 @@ export class ChainedIterator<T> {
     }
 }
 
+impl<T> Iterator<T> for ChainedIterator<T> {}
+
 /**
  * Iterator adapter that yields `(index, value)` pairs.
  */
@@ -639,6 +644,8 @@ export class EnumeratedIterator<T> {
         return pair;
     }
 }
+
+impl<T> Iterator<EnumPair<T>> for EnumeratedIterator<T> {}
 
 /**
  * Iterator adapter that zips two iterators into `(a, b)` pairs.
@@ -664,6 +671,8 @@ export class ZippedIterator<T> {
         return { first: a!, second: b! };
     }
 }
+
+impl<T> Iterator<ZipPair<T>> for ZippedIterator<T> {}
 
 // ============================================================
 // Map
@@ -749,6 +758,15 @@ export class Map<K, V> {
      */
     fn has(self, key: K): bool {
         return __builtin_map_has(self._data, key);
+    }
+
+    /**
+     * Removes all entries from the map.
+     */
+    fn clear(self): void {
+        self._data = __builtin_map_create();
+        self._size = 0;
+        self._keys = [];
     }
 
     /**
@@ -880,6 +898,15 @@ export class Set<T> {
      */
     fn has(self, value: T): bool {
         return __builtin_set_has(self._data, value);
+    }
+
+    /**
+     * Removes all elements from the set.
+     */
+    fn clear(self): void {
+        self._data = __builtin_set_create();
+        self._size = 0;
+        self._elements = [];
     }
 
     /**

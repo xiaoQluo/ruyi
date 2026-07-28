@@ -28,6 +28,15 @@ pub mod builtin_type_ids {
     pub const TYPE_ERROR: TypeId = 2;
     pub const RANGE_ERROR: TypeId = 3;
     pub const RUNTIME_ERROR: TypeId = 4;
+    pub const LOGIC_ERROR: TypeId = 5;
+    pub const ASSERTION_ERROR: TypeId = 6;
+    pub const ARGUMENT_ERROR: TypeId = 7;
+    pub const NULL_ERROR: TypeId = 8;
+    pub const ARITHMETIC_ERROR: TypeId = 9;
+    pub const ITERATOR_ERROR: TypeId = 10;
+    pub const PARSE_ERROR: TypeId = 11;
+    pub const NULL_ASSERTION_ERROR: TypeId = 12;
+    pub const IO_ERROR: TypeId = 13;
 }
 
 /// A single entry in a per-function exception table.
@@ -290,14 +299,32 @@ impl LandingPadDescriptor {
 /// In test builds (when `RUYI_TEST_NO_UNWIND` env var is set), falls back to
 /// `panic!()` so tests can verify exception construction without triggering SIGABRT.
 pub fn throw_exception(exc: RuyiException) -> ! {
+    // EX-H4: Capture stack trace if not already populated
+    let exc = if exc.stack_trace.is_empty() {
+        exc.with_stack_trace(runtime::capture_stack_trace())
+    } else {
+        exc
+    };
+
     // In environments where the LLVM unwinder is not available (test builds,
     // CI, etc.), fall back to panic so the process doesn't SIGABRT.
     // Set RUYI_USE_UNWIND=1 when running compiled Ruyi binaries to enable
     // real stack-unwinding via _Unwind_RaiseException.
     if std::env::var("RUYI_USE_UNWIND").is_err() {
+        let trace_info = if exc.stack_trace.is_empty() {
+            String::new()
+        } else {
+            let frames: Vec<String> = exc
+                .stack_trace
+                .iter()
+                .take(5)
+                .map(|f| format!("  at {} ({}:{})", f.function_name, f.file, f.line))
+                .collect();
+            format!("\nStack trace:\n{}", frames.join("\n"))
+        };
         panic!(
-            "RuyiException(type_id={}, message={})",
-            exc.type_id, exc.message
+            "RuyiException(type_id={}, message={}){}",
+            exc.type_id, exc.message, trace_info
         );
     }
 

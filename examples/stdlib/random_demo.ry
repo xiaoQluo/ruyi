@@ -1,0 +1,181 @@
+/**
+ * Ruyi Example — 随机数与 UUID 模块
+ *
+ * 覆盖:
+ * - random: Random 类（nextInt/nextFloat/nextBool/nextBytes）
+ * - random: random_new(seed?) 便捷构造
+ * - uuid: v4() UUID v4 生成
+ * - uuid: v4Batch() 批量生成
+ * - crypto/random: 密码学安全随机数（对比）
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { Random, random_new } from "random";
+import { v4, v4Batch } from "uuid";
+import { cryptoRandomBytes, cryptoRandomHex, cryptoRandomInt, cryptoRandomUUID } from "crypto";
+import { bytesToHex } from "encoding";
+
+// -----------------------------------------------------------------------------
+// Helper
+// -----------------------------------------------------------------------------
+fn printOk(label: string) {
+    print("  ✓ " + label + "\n");
+}
+
+fn check(label: string, condition: bool) {
+    if (condition) {
+        print("  ✓ " + label + "\n");
+    } else {
+        print("  ✗ FAILED: " + label + "\n");
+    }
+}
+
+// =============================================================================
+// 1. Random 类 — 伪随机数生成器 (PRNG)
+// =============================================================================
+fn demo_random_class() {
+    print("=== 1. Random 类 (PRNG) ===\n\n");
+
+    // 使用便捷构造函数
+    let rng = random_new();
+
+    // nextInt: 生成范围内的随机整数
+    let ri = rng.nextInt(1, 100);
+    check("nextInt(1,100) 在范围内", ri >= 1 && ri <= 100);
+    print("  nextInt(1,100): " + ri + "\n");
+
+    // nextFloat: 生成 [0, 1) 的随机浮点数
+    let rf = rng.nextFloat();
+    check("nextFloat() 在 [0,1)", rf >= 0.0 && rf < 1.0);
+    print("  nextFloat(): " + rf + "\n");
+
+    // nextBool: 随机布尔值
+    let rb = rng.nextBool();
+    print("  nextBool(): " + rb + "\n");
+
+    // nextBytes: 随机字节数组
+    let bytes = rng.nextBytes(8);
+    check("nextBytes(8) 长度正确", bytes.length() === 8);
+    print("  nextBytes(8): " + bytes.length() + " bytes\n");
+
+    printOk("Random 类 OK");
+}
+
+// =============================================================================
+// 2. 带种子的 Random — 确定性序列
+// =============================================================================
+fn demo_seeded_random() {
+    print("=== 2. 带种子的 Random (确定性) ===\n\n");
+
+    // 相同种子产生相同序列
+    let rng1 = random_new(42);
+    let rng2 = random_new(42);
+
+    let a = rng1.nextInt(0, 1000);
+    let b = rng2.nextInt(0, 1000);
+    check("相同种子产生相同值", a === b);
+    print("  seed=42 第一次: " + a + " vs " + b + "\n");
+
+    let a2 = rng1.nextInt(0, 1000);
+    let b2 = rng2.nextInt(0, 1000);
+    check("序列一致", a2 === b2);
+    print("  seed=42 第二次: " + a2 + " vs " + b2 + "\n");
+
+    printOk("种子确定性 OK");
+}
+
+// =============================================================================
+// 3. UUID v4 生成
+// =============================================================================
+fn demo_uuid() {
+    print("=== 3. UUID v4 生成 ===\n\n");
+
+    // 生成单个 UUID v4
+    let uid = v4();
+    check("v4() 非空", uid !== "");
+    check("UUID 长度 36", uid.length() === 36);
+    print("  UUID: " + uid + "\n");
+
+    // 验证版本号 (位置 14 应为 '4')
+    let vChar = uid.charAt(14);
+    check("版本号为 4", vChar === "4");
+    print("  版本位: " + vChar + "\n");
+
+    // 唯一性
+    let uid2 = v4();
+    check("UUID 唯一性", uid !== uid2);
+    print("  另一个: " + uid2 + "\n");
+
+    // 批量生成
+    let batch = v4Batch(3);
+    check("v4Batch(3) 长度", batch.length() === 3);
+    print("  批量生成 3 个:\n");
+    let i = 0;
+    while (i < batch.length()) {
+        print("    " + batch[i] + "\n");
+        i = i + 1;
+    }
+
+    printOk("UUID OK");
+}
+
+// =============================================================================
+// 4. 密码学安全随机数 (CSPRNG)
+// =============================================================================
+fn demo_crypto_random() {
+    print("=== 4. CSPRNG 密码学安全随机数 ===\n\n");
+
+    // 随机字节
+    let bytes = cryptoRandomBytes(16);
+    check("cryptoRandomBytes(16)", bytes.length() === 16);
+    print("  随机字节 (hex): " + bytesToHex(bytes) + "\n");
+
+    // 随机 hex 字符串
+    let hex = cryptoRandomHex(8);
+    check("cryptoRandomHex(8) 长度", hex.length() === 16);
+    print("  随机 hex: " + hex + "\n");
+
+    // 随机整数
+    let ri = cryptoRandomInt(1, 100);
+    check("cryptoRandomInt(1,100) 范围", ri >= 1 && ri <= 100);
+    print("  随机整数 [1,100]: " + ri + "\n");
+
+    // 随机 UUID
+    let uid = cryptoRandomUUID();
+    check("cryptoRandomUUID() 非空", uid !== "");
+    print("  随机 UUID: " + uid + "\n");
+
+    printOk("CSPRNG OK");
+}
+
+// =============================================================================
+// 5. PRNG vs CSPRNG 对比说明
+// =============================================================================
+fn demo_comparison() {
+    print("=== 5. PRNG vs CSPRNG 对比 ===\n\n");
+
+    print("  random 模块 (PRNG):\n");
+    print("    - 快速，可用种子确定性复现\n");
+    print("    - 适用: 模拟、游戏、测试\n");
+    print("    - 不适用: 加密、安全令牌\n\n");
+
+    print("  crypto/random (CSPRNG):\n");
+    print("    - 使用操作系统熵源\n");
+    print("    - 适用: 加密密钥、令牌、密码\n");
+    print("    - 函数: cryptoRandomBytes/Hex/Int/UUID\n\n");
+
+    printOk("对比说明完成");
+}
+
+// =============================================================================
+// 主入口
+// =============================================================================
+demo_random_class();
+demo_seeded_random();
+demo_uuid();
+demo_crypto_random();
+demo_comparison();
+
+print("\n[random_demo] 完成\n");

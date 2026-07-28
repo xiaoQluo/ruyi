@@ -1,0 +1,57 @@
+/**
+ * Ruyi Standard Library — Semaphore
+ *
+ * Counting semaphore for resource limiting. Supports blocking acquire
+ * and non-blocking try_acquire.
+ *
+ * Usage:
+ *   import { Semaphore } from "./semaphore";
+ *   let s = Semaphore.new(5);        // allow 5 concurrent accesses
+ *   s.acquire();                      // blocks if 5 already acquired
+ *   // ... use resource ...
+ *   s.release();
+ *   let avail = s.available();
+ *   if (s.tryAcquire()) { ... }
+ *   s.free();
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+export class Semaphore {
+    _ptr: dyn;
+
+    /** Create a new semaphore with `n` initial permits. */
+    static fn new(n: int): Semaphore {
+        let s = new Semaphore();
+        s._ptr = __semaphore_new(n);
+        return s;
+    }
+
+    /** Acquire a permit, blocking until one is available. */
+    fn acquire(): void {
+        __semaphore_acquire(self._ptr);
+    }
+
+    /** Try to acquire a permit without blocking.
+     *  Returns true on success, false if no permits available. */
+    fn tryAcquire(): bool {
+        return __semaphore_try_acquire(self._ptr) !== 0;
+    }
+
+    /** Release a permit back to the semaphore.
+     *  Wakes one waiting acquirer if any. */
+    fn release(): void {
+        __semaphore_release(self._ptr);
+    }
+
+    /** Return the current number of available permits (snapshot). */
+    fn available(): int {
+        return __semaphore_available(self._ptr);
+    }
+
+    /** Deallocate the semaphore. */
+    fn free(): void {
+        __semaphore_free(self._ptr);
+    }
+}

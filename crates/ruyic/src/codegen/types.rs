@@ -24,6 +24,16 @@ use inkwell::types::{
     BasicType, BasicTypeEnum, FloatType, FunctionType, IntType, PointerType, StructType, VoidType,
 };
 
+/// 判断是否为泛型类型参数名（如 T, U, V 等单字母大写标识符）。
+pub(crate) fn is_type_param_name(name: &str) -> bool {
+    name.len() == 1
+        && name
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_uppercase())
+            .unwrap_or(false)
+}
+
 /// Map a Ruyi `Type` to its LLVM `BasicTypeEnum` equivalent.
 pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: &Type) -> BasicTypeEnum<'ctx> {
     match ty {
@@ -57,15 +67,10 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: &Type) -> BasicTypeEn
             BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
         }
         Type::Named(name, _) => {
-            if name.len() == 1
-                && name
-                    .chars()
-                    .next()
-                    .map(|c| c.is_ascii_uppercase())
-                    .unwrap_or(false)
-            {
-                // Type parameter (T, U, V) – use i64 as universal register size
-                BasicTypeEnum::IntType(context.i64_type())
+            if is_type_param_name(name) {
+                // 泛型参数统一用 i8*（与 TypeVar/Generic 对齐），
+                // 字段存取时由 emit_field_store / emit_field_load 做类型适配
+                BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
             } else {
                 BasicTypeEnum::PointerType(context.i8_type().ptr_type(Default::default()))
             }

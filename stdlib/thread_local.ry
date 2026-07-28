@@ -1,0 +1,48 @@
+/**
+ * Ruyi Standard Library — Thread-Local Storage
+ *
+ * Per-thread key-value storage backed by Rust's `thread_local!` macro.
+ * Each OS thread sees its own independent copy of stored values.
+ *
+ * Usage:
+ *   import { ThreadLocal } from "./thread_local";
+ *
+ *   ThreadLocal.store("my_key", 42);      // store in current thread
+ *   let val = ThreadLocal.load("my_key");  // 42 (only in this thread)
+ *   ThreadLocal.remove("my_key");
+ *   ThreadLocal.clear();                   // clear all
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+fn hashString(s: string): int {
+    let h = 5381;
+    for (let i = 0; i < s.length; i = i + 1) {
+        let c = s.charCodeAt(i);
+        h = ((h * 33) + c) % 0x7FFFFFFF;
+    }
+    return h;
+}
+
+export class ThreadLocal {
+    static fn store(key: string, value: dyn): int {
+        return __tls_store(hashString(key), value);
+    }
+
+    static fn load(key: string): dyn {
+        return __tls_load(hashString(key));
+    }
+
+    static fn remove(key: string): int {
+        return __tls_remove(hashString(key));
+    }
+
+    static fn contains(key: string): bool {
+        return __tls_contains(hashString(key)) !== 0;
+    }
+
+    static fn clear(): void {
+        __tls_clear();
+    }
+}

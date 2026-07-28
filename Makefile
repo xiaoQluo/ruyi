@@ -71,12 +71,13 @@ run-example: ## Run an example file (usage: make run-example EXAMPLE=hello)
 		echo "Usage: make run-example EXAMPLE=<example_name>"; \
 		exit 1; \
 	fi
-	@if [ ! -f "examples/$(EXAMPLE).ry" ]; then \
-		echo "Error: examples/$(EXAMPLE).ry not found"; \
+	@EXAMPLE_FILE=$$(find examples -name "$(EXAMPLE).ry" -not -path '*/target/*' | head -1); \
+	if [ -z "$$EXAMPLE_FILE" ]; then \
+		echo "Error: $(EXAMPLE).ry not found in examples/"; \
 		exit 1; \
-	fi
-	@mkdir -p examples/target
-	./target/release/ruyic examples/$(EXAMPLE).ry -o examples/target/$(EXAMPLE) && \
+	fi; \
+	mkdir -p examples/target; \
+	./target/release/ruyic $$EXAMPLE_FILE -o examples/target/$(EXAMPLE) && \
 	./examples/target/$(EXAMPLE)
 
 compile-example: ## Compile an example to LLVM IR (usage: make compile-example EXAMPLE=hello)
@@ -84,11 +85,12 @@ compile-example: ## Compile an example to LLVM IR (usage: make compile-example E
 		echo "Usage: make compile-example EXAMPLE=<example_name>"; \
 		exit 1; \
 	fi
-	@if [ ! -f "examples/$(EXAMPLE).ry" ]; then \
-		echo "Error: examples/$(EXAMPLE).ry not found"; \
+	@EXAMPLE_FILE=$$(find examples -name "$(EXAMPLE).ry" -not -path '*/target/*' | head -1); \
+	if [ -z "$$EXAMPLE_FILE" ]; then \
+		echo "Error: $(EXAMPLE).ry not found in examples/"; \
 		exit 1; \
-	fi
-	./target/release/ruyic examples/$(EXAMPLE).ry --emit-llvm
+	fi; \
+	./target/release/ruyic $$EXAMPLE_FILE --emit-llvm
 
 compile-file: ## Compile a .ry file (usage: make compile-file FILE=path/to/file.ry)
 	@if [ -z "$(FILE)" ]; then \

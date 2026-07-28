@@ -1,0 +1,113 @@
+/**
+ * Ruyi Standard Library — Fiber (纤程)
+ *
+ * Lightweight concurrency primitives for cooperative multitasking.
+ * Fibers are lighter than OS threads (256 KiB stack vs 2 MiB) and
+ * are designed for fine-grained parallelism.
+ *
+ * In v0.5.10, each fiber is backed by an OS thread with a smaller
+ * stack. Future versions will migrate to the async scheduler for
+ * true green threads without changing this API.
+ *
+ * Usage:
+ *   import { Fiber } from "./fiber";
+ *
+ *   let f = Fiber.spawn(() => {
+ *       heavyComputation();
+ *   });
+ *
+ *   f.join();
+ *   // or
+ *   f.detach();
+ *
+ *   let id = Fiber.id();
+ *   Fiber.sleep(100);
+ *   Fiber.yield();
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+export class Fiber {
+    _handle: int;
+
+    /**
+     * Spawn a new fiber executing the given closure.
+     *
+     * Returns a Fiber handle for joining or detaching.
+     * The closure is captured and runs in a new lightweight fiber
+     * with a 256 KiB stack.
+     */
+    static fn spawn(f: dyn): Fiber {
+        // spawn() is handled as a compiler builtin — the closure
+        // capturing is managed by the compiler.
+        let f = new Fiber();
+        f._handle = -1;
+        return f;
+    }
+
+    /**
+     * Wait for the fiber to finish (join).
+     *
+     * Blocks the calling fiber until this fiber completes.
+     * Returns 0 on success, -1 if the handle is invalid.
+     */
+    fn join(): int {
+        return __fiber_join(self._handle);
+    }
+
+    /**
+     * Check whether the fiber has finished, without consuming
+     * the handle.
+     *
+     * Returns true if finished, false if still running or
+     * handle is invalid.
+     */
+    fn isFinished(): bool {
+        return __fiber_is_finished(self._handle) === 1;
+    }
+
+    /**
+     * Detach the fiber — it runs independently.
+     *
+     * The fiber's resources are reclaimed automatically when
+     * it finishes. After detaching, join() and isFinished()
+     * will return errors.
+     *
+     * Returns 0 on success, -1 if handle is invalid.
+     */
+    fn detach(): int {
+        return __fiber_detach(self._handle);
+    }
+
+    /**
+     * Get the current fiber's ID.
+     *
+     * Returns a platform-dependent integer for display/logging.
+     */
+    static fn id(): int {
+        return __fiber_id();
+    }
+
+    /**
+     * Sleep the current fiber for `ms` milliseconds.
+     *
+     * In v0.5.10 this blocks the underlying OS thread;
+     * future versions will implement cooperative sleep.
+     */
+    static fn sleep(ms: int): void {
+        __fiber_sleep(ms);
+    }
+
+    /**
+     * Yield the current fiber — hint that this fiber is
+     * willing to let other fibers run.
+     *
+     * In v0.5.10 this calls thread::yield_now;
+     * future versions will implement true cooperative yield
+     * via the async scheduler.
+     */
+    static fn yieldNow(): void {
+        __fiber_yield();
+    }
+}

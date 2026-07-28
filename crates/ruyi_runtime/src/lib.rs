@@ -11,11 +11,15 @@ pub mod async_exports;
 pub mod async_gc_roots;
 pub mod async_runtime;
 pub mod atomic_ffi;
+pub mod barrier_ffi;
 pub mod builtins;
 mod c_exports;
+pub mod channel_ffi;
 pub mod compress_ffi;
+pub mod condvar_ffi;
 pub mod crypto_ffi;
 pub mod exception;
+pub mod fiber_ffi;
 pub mod float_ffi;
 pub mod fmt_ffi;
 pub mod gc;
@@ -24,12 +28,19 @@ pub mod io_ffi;
 pub mod json_ffi;
 pub mod math_ffi;
 pub mod mutex_ffi;
+pub mod net_async_ffi;
 pub mod net_ffi;
+pub mod once_ffi;
 pub mod path_ffi;
 pub mod process_ffi;
 pub mod random_ffi;
+pub mod reactor;
+pub mod rwlock_ffi;
+pub mod semaphore_ffi;
+pub mod thread_ffi;
 pub mod time_ffi;
 pub mod tls_ffi;
+pub mod tls_store_ffi;
 
 pub use alloc::{
     allocate, deallocate, reallocate, ruyi_alloc, ruyi_dealloc, ruyi_realloc, GcObjectHeader, Heap,

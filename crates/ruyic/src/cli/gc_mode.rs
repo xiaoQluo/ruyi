@@ -11,8 +11,7 @@ use std::fmt;
 use std::str::FromStr;
 
 /// GC 模式枚举
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GcMode {
     /// 占位分配器（默认）
     #[default]
@@ -44,7 +43,6 @@ impl GcMode {
         }
     }
 }
-
 
 impl fmt::Display for GcMode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

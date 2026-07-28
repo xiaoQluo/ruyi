@@ -431,6 +431,19 @@ fn get_memory_info() -> (i64, i64) {
     // Estimate free memory via vm_stat on macOS, /proc/meminfo on Linux
     #[cfg(target_os = "macos")]
     let free = {
+        // 动态获取页面大小，Intel Mac 为 4096，Apple Silicon 为 16384
+        let page_size: i64 = Command::new("sysctl")
+            .args(["-n", "hw.pagesize"])
+            .output()
+            .ok()
+            .and_then(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .trim()
+                    .parse::<i64>()
+                    .ok()
+            })
+            .unwrap_or(4096);
+
         Command::new("vm_stat")
             .output()
             .ok()
@@ -445,7 +458,7 @@ fn get_memory_info() -> (i64, i64) {
                             .trim_end_matches('.')
                             .parse()
                             .unwrap_or(0);
-                        return pages * 16384; // 16KB pages on Apple Silicon / x86
+                        return pages * page_size;
                     }
                 }
                 total / 4
@@ -528,9 +541,7 @@ mod tests {
     #[test]
     fn test_exec_failure() {
         let result = __process_exec(c("nonexistent_command_xyz_123"));
-        unsafe {
-            assert!(!result.is_null());
-        }
+        assert!(!result.is_null());
     }
 
     #[test]
@@ -634,7 +645,7 @@ mod tests {
 
         // Read output after closing input
         std::thread::sleep(std::time::Duration::from_millis(200));
-        let out = __process_read_output(proc);
+        let _out = __process_read_output(proc);
         // cat should echo back the input
         let code = __process_wait(proc);
         assert_eq!(code, 0);

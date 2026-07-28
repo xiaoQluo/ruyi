@@ -1,0 +1,111 @@
+/**
+ * Ruyi Standard Library — Channel
+ *
+ * Thread-safe message passing for inter-thread communication.
+ * Supports both bounded and unbounded channels with multiple producers.
+ *
+ * Usage:
+ *   import { Channel } from "./channel";
+ *
+ *   // Unbounded channel
+ *   let ch = Channel.new(0);
+ *
+ *   // Bounded channel (buffer size 4)
+ *   let ch = Channel.new(4);
+ *
+ *   ch.send(42);
+ *   let val = ch.recv();   // blocks until value available
+ *
+ *   // Non-blocking receive
+ *   let maybe = ch.tryRecv();  // returns int? — null if empty
+ *
+ *   // Multi-producer
+ *   let tx2 = ch.clone();
+ *   tx2.send(100);
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+export class Channel {
+    _ptr: dyn;
+
+    /**
+     * Create a new channel.
+     * `capacity <= 0` creates an unbounded channel.
+     * `capacity > 0` creates a bounded channel that blocks senders when full.
+     */
+    static fn new(capacity: int): Channel {
+        let ch = new Channel();
+        ch._ptr = __channel_new(capacity);
+        return ch;
+    }
+
+    /** Send a value. Blocks if bounded and full. Returns true on success. */
+    fn send(value: int): bool {
+        return __channel_send(self._ptr, value) === 0;
+    }
+
+    /** Receive a value. Blocks until a value is available. */
+    fn recv(): int {
+        return __channel_recv(self._ptr);
+    }
+
+    /** Try to receive without blocking. Returns null if empty. */
+    fn tryRecv(): int? {
+        let val = __channel_try_recv(self._ptr);
+        if (val === 0x8000000000000000) {  // i64::MIN sentinel
+            return null;
+        }
+        return val;
+    }
+
+    /** Receive a value, blocking for at most `timeoutMs` milliseconds.
+     *  Returns null on timeout or if closed-and-empty. */
+    fn recvTimeout(timeoutMs: int): int? {
+        let val = __channel_recv_timeout(self._ptr, timeoutMs);
+        if (val === 0x8000000000000000) {
+            return null;
+        }
+        return val;
+    }
+
+    /** Check if all senders have been dropped (channel is closed). */
+    fn isClosed(): bool {
+        return __channel_is_closed(self._ptr) !== 0;
+    }
+
+    /**
+     * Clone the sender side for multi-producer use.
+     * The returned handle supports send() only.
+     * Must be freed with senderFree() when done.
+     */
+    fn clone(): ChannelSender {
+        let sender = new ChannelSender();
+        sender._ptr = __channel_clone(self._ptr);
+        return sender;
+    }
+
+    /** Close and deallocate the channel. */
+    fn free(): void {
+        __channel_free(self._ptr);
+    }
+}
+
+/**
+ * A cloned sender handle for multi-producer channels.
+ * Created via `channel.clone()`.
+ */
+export class ChannelSender {
+    _ptr: dyn;
+
+    /** Send a value. Blocks if bounded and full. */
+    fn send(value: int): bool {
+        return __channel_clone_send(self._ptr, value) === 0;
+    }
+
+    /** Deallocate this sender handle. */
+    fn free(): void {
+        __channel_clone_free(self._ptr);
+    }
+}

@@ -55,12 +55,7 @@ export class Process {
      */
     static fn create(command: string, options: ProcessOptions? = null): Process {
         let opts = options !== null ? options : ProcessOptions.default();
-        let proc = __process_create(command, opts.cwd, opts.env, opts.shell);
-        proc.cwd = opts.cwd !== null ? opts.cwd : "";
-        proc.env = opts.env !== null ? opts.env : Map.new();
-        proc.isRunning = true;
-        proc.exitCode = null;
-        return proc;
+        return __process_create(command, opts.cwd, opts.env, opts.shell);
     }
 
     /**
@@ -376,9 +371,9 @@ export class ProcessResult {
      */
     fn ensureSuccess(): void {
         if (self.success === false) {
-            throw ProcessException.create(
-                "Process exited with code " + self.exitCode + ": " + self.stderr
-            );
+            let msg = "Process exited with code " + self.exitCode + ": " + self.stderr;
+            let ex = ProcessException.create(msg);
+            throw ex;
         }
     }
 }

@@ -1,0 +1,125 @@
+// =============================================================================
+// Template Literals — Ruyi String Interpolation
+// =============================================================================
+// Covers: basic template literals (`...${expr}...`), multi-line templates,
+//         expression interpolation, nested templates
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 1. Basic Template Literal
+// -----------------------------------------------------------------------------
+fn basicDemo() {
+  print("--- Basic Template ---\n");
+
+  let name: string = "Ruyi";
+  print(`Hello, ${name}!\n`);
+}
+
+// -----------------------------------------------------------------------------
+// 2. Expression Interpolation
+// -----------------------------------------------------------------------------
+fn expressionDemo() {
+  print("--- Expression Interpolation ---\n");
+
+  let a: int = 10;
+  let b: int = 20;
+
+  print(`${a} + ${b} = ${a + b}\n`);
+  print(`${a} * ${b} = ${a * b}\n`);
+}
+
+// -----------------------------------------------------------------------------
+// 3. Multiple Expressions
+// -----------------------------------------------------------------------------
+fn multipleDemo() {
+  print("--- Multiple Expressions ---\n");
+
+  let x: int = 5;
+  let y: int = 3;
+
+  print(`Point: (${x}, ${y}), distance from origin: ${(x * x + y * y) ** 0.5}\n`);
+}
+
+// -----------------------------------------------------------------------------
+// 4. Multi-Line Template Literal
+// -----------------------------------------------------------------------------
+fn multiLineDemo() {
+  print("--- Multi-Line Template ---\n");
+
+  let title: string = "Ruyi Language";
+  let version: string = "v0.5";
+
+  print(`---
+Title: ${title}
+Version: ${version}
+Status: Working Draft
+---\n`);
+}
+
+// -----------------------------------------------------------------------------
+// 5. Template with Boolean and Null Values
+// -----------------------------------------------------------------------------
+fn typedDemo() {
+  print("--- Typed Values ---\n");
+
+  let active: bool = true;
+  let count: int = 42;
+
+  print(`active: ${active}, count: ${count}\n`);
+
+  // Nullable in template
+  let maybe: string? = "present";
+  print(`maybe: ${maybe ?? "null"}\n`);
+
+  let absent: string? = null;
+  print(`absent: ${absent ?? "null"}\n`);
+}
+
+// -----------------------------------------------------------------------------
+// 6. Template with Function Calls
+// -----------------------------------------------------------------------------
+fn compute(x: int): int {
+  return x * x;
+}
+
+fn functionCallDemo() {
+  print("--- Function Calls ---\n");
+
+  print(`square(7) = ${compute(7)}\n`);
+  print(`square(12) = ${compute(12)}\n`);
+}
+
+// -----------------------------------------------------------------------------
+// 7. Conditional in Template
+// -----------------------------------------------------------------------------
+fn conditionalDemo() {
+  print("--- Conditional in Template ---\n");
+
+  let score: int = 85;
+  let grade: string = if (score >= 90) { "A" } else if (score >= 80) { "B" } else { "C" };
+
+  print(`Score: ${score}, Grade: ${grade}\n`);
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+  print("=== Template Literals Demo ===\n\n");
+
+  basicDemo();
+  print("\n");
+  expressionDemo();
+  print("\n");
+  multipleDemo();
+  print("\n");
+  multiLineDemo();
+  print("\n");
+  typedDemo();
+  print("\n");
+  functionCallDemo();
+  print("\n");
+  conditionalDemo();
+
+  print("\nAll template literal demos completed successfully!\n");
+}

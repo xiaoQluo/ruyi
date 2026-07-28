@@ -1,0 +1,229 @@
+// =============================================================================
+// Getters & Setters — Ruyi Property Accessors
+// =============================================================================
+// Covers: get property accessors, set property accessors,
+//         computed properties, validation in setters, read-only properties
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 1. Basic Getter and Setter
+// -----------------------------------------------------------------------------
+class Temperature {
+  _celsius: float;
+
+  fn new(celsius: float) {
+    self._celsius = celsius;
+  }
+
+  // Getter: read-only property
+  get celsius(): float {
+    return self._celsius;
+  }
+
+  // Getter: computed property
+  get fahrenheit(): float {
+    return self._celsius * 9.0 / 5.0 + 32.0;
+  }
+
+  // Getter: computed property
+  get kelvin(): float {
+    return self._celsius + 273.15;
+  }
+
+  // Setter: validates on write
+  set celsius(value: float) {
+    if (value < -273.15) {
+      print("Warning: temperature below absolute zero\n");
+      self._celsius = -273.15;
+    } else {
+      self._celsius = value;
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 2. Rectangle with Computed Area
+// -----------------------------------------------------------------------------
+class Rectangle {
+  _width: float;
+  _height: float;
+
+  fn new(width: float, height: float) {
+    self._width = width;
+    self._height = height;
+  }
+
+  get width(): float {
+    return self._width;
+  }
+
+  set width(value: float) {
+    if (value <= 0.0) {
+      throw Error("width must be positive");
+    }
+    self._width = value;
+  }
+
+  get height(): float {
+    return self._height;
+  }
+
+  set height(value: float) {
+    if (value <= 0.0) {
+      throw Error("height must be positive");
+    }
+    self._height = value;
+  }
+
+  // Computed property: no backing field
+  get area(): float {
+    return self._width * self._height;
+  }
+
+  get perimeter(): float {
+    return 2.0 * (self._width + self._height);
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 3. Read-Only (Getter-Only) Property
+// -----------------------------------------------------------------------------
+class Circle {
+  _radius: float;
+
+  fn new(radius: float) {
+    self._radius = radius;
+  }
+
+  // Read-only: getter only, no setter
+  get radius(): float {
+    return self._radius;
+  }
+
+  get diameter(): float {
+    return self._radius * 2.0;
+  }
+
+  get area(): float {
+    return 3.14159 * self._radius ** 2;
+  }
+
+  get circumference(): float {
+    return 2.0 * 3.14159 * self._radius;
+  }
+
+  // Method to change radius (since no setter)
+  fn setRadius(radius: float) {
+    if (radius <= 0.0) {
+      throw Error("radius must be positive");
+    }
+    self._radius = radius;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 4. Person with Formatted Properties
+// -----------------------------------------------------------------------------
+class Person {
+  _firstName: string;
+  _lastName: string;
+  _birthYear: int;
+
+  fn new(firstName: string, lastName: string, birthYear: int) {
+    self._firstName = firstName;
+    self._lastName = lastName;
+    self._birthYear = birthYear;
+  }
+
+  get firstName(): string {
+    return self._firstName;
+  }
+
+  get lastName(): string {
+    return self._lastName;
+  }
+
+  // Computed: full name
+  get fullName(): string {
+    return self._firstName + " " + self._lastName;
+  }
+
+  // Computed: age (relative to reference year)
+  get age(): int {
+    return 2026 - self._birthYear;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+  print("=== Getters & Setters Demo ===\n\n");
+
+  // Temperature demo
+  print("--- Temperature ---\n");
+  let temp = Temperature.new(25.0);
+  print("celsius: ");
+  print(temp.celsius);
+  print("\nfahrenheit: ");
+  print(temp.fahrenheit);
+  print("\nkelvin: ");
+  print(temp.kelvin);
+  print("\n\n");
+
+  // Set new temperature
+  temp.celsius = 100.0;
+  print("after setting to 100°C:\n");
+  print("celsius: ");
+  print(temp.celsius);
+  print("\nfahrenheit: ");
+  print(temp.fahrenheit);
+  print("\n\n");
+
+  // Rectangle demo
+  print("--- Rectangle ---\n");
+  let rect = Rectangle.new(5.0, 3.0);
+  print("width: ");
+  print(rect.width);
+  print(", height: ");
+  print(rect.height);
+  print("\narea: ");
+  print(rect.area);
+  print("\nperimeter: ");
+  print(rect.perimeter);
+  print("\n\n");
+
+  rect.width = 8.0;
+  print("after width=8.0:\n");
+  print("area: ");
+  print(rect.area);
+  print("\n\n");
+
+  // Circle demo (read-only via getter)
+  print("--- Circle ---\n");
+  let circle = Circle.new(5.0);
+  print("radius: ");
+  print(circle.radius);
+  print("\ndiameter: ");
+  print(circle.diameter);
+  print("\narea: ");
+  print(circle.area);
+  print("\ncircumference: ");
+  print(circle.circumference);
+  print("\n\n");
+
+  // Person demo
+  print("--- Person ---\n");
+  let person = Person.new("Alice", "Smith", 1990);
+  print("firstName: ");
+  print(person.firstName);
+  print("\nlastName: ");
+  print(person.lastName);
+  print("\nfullName: ");
+  print(person.fullName);
+  print("\nage: ");
+  print(person.age);
+  print("\n");
+
+  print("\nAll getter & setter demos completed successfully!\n");
+}

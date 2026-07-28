@@ -97,15 +97,6 @@ export class TlsSocket {
 
 export class TlsServerConfig {
     _ptr: dyn;
-}
-
-// ============================================================
-// TlsServer
-// ============================================================
-
-export class TlsServer {
-    _server: TCPServer;
-    _config: TlsServerConfig;
 
     /**
      * Parse PEM certificate + key into a reusable server config.
@@ -121,6 +112,15 @@ export class TlsServer {
         c._ptr = ptr;
         return c;
     }
+}
+
+// ============================================================
+// TlsServer
+// ============================================================
+
+export class TlsServer {
+    _server: TCPServer;
+    _config: TlsServerConfig;
 
     /**
      * Listen on {host}:{port} with the given TLS config.

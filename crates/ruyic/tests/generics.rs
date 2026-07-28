@@ -996,7 +996,7 @@ fn test_make_generic_function_def() {
         name: "T".to_string(),
         bounds: vec![],
     }];
-    let def = make_generic_function_def(
+    let (def, _, _) = make_generic_function_def(
         "identity",
         &type_params,
         &[Type::TypeVar(TypeVar::new(0, "T".to_string()))],

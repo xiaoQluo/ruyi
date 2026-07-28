@@ -25,6 +25,7 @@
  */
 
 import { base64EncodeBytes, base64UrlEncodeBytes, base64DecodeToBytes, bytesToHex } from "./encoding";
+import { fromCharCode } from "./string";
 
 // ============================================================
 // Constants
@@ -216,6 +217,19 @@ export class Buffer {
             i = i + 1;
         }
         return Buffer(arr);
+    }
+
+    /**
+     * Creates a Buffer from a string using UTF-8 encoding.
+     *
+     * Convenience alias for `fromString(s)` matching the common
+     * `Buffer.from(text)` factory pattern.
+     *
+     * @param s Input string
+     * @return New Buffer containing the UTF-8 encoded bytes of `s`
+     */
+    static fn from(s: string): Buffer {
+        return Buffer.fromString(s);
     }
 
     /**
@@ -603,7 +617,7 @@ export class Buffer {
         let hi = self.get(offset);
         let lo = self.get(offset + 1);
         let value = (hi << 8) | lo;
-        if (value & 32768) {
+        if ((value & 32768) !== 0) {
             value = value - 65536;
         }
         return value;
@@ -619,7 +633,7 @@ export class Buffer {
         let lo = self.get(offset);
         let hi = self.get(offset + 1);
         let value = (hi << 8) | lo;
-        if (value & 32768) {
+        if ((value & 32768) !== 0) {
             value = value - 65536;
         }
         return value;
@@ -638,7 +652,7 @@ export class Buffer {
         let b3 = self.get(offset + 3);
         let value = (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
         // Sign extension for 32-bit: if bit 31 is set, make negative
-        if (value & 2147483648) {
+        if ((value & 2147483648) !== 0) {
             value = value - 4294967296;
         }
         return value;
@@ -656,7 +670,7 @@ export class Buffer {
         let b2 = self.get(offset + 2);
         let b3 = self.get(offset + 3);
         let value = (b3 << 24) | (b2 << 16) | (b1 << 8) | b0;
-        if (value & 2147483648) {
+        if ((value & 2147483648) !== 0) {
             value = value - 4294967296;
         }
         return value;

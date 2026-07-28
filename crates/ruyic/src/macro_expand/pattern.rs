@@ -117,13 +117,12 @@ impl PatternMatcher {
 
     pub fn match_pattern(&mut self) -> MacroResult<MatchResult> {
         let tokens = self.pattern.tokens.clone();
-        if self.match_tokens(&tokens)
-            && self.pos == self.input.len() {
-                return Ok(MatchResult {
-                    captures: std::mem::take(&mut self.captures),
-                    matched: true,
-                });
-            }
+        if self.match_tokens(&tokens) && self.pos == self.input.len() {
+            return Ok(MatchResult {
+                captures: std::mem::take(&mut self.captures),
+                matched: true,
+            });
+        }
         Ok(MatchResult {
             captures: self.captures.clone(),
             matched: false,
@@ -416,6 +415,36 @@ impl PatternParser {
 
         while let Some(token) = self.tokens.get(self.pos) {
             match token {
+                Token::Ident(name) if name.starts_with('$') => {
+                    self.pos += 1;
+                    if name == "$" {
+                        // Standalone $ — check for $(...) repetition
+                        if let Some(Token::LParen) = self.tokens.get(self.pos) {
+                            self.pos += 1;
+                            let inner = self.parse_tokens()?;
+                            self.expect_token(&Token::RParen)?;
+                            let (separator, mode) = self.parse_repetition_suffix()?;
+                            result.push(PatternToken::Repetition {
+                                inner,
+                                separator,
+                                mode,
+                            });
+                        } else {
+                            return Err(MacroError::InvalidInvocation {
+                                macro_name: "".to_string(),
+                                message: "expected '(' after '$' for repetition".to_string(),
+                            });
+                        }
+                    } else {
+                        // $name — meta-variable
+                        let meta_name = name[1..].to_string();
+                        let kind = self.parse_metavar_kind()?;
+                        result.push(PatternToken::MetaVar {
+                            name: meta_name,
+                            kind,
+                        });
+                    }
+                }
                 Token::Dollar => {
                     result.push(self.parse_metavar_or_repetition()?);
                 }

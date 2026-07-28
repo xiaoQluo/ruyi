@@ -91,7 +91,8 @@ pub fn bind_array_pattern<'ctx>(
     let mut idx = 0;
     for elem in elements {
         match elem {
-            crate::parser::ast::ArrayPatternElement::Pattern(p) => {
+            crate::parser::ast::ArrayPatternElement::Pattern(p)
+            | crate::parser::ast::ArrayPatternElement::Default(p, _) => {
                 let elem_ty = match p {
                     Pattern::Identifier(_) => {
                         if let Type::Array(inner) = &scrutinee.ty {
@@ -804,7 +805,8 @@ fn compile_array_match<'ctx>(
                 let mut has_rest = false;
                 for elem in elements {
                     match elem {
-                        crate::parser::ast::ArrayPatternElement::Pattern(_) => len += 1,
+                        crate::parser::ast::ArrayPatternElement::Pattern(_)
+                        | crate::parser::ast::ArrayPatternElement::Default(_, _) => len += 1,
                         crate::parser::ast::ArrayPatternElement::Rest(_) => {
                             has_rest = true;
                             break;
@@ -1130,16 +1132,16 @@ fn collect_object_pattern_checks(
             let mut checks = Vec::new();
             for f in obj_fields {
                 if let crate::parser::ast::ObjectPatternField::Property {
-                        key,
-                        pattern: inner,
-                    } = f {
+                    key,
+                    pattern: inner,
+                } = f
+                {
                     if let Pattern::Literal(lit) = inner {
                         if let Expr::IntLiteral(n) = lit.as_ref() {
-                            let field_index =
-                                fields
-                                    .iter()
-                                    .position(|(name, _)| name == key)
-                                    .ok_or_else(|| format!("Unknown field: {}", key))?;
+                            let field_index = fields
+                                .iter()
+                                .position(|(name, _)| name == key)
+                                .ok_or_else(|| format!("Unknown field: {}", key))?;
                             checks.push(FieldCheck {
                                 field_index,
                                 expected_value: *n,

@@ -961,7 +961,7 @@ export class Date {
  *
  * @return A new Date instance set to the current system time
  */
-export fn now(): Date {
+export fn dateNow(): Date {
     return Date.now();
 }
 
@@ -973,7 +973,7 @@ export fn now(): Date {
  * @param isoString An ISO 8601 formatted date-time string
  * @return A new Date instance representing the parsed time
  */
-export fn parse(isoString: string): Date {
+export fn dateParse(isoString: string): Date {
     return Date.parse(isoString);
 }
 

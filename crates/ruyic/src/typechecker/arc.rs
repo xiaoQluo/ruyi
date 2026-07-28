@@ -43,8 +43,9 @@ impl ArcClassRegistry {
     fn scan_declaration(&mut self, decl: &crate::parser::ast::Declaration) {
         use crate::parser::ast::Declaration;
         if let Declaration::Class {
-                name, annotations, ..
-            } = decl {
+            name, annotations, ..
+        } = decl
+        {
             if annotations.iter().any(|a| a == "arc") {
                 self.arc_classes.insert(name.clone());
             }
@@ -61,6 +62,23 @@ impl ArcClassRegistry {
         match ty {
             Type::Named(name, _) => self.is_arc_class(name),
             Type::Generic { base, .. } => self.is_arc_class(base),
+            _ => false,
+        }
+    }
+
+    /// Returns `true` if the given type is GC-managed (default class, not @arc).
+    /// GC objects are NOT thread-safe and cannot be sent across thread boundaries.
+    pub fn is_gc_type(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Named(name, _) => !self.is_arc_class(name),
+            Type::Generic { base, .. } => !self.is_arc_class(base),
+            // Array, Future, and closure types may contain GC references
+            Type::Array(inner) => self.is_gc_type(inner),
+            Type::Future(inner) => self.is_gc_type(inner),
+            Type::Function {
+                params,
+                return_type,
+            } => params.iter().any(|p| self.is_gc_type(p)) || self.is_gc_type(return_type),
             _ => false,
         }
     }

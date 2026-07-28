@@ -1,0 +1,6 @@
+import { Date } from "datetime";
+
+fn main() {
+    let d = Date.now();
+    print("ok");
+}

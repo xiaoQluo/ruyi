@@ -42,6 +42,7 @@
 14. [异步/Await 语义](#14-异步await-语义)
 15. [模块语义](#15-模块语义)
 16. [宏语义](#16-宏语义)
+17. [枚举类型语义](#17-枚举类型语义)（计划中）
 
 ---
 
@@ -115,7 +116,7 @@ Keyword :: one of
   in          instanceof  typeof      void
   delete      as          extends     dyn
   static      get         set         new
-  of          break       continue    yield
+  of          break       continue    enum
   _
 ```
 
@@ -155,7 +156,7 @@ Keyword :: one of
 | `instanceof` | 类型检查运算符 |
 | `typeof` | 运行时类型检查运算符 |
 | `void` | void 表达式运算符 |
-| `delete` | 属性删除运算符（已解析，代码生成有限） |
+| `delete` | 属性删除运算符（仅限 dyn 对象、Map、Set） |
 | `as` | 类型转换 / 模式别名 |
 | `extends` | 类继承 / 特征超特征 |
 | `dyn` | 动态分发 / 特征对象 |
@@ -166,7 +167,8 @@ Keyword :: one of
 | `of` | 值迭代 / for-of 循环 |
 | `break` | 退出封闭循环 |
 | `continue` | 跳过到下一次循环迭代 |
-| `yield` | 生成器 yield（已解析；代码生成为 no-op） |
+| `yield` | **保留关键字（已移除）** | 生成器特性已移除。`yield` 保留为关键字以防误用。替代方案：Iterator trait + async/await + Channel。 |
+| `enum` | 枚举类型声明 | 定义封闭的变体集合（tagged union），支持构造器模式匹配。 |
 | `_` | 通配符模式（match/解构） |
 
 ### 2.5 标识符
@@ -456,7 +458,6 @@ Operator :: one of
   ++  --
   in  instanceof
   typeof  void  delete
-  yield
 
 Punctuator :: one of
   {  }  (  )  [  ]
@@ -943,7 +944,7 @@ Statement ::
   MatchStatement
   BreakStatement
   ContinueStatement
-  YieldStatement
+  YieldStatement (removed)
   LabeledStatement
   EmptyStatement
 ```
@@ -1182,23 +1183,10 @@ outer: for (let i = 0; i < 10; i = i + 1) {
 }
 ```
 
-#### 3.4.13 Yield 语句
+#### 3.4.13 ~~Yield 语句~~ （已移除）
 
-```
-YieldStatement ::
-  yield Expressionopt ;
-```
-
-`yield` 语句挂起生成器函数并产生一个值。当前作为语句解析；代码生成将其视为 no-op。
-
-**示例**:
-```ruyi
-fn* countUp(limit: int) {
-  for (let i = 0; i < limit; i = i + 1) {
-    yield i;
-  }
-}
-```
+> **已移除**：`yield` 语句和生成器特性已从 Ruyi 中移除。`yield` 保留为关键字，使用它将产生编译错误。
+> 替代方案：`Iterator` trait（惰性序列）、`async fn` + `Channel`（异步流）、`Fiber`（协程）。
 
 #### 3.4.14 标签语句
 
@@ -2038,11 +2026,11 @@ Ruyi 移除了以下 JavaScript 特性。每一项移除都包含理由及 Ruyi 
 | 自动分号插入的边界情况 | **已减少** | 更清晰的 ASI 规则 | Ruyi 简化了 ASI 以避免最令人惊讶的情况。 |
 | 以 `0` 开头的八进制字面量 | **已移除** | `0o` 前缀 | `0777` 是八进制而 `0999` 是十进制，这很混乱。显式的 `0o` 前缀更清晰。 |
 | `function` 关键字 | **已移除** | `fn` | 更短，与其他声明一致。 |
-| `function*` / 生成器 | **部分** | `yield` 关键字已解析 | `yield` 已解析为关键字和语句；代码生成将其视为 no-op。完整的生成器支持计划中。 |
+| `function*` / 生成器 (`yield`) | **已移除** | Iterator trait + async/await + Channel | `yield` 曾作为关键字和语句解析（代码生成为 no-op）。完整生成器需要协程帧（coroutine frame），实现复杂度极高。Ruyi 的 `Iterator` trait、`async fn` + `Channel`、`Fiber` 已全面覆盖生成器的使用场景。`yield` 保留为关键字以防误用。 |
 | `this` 绑定复杂性 | **已简化** | 词法 `self` | 箭头函数词法捕获 `self`。方法显式使用 `self`。 |
 | 任意字符串的动态属性访问 | **已限制** | 索引签名 | Ruyi 将动态属性访问限制为带类型的索引签名。 |
 | `eval()` | **已移除** | 无 | `eval` 是安全风险并阻止优化。 |
-| 对象属性上的 `delete` | **有限** | 赋值为 `null` | `delete` 已解析为一元运算符；完整的代码生成支持有限。推荐使用 `obj.prop = null`。 |
+| 对象属性上的 `delete` | **已限制** | dyn 对象 / Map / Set | `delete` 仅允许用于 `dyn` 类型对象（运行时哈希表）、`Map<K,V>` 和 `Set<T>`。编译型语言的 class 实例布局固定，不支持动态删除字段。对 class 实例使用 `obj.prop = null` 替代。 |
 | `typeof` 对 `null` 返回 `"object"` | **已修复** | `typeof null` 返回 `"null"` | 修正了 JS 中 `typeof null === "object"` 的 bug。 |
 | 稀疏数组 | **已移除** | 以 `null` 填充的密集数组 | 稀疏数组有不可见的空洞。Ruyi 数组始终是密集的。 |
 | `Number`, `String`, `Boolean` 包装对象 | **已移除** | 仅原始类型 | 包装对象会产生令人困惑的同一性行为（`new String("a") !== "a"`）。 |
@@ -2170,7 +2158,7 @@ let, const, fn, class, trait, impl, dyn, match, if, else, for, while,
 return, throw, try, catch, finally, async, await, import,
 export, macro, type, true, false, null, self, super, this,
 in, instanceof, typeof, void, delete, as, extends, static,
-get, set, new, of, break, continue, yield, _
+get, set, new, of, break, continue, enum, _
 ```
 
 ### A.2 运算符词法单元
@@ -2185,19 +2173,10 @@ get, set, new, of, break, continue, yield, _
 &, |=, ^=, <<=, >>=, >>>=,
 &&=, ||=, ??=,
 =>, ++, --,
-in, instanceof, typeof, void, delete, yield
-```
-===, !==, ==, !=, <, >, <=, >=,
-+, -, *, /, %, **,
-&, |, ^, ~, <<, >>, >>>,
-&&, ||, ??,
-!, ?.,
-=, +=, -=, *=, /=, %=, **=,
-&=, |=, ^=, <<=, >>=, >>>=,
-&&=, ||=, ??=,
-=>, ++, --,
 in, instanceof, typeof, void, delete
 ```
+
+> **注**：`yield` 已从运算符词法单元中移除，仅保留为关键字词法单元（reserved）。
 
 ### A.3 分隔符词法单元
 
@@ -2225,6 +2204,7 @@ null, true, false
 ```
 Declaration     → LexicalDeclaration | FunctionDeclaration | ClassDeclaration
                 | TraitDeclaration | ImplDeclaration | TypeAliasDeclaration | MacroDeclaration
+                | EnumDeclaration
 LexicalDecl     → let BindingList ; | const BindingList ;
 FunctionDecl    → fn Identifier TypeParams? ( Params? ) ReturnType? { Body }
 ClassDecl       → @Annot* class Identifier TypeParams? extends Expr? { ClassBody }
@@ -2232,6 +2212,7 @@ TraitDecl       → trait Identifier TypeParams? { TraitBody }
 ImplDecl        → impl TypeParams? TraitName TypeArgs? for Type { ClassBody }
 TypeAlias       → type Identifier TypeParams? = Type ;
 MacroDecl       → macro Identifier { MacroRules }
+EnumDecl        → enum Identifier TypeParams? { EnumVariants }  (计划中)
 ```
 
 ### B.2 语句文法
@@ -2239,7 +2220,7 @@ MacroDecl       → macro Identifier { MacroRules }
 ```
 Statement       → Block | IfStmt | IfLetStmt | WhileStmt | WhileLetStmt
                 | ForStmt | ForInStmt | ForOfStmt | ReturnStmt | ThrowStmt
-                | TryStmt | MatchStmt | BreakStmt | ContinueStmt | YieldStmt
+                | TryStmt | MatchStmt | BreakStmt | ContinueStmt
                 | LabeledStmt | ExprStmt | EmptyStmt
 IfStmt          → if ( Expr ) Stmt else Stmt?
 IfLetStmt       → if let Pattern = Expr Block else Stmt?
@@ -2254,7 +2235,6 @@ TryStmt         → try Block catch ( Pattern ) Block? finally Block?
 MatchStmt       → match ( Expr ) { MatchArms }
 BreakStmt       → break Identifier? ;
 ContinueStmt    → continue Identifier? ;
-YieldStmt       → yield Expr? ;
 LabeledStmt     → Identifier : Stmt
 ```
 
@@ -3614,38 +3594,19 @@ try {
 2. 对已出错的 future 进行 `await` 会在等待上下文中重新抛出异常。
 3. 异常不会跨越任务边界传播，除非通过 `await` 显式传播。
 
-### 14.5 异步迭代器
+~~异步迭代器~~（已随 `yield` 一同移除）：
 
-异步迭代器异步产生值：
-
-```ruyi
-async fn* readLines(file: File): AsyncIterator<string> {
-  while let line = await file.readLine() {
-    yield line;
-  }
-}
-
-for await (let line of readLines(file)) {
-  print(line);
-}
-```
-
-**AsyncIterator 特征**：
-
-```ruyi
-trait AsyncIterator<T> {
-  fn next(self): Future<T?>;
-}
-```
-
-`for await` 脱糖为：
-
-```ruyi
-let iter = readLines(file);
-while let Some(line) = await iter.next() {
-  print(line);
-}
-```
+> 异步迭代依赖 `yield` 语法，该特性已移除。替代方案：使用 `Channel<T>` + `async fn` 实现异步流。
+>
+> ```ruyi
+> // 替代方案：Channel + async fn
+> async fn readLines(file: File, ch: Channel<string>) {
+>   while let line = await file.readLine() {
+>     ch.send(line);
+>   }
+>   ch.close();
+> }
+> ```
 
 ---
 
@@ -3960,6 +3921,107 @@ debug(x);    // 正常工作
 1. 宏必须使用 `export macro` 显式导出。
 2. 导入的宏在导入模块的上下文中展开。
 3. 宏卫生确保导出的宏不会意外捕获导入模块中的名称。
+
+---
+
+## 17. 枚举类型语义（计划中）
+
+> **状态**: 计划中。`enum` 关键字已保留，语法设计已定义，实现将在后续版本中展开。
+
+### 17.1 枚举定义
+
+枚举定义一组封闭的变体（tagged union），每个变体可以携带数据：
+
+```
+EnumDeclaration ::
+  enum Identifier TypeParameters? {
+    EnumVariants
+  }
+
+EnumVariants ::
+  EnumVariant
+  EnumVariant , EnumVariants
+
+EnumVariant ::
+  Identifier
+  Identifier ( TypeList )
+```
+
+**示例**：
+```ruyi
+enum Option<T> {
+    Some(T),
+    None,
+}
+
+enum Result<T, E> {
+    Ok(T),
+    Err(E),
+}
+
+enum Json {
+    Null,
+    Bool(bool),
+    Number(float),
+    Str(string),
+    Array(Array<Json>),
+    Object(Map<string, Json>),
+}
+```
+
+### 17.2 枚举语义
+
+- 枚举是**封闭的**：只有定义的变体，不可能有额外的变体。
+- 每个变体是一个**构造器函数**：`Some(42)` 创建 `Option<int>` 类型的值。
+- 无数据变体（如 `None`）是单例值，不需要括号。
+- 枚举值在内存中编译为 **tagged union**（1 字节 tag + payload），无需堆分配。
+
+### 17.3 构造器模式匹配
+
+`match` 表达式支持对枚举变体的构造器模式：
+
+```ruyi
+fn describe(opt: Option<int>): string {
+    match (opt) {
+        Some(v) => { return "has value: " + v.toString(); }
+        None => { return "no value"; }
+    }
+}
+```
+
+穷尽性检查基于枚举的封闭变体集：若 `match` 未覆盖所有变体，编译器发出警告。
+
+### 17.4 枚举方法
+
+通过 `impl` 块为枚举添加方法：
+
+```ruyi
+impl<T> Option<T> {
+    fn isSome(self): bool {
+        match (self) {
+            Some(_) => { return true; }
+            None => { return false; }
+        }
+    }
+
+    fn unwrap(self): T {
+        match (self) {
+            Some(v) => { return v; }
+            None => { throw RuntimeError.new("unwrap on None"); }
+        }
+    }
+}
+```
+
+### 17.5 与现有特性的协调
+
+| 现有特性 | 协调方式 |
+|---------|----------|
+| `type` 联合类型别名 | 保留，简单场景仍可用 |
+| `class` + `trait` | 保留，需要开放类层次时使用 |
+| `match` 表达式 | 扩展新增构造器模式 |
+| 泛型 | 直接支持 `enum Option<T>` |
+| `if let` / `while let` | 自然支持 `if let Some(v) = opt { ... }` |
 
 ---
 

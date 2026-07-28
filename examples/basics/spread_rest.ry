@@ -1,0 +1,180 @@
+// =============================================================================
+// Spread & Rest — Ruyi Spread Operator and Rest Parameters
+// =============================================================================
+// Covers: rest parameters (...args), array spread ([...a, ...b]),
+//         object spread ({...obj, extra}), function call spread
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 1. Rest Parameters — Variable Argument Functions
+// -----------------------------------------------------------------------------
+fn sum(...numbers: Array<int>): int {
+  let total: int = 0;
+  for (let n of numbers) {
+    total = total + n;
+  }
+  return total;
+}
+
+fn printAll(...items: Array<dyn>) {
+  for (let item of items) {
+    print(item);
+    print(" ");
+  }
+}
+
+fn restParamsDemo() {
+  print("--- Rest Parameters ---\n");
+
+  print("sum(1, 2, 3) = ");
+  print(sum(1, 2, 3));
+  print("\n");
+
+  print("sum(10, 20, 30, 40, 50) = ");
+  print(sum(10, 20, 30, 40, 50));
+  print("\n");
+
+  print("printAll: ");
+  printAll("hello", 42, true);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 2. Rest Parameters — Capturing Trailing Args
+// -----------------------------------------------------------------------------
+fn greet(greeting: string, ...names: Array<string>) {
+  for (let name of names) {
+    print(greeting);
+    print(", ");
+    print(name);
+    print("\n");
+  }
+}
+
+fn trailingRestDemo() {
+  print("--- Rest after Named Params ---\n");
+
+  greet("Hello", "Alice", "Bob", "Charlie");
+}
+
+// -----------------------------------------------------------------------------
+// 3. Array Spread — Merging Arrays
+// -----------------------------------------------------------------------------
+fn arraySpreadDemo() {
+  print("--- Array Spread ---\n");
+
+  let a = [1, 2, 3];
+  let b = [4, 5, 6];
+
+  // Combine arrays
+  let combined = [...a, ...b];
+
+  print("combined: [");
+  for (let item of combined) {
+    print(item);
+    print(" ");
+  }
+  print("]\n");
+
+  // Insert elements
+  let inserted = [...a, 99, ...b];
+  print("inserted: [");
+  for (let item of inserted) {
+    print(item);
+    print(" ");
+  }
+  print("]\n");
+}
+
+// -----------------------------------------------------------------------------
+// 4. Array Spread — Copy and Extend
+// -----------------------------------------------------------------------------
+fn arrayCopyDemo() {
+  print("--- Array Copy ---\n");
+
+  let original = [10, 20, 30];
+
+  // Shallow copy
+  let copy = [...original];
+  copy.push(40);
+
+  print("original: [");
+  for (let x of original) {
+    print(x);
+    print(" ");
+  }
+  print("]\n");
+
+  print("copy: [");
+  for (let x of copy) {
+    print(x);
+    print(" ");
+  }
+  print("]\n");
+}
+
+// -----------------------------------------------------------------------------
+// 5. Object Spread — Merging Objects
+// -----------------------------------------------------------------------------
+fn objectSpreadDemo() {
+  print("--- Object Spread ---\n");
+
+  let defaults = { theme: "light", fontSize: 14 };
+  let overrides = { theme: "dark" };
+
+  // Later properties override earlier ones
+  let config = { ...defaults, ...overrides };
+
+  print("theme: ");
+  print(config.theme);
+  print("\nfontSize: ");
+  print(config.fontSize);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 6. Object Spread — Adding Properties
+// -----------------------------------------------------------------------------
+fn objectExtendDemo() {
+  print("--- Object Extend ---\n");
+
+  let point = { x: 10.0, y: 20.0 };
+
+  // Add properties to an existing object
+  let point3d = { ...point, z: 30.0 };
+
+  print("point: (");
+  print(point.x);
+  print(", ");
+  print(point.y);
+  print(")\n");
+
+  print("point3d: (");
+  print(point3d.x);
+  print(", ");
+  print(point3d.y);
+  print(", ");
+  print(point3d.z);
+  print(")\n");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+  print("=== Spread & Rest Demo ===\n\n");
+
+  restParamsDemo();
+  print("\n");
+  trailingRestDemo();
+  print("\n");
+  arraySpreadDemo();
+  print("\n");
+  arrayCopyDemo();
+  print("\n");
+  objectSpreadDemo();
+  print("\n");
+  objectExtendDemo();
+
+  print("\nAll spread & rest demos completed successfully!\n");
+}

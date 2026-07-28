@@ -1,0 +1,198 @@
+// =============================================================================
+// Compound Assignment — Ruyi Combined Operators
+// =============================================================================
+// Covers: arithmetic (+=, -=, *=, /=, %=, **=),
+//         bitwise (&=, |=, ^=, <<=, >>=, >>>=),
+//         logical (&&=, ||=, ??=)
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 1. Arithmetic Compound Assignment
+// -----------------------------------------------------------------------------
+fn arithmeticDemo() {
+  print("--- Arithmetic Compound ---\n");
+
+  let a: int = 10;
+  a += 5;
+  print("10 += 5 => ");
+  print(a);
+  print("\n");
+
+  a -= 3;
+  print("15 -= 3 => ");
+  print(a);
+  print("\n");
+
+  a *= 2;
+  print("12 *= 2 => ");
+  print(a);
+  print("\n");
+
+  a /= 4;
+  print("24 /= 4 => ");
+  print(a);
+  print("\n");
+
+  a %= 5;
+  print("6 %= 5 => ");
+  print(a);
+  print("\n");
+
+  let b: int = 2;
+  b **= 3;
+  print("2 **= 3 => ");
+  print(b);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 2. Bitwise Compound Assignment
+// -----------------------------------------------------------------------------
+fn bitwiseDemo() {
+  print("--- Bitwise Compound ---\n");
+
+  let x: int = 0b1111;  // 15
+
+  x &= 0b1010;  // 15 & 10 = 10
+  print("0b1111 &= 0b1010 => ");
+  print(x);
+  print("\n");
+
+  x |= 0b0101;  // 10 | 5 = 15
+  print("10 |= 0b0101 => ");
+  print(x);
+  print("\n");
+
+  x ^= 0b1111;  // 15 ^ 15 = 0
+  print("15 ^= 0b1111 => ");
+  print(x);
+  print("\n");
+
+  let y: int = 1;
+  y <<= 3;      // 1 << 3 = 8
+  print("1 <<= 3 => ");
+  print(y);
+  print("\n");
+
+  y >>= 2;      // 8 >> 2 = 2
+  print("8 >>= 2 => ");
+  print(y);
+  print("\n");
+
+  y >>>= 1;     // 2 >>> 1 = 1
+  print("2 >>>= 1 => ");
+  print(y);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 3. Logical AND Assignment (&&=)
+// -----------------------------------------------------------------------------
+fn logicalAndDemo() {
+  print("--- Logical AND Assignment (&&=) ---\n");
+
+  let a: bool = true;
+  a &&= false;
+  print("true &&= false => ");
+  print(a);
+  print("\n");
+
+  let b: bool = false;
+  b &&= true;
+  print("false &&= true => ");
+  print(b);
+  print("\n");
+
+  let c: bool = true;
+  c &&= true;
+  print("true &&= true => ");
+  print(c);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 4. Logical OR Assignment (||=)
+// -----------------------------------------------------------------------------
+fn logicalOrDemo() {
+  print("--- Logical OR Assignment (||=) ---\n");
+
+  let a: bool = false;
+  a ||= true;
+  print("false ||= true => ");
+  print(a);
+  print("\n");
+
+  let b: bool = true;
+  b ||= false;
+  print("true ||= false => ");
+  print(b);
+  print("\n");
+
+  let c: bool = false;
+  c ||= false;
+  print("false ||= false => ");
+  print(c);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 5. Nullish Coalescing Assignment (??=)
+// -----------------------------------------------------------------------------
+fn nullishDemo() {
+  print("--- Nullish Coalescing Assignment (??=) ---\n");
+
+  let a: int? = null;
+  a ??= 42;
+  print("null ??= 42 => ");
+  print(a);
+  print("\n");
+
+  let b: int? = 10;
+  b ??= 99;
+  print("10 ??= 99 => ");
+  print(b);
+  print("  (left operand not null, so unchanged)\n");
+
+  // Practical: lazy default for config
+  let config: int? = null;
+  config ??= 8080;    // set default port
+  config ??= 3000;    // won't override
+  print("config ??= 8080, then ??= 3000 => ");
+  print(config);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 6. String Concatenation (+=)
+// -----------------------------------------------------------------------------
+fn stringConcatDemo() {
+  print("--- String Concatenation (+=) ---\n");
+
+  let greeting: string = "Hello";
+  greeting += ", ";
+  greeting += "World";
+  greeting += "!";
+  print(greeting);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+  print("=== Compound Assignment Demo ===\n\n");
+
+  arithmeticDemo();
+  print("\n");
+  bitwiseDemo();
+  print("\n");
+  logicalAndDemo();
+  print("\n");
+  logicalOrDemo();
+  print("\n");
+  nullishDemo();
+  print("\n");
+  stringConcatDemo();
+
+  print("\nAll compound assignment demos completed successfully!\n");
+}

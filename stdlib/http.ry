@@ -239,11 +239,13 @@ export class HttpClient {
      * @param headers Additional request headers
      * @return Parsed HttpResponse
      */
-    static fn request(method: string, url: string, body: string = "", headers: Map<string, string>? = null): HttpResponse {
+    static fn request(method: string, url: string, body: string? = null, headers: Map<string, string>? = null): HttpResponse {
         let urlInfo = parseUrl(url);
 
         let hdrs = headers !== null ? headers : Map.new();
         hdrs.set("accept-encoding", "gzip, deflate");
+
+        let bodyStr = body !== null ? body : "";
 
         if (urlInfo.scheme === "https") {
             let port = 443;
@@ -260,7 +262,7 @@ export class HttpClient {
             }
 
             // Build request
-            let req = buildRequest(method, urlInfo.path, urlInfo.host, hdrs, body);
+            let req = buildRequest(method, urlInfo.path, urlInfo.host, hdrs, bodyStr);
             tls.write(req);
 
             // Read response
@@ -275,7 +277,7 @@ export class HttpClient {
         }
 
         // Build request
-        let req = buildRequest(method, urlInfo.path, urlInfo.host, hdrs, body);
+        let req = buildRequest(method, urlInfo.path, urlInfo.host, hdrs, bodyStr);
 
         // Connect and send
         let sock = TCPSocket.connect(urlInfo.host, urlInfo.port);
@@ -478,7 +480,8 @@ export class HttpServer {
     fn accept(): HttpRequest {
         let client: dyn;
         if (self._tlsServer !== null) {
-            let tls = self._tlsServer.accept();
+            let tlsSrv: TlsServer = self._tlsServer!;
+            let tls = tlsSrv.accept();
             if (tls === null) {
                 let req = new HttpRequest();
                 req.method = "";
@@ -560,7 +563,8 @@ export class HttpServer {
      */
     fn close(): void {
         if (self._tlsServer !== null) {
-            self._tlsServer.close();
+            let tlsSrv: TlsServer = self._tlsServer!;
+            tlsSrv.close();
         } else {
             self._server.close();
         }
@@ -572,7 +576,8 @@ export class HttpServer {
      */
     fn isValid(): bool {
         if (self._tlsServer !== null) {
-            return self._tlsServer.isValid();
+            let tlsSrv: TlsServer = self._tlsServer!;
+            return tlsSrv.isValid();
         }
         return self._server.isValid();
     }

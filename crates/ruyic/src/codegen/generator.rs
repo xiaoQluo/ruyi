@@ -33,6 +33,7 @@ use super::builtins::declare_builtins;
 use super::decl::compile_declaration;
 use super::monomorph::{MonomorphizationContext, MonomorphizedFunction};
 use super::stmt::compile_block;
+use super::traits::VTableRegistry;
 use super::types::{function_type_from_ruyi, ruyi_type_to_llvm};
 use crate::parser::ast::Program;
 use crate::typechecker::generics::MonomorphizationTracker;
@@ -127,6 +128,47 @@ pub struct CodegenContext<'ctx, 'm, 'env> {
     /// Registry of `@arc`-annotated class names. Consulted by `compile_new`
     /// to decide whether to emit `ruyi_arc_alloc` instead of GC allocation.
     pub(crate) arc_registry: ArcClassRegistry,
+    /// Generic class templates: class name -> (type parameter names, class body).
+    /// Used by call sites to instantiate specialized method copies on demand.
+    pub generic_classes: HashMap<String, (Vec<String>, Vec<crate::parser::ast::ClassElement>)>,
+    /// Trait-impl method signatures: mangled fn name -> (impl type parameter
+    /// names, `for` type annotation). Used to substitute type parameters in
+    /// declared return types at call sites.
+    pub impl_method_sigs: HashMap<String, (Vec<String>, crate::parser::ast::TypeAnnotation)>,
+    /// Specializations already attempted (successfully or not), keyed by the
+    /// specialized function name, to avoid repeated failing instantiations.
+    pub attempted_specializations: std::collections::HashSet<String>,
+    /// Static field registry: maps `{Class}_{field}` to the field type.
+    /// The backing LLVM global is looked up via `module.get_global()`.
+    pub static_fields: HashMap<String, Type>,
+    /// Getter registry: maps class_name -> set of getter property names.
+    pub class_getters: HashMap<String, std::collections::HashSet<String>>,
+    /// Setter registry: maps class_name -> set of setter property names.
+    pub class_setters: HashMap<String, std::collections::HashSet<String>>,
+    /// Runtime type ID registry for `instanceof` support.
+    /// Maps class name to a unique numeric type ID.
+    pub type_ids: HashMap<String, u64>,
+    /// Next available type ID for class registration.
+    pub next_type_id: u64,
+    /// Pending return value slot for return-inside-try/finally support.
+    /// When a `return` is executed inside a `try` block, the value is stored here
+    /// and control branches to the finally block instead of returning directly.
+    pub pending_return_value: Option<inkwell::values::PointerValue<'ctx>>,
+    /// Pending return flag for return-inside-try/finally support.
+    /// i1 alloca: true if a return is pending after finally execution.
+    pub pending_return_flag: Option<inkwell::values::PointerValue<'ctx>>,
+    /// Pending break target for break-inside-try/finally support.
+    /// When a `break` is executed inside a `try` block, the target is stored here
+    /// and control branches to the finally block first.
+    pub pending_break_target: Option<inkwell::basic_block::BasicBlock<'ctx>>,
+    /// Pending continue target for continue-inside-try/finally support.
+    pub pending_continue_target: Option<inkwell::basic_block::BasicBlock<'ctx>>,
+    /// Current class name being compiled (for super.new() resolution).
+    /// Set by `compile_class` before compiling methods, cleared after.
+    pub current_class_name: Option<String>,
+    /// VTable registry for trait-based dynamic dispatch.
+    /// Populated by `generate_vtables()` before declaration compilation.
+    pub vtable_registry: Option<VTableRegistry<'ctx>>,
 }
 
 impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
@@ -183,6 +225,20 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
             pending_loop_label: None,
             gc_mode,
             arc_registry: ArcClassRegistry::new(),
+            generic_classes: HashMap::new(),
+            impl_method_sigs: HashMap::new(),
+            attempted_specializations: std::collections::HashSet::new(),
+            static_fields: HashMap::new(),
+            class_getters: HashMap::new(),
+            class_setters: HashMap::new(),
+            type_ids: HashMap::new(),
+            next_type_id: 1,
+            pending_return_value: None,
+            pending_return_flag: None,
+            pending_break_target: None,
+            pending_continue_target: None,
+            current_class_name: None,
+            vtable_registry: None,
         }
     }
 
@@ -272,13 +328,27 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
 
     /// Look up a variable by name.
     ///
-    /// When a `type_environment` is set, the returned type is taken from the
-    /// type checker (falling back to the annotation-derived type stored in the
-    /// local map). The LLVM pointer value always comes from the local map.
+    /// Locals (parameters, let bindings) shadow module-level globals. The
+    /// `type_environment` retains only the global scope at codegen time, so
+    /// it must never override a local's recorded type: consulting it for a
+    /// local named like a user global would poison the type (and previously
+    /// the pointer) with the global's. It is used only as a fallback when
+    /// the recorded type is `Dynamic`, and for genuine global accesses.
     pub fn lookup_variable(
         &self,
         name: &str,
     ) -> Option<(inkwell::values::PointerValue<'ctx>, Type)> {
+        if let Some((ptr, ty)) = self.variables.get(name) {
+            let final_ty = if matches!(ty, Type::Dynamic) {
+                self.type_environment
+                    .and_then(|env| env.lookup(name))
+                    .cloned()
+                    .unwrap_or_else(|| ty.clone())
+            } else {
+                ty.clone()
+            };
+            return Some((*ptr, final_ty));
+        }
         if let Some(global) = self.globals.get(name) {
             let ptr = global.as_pointer_value();
             let final_ty = self
@@ -288,14 +358,52 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
                 .unwrap_or(crate::typechecker::types::Type::Dynamic);
             return Some((ptr, final_ty));
         }
-        self.variables.get(name).map(|(ptr, ty)| {
-            let final_ty = self
-                .type_environment
-                .and_then(|env| env.lookup(name))
-                .cloned()
-                .unwrap_or_else(|| ty.clone());
-            (*ptr, final_ty)
-        })
+        None
+    }
+
+    /// Resolve user-defined type aliases (e.g. `StringArray` -> `Array<string>`)
+    /// by consulting the type checker's environment. Type aliases are recorded
+    /// there as ordinary bindings via `declare_let`. Resolution is recursive so
+    /// nested aliases and aliases inside Array/Nullable/Generic/Function are
+    /// expanded. Used by method dispatch to map an alias receiver type to its
+    /// underlying builtin/class so the correct method symbol is selected.
+    pub fn resolve_type_aliases(&self, ty: &Type) -> Type {
+        match ty {
+            Type::Named(name, _) => {
+                if let Some(env) = self.type_environment {
+                    if let Some(resolved) = env.lookup(name) {
+                        match resolved {
+                            // A class/alias resolving to itself is not an alias.
+                            Type::Named(n, _) if n == name => ty.clone(),
+                            // Function-typed bindings are values, not type aliases.
+                            Type::Function { .. } => ty.clone(),
+                            _ => self.resolve_type_aliases(resolved),
+                        }
+                    } else {
+                        ty.clone()
+                    }
+                } else {
+                    ty.clone()
+                }
+            }
+            Type::Array(inner) => Type::Array(Box::new(self.resolve_type_aliases(inner))),
+            Type::Nullable(inner) => Type::Nullable(Box::new(self.resolve_type_aliases(inner))),
+            Type::Generic { base, args } => Type::Generic {
+                base: base.clone(),
+                args: args.iter().map(|a| self.resolve_type_aliases(a)).collect(),
+            },
+            Type::Function {
+                params,
+                return_type,
+            } => Type::Function {
+                params: params
+                    .iter()
+                    .map(|p| self.resolve_type_aliases(p))
+                    .collect(),
+                return_type: Box::new(self.resolve_type_aliases(return_type)),
+            },
+            _ => ty.clone(),
+        }
     }
 
     /// Define (insert) a variable into the map.
@@ -650,12 +758,19 @@ impl<'ctx> CodeGenerator<'ctx> {
 
         // First pass: predeclare class struct types and method signatures for forward references
         for item in &program.items {
-            if let crate::parser::ast::ModuleItem::Declaration(
-                crate::parser::ast::Declaration::Class { name, body, .. },
-            ) = item
-            {
-                // Predeclare struct type
+            let decl = match extract_declaration(item) {
+                Some(d) => d,
+                None => continue,
+            };
+            if let crate::parser::ast::Declaration::Class { name, body, .. } = decl {
+                // Register a unique type ID for instanceof support.
+                let type_id = ctx.next_type_id;
+                ctx.next_type_id += 1;
+                ctx.type_ids.insert(name.clone(), type_id);
+
+                // Predeclare struct type (with hidden __typeid field at index 0)
                 let mut fields: Vec<(String, crate::typechecker::types::Type)> = Vec::new();
+                fields.push(("__typeid".to_string(), crate::typechecker::types::Type::Int));
                 for element in body {
                     if let crate::parser::ast::ClassElement::Field {
                         name: prop_name,
@@ -682,6 +797,8 @@ impl<'ctx> CodeGenerator<'ctx> {
                 ctx.class_fields.insert(name.clone(), fields);
 
                 // Predeclare methods
+                let mut getters = std::collections::HashSet::new();
+                let mut setters = std::collections::HashSet::new();
                 for element in body {
                     if let crate::parser::ast::ClassElement::Method {
                         name: prop_name,
@@ -689,11 +806,23 @@ impl<'ctx> CodeGenerator<'ctx> {
                         return_type,
                         is_static: false,
                         is_async: false,
+                        is_getter,
+                        is_setter,
                         ..
                     } = element
                     {
                         if let crate::parser::ast::PropertyName::Ident(method) = prop_name {
-                            let method_name = format!("{}_{}", name, method);
+                            if *is_getter {
+                                getters.insert(method.clone());
+                            }
+                            if *is_setter {
+                                setters.insert(method.clone());
+                            }
+                            let method_name = if *is_setter {
+                                format!("{}_set_{}", name, method)
+                            } else {
+                                format!("{}_{}", name, method)
+                            };
                             let mut method_params = vec![crate::parser::ast::Param {
                                 pattern: crate::parser::ast::Pattern::Identifier(
                                     "self".to_string(),
@@ -711,6 +840,42 @@ impl<'ctx> CodeGenerator<'ctx> {
                                     .filter(|p| !matches!(&p.pattern, crate::parser::ast::Pattern::Identifier(n) if n == "self"))
                                     .cloned(),
                             );
+                            super::decl::predeclare_function(
+                                &mut ctx,
+                                &method_name,
+                                &method_params,
+                                return_type.as_ref(),
+                            );
+                        }
+                    }
+                }
+                if !getters.is_empty() {
+                    ctx.class_getters.insert(name.clone(), getters);
+                }
+                if !setters.is_empty() {
+                    ctx.class_setters.insert(name.clone(), setters);
+                }
+
+                // Predeclare static methods so other classes can
+                // forward-reference them (e.g. Process.create calling
+                // ProcessOptions.default()).
+                for element in body {
+                    if let crate::parser::ast::ClassElement::Method {
+                        name: prop_name,
+                        params,
+                        return_type,
+                        is_static: true,
+                        is_async: false,
+                        ..
+                    } = element
+                    {
+                        if let crate::parser::ast::PropertyName::Ident(method) = prop_name {
+                            let method_name = format!("{}_{}", name, method);
+                            let method_params: Vec<_> = params
+                                .iter()
+                                .filter(|p| !matches!(&p.pattern, crate::parser::ast::Pattern::Identifier(n) if n == "self"))
+                                .cloned()
+                                .collect();
                             super::decl::predeclare_function(
                                 &mut ctx,
                                 &method_name,
@@ -778,6 +943,11 @@ impl<'ctx> CodeGenerator<'ctx> {
             }
         }
 
+        // Generate vtables for all trait impl declarations.
+        // Must run before compile_declaration so that trait object creation
+        // in let bindings / assignments can look up vtable info.
+        ctx.vtable_registry = Some(super::traits::generate_vtables(&mut ctx, program));
+
         for (i, item) in program.items.iter().enumerate() {
             ctx.set_allow_partial_codegen(self.allow_partial_codegen || i < self.stdlib_item_count);
             match item {
@@ -802,6 +972,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                                 if !ctx.allow_partial_codegen() {
                                     return Err(format!("codegen error: {}", _e));
                                 }
+                                log::warn!("Skipping declaration codegen: {}", _e);
                             }
                             _ => return Err(format!("codegen error: {}", _e)),
                         }
@@ -826,6 +997,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                         if !ctx.allow_partial_codegen() {
                             return Err(format!("codegen error: {}", _e));
                         }
+                        log::warn!("Skipping export codegen: {}", _e);
                     }
                 }
                 crate::parser::ast::ModuleItem::Statement(stmt) => {
@@ -833,6 +1005,11 @@ impl<'ctx> CodeGenerator<'ctx> {
                 }
                 _ => {}
             }
+        }
+
+        // Emit vtable initializer globals now that all impl functions exist.
+        if let Some(registry) = ctx.vtable_registry.clone() {
+            super::traits::emit_vtable_initializers(&mut ctx, &registry);
         }
 
         // Restore builder position to entry main block
@@ -944,6 +1121,13 @@ impl<'ctx> CodeGenerator<'ctx> {
         path: &std::path::Path,
         opt_level: OptLevel,
     ) -> Result<(), String> {
+        // Verify the module before handing it to the LLVM backend.
+        // Log as warning since some pre-existing issues may still cause
+        // verification warnings.
+        if let Err(msg) = self.module.verify() {
+            eprintln!("LLVM verification warning: {}", msg.to_string());
+        }
+
         Target::initialize_native(&InitializationConfig::default())
             .map_err(|e| format!("Failed to initialize native target: {}", e))?;
 
@@ -978,7 +1162,9 @@ impl<'ctx> CodeGenerator<'ctx> {
         path: &std::path::Path,
         opt_level: OptLevel,
     ) -> Result<(), String> {
-        let temp_obj = std::env::temp_dir().join("ruyi_temp.o");
+        // Use PID in the temp object filename to avoid collisions when
+        // multiple ruyic processes run simultaneously (e.g. parallel tests).
+        let temp_obj = std::env::temp_dir().join(format!("ruyi_temp_{}.o", std::process::id()));
         self.compile_to_object_with_opt(&temp_obj, opt_level)?;
 
         let runtime_lib = option_env!("RUYI_RUNTIME_LIB")
@@ -1105,13 +1291,34 @@ fn compile_monomorphized_function<'ctx>(
                     .build_return(Some(&BasicValueEnum::IntValue(zero)));
             }
             _ => {
-                let null_ptr = ctx
-                    .context
-                    .i8_type()
-                    .ptr_type(Default::default())
-                    .const_null();
-                ctx.builder()
-                    .build_return(Some(&BasicValueEnum::PointerValue(null_ptr)));
+                // Generate a zero value matching the LLVM function's actual
+                // return type (which may differ from the Ruyi type due to
+                // generic type erasure, e.g. Nullable(Dynamic) → i64).
+                let llvm_ret_ty = ctx
+                    .builder()
+                    .get_insert_block()
+                    .and_then(|bb| bb.get_parent())
+                    .and_then(|f| f.get_type().get_return_type());
+                let default_val: BasicValueEnum<'ctx> = match llvm_ret_ty {
+                    Some(t) if t.is_int_type() => {
+                        BasicValueEnum::IntValue(t.into_int_type().const_int(0, false))
+                    }
+                    Some(t) if t.is_struct_type() => {
+                        BasicValueEnum::StructValue(t.into_struct_type().const_zero())
+                    }
+                    Some(t) if t.is_float_type() => {
+                        BasicValueEnum::FloatValue(t.into_float_type().const_float(0.0))
+                    }
+                    _ => {
+                        let null_ptr = ctx
+                            .context
+                            .i8_type()
+                            .ptr_type(Default::default())
+                            .const_null();
+                        BasicValueEnum::PointerValue(null_ptr)
+                    }
+                };
+                ctx.builder().build_return(Some(&default_val));
             }
         }
     }
@@ -1138,6 +1345,12 @@ fn compile_top_level_let_inits<'ctx>(
     use crate::typechecker::types::Type;
     use inkwell::values::BasicValueEnum;
 
+    // Track already-initialized names to avoid duplicate stores when the same
+    // const/let name appears in multiple merged modules (e.g. HEX_CHARS in
+    // both encoding.ry and buffer.ry).  Only the first occurrence is
+    // initialized; subsequent duplicates share the same LLVM global.
+    let mut initialized: std::collections::HashSet<String> = std::collections::HashSet::new();
+
     for item in &program.items {
         let decl_opt = match item {
             ModuleItem::Declaration(decl) => Some(decl),
@@ -1150,6 +1363,11 @@ fn compile_top_level_let_inits<'ctx>(
                     Pattern::Identifier(n) => n.clone(),
                     _ => continue,
                 };
+                // Skip duplicate names across modules — the first binding
+                // owns the global; later ones are shadowed copies.
+                if !initialized.insert(name.clone()) {
+                    continue;
+                }
                 let Some(init) = &b.init else { continue };
                 let ty = if let Some(annotation) = &b.ty {
                     Type::from_annotation(annotation)
@@ -1158,10 +1376,13 @@ fn compile_top_level_let_inits<'ctx>(
                 } else {
                     Type::Dynamic
                 };
-                let llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
-                let global = match ctx.module.get_global(&name) {
-                    Some(g) => g,
+                // Look up the global via ctx.globals (authoritative mapping
+                // created in generate_with_env).  Fall back to module lookup
+                // only for names not registered there (shouldn't happen).
+                let global = match ctx.globals.get(&name) {
+                    Some(g) => *g,
                     None => {
+                        let llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
                         let g = ctx.module.add_global(llvm_ty, None, &name);
                         g.set_linkage(inkwell::module::Linkage::Internal);
                         let zero = ruyi_type_to_zero(ctx.context, &ty);
@@ -1173,9 +1394,17 @@ fn compile_top_level_let_inits<'ctx>(
                     Ok(r) => r,
                     Err(_) => continue,
                 };
-                let value = init_result.value;
+                let value = if ty == Type::Dynamic && init_result.ty != Type::Dynamic {
+                    // Dynamic boxing: construct {i64, i8*} struct
+                    super::expr::build_box_dynamic(ctx, init_result.value, &init_result.ty)
+                } else {
+                    init_result.value
+                };
                 ctx.builder().build_store(global.as_pointer_value(), value);
-                ctx.define_variable(name, (global.as_pointer_value(), init_result.ty));
+                // Record the declared type; keep Dynamic when annotated as dyn
+                // so later reads know to extract struct fields.
+                let recorded_ty = ty;
+                ctx.define_variable(name, (global.as_pointer_value(), recorded_ty));
                 let _ = BasicValueEnum::IntValue(ctx.context.i64_type().const_int(0, false));
             }
         }
@@ -1189,6 +1418,11 @@ fn collect_top_level_lets(
     use crate::parser::ast::{Declaration, ExportDecl, ModuleItem, Pattern};
     use crate::typechecker::types::Type;
     let mut result = Vec::new();
+    // Deduplicate: when multiple merged modules define the same top-level
+    // name (e.g. HEX_CHARS in both encoding.ry and buffer.ry), only the
+    // first binding is kept.  Subsequent duplicates share the same LLVM
+    // global and must not create a second one.
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for item in &program.items {
         let decl_opt = match item {
             ModuleItem::Declaration(decl) => Some(decl),
@@ -1201,6 +1435,9 @@ fn collect_top_level_lets(
                     Pattern::Identifier(n) => n.clone(),
                     _ => continue,
                 };
+                if !seen.insert(name.clone()) {
+                    continue;
+                }
                 let ty = if let Some(annotation) = &b.ty {
                     Type::from_annotation(annotation)
                 } else if let Some(env) = type_env {
@@ -1215,7 +1452,7 @@ fn collect_top_level_lets(
     result
 }
 
-fn ruyi_type_to_zero<'ctx>(
+pub(crate) fn ruyi_type_to_zero<'ctx>(
     context: &'ctx inkwell::context::Context,
     ty: &crate::typechecker::types::Type,
 ) -> inkwell::values::BasicValueEnum<'ctx> {
@@ -1226,7 +1463,29 @@ fn ruyi_type_to_zero<'ctx>(
         Type::Float => BasicValueEnum::FloatValue(context.f64_type().const_float(0.0)),
         Type::Bool => BasicValueEnum::IntValue(context.bool_type().const_int(0, false)),
         Type::Byte => BasicValueEnum::IntValue(context.i8_type().const_int(0, false)),
-        Type::Null => BasicValueEnum::IntValue(context.i64_type().const_int(0, false)),
+        // Pointer types must be initialized with null pointer, not integer 0.
+        Type::String
+        | Type::Null
+        | Type::BigInt
+        | Type::Array(_)
+        | Type::Object(_)
+        | Type::Function { .. }
+        | Type::Generic { .. }
+        | Type::TypeVar(_) => BasicValueEnum::PointerValue(
+            context.i8_type().ptr_type(Default::default()).const_null(),
+        ),
+        Type::Nullable(_) => {
+            // Nullable wraps an inner type; use null pointer.
+            BasicValueEnum::PointerValue(
+                context.i8_type().ptr_type(Default::default()).const_null(),
+            )
+        }
+        Type::Dynamic => {
+            // Dynamic is {i64, i8*} — zero-initialized struct
+            let dyn_ty =
+                super::types::ruyi_type_to_llvm(context, &Type::Dynamic).into_struct_type();
+            BasicValueEnum::StructValue(dyn_ty.const_zero())
+        }
         _ => BasicValueEnum::IntValue(context.i64_type().const_int(0, false)),
     }
 }

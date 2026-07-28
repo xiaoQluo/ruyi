@@ -1,0 +1,131 @@
+// =============================================================================
+// for-in / for-of — Ruyi Collection Iteration
+// =============================================================================
+// Covers: for-in (iterate object keys / array indices),
+//         for-of (iterate iterable values / array elements)
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 1. for-in — Iterate Object Keys
+// -----------------------------------------------------------------------------
+fn forInObjectDemo() {
+  print("--- for-in: Object Keys ---\n");
+
+  let user = {
+    name: "Alice",
+    age: 30,
+    active: true
+  };
+
+  for (let key in user) {
+    print(key);
+    print(" = ");
+    print(user[key]);
+    print("\n");
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 2. for-in — Iterate Array Indices
+// -----------------------------------------------------------------------------
+fn forInArrayDemo() {
+  print("--- for-in: Array Indices ---\n");
+
+  let colors = ["red", "green", "blue"];
+
+  for (let i in colors) {
+    print("colors[");
+    print(i);
+    print("] = ");
+    print(colors[i]);
+    print("\n");
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 3. for-of — Iterate Array Values
+// -----------------------------------------------------------------------------
+fn forOfArrayDemo() {
+  print("--- for-of: Array Values ---\n");
+
+  let names = ["Alice", "Bob", "Charlie"];
+
+  for (let name of names) {
+    print("Hello, ");
+    print(name);
+    print("\n");
+  }
+}
+
+// -----------------------------------------------------------------------------
+// 4. for-of — Iterate Collection Elements
+// -----------------------------------------------------------------------------
+fn forOfNumbersDemo() {
+  print("--- for-of: Numbers ---\n");
+
+  let numbers = [10, 20, 30, 40, 50];
+  let sum: int = 0;
+
+  for (let n of numbers) {
+    sum = sum + n;
+  }
+
+  print("sum = ");
+  print(sum);
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 5. for-of with String Characters
+// -----------------------------------------------------------------------------
+fn forOfStringDemo() {
+  print("--- for-of: String ---\n");
+
+  let word: string = "Ruyi";
+
+  for (let ch of word) {
+    print("'");
+    print(ch);
+    print("' ");
+  }
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// 6. for-of with Dynamic Collections
+// -----------------------------------------------------------------------------
+fn forOfDynamicDemo() {
+  print("--- for-of: Dynamic Items ---\n");
+
+  let items: Array<int> = [];
+  items.push(100);
+  items.push(200);
+  items.push(300);
+
+  for (let item of items) {
+    print(item);
+    print(" ");
+  }
+  print("\n");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+  print("=== for-in / for-of Demo ===\n\n");
+
+  forInObjectDemo();
+  print("\n");
+  forInArrayDemo();
+  print("\n");
+  forOfArrayDemo();
+  print("\n");
+  forOfNumbersDemo();
+  print("\n");
+  forOfStringDemo();
+  print("\n");
+  forOfDynamicDemo();
+
+  print("\nAll for-in / for-of demos completed successfully!\n");
+}

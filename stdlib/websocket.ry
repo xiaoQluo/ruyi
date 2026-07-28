@@ -33,6 +33,7 @@ import { sha1Raw } from "./crypto/hash";
 import { base64Encode } from "./encoding";
 import { Deflate } from "./compress";
 import { Buffer } from "./buffer";
+import { fromCharCode } from "./string";
 
 // ============================================================
 // Constants
@@ -415,7 +416,8 @@ export class WebSocketServer {
     fn accept(): WebSocket {
         let client: dyn;
         if (self._tlsServer !== null) {
-            let tls = self._tlsServer.accept();
+            let tlsSrv: TlsServer = self._tlsServer!;
+            let tls = tlsSrv.accept();
             if (tls === null) { let dummy = new WebSocket(); return dummy; }
             client = tls;
         } else {
@@ -469,7 +471,8 @@ export class WebSocketServer {
      */
     fn close(): void {
         if (self._tlsServer !== null) {
-            self._tlsServer.close();
+            let tlsSrv: TlsServer = self._tlsServer!;
+            tlsSrv.close();
         } else {
             self._server.close();
         }
@@ -481,7 +484,8 @@ export class WebSocketServer {
      */
     fn isValid(): bool {
         if (self._tlsServer !== null) {
-            return self._tlsServer.isValid();
+            let tlsSrv: TlsServer = self._tlsServer!;
+            return tlsSrv.isValid();
         }
         return self._server.isValid();
     }

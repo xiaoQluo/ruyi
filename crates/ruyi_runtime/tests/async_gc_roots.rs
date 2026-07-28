@@ -64,6 +64,11 @@ fn test_async_gc_roots_survive_collection() {
     }
     std::thread::sleep(std::time::Duration::from_millis(50));
 
+    // Register this task explicitly: sibling tests running in parallel may
+    // populate the FFI registry, which would otherwise filter our task out
+    // of the scan (the empty-registry "all tasks" fallback is not reliable
+    // under concurrent test execution).
+    ruyi_async_register_root(task_id.0);
     register_async_roots(&mut collector);
     collector.collect();
 
@@ -74,6 +79,7 @@ fn test_async_gc_roots_survive_collection() {
 
     unsafe {
         collector.remove_root(obj);
+        ruyi_async_unregister_root(task_id.0);
     }
     collector.collect();
     assert_eq!(collector.object_count(), 0);
@@ -84,11 +90,20 @@ fn test_async_gc_roots_survive_collection() {
         waker.wake();
     }
 
-    {
-        let scheduler = GLOBAL_SCHEDULER.lock().unwrap();
-        while scheduler.active_tasks() > 0 {
-            std::thread::yield_now();
+    // Wait for completion without holding the scheduler lock: sibling
+    // tests need it to wake their own tasks, and `active_tasks()` counts
+    // tasks globally across all tests in this binary.
+    //
+    // Bounded: a sibling test that panics before waking its task would
+    // leave `active_count > 0` forever; spinning indefinitely would hang
+    // the entire test binary.  If the deadline expires we proceed — the
+    // GC assertion below does not depend on the task being completed.
+    for _ in 0..10_000 {
+        let active = GLOBAL_SCHEDULER.lock().unwrap().active_tasks();
+        if active == 0 {
+            break;
         }
+        std::thread::yield_now();
     }
 }
 
@@ -155,9 +170,7 @@ fn test_task_held_object_survives_gc() {
     }
     std::thread::yield_now();
 
-    unsafe {
-        ruyi_async_register_root(task_id.0);
-    }
+    ruyi_async_register_root(task_id.0);
     let snapshot = roots_snapshot();
     assert!(
         snapshot.contains(&task_id.0),
@@ -177,9 +190,7 @@ fn test_task_held_object_survives_gc() {
         assert_eq!(*(obj as *mut u64), 0xDEADBEEF, "payload must be intact");
     }
 
-    unsafe {
-        ruyi_async_unregister_root(task_id.0);
-    }
+    ruyi_async_unregister_root(task_id.0);
     {
         let scheduler = GLOBAL_SCHEDULER.lock().unwrap();
         let waker = scheduler.test_waker(task_id);
@@ -235,9 +246,7 @@ fn test_multi_layer_future_chain() {
     }
     std::thread::yield_now();
 
-    unsafe {
-        ruyi_async_register_root(task_id.0);
-    }
+    ruyi_async_register_root(task_id.0);
 
     register_async_roots(&mut collector);
     collector.collect();
@@ -263,9 +272,7 @@ fn test_multi_layer_future_chain() {
             collector.remove_root(*obj);
         }
     }
-    unsafe {
-        ruyi_async_unregister_root(task_id.0);
-    }
+    ruyi_async_unregister_root(task_id.0);
     {
         let scheduler = GLOBAL_SCHEDULER.lock().unwrap();
         let waker = scheduler.test_waker(task_id);
@@ -309,9 +316,7 @@ fn test_completed_task_releases() {
     }
     std::thread::yield_now();
 
-    unsafe {
-        ruyi_async_register_root(task_id.0);
-    }
+    ruyi_async_register_root(task_id.0);
     register_async_roots(&mut collector);
     collector.collect();
     assert_eq!(
@@ -325,19 +330,17 @@ fn test_completed_task_releases() {
         let waker = scheduler.test_waker(task_id);
         waker.wake();
     }
-    {
-        let scheduler = GLOBAL_SCHEDULER.lock().unwrap();
-        for _ in 0..1000 {
-            if scheduler.active_tasks() == 0 {
-                break;
-            }
-            std::thread::yield_now();
+    // Poll the global count without holding the scheduler lock so
+    // sibling tests can make progress toward zero active tasks.
+    for _ in 0..1000 {
+        let active = GLOBAL_SCHEDULER.lock().unwrap().active_tasks();
+        if active == 0 {
+            break;
         }
+        std::thread::yield_now();
     }
 
-    unsafe {
-        ruyi_async_unregister_root(task_id.0);
-    }
+    ruyi_async_unregister_root(task_id.0);
 
     assert!(
         !roots_snapshot().contains(&task_id.0),

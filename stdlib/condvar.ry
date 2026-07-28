@@ -1,0 +1,72 @@
+/**
+ * Ruyi Standard Library — Condvar (Condition Variable)
+ *
+ * Thread coordination primitive. Used together with `Mutex`:
+ *   - One thread `wait()`s on the Condvar (releasing the mutex while waiting)
+ *   - Another thread `notify_one()` or `notify_all()` to wake waiters
+ *
+ * IMPORTANT: Always pair with a `Mutex`. The waiter must hold the mutex
+ * before calling `wait()`, and must re-check the condition after waking.
+ *
+ * Usage:
+ *   import { Mutex } from "./mutex";
+ *   import { Condvar } from "./condvar";
+ *
+ *   let m = Mutex.new();
+ *   let cv = Condvar.new();
+ *
+ *   // Thread A: wait for condition
+ *   m.lock();
+ *   while (!condition) {
+ *       cv.wait(m);    // atomically unlock, wait, re-lock
+ *   }
+ *   m.unlock();
+ *
+ *   // Thread B: signal condition
+ *   m.lock();
+ *   condition = true;
+ *   cv.notify_one();
+ *   m.unlock();
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { Mutex } from "mutex";
+
+export class Condvar {
+    _ptr: dyn;
+
+    /** Create a new condition variable. */
+    static fn new(): Condvar {
+        let cv = new Condvar();
+        cv._ptr = __condvar_new();
+        return cv;
+    }
+
+    /** Wait on this condition variable. The associated Mutex MUST be locked.
+     *  Atomically unlocks the mutex, blocks until notified, re-locks.
+     *  After returning, the mutex is locked and the caller should re-check
+     *  the condition in a loop. */
+    fn wait(mutex: Mutex): void {
+        // The FFI takes raw mutex pointer (not the guard)
+        // Internally: lock → condvar.wait(guard) → returns unlocked
+        // Caller must re-lock after this
+        __condvar_wait(self._ptr, mutex._ptr);
+    }
+
+    /** Wake one thread waiting on this condition variable. */
+    fn notifyOne(): void {
+        __condvar_notify_one(self._ptr);
+    }
+
+    /** Wake all threads waiting on this condition variable. */
+    fn notifyAll(): void {
+        __condvar_notify_all(self._ptr);
+    }
+
+    /** Deallocate the condition variable. */
+    fn free(): void {
+        __condvar_free(self._ptr);
+    }
+}

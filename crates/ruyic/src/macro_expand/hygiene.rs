@@ -22,6 +22,7 @@ impl Default for SyntaxContext {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 pub struct HygienicToken {
     pub token: Token,
     pub context: SyntaxContext,
@@ -74,28 +75,11 @@ impl HygieneContext for StandardHygieneContext {
     }
 
     fn apply_context(&self, token: Token) -> Token {
-        HygienicToken::new(token, self.current).token
+        token
     }
 
     fn fresh_ident(&mut self, base: &str) -> String {
         self.counter += 1;
         format!("__hygiene_{}_{}", base, self.counter)
     }
-}
-
-pub fn apply_hygiene(tokens: &[Token], context: SyntaxContext) -> Vec<Token> {
-    tokens
-        .iter()
-        .map(|t| {
-            if matches!(t, Token::Ident(_)) {
-                HygienicToken::new(t.clone(), context).token
-            } else {
-                t.clone()
-            }
-        })
-        .collect()
-}
-
-pub fn contexts_compatible(a: SyntaxContext, b: SyntaxContext) -> bool {
-    a == b || a == SyntaxContext::global() || b == SyntaxContext::global()
 }

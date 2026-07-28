@@ -21,17 +21,17 @@ COMPILE_TIMEOUT=60
 RUN_TIMEOUT=10
 
 # ── Examples coverage ───────────────────────────────────────────────────────
-# Examples are auto-discovered from $EXAMPLES_DIR via the `*.ry` glob below;
-# no explicit allowlist is required. New .ry files added to this directory
+# Examples are auto-discovered recursively from $EXAMPLES_DIR via find;
+# no explicit allowlist is required. New .ry files added to any subdirectory
 # will be picked up on the next run.
 #
-# v0.2-codegen-gaps (T8) added 5 focused examples demonstrating language
-# capabilities targeted by roadmap tasks 1.1–1.6, 1.12, 1.13:
-#   - class_basics.ry     — class fields, self, methods (task 1.1)
-#   - object_literal.ry   — {k:v} literal + bracket access (task 1.2)
-#   - array_operations.ry — array literal, push, pop, length (task 1.3)
-#   - member_access.ry    — obj.field, obj?.field, obj["key"] (task 1.12)
-#   - labeled_loops.ry    — break <label> and continue <label> (task 1.6)
+# Directory structure:
+#   basics/       — 语言基础 + 自动加载模块 (error/collections/arrays)
+#   types/        — 类型系统 (generics, traits, pattern matching)
+#   oop/          — 面向对象 (classes, objects, accessors)
+#   concurrency/  — 并发与异步 (async, thread, channel, fiber)
+#   stdlib/       — 需 import 的标准库模块演示
+#   comprehensive/ — 综合演示
 
 # ── Detect timeout command (macOS uses gtimeout from coreutils) ───────────────
 if command -v gtimeout &>/dev/null; then
@@ -294,7 +294,7 @@ main() {
   TMPDIR_CLEANUP="$(mktemp -d)"
   trap 'rm -rf "$TMPDIR_CLEANUP"' EXIT
 
-  for f in "$EXAMPLES_DIR"/*.ry; do
+  while IFS= read -r f; do
     [[ -e "$f" ]] || continue
 
     local basename
@@ -486,7 +486,7 @@ main() {
         echo "  PASS: $basename — expected updated"
         ;;
     esac
-  done
+  done < <(find "$EXAMPLES_DIR" -name '*.ry' -not -path '*/target/*' | sort)
 
   local report_exit=0
   print_report || report_exit=$?

@@ -21,6 +21,8 @@
 use inkwell::context::Context;
 use inkwell::types::{BasicMetadataTypeEnum, BasicType};
 
+use crate::typechecker::types::Type;
+
 /// LLVM ABI signature kind for a builtin return or parameter.
 #[derive(Clone, Copy)]
 pub enum BuiltinSig {
@@ -228,6 +230,11 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         name: "__string_char_code_at",
         ret: BuiltinSig::Int,
         params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__string_to_string",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr],
     },
     BuiltinDecl {
         name: "__string_repeat",
@@ -1242,6 +1249,414 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         ret: BuiltinSig::Int,
         params: &[],
     },
+    // ============================================================
+    // channel_ffi (14) — bounded/unbounded MPSC + select
+    // ============================================================
+    BuiltinDecl {
+        name: "__channel_new",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__channel_send",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__channel_try_send",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__channel_recv",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__channel_recv_timeout",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__channel_try_recv",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__channel_is_closed",
+        ret: BuiltinSig::Bool,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__channel_clone",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__channel_clone_send",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__channel_clone_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__channel_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__channel_select_new",
+        ret: BuiltinSig::Ptr,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__channel_select_add",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__channel_select_wait",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__channel_select_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    // ============================================================
+    // rwlock_ffi (8) — read-write lock
+    // ============================================================
+    BuiltinDecl {
+        name: "__rwlock_new",
+        ret: BuiltinSig::Ptr,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__rwlock_read_lock",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__rwlock_try_read_lock",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__rwlock_read_unlock",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__rwlock_write_lock",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__rwlock_try_write_lock",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__rwlock_write_unlock",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__rwlock_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    // ============================================================
+    // thread_ffi (6) — OS thread spawning and management
+    // ============================================================
+    BuiltinDecl {
+        name: "__thread_spawn",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__thread_spawn_named",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__thread_join",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__thread_join_timeout",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__thread_is_finished",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__thread_detach",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__thread_id",
+        ret: BuiltinSig::Int,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__thread_cpu_count",
+        ret: BuiltinSig::Int,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__thread_sleep",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Int],
+    },
+    // ============================================================
+    // fiber_ffi (7) — lightweight fiber (纎程) concurrency
+    // ============================================================
+    BuiltinDecl {
+        name: "__fiber_spawn",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__fiber_join",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__fiber_is_finished",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__fiber_detach",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__fiber_id",
+        ret: BuiltinSig::Int,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__fiber_sleep",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__fiber_yield",
+        ret: BuiltinSig::Void,
+        params: &[],
+    },
+    // ============================================================
+    // spawn_blocking (3) — offload blocking work to thread pool
+    // ============================================================
+    BuiltinDecl {
+        name: "ruyi_spawn_blocking",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "ruyi_spawn_blocking_poll",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "ruyi_spawn_blocking_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    // ============================================================
+    // tls_store_ffi (5) — per-thread key-value storage
+    // ============================================================
+    BuiltinDecl {
+        name: "__tls_store",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__tls_load",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__tls_remove",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__tls_contains",
+        ret: BuiltinSig::Bool,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__tls_clear",
+        ret: BuiltinSig::Void,
+        params: &[],
+    },
+    // ============================================================
+    // barrier_ffi (3) — thread synchronization barrier
+    // ============================================================
+    BuiltinDecl {
+        name: "__barrier_new",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__barrier_wait",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__barrier_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    // ============================================================
+    // once_ffi (5) — one-time initialisation guard
+    // ============================================================
+    BuiltinDecl {
+        name: "__once_new",
+        ret: BuiltinSig::Ptr,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__once_do",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__once_is_completed",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__once_reset",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__once_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    // ============================================================
+    // semaphore_ffi (6) — counting semaphore
+    // ============================================================
+    BuiltinDecl {
+        name: "__semaphore_new",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__semaphore_acquire",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__semaphore_try_acquire",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__semaphore_release",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__semaphore_available",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__semaphore_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    // ============================================================
+    // condvar_ffi (5) — condition variable
+    // ============================================================
+    BuiltinDecl {
+        name: "__condvar_new",
+        ret: BuiltinSig::Ptr,
+        params: &[],
+    },
+    BuiltinDecl {
+        name: "__condvar_wait",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__condvar_notify_one",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__condvar_notify_all",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__condvar_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    // ============================================================
+    // __net_async_* (9) — Reactor-based async TCP I/O futures
+    // ============================================================
+    BuiltinDecl {
+        name: "__net_async_read",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Int, BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__net_async_read_result",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__net_async_read_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__net_async_write",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Ptr, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__net_async_write_result",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__net_async_write_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__net_async_accept",
+        ret: BuiltinSig::Ptr,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__net_async_accept_result",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__net_async_accept_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Ptr],
+    },
 ];
 
 /// Resolve a `BuiltinSig` to its inkwell `BasicTypeEnum` representation.
@@ -1278,16 +1693,57 @@ pub fn params_to_metadata<'ctx>(
         .collect()
 }
 
+/// Look up the return signature of a builtin by its symbol name.
+///
+/// Returns `None` for names not present in the `BUILTINS` table (e.g.
+/// user-defined functions), letting callers fall back to their default
+/// return-type inference.
+pub fn builtin_ret_sig(name: &str) -> Option<BuiltinSig> {
+    BUILTINS.iter().find(|d| d.name == name).map(|d| d.ret)
+}
+
+/// Convert a `BuiltinSig` return signature into the compiler's `Type`.
+///
+/// Text pointers (`String`) map to `Type::String`. Opaque pointers (`Ptr`)
+/// default to `Type::Dynamic`, but string builtins are refined: they return
+/// UTF-8 text (`Type::String`), with `__string_split` as the exception which
+/// produces an `Array<string>`. Keeping precise result types (e.g. `Int` for
+/// `__string_char_code_at`) instead of collapsing every builtin call to
+/// `Dynamic` lets codegen compile arithmetic and method chains on results.
+pub fn sig_to_type(name: &str, sig: BuiltinSig) -> Type {
+    match sig {
+        BuiltinSig::Void => Type::Void,
+        BuiltinSig::Int => Type::Int,
+        BuiltinSig::Float => Type::Float,
+        BuiltinSig::Bool => Type::Bool,
+        BuiltinSig::Byte => Type::Byte,
+        BuiltinSig::String => Type::String,
+        BuiltinSig::Ptr => {
+            if name == "__string_split" {
+                Type::Array(Box::new(Type::String))
+            } else if name.starts_with("__string_") {
+                Type::String
+            } else if name == "__io_read_random" {
+                // Returns a null-terminated buffer of random bytes, i.e. a
+                // string; callers index it with charCodeAt.
+                Type::String
+            } else {
+                Type::Dynamic
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn builtins_count_is_213() {
+    fn builtins_count_is_289() {
         assert_eq!(
             BUILTINS.len(),
-            213,
-            "expected exactly 213 FFI entries (210 + 3 read_raw)"
+            289,
+            "expected exactly 289 FFI entries (279 before + 9 net_async_ffi + 1 tls)"
         );
     }
 

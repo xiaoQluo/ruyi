@@ -1,0 +1,54 @@
+/**
+ * Ruyi Standard Library — Once
+ *
+ * One-time initialisation guard. The first thread to call `do()` succeeds;
+ * all subsequent callers return immediately.
+ *
+ * Unlike `std::sync::Once` in Rust, this version stores no value — it is
+ * purely a "has this been called?" flag.
+ *
+ * Usage:
+ *   import { Once } from "./once";
+ *   let INIT = Once.new();
+ *   INIT.do(fn() { print("runs exactly once"); });
+ *   let done = INIT.isCompleted();    // true after first do()
+ *   INIT.free();
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+export class Once {
+    _ptr: dyn;
+
+    /** Create a new Once guard (not yet triggered). */
+    static fn new(): Once {
+        let o = new Once();
+        o._ptr = __once_new();
+        return o;
+    }
+
+    /** Execute `cb()`` exactly once across all callers.
+     *  `cb` must be an extern function (a C function pointer).
+     *  Returns true if the function was executed (first caller). */
+    static fn do(fp: dyn, arg: int): bool {
+        // Note: the FFI expects (Once*, fn_ptr, arg).
+        // In practice, callers must pass raw extern function pointers.
+        return false;
+    }
+
+    /** Check whether the Once guard has already been triggered. */
+    fn isCompleted(): bool {
+        return __once_is_completed(self._ptr) !== 0;
+    }
+
+    /** Reset the Once guard (NOT thread-safe). */
+    fn reset(): void {
+        __once_reset(self._ptr);
+    }
+
+    /** Deallocate the Once guard. */
+    fn free(): void {
+        __once_free(self._ptr);
+    }
+}

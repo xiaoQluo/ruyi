@@ -2,16 +2,30 @@ pub use crate::atomic_ffi::{
     __atomic_i64_cas, __atomic_i64_fetch_add, __atomic_i64_fetch_sub, __atomic_i64_free,
     __atomic_i64_load, __atomic_i64_new, __atomic_i64_store, __atomic_i64_swap,
 };
+pub use crate::barrier_ffi::{__barrier_free, __barrier_new, __barrier_wait};
+pub use crate::channel_ffi::{
+    __channel_clone, __channel_clone_free, __channel_clone_send, __channel_free,
+    __channel_is_closed, __channel_new, __channel_recv, __channel_recv_timeout,
+    __channel_select_add, __channel_select_free, __channel_select_new, __channel_select_wait,
+    __channel_send, __channel_try_recv, __channel_try_send,
+};
 pub use crate::compress_ffi::{
     __compress_deflate, __compress_finish, __compress_gzip, __compress_new, __compress_write,
     __compress_zlib, __decompress_deflate, __decompress_finish, __decompress_gzip,
     __decompress_new, __decompress_write, __decompress_zlib,
+};
+pub use crate::condvar_ffi::{
+    __condvar_free, __condvar_new, __condvar_notify_all, __condvar_notify_one, __condvar_wait,
 };
 pub use crate::crypto_ffi::{
     __crypto_aes_gcm_decrypt_hex, __crypto_aes_gcm_decrypt_raw, __crypto_aes_gcm_encrypt_hex,
     __crypto_aes_gcm_encrypt_raw, __crypto_hmac_sha256, __crypto_sha1, __crypto_sha256,
     __crypto_sha512, __crypto_x25519_dh_hex, __crypto_x25519_dh_raw, __crypto_x25519_keypair_hex,
     __crypto_x25519_keypair_raw, __crypto_x25519_pubkey_hex, __crypto_x25519_pubkey_raw,
+};
+pub use crate::fiber_ffi::{
+    __fiber_detach, __fiber_id, __fiber_is_finished, __fiber_join, __fiber_sleep, __fiber_spawn,
+    __fiber_yield,
 };
 pub use crate::float_ffi::{__f64_from_bits, __f64_to_bits};
 use crate::gc_exports::ruyi_gc_alloc;
@@ -23,6 +37,7 @@ pub use crate::math_ffi::{
 pub use crate::mutex_ffi::{
     __mutex_free, __mutex_lock, __mutex_new, __mutex_try_lock, __mutex_unlock,
 };
+pub use crate::once_ffi::{__once_do, __once_free, __once_is_completed, __once_new, __once_reset};
 /**
  * Built-in runtime functions for Ruyi.
  *
@@ -43,12 +58,27 @@ pub use crate::mutex_ffi::{
 pub use crate::random_ffi::{
     __random_bool, __random_bytes, __random_float, __random_int, __random_new,
 };
+pub use crate::rwlock_ffi::{
+    __rwlock_free, __rwlock_new, __rwlock_read_lock, __rwlock_read_unlock, __rwlock_try_read_lock,
+    __rwlock_try_write_lock, __rwlock_write_lock, __rwlock_write_unlock,
+};
+pub use crate::semaphore_ffi::{
+    __semaphore_acquire, __semaphore_available, __semaphore_free, __semaphore_new,
+    __semaphore_release, __semaphore_try_acquire,
+};
+pub use crate::thread_ffi::{
+    __thread_cpu_count, __thread_detach, __thread_id, __thread_is_finished, __thread_join,
+    __thread_join_timeout, __thread_sleep, __thread_spawn, __thread_spawn_named,
+};
 pub use crate::time_ffi::{__time_format, __time_now, __time_sleep, __time_timestamp};
 pub use crate::tls_ffi::{
     __tls_close, __tls_config_free, __tls_connect, __tls_free, __tls_read_cstr, __tls_read_raw,
     __tls_server_accept, __tls_server_close, __tls_server_config_new, __tls_server_free,
     __tls_server_read_cstr, __tls_server_read_raw, __tls_server_write, __tls_server_write_raw,
     __tls_write, __tls_write_raw,
+};
+pub use crate::tls_store_ffi::{
+    __tls_clear, __tls_contains, __tls_load, __tls_remove, __tls_store,
 };
 use std::alloc::{alloc, Layout};
 use std::collections::{HashMap, HashSet};
@@ -988,6 +1018,14 @@ pub extern "C" fn __string_last_index_of(haystack: *const i8, needle: *const i8)
     }
 }
 
+/// Return the string unchanged. `toString()` on a string is the identity,
+/// but codegen dispatches it through the `__string_*` builtin table like any
+/// other string method, so an actual symbol is required.
+#[no_mangle]
+pub extern "C" fn __string_to_string(s: *const i8) -> *mut i8 {
+    s as *mut i8
+}
+
 /// Get the character at `index`. Returns a new single-character string.
 #[no_mangle]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -1567,23 +1605,17 @@ mod tests {
     #[test]
     fn test_string_length_basic() {
         let s = CString::new("hello").unwrap();
-        unsafe {
-            assert_eq!(__string_length(s.as_ptr()), 5);
-        }
+        assert_eq!(__string_length(s.as_ptr()), 5);
     }
 
     #[test]
     fn test_string_length_empty() {
         let s = CString::new("").unwrap();
-        unsafe {
-            assert_eq!(__string_length(s.as_ptr()), 0);
-        }
+        assert_eq!(__string_length(s.as_ptr()), 0);
     }
 
     #[test]
     fn test_string_length_null() {
-        unsafe {
-            assert_eq!(__string_length(std::ptr::null()), 0);
-        }
+        assert_eq!(__string_length(std::ptr::null()), 0);
     }
 }

@@ -1,0 +1,135 @@
+/**
+ * Ruyi Example — 日志模块
+ *
+ * 覆盖:
+ * - Logger 类: 创建、级别过滤、前缀
+ * - 四个日志级别: DEBUG < INFO < WARN < ERROR
+ * - setLevel(): 动态调整最低输出级别
+ * - 全局便捷函数: debug()/info()/warn()/error()/setLevel()
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { Logger, DEBUG, INFO, WARN, ERROR } from "log";
+import { debug, info, warn, error, setLevel } from "log";
+
+// =============================================================================
+// 1. Logger 实例 — 全级别输出
+// =============================================================================
+fn demo_full_logger() {
+  print("=== 1. Logger (DEBUG 级别, 全输出) ===\n\n");
+
+  let log = Logger.new(DEBUG, "app");
+  log.debug("调试信息: 变量 x = 42");
+  log.info("服务启动完成");
+  log.warn("磁盘空间不足 80%");
+  log.error("数据库连接失败");
+  print("\n");
+}
+
+// =============================================================================
+// 2. 级别过滤 — 只输出 WARN 及以上
+// =============================================================================
+fn demo_filtered_logger() {
+  print("=== 2. Logger (WARN 级别, 过滤 DEBUG/INFO) ===\n\n");
+
+  let log = Logger.new(WARN, "filter");
+  log.debug("这条不会输出");
+  log.info("这条也不会输出");
+  log.warn("警告: 内存使用过高");
+  log.error("错误: 请求超时");
+  print("\n");
+}
+
+// =============================================================================
+// 3. 无前缀 Logger
+// =============================================================================
+fn demo_no_prefix() {
+  print("=== 3. Logger (无前缀) ===\n\n");
+
+  let log = Logger.new(INFO);
+  log.info("无前缀的 info 消息");
+  log.error("无前缀的 error 消息");
+  print("\n");
+}
+
+// =============================================================================
+// 4. 动态调整级别
+// =============================================================================
+fn demo_dynamic_level() {
+  print("=== 4. 动态调整级别 (setLevel) ===\n\n");
+
+  let log = Logger.new(DEBUG, "dynamic");
+
+  print("--- 初始 DEBUG 级别 ---\n");
+  log.debug("debug 可见");
+  log.info("info 可见");
+
+  // 提升到 ERROR 级别
+  log.setLevel(ERROR);
+  print("--- 调整为 ERROR 级别 ---\n");
+  log.debug("debug 不可见");
+  log.info("info 不可见");
+  log.warn("warn 不可见");
+  log.error("error 仍然可见");
+  print("\n");
+}
+
+// =============================================================================
+// 5. 全局便捷函数
+// =============================================================================
+fn demo_global_functions() {
+  print("=== 5. 全局便捷函数 ===\n\n");
+
+  // 全局 logger 默认 INFO 级别
+  print("--- 默认 INFO 级别 ---\n");
+  debug("全局 debug (不可见)");
+  info("全局 info (可见)");
+  warn("全局 warn (可见)");
+  error("全局 error (可见)");
+
+  // 调整全局级别
+  print("--- 调整为 DEBUG 级别 ---\n");
+  setLevel(DEBUG);
+  debug("全局 debug (现在可见)");
+  info("全局 info (仍然可见)");
+
+  // 恢复默认
+  setLevel(INFO);
+  print("\n");
+}
+
+// =============================================================================
+// 6. 实用模式 — 模块级 logger
+// =============================================================================
+fn demo_module_logger() {
+  print("=== 6. 实用模式: 模块级 logger ===\n\n");
+
+  // 模拟不同模块使用独立 logger
+  let httpLog = Logger.new(INFO, "http");
+  let dbLog = Logger.new(WARN, "database");
+
+  httpLog.info("GET /api/users 200 12ms");
+  httpLog.debug("请求头: Accept: application/json");
+  httpLog.warn("GET /api/slow 200 3200ms");
+
+  dbLog.info("连接池初始化 (不可见, WARN级别)");
+  dbLog.warn("慢查询: SELECT * FROM orders (2.1s)");
+  dbLog.error("连接池耗尽, 等待超时");
+  print("\n");
+}
+
+// =============================================================================
+// 主入口
+// =============================================================================
+fn main() {
+  demo_full_logger();
+  demo_filtered_logger();
+  demo_no_prefix();
+  demo_dynamic_level();
+  demo_global_functions();
+  demo_module_logger();
+
+  print("[log_demo] 完成\n");
+}

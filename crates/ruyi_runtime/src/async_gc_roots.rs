@@ -90,19 +90,27 @@ pub extern "C" fn ruyi_async_unregister_root(task_id: usize) {
 mod tests {
     use super::*;
 
+    /// Serialise access to the global `ROOT_IDS` registry across tests so
+    /// that `reset_for_tests()` in one test cannot wipe state another test
+    /// depends on.
+    static TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn register_and_unregister_track_ids() {
+        let _guard = TEST_MUTEX.lock().unwrap();
         reset_for_tests();
-        register(42);
-        register(43);
+        let id_a = usize::MAX - 1;
+        let id_b = usize::MAX - 2;
+        register(id_a);
+        register(id_b);
         let snap = snapshot();
-        assert!(snap.contains(&42));
-        assert!(snap.contains(&43));
+        assert!(snap.contains(&id_a));
+        assert!(snap.contains(&id_b));
 
-        unregister(42);
+        unregister(id_a);
         let snap = snapshot();
-        assert!(!snap.contains(&42));
-        assert!(snap.contains(&43));
+        assert!(!snap.contains(&id_a));
+        assert!(snap.contains(&id_b));
 
         reset_for_tests();
         assert!(snapshot().is_empty());
@@ -110,6 +118,7 @@ mod tests {
 
     #[test]
     fn unregister_unknown_is_noop() {
+        let _guard = TEST_MUTEX.lock().unwrap();
         reset_for_tests();
         unregister(9999);
         assert!(snapshot().is_empty());

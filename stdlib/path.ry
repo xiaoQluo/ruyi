@@ -102,7 +102,7 @@ export class Path {
         if (__path_is_absolute(relative)) {
             return relative;
         }
-        return __path_join(base, relative);
+        return __path_join([base, relative]);
     }
 
     /**

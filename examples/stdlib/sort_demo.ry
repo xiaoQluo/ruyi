@@ -1,0 +1,301 @@
+/**
+ * Ruyi Example — 排序与搜索模块
+ *
+ * 覆盖:
+ * - quickSort(): 自定义比较器排序
+ * - sortBy()/sortByDesc(): 升序/降序排序
+ * - sortByKey()/sortByKeyDesc(): 按数值键排序
+ * - sortByStringKey(): 按字符串键排序
+ * - binarySearch()/binarySearchInsert(): 二分搜索/插入点
+ * - find()/findIndex(): 线性搜索
+ * - isSorted(): 有序验证
+ * - minBy()/maxBy(): 按键取极值
+ * - minWith()/maxWith(): 按比较器取极值
+ * - reverse()/copy(): 数组工具
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { quickSort, sortBy, sortByDesc, sortByKey, sortByKeyDesc } from "sort";
+import { sortByStringKey, binarySearch, binarySearchInsert } from "sort";
+import { find, findIndex, isSorted, minBy, maxBy, minWith, maxWith } from "sort";
+import { reverse, copy } from "sort";
+
+// =============================================================================
+// 辅助: 整数比较器
+// =============================================================================
+fn intCmp(a: int, b: int): int {
+  if (a < b) { return -1; }
+  if (a > b) { return 1; }
+  return 0;
+}
+
+// =============================================================================
+// 辅助: 打印整数数组
+// =============================================================================
+fn printArr(arr: Array<int>) {
+  print("[");
+  let i = 0;
+  while (i < arr.length()) {
+    if (i > 0) { print(", "); }
+    print(arr[i]);
+    i = i + 1;
+  }
+  print("]");
+}
+
+// =============================================================================
+// 1. quickSort — 自定义比较器排序
+// =============================================================================
+fn demo_quick_sort() {
+  print("=== 1. quickSort 自定义比较器 ===\n\n");
+
+  let data = [38, 27, 43, 3, 9, 82, 10];
+  print("原始: ");
+  printArr(data);
+  print("\n");
+
+  let sorted = quickSort(data, intCmp);
+  print("排序: ");
+  printArr(sorted);
+  print("\n");
+
+  // 原数组不变（纯函数）
+  print("原始不变: ");
+  printArr(data);
+  print("\n\n");
+}
+
+// =============================================================================
+// 2. sortBy / sortByDesc — 升序与降序
+// =============================================================================
+fn demo_sort_by() {
+  print("=== 2. sortBy / sortByDesc ===\n\n");
+
+  let data = [5, 2, 8, 1, 9, 3];
+
+  let asc = sortBy(data, intCmp);
+  print("升序: ");
+  printArr(asc);
+  print("\n");
+
+  let desc = sortByDesc(data, intCmp);
+  print("降序: ");
+  printArr(desc);
+  print("\n\n");
+}
+
+// =============================================================================
+// 3. sortByKey — 按数值键排序（对象数组）
+// =============================================================================
+fn demo_sort_by_key() {
+  print("=== 3. sortByKey 按数值键排序 ===\n\n");
+
+  // 模拟按分数排序
+  let scores = [85.5, 92.0, 78.3, 95.1, 88.7];
+  let sorted = sortByKey(scores, (x) => x);
+  print("分数升序: ");
+  let i = 0;
+  while (i < sorted.length()) {
+    if (i > 0) { print(", "); }
+    print(sorted[i]);
+    i = i + 1;
+  }
+  print("\n");
+
+  let sortedDesc = sortByKeyDesc(scores, (x) => x);
+  print("分数降序: ");
+  i = 0;
+  while (i < sortedDesc.length()) {
+    if (i > 0) { print(", "); }
+    print(sortedDesc[i]);
+    i = i + 1;
+  }
+  print("\n\n");
+}
+
+// =============================================================================
+// 4. sortByStringKey — 按字符串键排序
+// =============================================================================
+fn demo_sort_by_string_key() {
+  print("=== 4. sortByStringKey 按字符串排序 ===\n\n");
+
+  let names = ["Charlie", "Alice", "Bob", "David"];
+  let sorted = sortByStringKey(names, (s) => s);
+  print("字母序: ");
+  let i = 0;
+  while (i < sorted.length()) {
+    if (i > 0) { print(", "); }
+    print(sorted[i]);
+    i = i + 1;
+  }
+  print("\n\n");
+}
+
+// =============================================================================
+// 5. binarySearch — 二分搜索
+// =============================================================================
+fn demo_binary_search() {
+  print("=== 5. binarySearch 二分搜索 ===\n\n");
+
+  let sorted = [2, 5, 8, 12, 16, 23, 38, 45, 56, 72];
+  print("有序数组: ");
+  printArr(sorted);
+  print("\n");
+
+  // 查找存在的元素
+  let idx = binarySearch(sorted, 23, intCmp);
+  print("binarySearch(23): index=");
+  print(idx);
+  print("\n");
+
+  // 查找不存在的元素
+  let notFound = binarySearch(sorted, 50, intCmp);
+  print("binarySearch(50): index=");
+  print(notFound);
+  print(" (未找到)\n");
+
+  // 插入点
+  let insertIdx = binarySearchInsert(sorted, 50, intCmp);
+  print("binarySearchInsert(50): index=");
+  print(insertIdx);
+  print(" (应插入位置)\n\n");
+}
+
+// =============================================================================
+// 6. find / findIndex — 线性搜索
+// =============================================================================
+fn demo_find() {
+  print("=== 6. find / findIndex 线性搜索 ===\n\n");
+
+  let data = [10, 25, 3, 47, 8, 62];
+
+  // findIndex: 返回第一个满足条件的索引
+  let idx = findIndex(data, (x) => x > 40);
+  print("findIndex(x > 40): ");
+  print(idx);
+  print("\n");
+
+  // find: 返回第一个满足条件的元素
+  let elem = find(data, (x) => x > 40);
+  if (elem !== null) {
+    print("find(x > 40): ");
+    print(elem);
+    print("\n");
+  }
+
+  // 未找到
+  let notFound = find(data, (x) => x > 100);
+  print("find(x > 100): ");
+  print(notFound === null);
+  print(" (null)\n\n");
+}
+
+// =============================================================================
+// 7. isSorted — 有序验证
+// =============================================================================
+fn demo_is_sorted() {
+  print("=== 7. isSorted 有序验证 ===\n\n");
+
+  let sorted = [1, 2, 3, 4, 5];
+  let unsorted = [1, 3, 2, 5, 4];
+
+  print("isSorted([1,2,3,4,5]): ");
+  print(isSorted(sorted, intCmp));
+  print("\n");
+  print("isSorted([1,3,2,5,4]): ");
+  print(isSorted(unsorted, intCmp));
+  print("\n\n");
+}
+
+// =============================================================================
+// 8. minBy / maxBy — 按数值键取极值
+// =============================================================================
+fn demo_min_max_by() {
+  print("=== 8. minBy / maxBy ===\n\n");
+
+  let data = [34.0, 12.5, 78.2, 5.1, 56.8];
+
+  let minVal = minBy(data, (x) => x);
+  if (minVal !== null) {
+    print("minBy: ");
+    print(minVal);
+    print("\n");
+  }
+
+  let maxVal = maxBy(data, (x) => x);
+  if (maxVal !== null) {
+    print("maxBy: ");
+    print(maxVal);
+    print("\n");
+  }
+  print("\n");
+}
+
+// =============================================================================
+// 9. minWith / maxWith — 按比较器取极值
+// =============================================================================
+fn demo_min_max_with() {
+  print("=== 9. minWith / maxWith ===\n\n");
+
+  let data = [42, 17, 89, 3, 65];
+
+  let minVal = minWith(data, intCmp);
+  if (minVal !== null) {
+    print("minWith: ");
+    print(minVal);
+    print("\n");
+  }
+
+  let maxVal = maxWith(data, intCmp);
+  if (maxVal !== null) {
+    print("maxWith: ");
+    print(maxVal);
+    print("\n");
+  }
+  print("\n");
+}
+
+// =============================================================================
+// 10. reverse / copy — 数组工具
+// =============================================================================
+fn demo_utilities() {
+  print("=== 10. reverse / copy ===\n\n");
+
+  let data = [1, 2, 3, 4, 5];
+  print("原始: ");
+  printArr(data);
+  print("\n");
+
+  let rev = reverse(data);
+  print("reverse: ");
+  printArr(rev);
+  print("\n");
+
+  let cp = copy(data);
+  print("copy: ");
+  printArr(cp);
+  print("\n");
+
+  // 原数组不变
+  print("原始不变: ");
+  printArr(data);
+  print("\n\n");
+}
+
+// =============================================================================
+// 主入口
+// =============================================================================
+demo_quick_sort();
+demo_sort_by();
+demo_sort_by_key();
+demo_sort_by_string_key();
+demo_binary_search();
+demo_find();
+demo_is_sorted();
+demo_min_max_by();
+demo_min_max_with();
+demo_utilities();
+
+print("[sort_demo] 完成\n");

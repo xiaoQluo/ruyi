@@ -1,0 +1,162 @@
+/**
+ * Ruyi Example — 压缩模块
+ *
+ * 覆盖:
+ * - Gzip: 一次性压缩/解压
+ * - Zlib: 一次性压缩/解压
+ * - Deflate: 原始 Deflate 压缩/解压
+ * - 流式 API: GzipCompressor / GzipDecompressor（分块处理大文件）
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { Gzip, Zlib, Deflate } from "compress";
+import { GzipCompressor, GzipDecompressor } from "compress";
+import { Buffer } from "buffer";
+
+// =============================================================================
+// 1. Gzip — 一次性压缩/解压
+// =============================================================================
+fn demo_gzip() {
+  print("=== 1. Gzip 压缩/解压 ===\n\n");
+
+  let original = Buffer.from("Hello, Ruyi compression! 你好，如意压缩！");
+  print("原始数据长度: ");
+  print(original.length());
+  print(" bytes\n");
+
+  // 压缩
+  let compressed = Gzip.compress(original);
+  print("Gzip 压缩后长度: ");
+  print(compressed.length());
+  print(" bytes\n");
+
+  // 解压
+  let decompressed = Gzip.decompress(compressed);
+  print("解压还原: ");
+  print(decompressed.toString());
+  print("\n\n");
+}
+
+// =============================================================================
+// 2. Zlib — 一次性压缩/解压
+// =============================================================================
+fn demo_zlib() {
+  print("=== 2. Zlib 压缩/解压 ===\n\n");
+
+  let data = Buffer.from("Zlib format uses Adler-32 checksum for integrity verification.");
+  let compressed = Zlib.compress(data);
+  let restored = Zlib.decompress(compressed);
+
+  print("原始: ");
+  print(data.toString());
+  print("\n");
+  print("压缩后大小: ");
+  print(compressed.length());
+  print(" bytes\n");
+  print("解压验证: ");
+  print(restored.toString());
+  print("\n\n");
+}
+
+// =============================================================================
+// 3. Deflate — 原始 Deflate 格式
+// =============================================================================
+fn demo_deflate() {
+  print("=== 3. Deflate 原始压缩 ===\n\n");
+
+  let data = Buffer.from("Raw deflate has no header or checksum, smallest overhead.");
+  let compressed = Deflate.compress(data);
+  let restored = Deflate.decompress(compressed);
+
+  print("原始大小: ");
+  print(data.length());
+  print(" bytes\n");
+  print("Deflate 压缩后: ");
+  print(compressed.length());
+  print(" bytes\n");
+  print("解压验证: ");
+  print(restored.toString());
+  print("\n\n");
+}
+
+// =============================================================================
+// 4. 流式 API — 分块压缩大文件
+// =============================================================================
+fn demo_streaming() {
+  print("=== 4. 流式压缩（GzipCompressor）===\n\n");
+
+  // 模拟分块写入
+  let chunk1 = Buffer.from("First chunk of data. ");
+  let chunk2 = Buffer.from("Second chunk of data. ");
+  let chunk3 = Buffer.from("Third and final chunk.");
+
+  let compressor = GzipCompressor.new();
+  let p1 = compressor.write(chunk1);
+  let p2 = compressor.write(chunk2);
+  let p3 = compressor.write(chunk3);
+  let rest = compressor.finish();
+
+  // 合并所有输出
+  let fullCompressed = Buffer.concat([p1, p2, p3, rest]);
+  print("流式压缩总输出: ");
+  print(fullCompressed.length());
+  print(" bytes\n");
+
+  // 流式解压
+  let decompressor = GzipDecompressor.new();
+  let d1 = decompressor.write(fullCompressed);
+  let d2 = decompressor.finish();
+  let result = Buffer.concat([d1, d2]);
+
+  print("流式解压还原: ");
+  print(result.toString());
+  print("\n\n");
+}
+
+// =============================================================================
+// 5. 压缩率对比
+// =============================================================================
+fn demo_comparison() {
+  print("=== 5. 三种格式压缩率对比 ===\n\n");
+
+  // 构造重复数据（高压缩率场景）
+  let repeated = "";
+  let i = 0;
+  while (i < 100) {
+    repeated = repeated + "Ruyi compress demo line. ";
+    i = i + 1;
+  }
+  let data = Buffer.from(repeated);
+
+  let gz = Gzip.compress(data);
+  let zl = Zlib.compress(data);
+  let df = Deflate.compress(data);
+
+  print("原始大小:   ");
+  print(data.length());
+  print(" bytes\n");
+  print("Gzip:       ");
+  print(gz.length());
+  print(" bytes\n");
+  print("Zlib:       ");
+  print(zl.length());
+  print(" bytes\n");
+  print("Deflate:    ");
+  print(df.length());
+  print(" bytes\n");
+}
+
+// =============================================================================
+// 主入口
+// =============================================================================
+fn main() {
+  demo_gzip();
+  demo_zlib();
+  demo_deflate();
+  demo_streaming();
+  demo_comparison();
+
+  print("\n[compress_demo] 完成\n");
+}

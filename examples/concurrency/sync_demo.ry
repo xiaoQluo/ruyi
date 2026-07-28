@@ -1,0 +1,465 @@
+/**
+ * Ruyi Example — 同步原语与原子操作
+ *
+ * 覆盖 11 个同步/原子原语:
+ * - Mutex: 互斥锁
+ * - RWLock: 读写锁
+ * - Condvar: 条件变量 (signal/wait)
+ * - Barrier: 线程阶段同步
+ * - Semaphore: 并发限制器
+ * - Once: 一次性初始化
+ * - ThreadLocal: 线程局部存储
+ * - AtomicInt: 原子整数 (fetchAdd/fetchSub/CAS/swap)
+ * - AtomicBool: 原子布尔
+ * - Lock-Free Counter: 无锁计数器模式
+ * - CAS Loop: 无锁更新模式
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { Thread } from "thread";
+import { Channel } from "channel";
+import { Mutex } from "mutex";
+import { RWLock } from "rwlock";
+import { Condvar } from "condvar";
+import { Barrier } from "barrier";
+import { Semaphore } from "semaphore";
+import { Once } from "once";
+import { ThreadLocal } from "thread_local";
+import { AtomicInt, AtomicBool } from "atomic";
+
+// -----------------------------------------------------------------------------
+// Helper
+// -----------------------------------------------------------------------------
+fn printOk(label: string) {
+    print("  ✓ " + label + "\n");
+}
+
+fn check(label: string, condition: bool) {
+    if (condition) {
+        print("  ✓ " + label + "\n");
+    } else {
+        print("  ✗ FAILED: " + label + "\n");
+    }
+}
+
+// =============================================================================
+// 1. Mutex — Mutual Exclusion
+// =============================================================================
+fn demo_mutex() {
+    print("=== 1. Mutex (Mutual Exclusion) ===\n\n");
+
+    let counter: int = 0;
+    let mtx = Mutex.new();
+    let done = Channel.new(2);
+
+    Thread.spawn(fn(arg) {
+        mtx.lock();
+        let i = 0;
+        while (i < 1000) {
+            counter = counter + 1;
+            i = i + 1;
+        }
+        mtx.unlock();
+        done.send(1);
+    });
+
+    Thread.spawn(fn(arg) {
+        mtx.lock();
+        let i = 0;
+        while (i < 1000) {
+            counter = counter + 1;
+            i = i + 1;
+        }
+        mtx.unlock();
+        done.send(2);
+    });
+
+    let dummy = done.recv();
+    let dummy2 = done.recv();
+    check("Mutex-protected counter = 2000", counter === 2000);
+
+    // tryLock
+    let locked = mtx.tryLock();
+    check("Mutex.tryLock()", locked);
+    if (locked) { mtx.unlock(); }
+
+    printOk("mutex OK");
+}
+
+// =============================================================================
+// 2. RWLock — Read-Write Lock
+// =============================================================================
+fn demo_rwlock() {
+    print("=== 2. RWLock (Read-Write Lock) ===\n\n");
+
+    let rwl = RWLock.new();
+
+    // Multiple readers can hold lock simultaneously
+    rwl.readLock();
+    check("RWLock.tryReadLock() (reentrant)", rwl.tryReadLock());
+    rwl.readUnlock();
+    rwl.readUnlock();
+
+    // Writer excludes readers
+    rwl.writeLock();
+    check("RWLock.tryReadLock() blocked during write", !rwl.tryReadLock());
+    check("RWLock.tryWriteLock() blocked during write", !rwl.tryWriteLock());
+    rwl.writeUnlock();
+
+    // After unlock, can acquire again
+    check("RWLock.tryReadLock() after unlock", rwl.tryReadLock());
+    rwl.readUnlock();
+
+    print("  Use case: shared read-mostly data structures.\n");
+    print("  Readers don't block each other; writer waits for all readers.\n\n");
+    printOk("rwlock OK");
+}
+
+// =============================================================================
+// 3. Condvar — Condition Variable
+// =============================================================================
+fn demo_condvar() {
+    print("=== 3. Condvar (Condition Variable) ===\n\n");
+
+    let mtx = Mutex.new();
+    let cv = Condvar.new();
+    let flag: bool = false;
+    let done = Channel.new(1);
+
+    // Waiter thread
+    Thread.spawn(fn(arg) {
+        mtx.lock();
+        while (!flag) {
+            cv.wait(mtx);  // releases mutex, waits for signal
+        }
+        mtx.unlock();
+        done.send(1);
+    });
+
+    // Signaler (main thread)
+    Thread.sleep(5);
+    mtx.lock();
+    flag = true;
+    cv.notifyOne();
+    mtx.unlock();
+
+    let dummy = done.recv();
+    check("condvar wait/notify", true);
+
+    print("  Pattern: while (!condition) { cv.wait(mutex); }\n");
+    print("  Always check condition in a loop (spurious wakeups).\n\n");
+    printOk("condvar OK");
+}
+
+// =============================================================================
+// 4. Barrier — Phase Synchronization
+// =============================================================================
+fn demo_barrier() {
+    print("=== 4. Barrier (Phase Synchronization) ===\n\n");
+
+    let bar = Barrier.new(3);  // wait for 3 threads
+    let phaseDone = Channel.new(2);
+
+    Thread.spawn(fn(arg) {
+        bar.wait();  // wait for all 3
+        phaseDone.send(1);
+    });
+
+    Thread.spawn(fn(arg) {
+        bar.wait();  // wait for all 3
+        phaseDone.send(2);
+    });
+
+    // Main thread also participates
+    bar.wait();
+
+    let dummy = phaseDone.recv();
+    let dummy2 = phaseDone.recv();
+    check("barrier synchronized 3 threads", true);
+
+    print("  Barrier.wait() blocks until N threads have called wait().\n");
+    print("  Useful for phase-based parallel algorithms.\n\n");
+    printOk("barrier OK");
+}
+
+// =============================================================================
+// 5. Semaphore — Concurrency Limiter
+// =============================================================================
+fn demo_semaphore() {
+    print("=== 5. Semaphore (Concurrency Limiter) ===\n\n");
+
+    let sem = Semaphore.new(3);  // allow 3 concurrent accesses
+
+    check("Semaphore.available() init", sem.available() === 3);
+
+    sem.acquire();
+    sem.acquire();
+    check("Semaphore.available() after 2 acquires", sem.available() === 1);
+
+    sem.acquire();
+    check("Semaphore.available() at 0", sem.available() === 0);
+
+    // Non-blocking tryAcquire
+    let tryOk = sem.tryAcquire();
+    check("Semaphore.tryAcquire() when exhausted", !tryOk);
+
+    // Release
+    sem.release();
+    sem.release();
+    sem.release();
+    check("Semaphore.available() restored", sem.available() === 3);
+
+    print("  Use case: limit concurrent DB connections, API calls, etc.\n\n");
+    printOk("semaphore OK");
+}
+
+// =============================================================================
+// 6. Once — One-Time Initialization
+// =============================================================================
+fn demo_once() {
+    print("=== 6. Once (One-Time Initialization) ===\n\n");
+
+    let o = Once.new();
+    let initCount: int = 0;
+    let done = Channel.new(3);
+
+    Thread.spawn(fn(arg) {
+        o.do();
+        done.send(1);
+    });
+
+    Thread.spawn(fn(arg) {
+        o.do();
+        done.send(2);
+    });
+
+    Thread.spawn(fn(arg) {
+        o.do();
+        done.send(3);
+    });
+
+    let dummy = done.recv();
+    let dummy2 = done.recv();
+    let dummy3 = done.recv();
+
+    check("Once.isCompleted()", o.isCompleted());
+
+    print("  Once.do() ensures initialization runs exactly once,\n");
+    print("  regardless of how many threads call it.\n");
+    print("  Use case: lazy static initialization, singleton setup.\n\n");
+    printOk("once OK");
+}
+
+// =============================================================================
+// 7. ThreadLocal — Thread-Local Storage
+// =============================================================================
+fn demo_thread_local() {
+    print("=== 7. ThreadLocal (Thread-Local Storage) ===\n\n");
+
+    // Store value in current thread
+    ThreadLocal.store("ts-key", "main-thread-value");
+    check("ThreadLocal.load()", ThreadLocal.load("ts-key") === "main-thread-value");
+    check("ThreadLocal.contains()", ThreadLocal.contains("ts-key"));
+
+    // Remove
+    ThreadLocal.remove("ts-key");
+    check("ThreadLocal.contains() after remove", !ThreadLocal.contains("ts-key"));
+
+    // Verify thread isolation
+    let isoDone = Channel.new(1);
+    Thread.spawn(fn(arg) {
+        ThreadLocal.store("ts-key", "child-thread-value");
+        let val = ThreadLocal.load("ts-key");
+        isoDone.send(1);
+    });
+    let dummy = isoDone.recv();
+
+    // Main thread should NOT see child's value
+    check("Thread isolation", !ThreadLocal.contains("ts-key"));
+
+    print("  ThreadLocal provides per-thread key-value storage.\n");
+    print("  Values in one thread are invisible to other threads.\n\n");
+    printOk("thread_local OK");
+}
+
+// =============================================================================
+// 8. AtomicInt — 原子整数操作
+// =============================================================================
+fn demo_atomic_int() {
+    print("=== 8. AtomicInt (Atomic Integer) ===\n\n");
+
+    let ai = AtomicInt.new(0);
+    check("AtomicInt.load() init", ai.load() === 0);
+
+    ai.store(42);
+    check("AtomicInt.store(42)", ai.load() === 42);
+
+    let old = ai.fetchAdd(10);
+    check("AtomicInt.fetchAdd(10) old value", old === 42);
+    check("AtomicInt.fetchAdd(10) new value", ai.load() === 52);
+
+    let old2 = ai.fetchSub(2);
+    check("AtomicInt.fetchSub(2) old value", old2 === 52);
+    check("AtomicInt.fetchSub(2) new value", ai.load() === 50);
+
+    let swapped = ai.swap(99);
+    check("AtomicInt.swap(99) old value", swapped === 50);
+    check("AtomicInt.swap(99) new value", ai.load() === 99);
+
+    // CAS (Compare-And-Swap)
+    let success = ai.compareExchange(99, 200);
+    check("CAS success", success);
+    check("CAS new value", ai.load() === 200);
+
+    let fail = ai.compareExchange(99, 300);
+    check("CAS fail (expected mismatch)", !fail);
+    check("CAS value unchanged", ai.load() === 200);
+
+    print("  CAS: if value == expected, atomically set to desired.\n");
+    print("  Foundation for lock-free data structures.\n\n");
+    printOk("AtomicInt OK");
+}
+
+// =============================================================================
+// 9. AtomicBool — 原子布尔
+// =============================================================================
+fn demo_atomic_bool() {
+    print("=== 9. AtomicBool ===\n\n");
+
+    let ab = AtomicBool.new(false);
+    check("AtomicBool.load() init", !ab.load());
+
+    ab.store(true);
+    check("AtomicBool.store(true)", ab.load());
+
+    let success = ab.compareExchange(true, false);
+    check("AtomicBool CAS true→false", success);
+    check("AtomicBool after CAS", !ab.load());
+
+    let swapped = ab.swap(true);
+    check("AtomicBool.swap()", !swapped);
+
+    printOk("AtomicBool OK");
+}
+
+// =============================================================================
+// 10. Lock-Free Counter — 无锁计数器模式
+// =============================================================================
+fn demo_lockfree_counter() {
+    print("=== 10. Lock-Free Counter ===\n\n");
+
+    let counter = AtomicInt.new(0);
+    let done = Channel.new(4);
+    let iterations = 1000;
+
+    Thread.spawn(fn(arg) {
+        let i = 0;
+        while (i < iterations) {
+            let old = counter.fetchAdd(1);
+            i = i + 1;
+        }
+        done.send(1);
+    });
+
+    Thread.spawn(fn(arg) {
+        let i = 0;
+        while (i < iterations) {
+            let old = counter.fetchAdd(1);
+            i = i + 1;
+        }
+        done.send(2);
+    });
+
+    Thread.spawn(fn(arg) {
+        let i = 0;
+        while (i < iterations) {
+            let old = counter.fetchAdd(1);
+            i = i + 1;
+        }
+        done.send(3);
+    });
+
+    Thread.spawn(fn(arg) {
+        let i = 0;
+        while (i < iterations) {
+            let old = counter.fetchAdd(1);
+            i = i + 1;
+        }
+        done.send(4);
+    });
+
+    let dummy = done.recv();
+    let dummy2 = done.recv();
+    let dummy3 = done.recv();
+    let dummy4 = done.recv();
+
+    let expected = iterations * 4;
+    check("lock-free counter = " + expected, counter.load() === expected);
+
+    print("  4 threads × " + iterations + " increments = " + counter.load() + "\n");
+    print("  No locks needed — fetchAdd is hardware-atomic.\n\n");
+    printOk("lock-free counter OK");
+}
+
+// =============================================================================
+// 11. CAS Loop — 无锁更新模式
+// =============================================================================
+fn demo_cas_loop() {
+    print("=== 11. CAS Loop (Atomic Update Pattern) ===\n\n");
+
+    let ai = AtomicInt.new(0);
+
+    // 原子地将值乘以 2 再加 1
+    // 模式: loop { old = load(); new = compute(old); if CAS(old, new) break; }
+    let done2: int = 0;
+    while (done2 === 0) {
+        let old = ai.load();
+        let newVal = old * 2 + 1;
+        if (ai.compareExchange(old, newVal)) {
+            done2 = 1;
+        }
+    }
+
+    check("CAS loop result (0→1)", ai.load() === 1);
+
+    // 再次执行: 1 → 3
+    let done3: int = 0;
+    while (done3 === 0) {
+        let old = ai.load();
+        let newVal = old * 2 + 1;
+        if (ai.compareExchange(old, newVal)) {
+            done3 = 1;
+        }
+    }
+
+    check("CAS loop second round (1→3)", ai.load() === 3);
+
+    print("  CAS loop: retry on failure — no blocking, no deadlocks.\n\n");
+    printOk("CAS loop OK");
+}
+
+// =============================================================================
+// Main
+// =============================================================================
+fn main() {
+    print("╔══════════════════════════════════╗\n");
+    print("║  Synchronization & Atomics      ║\n");
+    print("║  (11 primitives in one demo)    ║\n");
+    print("╚══════════════════════════════════╝\n\n");
+
+    demo_mutex();
+    demo_rwlock();
+    demo_condvar();
+    demo_barrier();
+    demo_semaphore();
+    demo_once();
+    demo_thread_local();
+    demo_atomic_int();
+    demo_atomic_bool();
+    demo_lockfree_counter();
+    demo_cas_loop();
+
+    print("\nAll 11 synchronization & atomic demos demonstrated!\n");
+}

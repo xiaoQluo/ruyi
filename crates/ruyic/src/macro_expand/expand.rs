@@ -1,6 +1,7 @@
 use crate::lexer::token::Token;
-use crate::macro_expand::hygiene::StandardHygieneContext;
+use crate::macro_expand::hygiene::{HygieneContext, StandardHygieneContext};
 use crate::macro_expand::pattern::{parse_pattern, PatternMatcher};
+use crate::macro_expand::scope_classifier;
 use crate::macro_expand::{MacroError, MacroRegistry, MacroResult, MacroRule, MAX_EXPANSION_DEPTH};
 use crate::parser::ast::{Argument, ClassElement, MatchArm};
 use crate::parser::ast::{Declaration, Expr, ForInit, ModuleItem, Program, Statement};
@@ -496,7 +497,7 @@ impl<'a> MacroExpander<'a> {
 
         self.depth -= 1;
 
-        let expanded_tokens = apply_template(&expansion, &captures, &self.hygiene_ctx);
+        let expanded_tokens = apply_template(&expansion, &captures, &mut self.hygiene_ctx);
         let source = tokens_to_source(&expanded_tokens);
         let program = if source.trim().ends_with(';') {
             let mut parser =
@@ -834,17 +835,50 @@ fn unary_op_to_token(op: &crate::parser::ast::UnaryOp) -> Token {
 fn apply_template(
     template: &[Token],
     captures: &std::collections::HashMap<String, crate::macro_expand::pattern::CapturedTokens>,
-    _ctx: &StandardHygieneContext,
+    ctx: &mut StandardHygieneContext,
 ) -> Vec<Token> {
+    // Pass 1: 收集模板中的局部绑定名
+    let binding_names = scope_classifier::collect_binding_names(template);
+
+    // 为每个绑定名生成唯一 mangled 名
+    let mut rename_map = std::collections::HashMap::new();
+    for name in &binding_names {
+        let mangled = ctx.fresh_ident(name);
+        rename_map.insert(name.clone(), mangled);
+    }
+
+    // Pass 2: 执行 capture 替换 + 选择性 mangling
     let mut result = Vec::new();
     let mut i = 0;
 
     while i < template.len() {
+        // New format: $name is a single Ident token
+        if let Token::Ident(name) = &template[i] {
+            if let Some(stripped) = name.strip_prefix('$') {
+                if let Some(cap) = captures.get(stripped) {
+                    result.extend(cap.tokens.clone());
+                    i += 1;
+                    continue;
+                }
+            }
+        }
+        // Legacy format: Dollar followed by Ident
         if template[i] == Token::Dollar {
             if let Some(Token::Ident(name)) = template.get(i + 1) {
                 if let Some(cap) = captures.get(name) {
                     result.extend(cap.tokens.clone());
                     i += 2;
+                    continue;
+                }
+            }
+        }
+        // 选择性 mangling：只对绑定名做名称替换
+        if let Token::Ident(name) = &template[i] {
+            if !name.starts_with('$') {
+                if let Some(mangled) = rename_map.get(name) {
+                    let mangled_name: String = mangled.clone();
+                    result.push(Token::Ident(mangled_name));
+                    i += 1;
                     continue;
                 }
             }

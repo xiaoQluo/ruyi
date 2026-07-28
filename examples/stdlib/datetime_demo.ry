@@ -1,0 +1,299 @@
+/**
+ * Ruyi Example — 日期时间与计时模块
+ *
+ * 覆盖:
+ * - time: now()/nowMs()/timestamp()/sleep()/format_time()/now_string()
+ * - datetime: Date 类（创建/解析/格式化/算术/比较）
+ * - datetime: 工具函数（isLeapYear/daysInMonth）
+ * - datetime: 时间常量（DAY_MS/HOUR_MS 等）
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { now, nowMs, timestamp, sleep, format_time, now_string } from "time";
+import { Date, dateParse, isLeapYear, daysInMonth, DAY_MS, HOUR_MS } from "datetime";
+
+// =============================================================================
+// 1. time 模块 — 基础时间函数
+// =============================================================================
+fn demo_time_basics() {
+  print("=== 1. time 模块基础 ===\n\n");
+
+  // Unix 时间戳（秒）
+  let secs = now();
+  print("now() 秒级时间戳: ");
+  print(secs);
+  print("\n");
+
+  // Unix 时间戳（毫秒）
+  let ms = nowMs();
+  print("nowMs() 毫秒级时间戳: ");
+  print(ms);
+  print("\n");
+
+  // timestamp() 是 nowMs() 的别名
+  let ts = timestamp();
+  print("timestamp() 毫秒级时间戳: ");
+  print(ts);
+  print("\n");
+
+  // 格式化时间戳（注意: format_time 接受秒级时间戳）
+  let formatted = format_time(secs);
+  print("format_time(): ");
+  print(formatted);
+  print("\n");
+
+  // 当前时间字符串
+  print("now_string(): ");
+  print(now_string());
+  print("\n\n");
+}
+
+// =============================================================================
+// 2. Date 创建与解析
+// =============================================================================
+fn demo_date_creation() {
+  print("=== 2. Date 创建与解析 ===\n\n");
+
+  // 当前时间
+  let d1 = Date.now();
+  print("Date.now(): ");
+  print(d1.toISOString());
+  print("\n");
+
+  // 从组件创建
+  let d2 = Date.fromParts(2026, 7, 25, 14, 30, 0, 0);
+  print("Date.fromParts(2026,7,25,14,30): ");
+  print(d2.toISOString());
+  print("\n");
+
+  // 从 ISO 字符串解析
+  let d3 = Date.parse("2026-01-15T08:45:30.123Z");
+  print("Date.parse(\"2026-01-15T08:45:30.123Z\"): ");
+  print(d3.toISOString());
+  print("\n");
+
+  // 便捷函数 dateParse
+  let d4 = dateParse("2026-12-31");
+  print("dateParse(\"2026-12-31\"): ");
+  print(d4.toDateString());
+  print("\n\n");
+}
+
+// =============================================================================
+// 3. Date 格式化
+// =============================================================================
+fn demo_date_format() {
+  print("=== 3. Date 格式化 ===\n\n");
+
+  let d = Date.fromParts(2026, 7, 25, 9, 5, 3, 42);
+
+  print("toISOString(): ");
+  print(d.toISOString());
+  print("\n");
+
+  print("toString(): ");
+  print(d.toString());
+  print("\n");
+
+  print("toDateString(): ");
+  print(d.toDateString());
+  print("\n");
+
+  print("toTimeString(): ");
+  print(d.toTimeString());
+  print("\n");
+
+  // 自定义格式
+  print("format(\"YYYY/MM/DD hh:mm:ss\"): ");
+  print(d.format("YYYY/MM/DD hh:mm:ss"));
+  print("\n");
+
+  print("format(\"YY-MM-DD\"): ");
+  print(d.format("YY-MM-DD"));
+  print("\n\n");
+}
+
+// =============================================================================
+// 4. Date 属性访问
+// =============================================================================
+fn demo_date_getters() {
+  print("=== 4. Date 属性访问 ===\n\n");
+
+  let d = Date.fromParts(2026, 3, 15, 16, 45, 30, 500);
+
+  print("year: ");
+  print(d.year());
+  print("\n");
+  print("month: ");
+  print(d.month());
+  print("\n");
+  print("day: ");
+  print(d.day());
+  print("\n");
+  print("hours: ");
+  print(d.hours());
+  print("\n");
+  print("minutes: ");
+  print(d.minutes());
+  print("\n");
+  print("seconds: ");
+  print(d.seconds());
+  print("\n");
+  print("milliseconds: ");
+  print(d.milliseconds());
+  print("\n");
+  print("dayOfWeek (0=Sun): ");
+  print(d.dayOfWeek());
+  print("\n");
+  print("dayOfYear: ");
+  print(d.dayOfYear());
+  print("\n");
+  print("weekOfYear: ");
+  print(d.weekOfYear());
+  print("\n");
+  print("isLeapYear: ");
+  print(d.isLeapYear());
+  print("\n\n");
+}
+
+// =============================================================================
+// 5. Date 算术运算
+// =============================================================================
+fn demo_date_arithmetic() {
+  print("=== 5. Date 算术运算 ===\n\n");
+
+  let base = Date.fromParts(2026, 1, 31, 12, 0, 0, 0);
+  print("基准日期: ");
+  print(base.toDateString());
+  print("\n");
+
+  // 加天数
+  let plus10 = base.addDays(10);
+  print("+10 天: ");
+  print(plus10.toDateString());
+  print("\n");
+
+  // 加月（自动 clamp: 1月31日 + 1月 → 2月28日）
+  let plusMonth = base.addMonths(1);
+  print("+1 月 (clamp): ");
+  print(plusMonth.toDateString());
+  print("\n");
+
+  // 加年
+  let leapDay = Date.fromParts(2024, 2, 29, 0, 0, 0, 0);
+  let plusYear = leapDay.addYears(1);
+  print("2024-02-29 +1年: ");
+  print(plusYear.toDateString());
+  print("\n");
+
+  // 加小时/分钟/秒
+  let t = Date.fromParts(2026, 6, 15, 23, 50, 0, 0);
+  let t2 = t.addHours(2).addMinutes(30);
+  print("23:50 +2h30m: ");
+  print(t2.toTimeString());
+  print("\n\n");
+}
+
+// =============================================================================
+// 6. Date 比较
+// =============================================================================
+fn demo_date_comparison() {
+  print("=== 6. Date 比较 ===\n\n");
+
+  let a = Date.fromParts(2026, 1, 1, 0, 0, 0, 0);
+  let b = Date.fromParts(2026, 12, 31, 23, 59, 59, 0);
+
+  print("a: ");
+  print(a.toDateString());
+  print("\n");
+  print("b: ");
+  print(b.toDateString());
+  print("\n");
+
+  print("a.isBefore(b): ");
+  print(a.isBefore(b));
+  print("\n");
+  print("a.isAfter(b): ");
+  print(a.isAfter(b));
+  print("\n");
+  print("a.equals(a): ");
+  print(a.equals(Date.fromParts(2026, 1, 1, 0, 0, 0, 0)));
+  print("\n");
+
+  // 差值计算
+  print("b.diffDays(a): ");
+  print(b.diffDays(a));
+  print(" 天\n");
+  print("b.diffHours(a): ");
+  print(b.diffHours(a));
+  print(" 小时\n\n");
+}
+
+// =============================================================================
+// 7. 工具函数与常量
+// =============================================================================
+fn demo_utilities() {
+  print("=== 7. 工具函数与常量 ===\n\n");
+
+  // 闰年判断
+  print("isLeapYear(2024): ");
+  print(isLeapYear(2024));
+  print("\n");
+  print("isLeapYear(2025): ");
+  print(isLeapYear(2025));
+  print("\n");
+  print("isLeapYear(2000): ");
+  print(isLeapYear(2000));
+  print("\n");
+  print("isLeapYear(1900): ");
+  print(isLeapYear(1900));
+  print("\n");
+
+  // 每月天数
+  print("daysInMonth(2024, 2): ");
+  print(daysInMonth(2024, 2));
+  print("\n");
+  print("daysInMonth(2025, 2): ");
+  print(daysInMonth(2025, 2));
+  print("\n");
+
+  // 时间常量
+  print("DAY_MS: ");
+  print(DAY_MS);
+  print("\n");
+  print("HOUR_MS: ");
+  print(HOUR_MS);
+  print("\n\n");
+}
+
+// =============================================================================
+// 8. sleep 演示
+// =============================================================================
+fn demo_sleep() {
+  print("=== 8. sleep 演示 ===\n\n");
+
+  let before = nowMs();
+  print("sleep 0.1 秒...\n");
+  sleep(0.1);
+  let after = nowMs();
+  let elapsed = after - before;
+  print("实际经过: ");
+  print(elapsed);
+  print(" ms\n\n");
+}
+
+// =============================================================================
+// 主入口
+// =============================================================================
+demo_time_basics();
+demo_date_creation();
+demo_date_format();
+demo_date_getters();
+demo_date_arithmetic();
+demo_date_comparison();
+demo_utilities();
+demo_sleep();
+
+print("[datetime_demo] 完成\n");

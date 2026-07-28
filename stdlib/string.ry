@@ -79,7 +79,7 @@ export fn template(templateStr: string, ...values: dyn): string {
     while (i < values.length()) {
         let placeholder = "{" + i + "}";
         let value = values[i];
-        result = __string_replace_all(result, placeholder, value.toString());
+        result = __string_replace_all_legacy(result, placeholder, value.toString());
         i = i + 1;
     }
     return result;

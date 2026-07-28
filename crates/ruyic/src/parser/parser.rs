@@ -150,6 +150,54 @@ impl Parser {
         }
     }
 
+    /** Accept an identifier or a contextual keyword as a name (e.g. `fn get()`). */
+    fn expect_ident_or_keyword(&mut self) -> Result<String, ParseError> {
+        match self.current_token() {
+            Some(Token::Ident(name)) => {
+                let name = name.clone();
+                self.advance();
+                Ok(name)
+            }
+            Some(Token::Get) => {
+                self.advance();
+                Ok("get".to_string())
+            }
+            Some(Token::Set) => {
+                self.advance();
+                Ok("set".to_string())
+            }
+            Some(Token::New) => {
+                self.advance();
+                Ok("new".to_string())
+            }
+            Some(Token::Of) => {
+                self.advance();
+                Ok("of".to_string())
+            }
+            Some(Token::Delete) => {
+                self.advance();
+                Ok("delete".to_string())
+            }
+            Some(Token::Type) => {
+                self.advance();
+                Ok("type".to_string())
+            }
+            _ => {
+                let loc = self.location();
+                let found = self
+                    .current_token()
+                    .map(|t| t.name())
+                    .unwrap_or_else(|| "end of file".into());
+                Err(ParseError::ExpectedToken {
+                    expected: "identifier".into(),
+                    found,
+                    line: loc.line,
+                    col: loc.col,
+                })
+            }
+        }
+    }
+
     fn expect_string(&mut self) -> Result<String, ParseError> {
         match self.current_token() {
             Some(Token::String(s)) => {
@@ -212,6 +260,22 @@ impl Parser {
     }
 
     fn parse_module_item(&mut self) -> Result<ModuleItem, ParseError> {
+        // Handle `@annotation export class/fn` by consuming annotations first,
+        // then `export`, then dispatching to the underlying declaration parser.
+        if self.check(&Token::At) && self.has_annotation_followed_by_export() {
+            let annotations = self.parse_annotations();
+            self.expect(Token::Export)?;
+            let decl = match self.current_token() {
+                Some(Token::Class) => {
+                    // parse_class_declaration will skip annotations (already consumed)
+                    // and skip export (already consumed), then parse `class ...`.
+                    self.parse_class_declaration_with(annotations)?
+                }
+                _ => self.parse_fn_declaration_with(annotations)?,
+            };
+            return Ok(ModuleItem::Export(ExportDecl::Declaration(decl)));
+        }
+
         match self.current_token() {
             Some(Token::Import) => self.parse_import().map(ModuleItem::Import),
             Some(Token::Export) => self.parse_export().map(ModuleItem::Export),
@@ -222,6 +286,24 @@ impl Parser {
             }
             _ => self.parse_statement().map(ModuleItem::Statement),
         }
+    }
+
+    /// Lookahead scan: returns `true` if the current position starts with
+    /// one or more `@annotation` pairs followed by the `export` keyword.
+    fn has_annotation_followed_by_export(&self) -> bool {
+        let mut scan = self.pos;
+        while matches!(self.tokens.get(scan).map(|t| &t.token), Some(Token::At)) {
+            scan += 1;
+            if matches!(
+                self.tokens.get(scan).map(|t| &t.token),
+                Some(Token::Ident(_))
+            ) {
+                scan += 1;
+            } else {
+                return false;
+            }
+        }
+        matches!(self.tokens.get(scan).map(|t| &t.token), Some(Token::Export))
     }
 
     // Import / Export
@@ -403,6 +485,16 @@ impl Parser {
             Some(Token::Type) => self.parse_type_alias(),
             Some(Token::Macro) => self.parse_macro_declaration(),
             Some(Token::Extern) => self.parse_extern_declaration(),
+            Some(Token::Enum) => {
+                let loc = self.location();
+                Err(ParseError::SyntaxError {
+                    message: "`enum` declarations are not yet implemented. \
+                              This feature is planned for a future release."
+                        .into(),
+                    line: loc.line,
+                    col: loc.col,
+                })
+            }
             _ => Err(self.error("expected declaration")),
         }
     }
@@ -429,6 +521,7 @@ impl Parser {
 
     /// Dispatch an annotation-prefixed declaration by lookahead-scanning
     /// through `@name` pairs to decide whether to parse a function or a class.
+    /// Also handles `@ann export class/fn` by skipping the `export` keyword.
     fn parse_annotated_declaration(&mut self) -> Result<Declaration, ParseError> {
         let mut scan = self.pos;
         while matches!(self.tokens.get(scan).map(|t| &t.token), Some(Token::At)) {
@@ -441,6 +534,10 @@ impl Parser {
             } else {
                 break;
             }
+        }
+        // Skip `export` keyword if present (e.g., `@arc export class Buffer`)
+        if matches!(self.tokens.get(scan).map(|t| &t.token), Some(Token::Export)) {
+            scan += 1;
         }
         match self.tokens.get(scan).map(|t| &t.token) {
             Some(Token::Class) => self.parse_class_declaration(),
@@ -463,34 +560,32 @@ impl Parser {
     }
 
     fn parse_binding_list(&mut self) -> Result<Vec<Binding>, ParseError> {
-        let mut bindings = Vec::new();
-        loop {
-            let pattern = self.parse_pattern()?;
-            let ty = if self.check(&Token::Colon) {
-                Some(self.parse_type_annotation()?)
-            } else {
-                None
-            };
-            let init = if self.match_token(&Token::Assign) {
-                Some(Box::new(self.parse_expression()?))
-            } else {
-                None
-            };
-            bindings.push(Binding { pattern, init, ty });
-            if !self.match_token(&Token::Comma) {
-                break;
-            }
-        }
-        Ok(bindings)
+        // Ruyi only supports a single binding per `let`/`const` declaration.
+        // Multiple comma-separated bindings (`let x = 1, y = 2;`) are a
+        // syntax error — the caller's `expect(;)` will reject the comma.
+        let pattern = self.parse_pattern()?;
+        let ty = if self.check(&Token::Colon) {
+            Some(self.parse_type_annotation()?)
+        } else {
+            None
+        };
+        let init = if self.match_token(&Token::Assign) {
+            Some(Box::new(self.parse_expression()?))
+        } else {
+            None
+        };
+        Ok(vec![Binding { pattern, init, ty }])
     }
 
     fn parse_fn_declaration(&mut self) -> Result<Declaration, ParseError> {
         let annotations = self.parse_annotations();
+        // Skip `export` keyword if present (e.g., `@inline export fn foo()`)
+        self.match_token(&Token::Export);
         let is_async = self.match_token(&Token::Async);
         self.expect(Token::Fn)?;
         // Skip generator marker `*` if present: `fn* name()`
         self.match_token(&Token::Star);
-        let name = self.expect_ident()?;
+        let name = self.expect_ident_or_keyword()?;
         let type_params = self.parse_type_params()?;
         self.expect(Token::LParen)?;
         let params = self.parse_formal_params()?;
@@ -516,6 +611,8 @@ impl Parser {
 
     fn parse_class_declaration(&mut self) -> Result<Declaration, ParseError> {
         let annotations = self.parse_annotations();
+        // Skip `export` keyword if present (e.g., `@arc export class Buffer`)
+        self.match_token(&Token::Export);
         self.expect(Token::Class)?;
         let name = self.expect_ident()?;
         let type_params = self.parse_type_params()?;
@@ -535,6 +632,68 @@ impl Parser {
             type_params,
             extends,
             body,
+            annotations,
+        })
+    }
+
+    /// Parse a class declaration with pre-parsed annotations (used when
+    /// `@annotation export class` is handled by parse_module_item).
+    fn parse_class_declaration_with(
+        &mut self,
+        annotations: Vec<String>,
+    ) -> Result<Declaration, ParseError> {
+        self.expect(Token::Class)?;
+        let name = self.expect_ident()?;
+        let type_params = self.parse_type_params()?;
+        let extends = if self.match_token(&Token::Extends) {
+            Some(Box::new(self.parse_expression()?))
+        } else {
+            None
+        };
+        self.expect(Token::LBrace)?;
+        let mut body = Vec::new();
+        while !self.check(&Token::RBrace) && !self.is_at_end() {
+            body.push(self.parse_class_element()?);
+        }
+        self.expect(Token::RBrace)?;
+        Ok(Declaration::Class {
+            name,
+            type_params,
+            extends,
+            body,
+            annotations,
+        })
+    }
+
+    /// Parse a function declaration with pre-parsed annotations (used when
+    /// `@annotation export fn` is handled by parse_module_item).
+    fn parse_fn_declaration_with(
+        &mut self,
+        annotations: Vec<String>,
+    ) -> Result<Declaration, ParseError> {
+        let is_async = self.match_token(&Token::Async);
+        self.expect(Token::Fn)?;
+        self.match_token(&Token::Star);
+        let name = self.expect_ident_or_keyword()?;
+        let type_params = self.parse_type_params()?;
+        self.expect(Token::LParen)?;
+        let params = self.parse_formal_params()?;
+        self.expect(Token::RParen)?;
+        let return_type = if self.check(&Token::Colon) {
+            Some(self.parse_type_annotation()?)
+        } else {
+            None
+        };
+        self.expect(Token::LBrace)?;
+        let body = self.parse_function_body()?;
+        self.expect(Token::RBrace)?;
+        Ok(Declaration::Function {
+            name,
+            type_params,
+            params,
+            return_type,
+            body,
+            is_async,
             annotations,
         })
     }
@@ -758,6 +917,7 @@ impl Parser {
         if self.match_token(&Token::SemiColon) {
             return Ok(TraitElement::Empty);
         }
+        let is_static = self.match_token(&Token::Static);
         if self.check(&Token::Fn) {
             self.advance();
             let name = self.parse_property_name()?;
@@ -785,6 +945,7 @@ impl Parser {
                 params,
                 return_type,
                 body,
+                is_static,
             });
         }
         let name = self.parse_property_name()?;
@@ -820,6 +981,22 @@ impl Parser {
             Some(Token::Delete) => {
                 self.advance();
                 Ok(PropertyName::Ident("delete".to_string()))
+            }
+            Some(Token::Enum) => {
+                self.advance();
+                Ok(PropertyName::Ident("enum".to_string()))
+            }
+            Some(Token::Yield) => {
+                self.advance();
+                Ok(PropertyName::Ident("yield".to_string()))
+            }
+            Some(Token::Type) => {
+                self.advance();
+                Ok(PropertyName::Ident("type".to_string()))
+            }
+            Some(Token::Of) => {
+                self.advance();
+                Ok(PropertyName::Ident("of".to_string()))
             }
             Some(Token::String(s)) => {
                 let s = s.clone();
@@ -864,7 +1041,7 @@ impl Parser {
                 Ok(Statement::Empty)
             }
             Some(Token::Let) | Some(Token::Const) | Some(Token::Class) | Some(Token::Fn)
-            | Some(Token::Async) => {
+            | Some(Token::Async) | Some(Token::Enum) => {
                 let decl = self.parse_declaration()?;
                 Ok(Statement::Declaration(decl))
             }
@@ -880,6 +1057,13 @@ impl Parser {
                     Ok(Statement::Labeled {
                         label: name,
                         body: Box::new(body),
+                    })
+                } else if name == "loop" && self.check(&Token::LBrace) {
+                    // `loop { ... }` → `while (true) { ... }`
+                    let body = Box::new(self.parse_block_statement()?);
+                    Ok(Statement::While {
+                        condition: Box::new(Expr::BooleanLiteral(true)),
+                        body,
                     })
                 } else {
                     self.pos -= 1;
@@ -1060,16 +1244,22 @@ impl Parser {
         Ok(Statement::Return(value))
     }
 
+    /**
+     * yield 语句已从 Ruyi 中移除，生成器特性不再支持。
+     * 遇到 yield 时产生编译错误，引导用户使用 Iterator/Channel/Fiber 替代。
+     *
+     * @date 2026-07-26
+     */
     fn parse_yield_statement(&mut self) -> Result<Statement, ParseError> {
-        self.expect(Token::Yield)?;
-        let value =
-            if self.check(&Token::SemiColon) || self.check(&Token::RBrace) || self.is_at_end() {
-                None
-            } else {
-                Some(Box::new(self.parse_expression()?))
-            };
-        self.expect(Token::SemiColon)?;
-        Ok(Statement::Yield(value))
+        let loc = self.location();
+        Err(ParseError::SyntaxError {
+            message:
+                "`yield` has been removed from Ruyi. Generator feature is no longer supported. \
+                      Use Iterator trait, async fn + Channel, or Fiber instead."
+                    .into(),
+            line: loc.line,
+            col: loc.col,
+        })
     }
 
     fn parse_throw_statement(&mut self) -> Result<Statement, ParseError> {
@@ -1359,6 +1549,14 @@ impl Parser {
                     Some(Token::Delete) => {
                         self.advance();
                         MemberProperty::Ident("delete".to_string())
+                    }
+                    Some(Token::Type) => {
+                        self.advance();
+                        MemberProperty::Ident("type".to_string())
+                    }
+                    Some(Token::Of) => {
+                        self.advance();
+                        MemberProperty::Ident("of".to_string())
                     }
                     _ => return Err(self.error("expected identifier after '.'")),
                 };
@@ -1805,7 +2003,15 @@ impl Parser {
             Some(Token::Ident(_)) => self.expect_ident()?,
             _ => return Err(self.error("expected class name after `new`")),
         };
-        let args = self.parse_arguments()?;
+        // Constructor arguments: `new Foo(args)`. The parentheses are
+        // optional — `new Foo` and `new Foo()` both construct with no
+        // arguments. Arguments are forwarded to the class's `new` method
+        // (the constructor) by codegen.
+        let args = if self.check(&Token::LParen) {
+            self.parse_arguments()?
+        } else {
+            Vec::new()
+        };
         Ok(Expr::New {
             callee: Box::new(Expr::Identifier(class_name)),
             args,
@@ -1843,22 +2049,27 @@ impl Parser {
         let then_branch = if then_stmts.len() == 1 {
             match then_stmts.into_iter().next().unwrap() {
                 Statement::Expression(e) => *e,
-                _stmt => Expr::Grouping(Box::new(Expr::Identifier("__block__".into()))),
+                stmt => Expr::Block(vec![stmt]),
             }
         } else {
-            Expr::Grouping(Box::new(Expr::Identifier("__block__".into()))) // placeholder - not ideal
+            Expr::Block(then_stmts)
         };
         let else_branch = if self.match_token(&Token::Else) {
-            self.expect(Token::LBrace)?;
-            let else_stmts = self.parse_function_body()?;
-            self.expect(Token::RBrace)?;
-            if else_stmts.len() == 1 {
-                match else_stmts.into_iter().next().unwrap() {
-                    Statement::Expression(e) => Some(Box::new(*e)),
-                    _ => Some(Box::new(Expr::NullLiteral)),
-                }
+            if self.check(&Token::If) {
+                // else if → 递归解析嵌套 if 表达式
+                Some(Box::new(self.parse_if_expression()?))
             } else {
-                Some(Box::new(Expr::NullLiteral))
+                self.expect(Token::LBrace)?;
+                let else_stmts = self.parse_function_body()?;
+                self.expect(Token::RBrace)?;
+                if else_stmts.len() == 1 {
+                    match else_stmts.into_iter().next().unwrap() {
+                        Statement::Expression(e) => Some(Box::new(*e)),
+                        stmt => Some(Box::new(Expr::Block(vec![stmt]))),
+                    }
+                } else {
+                    Some(Box::new(Expr::Block(else_stmts)))
+                }
             }
         } else {
             None
@@ -2026,7 +2237,7 @@ impl Parser {
                             },
                         });
                     } else {
-                        let name = self.expect_ident()?;
+                        let name = self.expect_ident_or_keyword()?;
                         self.expect(Token::Colon)?;
                         let ty = self.parse_type()?;
                         fields.push(TypeField { name, ty });
@@ -2059,6 +2270,29 @@ impl Parser {
                 } else {
                     Ok(TypeAnnotation::Tuple(types))
                 }
+            }
+            Some(Token::Star) => {
+                self.advance();
+                // 解析 `*mut T` 或 `*const T` 指针类型（用于 FFI extern 声明）
+                let qualifier = if self.check_ident("mut") {
+                    self.advance();
+                    "mut"
+                } else if self.check_ident("const") {
+                    self.advance();
+                    "const"
+                } else {
+                    "mut"
+                };
+                let inner = self.parse_postfix_type()?;
+                let inner_str = match &inner {
+                    TypeAnnotation::Identifier(s) => s.clone(),
+                    TypeAnnotation::Builtin(s) => s.clone(),
+                    _ => "void".to_string(),
+                };
+                Ok(TypeAnnotation::Identifier(format!(
+                    "*{} {}",
+                    qualifier, inner_str
+                )))
             }
             _ => Err(self.error("expected type")),
         }
@@ -2244,6 +2478,9 @@ impl Parser {
                 if self.match_token(&Token::Colon) {
                     let pattern = self.parse_pattern()?;
                     fields.push(ObjectPatternField::Property { key, pattern });
+                } else if self.match_token(&Token::Assign) {
+                    let default = self.parse_expression()?;
+                    fields.push(ObjectPatternField::ShorthandDefault(key, Box::new(default)));
                 } else {
                     fields.push(ObjectPatternField::Shorthand(key));
                 }
@@ -2269,7 +2506,12 @@ impl Parser {
                 elements.push(ArrayPatternElement::Rest(pat));
             } else {
                 let pat = self.parse_pattern()?;
-                elements.push(ArrayPatternElement::Pattern(pat));
+                if self.match_token(&Token::Assign) {
+                    let default = self.parse_expression()?;
+                    elements.push(ArrayPatternElement::Default(pat, Box::new(default)));
+                } else {
+                    elements.push(ArrayPatternElement::Pattern(pat));
+                }
             }
             if !self.match_token(&Token::Comma) {
                 break;

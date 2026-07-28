@@ -2,6 +2,7 @@ pub mod builtins;
 pub mod expand;
 pub mod hygiene;
 pub mod pattern;
+pub mod scope_classifier;
 
 use crate::lexer::token::Token;
 use crate::parser::ast::{MacroRule, Program};
@@ -104,8 +105,7 @@ impl From<crate::parser::ParseError> for MacroError {
 
 pub type MacroResult<T> = Result<T, MacroError>;
 
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct MacroRegistry {
     macros: HashMap<String, Vec<MacroRule>>,
     builtins: HashMap<String, BuiltinMacro>,
@@ -145,7 +145,6 @@ impl MacroRegistry {
         self.builtins.get(name)
     }
 }
-
 
 pub fn expand_macros(program: &Program, registry: &mut MacroRegistry) -> MacroResult<Program> {
     let mut expander = expand::MacroExpander::new(registry);

@@ -213,6 +213,10 @@ impl TraitRegistry {
     pub fn validate_impls(&self, diagnostics: &mut DiagnosticBag) {
         for (i, impl_info) in self.impls.iter().enumerate() {
             if let Some(trait_info) = self.traits.get(&impl_info.trait_name) {
+                // Empty-body generic impls delegate to the class's own methods.
+                if impl_info.methods.is_empty() && !impl_info.type_params.is_empty() {
+                    continue;
+                }
                 // Check that all non-default trait methods are implemented
                 for (method_name, trait_method) in &trait_info.methods {
                     if !trait_method.has_default && !impl_info.methods.contains(method_name) {
@@ -326,9 +330,69 @@ fn type_annotation_name(annotation: &TypeAnnotation) -> String {
     }
 }
 
+/// Pre-register builtin marker traits (Send, Sync) and auto-implement
+/// them for primitive types that are inherently thread-safe.
+///
+/// GC-managed classes are NOT Send — cross-thread GC safety must be
+/// enforced at the type-checker level. ARC-annotated classes ARE Send.
+fn register_builtin_marker_traits(registry: &mut TraitRegistry) {
+    // Register Send and Sync as marker traits
+    let send_info = TraitInfo {
+        name: "Send".into(),
+        type_params: vec![],
+        methods: HashMap::new(),
+        supertraits: vec![],
+        is_marker: true,
+    };
+    let sync_info = TraitInfo {
+        name: "Sync".into(),
+        type_params: vec![],
+        methods: HashMap::new(),
+        supertraits: vec![],
+        is_marker: true,
+    };
+    registry.traits.insert("Send".into(), send_info);
+    registry.traits.insert("Sync".into(), sync_info);
+
+    // Builtin types that are inherently Send + Sync
+    let send_sync_builtins = [
+        "int", "float", "bool", "string", "byte", "null", "void", "bigint",
+    ];
+
+    for type_name in &send_sync_builtins {
+        let annotation = TypeAnnotation::Builtin(type_name.to_string());
+        // Register Send impl
+        let impl_idx = registry.impls.len();
+        registry.impls.push(ImplInfo {
+            trait_name: "Send".into(),
+            trait_args: vec![],
+            for_type: annotation.clone(),
+            type_params: vec![],
+            methods: vec![],
+        });
+        registry
+            .type_trait_impls
+            .insert((type_name.to_string(), "Send".into()), impl_idx);
+
+        // Register Sync impl
+        let impl_idx = registry.impls.len();
+        registry.impls.push(ImplInfo {
+            trait_name: "Sync".into(),
+            trait_args: vec![],
+            for_type: annotation,
+            type_params: vec![],
+            methods: vec![],
+        });
+        registry
+            .type_trait_impls
+            .insert((type_name.to_string(), "Sync".into()), impl_idx);
+    }
+}
+
 /// Collect trait and impl declarations from a program into a registry.
 pub fn build_trait_registry(program: &crate::parser::ast::Program) -> TraitRegistry {
     let mut registry = TraitRegistry::new();
+    register_builtin_marker_traits(&mut registry);
     for item in &program.items {
         match item {
             crate::parser::ast::ModuleItem::Declaration(decl) => match decl {

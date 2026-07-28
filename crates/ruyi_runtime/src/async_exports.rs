@@ -89,3 +89,65 @@ pub extern "C" fn ruyi_run_scheduler() {
     let scheduler = GLOBAL_SCHEDULER.lock().unwrap();
     scheduler.block_on_all();
 }
+
+/// Spawn a blocking task on a dedicated OS thread.
+///
+/// The function `entry(arg)` runs on a new thread while the calling
+/// async task yields. When the thread completes, the result is
+/// communicated back via an internal oneshot channel and the future
+/// becomes Ready.
+///
+/// Returns a future pointer that can be awaited.
+///
+/// # Safety
+/// `entry` must be a valid `extern "C" fn(usize) -> usize`.
+#[no_mangle]
+pub unsafe extern "C" fn ruyi_spawn_blocking(entry: *mut i8, arg: usize) -> *mut u8 {
+    use std::sync::mpsc;
+    use std::thread;
+
+    let entry_fn: extern "C" fn(usize) -> usize = std::mem::transmute(entry);
+    let (tx, rx) = mpsc::channel();
+
+    thread::spawn(move || {
+        let result = entry_fn(arg);
+        let _ = tx.send(result);
+    });
+
+    // Return the receiver as an opaque handle.
+    // The codegen will poll this by checking rx.try_recv().
+    Box::into_raw(Box::new(rx)) as *mut u8
+}
+
+/// Poll a spawn_blocking future for completion.
+///
+/// Returns 0 if still running, 1 if completed (result stored).
+/// If completed, the result value is written to `result_out`.
+#[no_mangle]
+pub unsafe extern "C" fn ruyi_spawn_blocking_poll(handle: *mut i8, result_out: *mut i64) -> i32 {
+    use std::sync::mpsc::TryRecvError;
+
+    if handle.is_null() || result_out.is_null() {
+        return 0;
+    }
+    let rx = &*(handle as *const std::sync::mpsc::Receiver<usize>);
+    match rx.try_recv() {
+        Ok(val) => {
+            unsafe { *result_out = val as i64 };
+            1
+        }
+        Err(TryRecvError::Disconnected) => 0,
+        Err(TryRecvError::Empty) => 0,
+    }
+}
+
+/// Free a spawn_blocking handle.
+#[no_mangle]
+pub unsafe extern "C" fn ruyi_spawn_blocking_free(handle: *mut i8) {
+    if handle.is_null() {
+        return;
+    }
+    unsafe {
+        let _ = Box::from_raw(handle as *mut std::sync::mpsc::Receiver<usize>);
+    }
+}

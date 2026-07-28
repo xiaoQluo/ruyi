@@ -7,11 +7,14 @@
  *   - Hex (lowercase)
  *   - URL / Percent-encoding (RFC 3986)
  *
- * All functions are self-contained and require no external imports.
+ * All functions are self-contained; the only external dependency is
+ * `fromCharCode` from the string module (a thin wrapper over a builtin).
  *
  * @author Ruyi Team
  * @date 2026-07-17
  */
+
+import { fromCharCode } from "./string";
 
 // ============================================================
 // Constants

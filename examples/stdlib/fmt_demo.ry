@@ -1,0 +1,119 @@
+/**
+ * Ruyi Example — 格式化输出模块
+ *
+ * 覆盖:
+ * - format(): printf 风格 {} 占位符替换
+ * - println(): 格式化并打印（自动换行）
+ * - 多参数替换
+ * - 混合类型参数（int/float/bool/string）
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { format, println } from "fmt";
+
+// =============================================================================
+// 1. format() — 基础占位符替换
+// =============================================================================
+fn demo_format_basic() {
+  print("=== 1. format() 基础用法 ===\n\n");
+
+  // 单个占位符
+  let s1 = format("Hello, {}!", "Ruyi");
+  print(s1);
+  print("\n");
+
+  // 多个占位符（按顺序消费参数）
+  let s2 = format("{} + {} = {}", 1, 2, 3);
+  print(s2);
+  print("\n");
+
+  // 混合类型
+  let s3 = format("name={}, age={}, active={}", "Alice", 30, true);
+  print(s3);
+  print("\n\n");
+}
+
+// =============================================================================
+// 2. println() — 格式化并输出
+// =============================================================================
+fn demo_println() {
+  print("=== 2. println() 格式化输出 ===\n\n");
+
+  println("当前版本: v{}.{}.{}", 0, 6, 0);
+  println("圆周率约为 {}", 3.14159);
+  println("布尔值: {} 和 {}", true, false);
+  print("\n");
+}
+
+// =============================================================================
+// 3. 实用场景
+// =============================================================================
+fn demo_practical() {
+  print("=== 3. 实用场景 ===\n\n");
+
+  // 构建日志消息
+  let level = "INFO";
+  let module = "server";
+  let msg = "listening on port 8080";
+  let logLine = format("[{}] [{}] {}", level, module, msg);
+  print(logLine);
+  print("\n");
+
+  // 构建路径
+  let dir = "/home/user";
+  let file = "config.json";
+  let path = format("{}/{}", dir, file);
+  print("路径: ");
+  print(path);
+  print("\n");
+
+  // 表格对齐（简单模拟）
+  let items = ["apple", "banana", "cherry"];
+  let prices = [5, 3, 8];
+  print("商品    价格\n");
+  let i = 0;
+  while (i < 3) {
+    println("{}: {}元", items[i], prices[i]);
+    i = i + 1;
+  }
+  print("\n");
+}
+
+// =============================================================================
+// 4. 边界情况
+// =============================================================================
+fn demo_edge_cases() {
+  print("=== 4. 边界情况 ===\n\n");
+
+  // 占位符多于参数 — 多余的 {} 保留原样
+  let s1 = format("{} and {}", "A");
+  print("多余占位符: ");
+  print(s1);
+  print("\n");
+
+  // 无占位符
+  let s2 = format("no placeholders here");
+  print("无占位符: ");
+  print(s2);
+  print("\n");
+
+  // 空字符串参数
+  let s3 = format("[{}]", "");
+  print("空字符串参数: ");
+  print(s3);
+  print("\n\n");
+}
+
+// =============================================================================
+// 主入口
+// =============================================================================
+fn main() {
+  demo_format_basic();
+  demo_println();
+  demo_practical();
+  demo_edge_cases();
+
+  print("[fmt_demo] 完成\n");
+}

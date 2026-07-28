@@ -212,7 +212,7 @@ export class UDPSocket {
      *
      * @return A new UDPSocket instance
      */
-    static fn new(): UDPSocket {
+    fn new(): UDPSocket {
         self._fd = __net_udp_socket();
         return self;
     }

@@ -1,0 +1,245 @@
+/**
+ * Ruyi Example — TCP/UDP Networking (net module)
+ *
+ * Demonstrates:
+ * - TCPSocket: connect, read, write, close
+ * - TCPServer: listen, accept, close
+ * - TCP Echo server/client pattern
+ * - UDPSocket: bind, sendTo, recvFrom
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+import { TCPSocket, TCPServer, UDPSocket } from "net";
+import { Thread } from "thread";
+
+// -----------------------------------------------------------------------------
+// Helper
+// -----------------------------------------------------------------------------
+fn printOk(label: string) {
+    print("  ✓ " + label + "\n");
+}
+
+fn check(label: string, condition: bool) {
+    if (condition) {
+        print("  ✓ " + label + "\n");
+    } else {
+        print("  ✗ FAILED: " + label + "\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 1. TCP Echo Server & Client
+// -----------------------------------------------------------------------------
+fn demo_tcp_echo() {
+    print("=== 1. TCP Echo Server & Client ===\n\n");
+
+    try {
+        let server = TCPServer.listen("127.0.0.1", 19980);
+        print("  Server listening on 127.0.0.1:19980\n");
+
+        let message = "Hello Ruyi TCP!";
+        let received: string = "";
+
+        // Server thread: accept, read, echo, close
+        Thread.spawn(fn(arg) {
+            let conn = server.accept();
+            let data = conn.read(1024);
+            conn.write(data);
+            conn.close();
+            server.close();
+        });
+
+        Thread.sleep(20);
+
+        // Client: connect, send, receive, verify
+        let client = TCPSocket.connect("127.0.0.1", 19980);
+        client.write(message);
+        received = client.read(1024);
+        client.close();
+
+        check("TCP echo roundtrip", received === message);
+        print("  Sent: \"" + message + "\"\n");
+        print("  Received: \"" + received + "\"\n");
+
+        printOk("TCP echo OK");
+    } catch (e) {
+        print("  ⚠ TCP echo skipped: 网络操作失败\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 2. TCP Multi-Connection Server
+// -----------------------------------------------------------------------------
+fn demo_tcp_multi() {
+    print("=== 2. TCP Multi-Connection Server ===\n\n");
+
+    try {
+        let server = TCPServer.listen("127.0.0.1", 19981);
+        print("  Multi-connection server on :19981\n");
+
+        // Server accepts two connections
+        Thread.spawn(fn(arg) {
+            let conn1 = server.accept();
+            conn1.write("first");
+            conn1.close();
+
+            let conn2 = server.accept();
+            conn2.write("second");
+            conn2.close();
+
+            server.close();
+        });
+
+        Thread.sleep(10);
+
+        // Client 1
+        let c1 = TCPSocket.connect("127.0.0.1", 19981);
+        let r1 = c1.read(1024);
+        c1.close();
+
+        // Client 2
+        let c2 = TCPSocket.connect("127.0.0.1", 19981);
+        let r2 = c2.read(1024);
+        c2.close();
+
+        check("connection 1 response", r1 === "first");
+        check("connection 2 response", r2 === "second");
+
+        printOk("multi-connection OK");
+    } catch (e) {
+        print("  ⚠ Multi-connection skipped: 网络操作失败\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 3. TCP 超时与有效性检查
+// -----------------------------------------------------------------------------
+fn demo_tcp_socket_ops() {
+    print("=== 3. TCP Socket 操作 ===\n\n");
+
+    try {
+        let server = TCPServer.listen("127.0.0.1", 19983);
+
+        Thread.spawn(fn(arg) {
+            let conn = server.accept();
+            // 服务端发送数据后关闭
+            conn.write("server-data");
+            conn.close();
+            server.close();
+        });
+
+        Thread.sleep(10);
+
+        let client = TCPSocket.connect("127.0.0.1", 19983);
+
+        // 检查连接有效性
+        check("客户端连接有效", client.isValid());
+
+        // 读取数据
+        let data = client.read(1024);
+        check("读取到数据", data === "server-data");
+        print("  接收: \"" + data + "\n");
+
+        // 关闭后检查状态
+        client.close();
+        check("关闭后无效", !client.isValid());
+
+        printOk("Socket 操作 OK");
+    } catch (e) {
+        print("  ⚠ Socket 操作跳过: 网络操作失败\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 4. UDP Socket
+// -----------------------------------------------------------------------------
+fn demo_udp() {
+    print("=== 4. UDP Socket ===\n\n");
+
+    try {
+        let sock = UDPSocket.new();
+        sock.bind("127.0.0.1", 19982);
+
+        // Send a message to ourselves
+        let msg = "UDP hello";
+        sock.sendTo("127.0.0.1", 19982, msg);
+
+        // Receive it back
+        let recvMsg = sock.recvFrom(1024);
+        check("UDP send/recv", recvMsg === msg);
+
+        print("  Host: " + sock.senderHost() + "\n");
+        print("  Port: " + sock.senderPort() + "\n");
+
+        sock.close();
+        printOk("UDP OK");
+    } catch (e) {
+        print("  ⚠ UDP skipped: 网络操作失败\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 5. TCP 服务端多轮对话
+// -----------------------------------------------------------------------------
+fn demo_tcp_conversation() {
+    print("=== 5. TCP 多轮对话 ===\n\n");
+
+    try {
+        let server = TCPServer.listen("127.0.0.1", 19984);
+
+        // 服务端: 接收两轮对话
+        Thread.spawn(fn(arg) {
+            let conn = server.accept();
+
+            // 第一轮
+            let msg1 = conn.read(1024);
+            conn.write("你好, " + msg1);
+
+            // 第二轮
+            let msg2 = conn.read(1024);
+            conn.write("再见, " + msg2);
+
+            conn.close();
+            server.close();
+        });
+
+        Thread.sleep(10);
+
+        // 客户端: 两轮对话
+        let client = TCPSocket.connect("127.0.0.1", 19984);
+
+        client.write("Alice");
+        let reply1 = client.read(1024);
+        check("第一轮回复", reply1 === "你好, Alice");
+        print("  客户端: Alice → 服务端: " + reply1 + "\n");
+
+        client.write("Bob");
+        let reply2 = client.read(1024);
+        check("第二轮回复", reply2 === "再见, Bob");
+        print("  客户端: Bob → 服务端: " + reply2 + "\n");
+
+        client.close();
+        printOk("多轮对话 OK");
+    } catch (e) {
+        print("  ⚠ 多轮对话跳过: 网络操作失败\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+    print("╔══════════════════════════════════╗\n");
+    print("║    TCP/UDP Networking Demo      ║\n");
+    print("╚══════════════════════════════════╝\n\n");
+
+    demo_tcp_echo();
+    demo_tcp_multi();
+    demo_tcp_socket_ops();
+    demo_udp();
+    demo_tcp_conversation();
+
+    print("\nAll Networking demos completed!\n");
+}

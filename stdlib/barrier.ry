@@ -1,0 +1,39 @@
+/**
+ * Ruyi Standard Library — Barrier
+ *
+ * Thread synchronization barrier. Blocks each thread that calls `wait()`
+ * until N threads have arrived, then releases all simultaneously.
+ *
+ * One thread per wave is the "leader" (wait() returns true).
+ *
+ * Usage:
+ *   import { Barrier } from "./barrier";
+ *   let b = Barrier.new(4);    // 4 threads per wave
+ *   let leader = b.wait();     // blocks until 4 threads arrive
+ *   b.free();
+ *
+ * @author Ruyi Team
+ * @date 2026-07-25
+ */
+
+export class Barrier {
+    _ptr: dyn;
+
+    /** Create a new barrier that releases after `n` threads call wait(). */
+    static fn new(n: int): Barrier {
+        let b = new Barrier();
+        b._ptr = __barrier_new(n);
+        return b;
+    }
+
+    /** Block until `n` threads have called wait(), then release all.
+     *  Returns true if this thread is the leader of the current wave. */
+    fn wait(): bool {
+        return __barrier_wait(self._ptr) !== 0;
+    }
+
+    /** Deallocate the barrier. Must not be in use when called. */
+    fn free(): void {
+        __barrier_free(self._ptr);
+    }
+}
