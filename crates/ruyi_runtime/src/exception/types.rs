@@ -10,14 +10,19 @@ use crate::exception::{builtin_type_ids, TypeId};
 /// All user-defined exceptions extend `Error`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ExceptionType {
-    /// Base exception type.
     Error,
-    /// Type mismatch or invalid operation.
     TypeError,
-    /// Index or value out of range.
     RangeError,
-    /// General runtime failure.
     RuntimeError,
+    LogicError,
+    AssertionError,
+    ArgumentError,
+    NullError,
+    ArithmeticError,
+    IteratorError,
+    ParseError,
+    NullAssertionError,
+    IoError,
 }
 
 impl ExceptionType {
@@ -28,6 +33,15 @@ impl ExceptionType {
             ExceptionType::TypeError => builtin_type_ids::TYPE_ERROR,
             ExceptionType::RangeError => builtin_type_ids::RANGE_ERROR,
             ExceptionType::RuntimeError => builtin_type_ids::RUNTIME_ERROR,
+            ExceptionType::LogicError => builtin_type_ids::LOGIC_ERROR,
+            ExceptionType::AssertionError => builtin_type_ids::ASSERTION_ERROR,
+            ExceptionType::ArgumentError => builtin_type_ids::ARGUMENT_ERROR,
+            ExceptionType::NullError => builtin_type_ids::NULL_ERROR,
+            ExceptionType::ArithmeticError => builtin_type_ids::ARITHMETIC_ERROR,
+            ExceptionType::IteratorError => builtin_type_ids::ITERATOR_ERROR,
+            ExceptionType::ParseError => builtin_type_ids::PARSE_ERROR,
+            ExceptionType::NullAssertionError => builtin_type_ids::NULL_ASSERTION_ERROR,
+            ExceptionType::IoError => builtin_type_ids::IO_ERROR,
         }
     }
 
@@ -38,6 +52,15 @@ impl ExceptionType {
             ExceptionType::TypeError => "TypeError",
             ExceptionType::RangeError => "RangeError",
             ExceptionType::RuntimeError => "RuntimeError",
+            ExceptionType::LogicError => "LogicError",
+            ExceptionType::AssertionError => "AssertionError",
+            ExceptionType::ArgumentError => "ArgumentError",
+            ExceptionType::NullError => "NullError",
+            ExceptionType::ArithmeticError => "ArithmeticError",
+            ExceptionType::IteratorError => "IteratorError",
+            ExceptionType::ParseError => "ParseError",
+            ExceptionType::NullAssertionError => "NullAssertionError",
+            ExceptionType::IoError => "IOError",
         }
     }
 
@@ -48,6 +71,15 @@ impl ExceptionType {
             builtin_type_ids::TYPE_ERROR => Some(ExceptionType::TypeError),
             builtin_type_ids::RANGE_ERROR => Some(ExceptionType::RangeError),
             builtin_type_ids::RUNTIME_ERROR => Some(ExceptionType::RuntimeError),
+            builtin_type_ids::LOGIC_ERROR => Some(ExceptionType::LogicError),
+            builtin_type_ids::ASSERTION_ERROR => Some(ExceptionType::AssertionError),
+            builtin_type_ids::ARGUMENT_ERROR => Some(ExceptionType::ArgumentError),
+            builtin_type_ids::NULL_ERROR => Some(ExceptionType::NullError),
+            builtin_type_ids::ARITHMETIC_ERROR => Some(ExceptionType::ArithmeticError),
+            builtin_type_ids::ITERATOR_ERROR => Some(ExceptionType::IteratorError),
+            builtin_type_ids::PARSE_ERROR => Some(ExceptionType::ParseError),
+            builtin_type_ids::NULL_ASSERTION_ERROR => Some(ExceptionType::NullAssertionError),
+            builtin_type_ids::IO_ERROR => Some(ExceptionType::IoError),
             _ => None,
         }
     }

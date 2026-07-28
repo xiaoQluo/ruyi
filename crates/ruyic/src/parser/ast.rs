@@ -454,7 +454,10 @@ pub enum Pattern {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ObjectPatternField {
-    Property { key: String, pattern: Pattern },
+    Property {
+        key: String,
+        pattern: Pattern,
+    },
     Shorthand(String),
     /// Shorthand with a default value: `{ key = default }`
     ShorthandDefault(String, Box<Expr>),

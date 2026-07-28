@@ -967,7 +967,20 @@ impl TypeInference {
             }
             Statement::Throw(expr) => {
                 let ty = self.synthesize(expr);
-                let _ = ty;
+                // EX-H2 修复：验证 throw 表达式类型必须为 Error 或其子类
+                match &ty {
+                    Type::Dynamic | Type::Never | Type::Null | Type::Error => {}
+                    Type::Named(name, _) if name == "Error" || name.ends_with("Error") => {}
+                    Type::Named(_, _) => {} // 允许任何 Named 类型（可能继承自 Error）
+                    _ => {
+                        self.diagnostics.add_warning(DiagnosticKind::Other {
+                            message: format!(
+                                "throw expression should be an Error type, found `{}`",
+                                ty
+                            ),
+                        });
+                    }
+                }
                 Type::Never
             }
             Statement::Try {
@@ -1167,34 +1180,81 @@ impl TypeInference {
                 Type::Array(Box::new(elem_type))
             }
             Expr::ObjectLiteral(props) => {
-                let fields: Vec<ObjectField> = props
-                    .iter()
-                    .map(|prop| match prop {
-                        ObjectProperty::Property { key, value } => ObjectField {
-                            name: property_name_str(key),
-                            ty: self.synthesize(value),
-                            optional: false,
-                        },
-                        ObjectProperty::Shorthand(name) => {
-                            let ty = self.env.lookup(name).cloned().unwrap_or(Type::Dynamic);
-                            ObjectField {
-                                name: name.clone(),
-                                ty,
-                                optional: false,
+                // 逐步收集字段，后面的属性覆盖前面的同名属性，
+                // spread 展开源对象的所有字段。
+                let mut fields: Vec<ObjectField> = Vec::new();
+                for prop in props {
+                    match prop {
+                        ObjectProperty::Property { key, value } => {
+                            let name = property_name_str(key);
+                            let ty = self.synthesize(value);
+                            if let Some(pos) = fields.iter().position(|f| f.name == name) {
+                                fields[pos] = ObjectField {
+                                    name,
+                                    ty,
+                                    optional: false,
+                                };
+                            } else {
+                                fields.push(ObjectField {
+                                    name,
+                                    ty,
+                                    optional: false,
+                                });
                             }
                         }
-                        ObjectProperty::Spread(_) => ObjectField {
-                            name: "...".into(),
-                            ty: Type::Dynamic,
-                            optional: false,
-                        },
-                        ObjectProperty::ComputedProperty { key, value } => ObjectField {
-                            name: format!("[{}]", self.synthesize(key)),
-                            ty: self.synthesize(value),
-                            optional: false,
-                        },
-                    })
-                    .collect();
+                        ObjectProperty::Shorthand(name) => {
+                            let ty = self.env.lookup(name).cloned().unwrap_or(Type::Dynamic);
+                            if let Some(pos) = fields.iter().position(|f| f.name == *name) {
+                                fields[pos] = ObjectField {
+                                    name: name.clone(),
+                                    ty,
+                                    optional: false,
+                                };
+                            } else {
+                                fields.push(ObjectField {
+                                    name: name.clone(),
+                                    ty,
+                                    optional: false,
+                                });
+                            }
+                        }
+                        ObjectProperty::Spread(expr) => {
+                            let spread_ty = self.synthesize(expr);
+                            if let Type::Object(src_fields) = spread_ty {
+                                for sf in src_fields {
+                                    // 跳过占位符字段（来自未解析的 spread）
+                                    if sf.name == "..." {
+                                        continue;
+                                    }
+                                    if let Some(pos) = fields.iter().position(|f| f.name == sf.name)
+                                    {
+                                        fields[pos] = sf;
+                                    } else {
+                                        fields.push(sf);
+                                    }
+                                }
+                            }
+                            // 非 Object 类型的 spread 源：无法静态展开，跳过
+                        }
+                        ObjectProperty::ComputedProperty { key, value } => {
+                            let name = format!("[{}]", self.synthesize(key));
+                            let ty = self.synthesize(value);
+                            if let Some(pos) = fields.iter().position(|f| f.name == name) {
+                                fields[pos] = ObjectField {
+                                    name,
+                                    ty,
+                                    optional: false,
+                                };
+                            } else {
+                                fields.push(ObjectField {
+                                    name,
+                                    ty,
+                                    optional: false,
+                                });
+                            }
+                        }
+                    }
+                }
                 Type::Object(fields)
             }
             Expr::Binary { op, left, right } => {
@@ -1264,9 +1324,7 @@ impl TypeInference {
 
                 // Unwrap nullable function for optional chaining calls (obj?.method())
                 let (callee_ty, make_result_nullable) = match &callee_ty {
-                    Type::Nullable(inner)
-                        if matches!(inner.as_ref(), Type::Function { .. }) =>
-                    {
+                    Type::Nullable(inner) if matches!(inner.as_ref(), Type::Function { .. }) => {
                         (inner.as_ref().clone(), true)
                     }
                     _ => (callee_ty, false),
@@ -1841,7 +1899,9 @@ impl TypeInference {
             return true;
         }
         // Check class inheritance: Named(child) <: Named(parent)
-        if let (Type::Named(child, _), Type::Named(parent, _)) = (&found_resolved, &expected_resolved) {
+        if let (Type::Named(child, _), Type::Named(parent, _)) =
+            (&found_resolved, &expected_resolved)
+        {
             if self.is_class_subtype(child, parent) {
                 return true;
             }
@@ -1881,17 +1941,16 @@ impl TypeInference {
                     ty.clone()
                 }
             }
-            Type::Array(inner) => {
-                Type::Array(Box::new(self.resolve_aliases(inner)))
-            }
-            Type::Nullable(inner) => {
-                Type::Nullable(Box::new(self.resolve_aliases(inner)))
-            }
+            Type::Array(inner) => Type::Array(Box::new(self.resolve_aliases(inner))),
+            Type::Nullable(inner) => Type::Nullable(Box::new(self.resolve_aliases(inner))),
             Type::Generic { base, args } => Type::Generic {
                 base: base.clone(),
                 args: args.iter().map(|a| self.resolve_aliases(a)).collect(),
             },
-            Type::Function { params, return_type } => Type::Function {
+            Type::Function {
+                params,
+                return_type,
+            } => Type::Function {
                 params: params.iter().map(|p| self.resolve_aliases(p)).collect(),
                 return_type: Box::new(self.resolve_aliases(return_type)),
             },
@@ -2104,11 +2163,7 @@ impl TypeInference {
                         // Expr::Call strips this implicit `self` before
                         // checking call arguments.
                         let new_params: Vec<Type> = std::iter::once(obj_ty.clone())
-                            .chain(
-                                params
-                                    .iter()
-                                    .map(|p| self.substitute_self_type(p, obj_ty)),
-                            )
+                            .chain(params.iter().map(|p| self.substitute_self_type(p, obj_ty)))
                             .collect();
                         let new_ret = self.substitute_self_type(&return_type, obj_ty);
                         Type::Function {
@@ -2181,11 +2236,7 @@ impl TypeInference {
                         // Expr::Call strips this implicit `self` before
                         // checking call arguments.
                         let new_params: Vec<Type> = std::iter::once(obj_ty.clone())
-                            .chain(
-                                params
-                                    .iter()
-                                    .map(|p| self.substitute_self_type(p, obj_ty)),
-                            )
+                            .chain(params.iter().map(|p| self.substitute_self_type(p, obj_ty)))
                             .collect();
                         let new_ret = self.substitute_self_type(&return_type, obj_ty);
                         Type::Function {
@@ -2624,10 +2675,7 @@ fn pattern_var_names(pattern: &Pattern) -> Vec<String> {
             .collect(),
         Pattern::Rest(name) => vec![name.clone()],
         Pattern::As(inner, _) => pattern_var_names(inner),
-        Pattern::Or(patterns) => patterns
-            .first()
-            .map(pattern_var_names)
-            .unwrap_or_default(),
+        Pattern::Or(patterns) => patterns.first().map(pattern_var_names).unwrap_or_default(),
     }
 }
 

@@ -1,6 +1,6 @@
 # Ruyi Roadmap
 
-> **Version**: 0.5.10 | **Date**: 2026-07-25 | **Status**: Phase 1 Complete
+> **Version**: 0.5.10 | **Date**: 2026-07-26 | **Status**: Phase 1 Complete
 >
 > [中文版](roadmap-zh.md)
 
@@ -41,7 +41,7 @@ Ruyi is a compiled programming language targeting native code via LLVM. This roa
 | Module | Completeness | Key Gaps |
 |--------|-------------|----------|
 | **Lexer** | ~98% | `$` in identifiers supported (align with spec §2.5); doc comments not specially handled |
-| **Parser** | ~65% | Match guards, computed property names, generic syntax need verification |
+| **Parser** | ~65% | Match guards, computed property names, generic syntax need verification; `yield` removed (produces compile error); `enum` keyword reserved (planned) |
 | **Typechecker** | ~95% | Trait bounds enforced (v0.5.5); supertraits unchecked; `impl Trait for Type` basic support (v0.5.5) |
 | **Codegen** | ~88% | Member access, array/object literals, template strings, for-loops, try/catch, break, class layout supported; compound assignment (5 ops), anonymous functions, async arrows, complex new (.new pattern), array index assignment supported; BigInt, indirect calls, spread arguments not yet supported |
 | **Macro Expand** | ~60% | Complex repetition patterns, hygiene edge cases |
@@ -101,6 +101,34 @@ Ruyi is a compiled programming language targeting native code via LLVM. This roa
 | Fuzzing | ❌ None | No cargo-fuzz |
 
 **Spec features with ZERO integration tests**: class/OOP, trait system, macros, import/export, type aliases, deep pattern matching, destructuring, `for-of`/`for-in`, bigint, `never` type, ARC classes
+
+## Language Feature Evolution
+
+### Resolved Feature Decisions (v0.5.10+)
+
+| Feature | Decision | Date | Notes |
+|---------|----------|------|-------|
+| `yield` generators | **Removed** | 2026-07-26 | `yield` reserved as keyword; using it produces a compile error. Alternatives: Iterator trait + async/await + Channel + Fiber |
+| `delete` operator | **Restricted** | 2026-07-26 | Only allowed on dyn objects, Map, Set. Class instances have fixed layouts |
+| Native `enum` | **Planned** | 2026-07-26 | `enum` keyword reserved, syntax design defined (spec §17), implementation tasks planned |
+
+### Upcoming: Native `enum` Type
+
+`enum` is the most important enhancement for Ruyi's syntax completeness:
+
+| Metric | Current (class simulation) | After enum |
+|--------|---------------------------|------------|
+| `option.ry` lines | ~175 | ~80 |
+| Constructor pattern match | Not supported | Native support |
+| Exhaustiveness guarantee | None (open union) | Yes (closed enum) |
+| Memory layout | Heap allocation (GC) | Tagged union (stack) |
+
+Implementation in four phases:
+
+1. **Parser**: Parse `enum` definitions, add constructor patterns `Variant(patterns...)` to match
+2. **Typechecker**: Register variants as type constructors, exhaustiveness checking on closed variant set
+3. **Codegen**: Simple enum → LLVM tagged union `{ i8 tag, union payload }`
+4. **stdlib migration**: `option.ry` / `result.ry` migrate from class simulation to native enum
 
 ---
 

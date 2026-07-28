@@ -140,7 +140,10 @@ fn test_fn_simple() {
         } => {
             assert_eq!(name, "add");
             assert_eq!(params.len(), 2);
-            assert_eq!(return_type, Some(TypeAnnotation::Builtin("int".to_string())));
+            assert_eq!(
+                return_type,
+                Some(TypeAnnotation::Builtin("int".to_string()))
+            );
             assert_eq!(body.len(), 1);
             assert!(!is_async);
         }

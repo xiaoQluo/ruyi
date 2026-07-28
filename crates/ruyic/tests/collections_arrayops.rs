@@ -52,9 +52,14 @@ fn workspace_root() -> PathBuf {
 fn collections_source() -> &'static str {
     static CACHE: OnceLock<String> = OnceLock::new();
     CACHE.get_or_init(|| {
-        let path = workspace_root().join("stdlib").join("collections.ry");
-        fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e))
+        let root = workspace_root().join("stdlib");
+        // collections.ry imports quickSort from sort.ry, so we must
+        // prepend sort.ry first for the import to resolve.
+        let sort_src =
+            fs::read_to_string(root.join("sort.ry")).expect("failed to read stdlib/sort.ry");
+        let coll_src = fs::read_to_string(root.join("collections.ry"))
+            .expect("failed to read stdlib/collections.ry");
+        format!("{}\n{}", sort_src, coll_src)
     })
 }
 

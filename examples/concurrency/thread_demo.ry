@@ -67,39 +67,32 @@ fn demo_thread_join() {
 // 3. Channel 通信 — 多线程消息收集
 // =============================================================================
 
-fn worker(sender, id) {
-  let msg = "hello from worker " + id;
-  sender.send(msg);
-  sender.close();
+fn worker(sender: ChannelSender, id: int): void {
+  sender.send(id * 10);
+  sender.free();
 }
 
 fn demo_channel() {
   print("=== 3. Channel Communication ===\n\n");
 
-  let ch = Channel.new();
+  let ch = Channel.new(0);
   let n = 4;
 
   // 启动 N 个 worker，通过 Channel 收集结果
   for (let i = 0; i < n; i = i + 1) {
-    let s = ch.sender();
+    let s = ch.clone();
     Thread.spawn(fn(arg) { worker(s, arg); }, i);
   }
-  ch.close();
 
-  let count = 0;
-  while (true) {
+  // 接收所有 worker 发送的 int 值
+  for (let j = 0; j < n; j = j + 1) {
     let msg = ch.recv();
-    if (msg === null) { break; }
     print("received: ");
     print(msg);
     print("\n");
-    count = count + 1;
   }
-  print("total received: ");
-  print(count);
-  print(" / ");
-  print(n);
-  print("\n\n");
+  ch.free();
+  print("\n");
 }
 
 // =============================================================================

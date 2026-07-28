@@ -96,8 +96,10 @@ pub enum Token {
     Break,
     /// `continue` keyword
     Continue,
-    /// `yield` keyword (generators)
+    /// `yield` keyword (reserved, removed — generators no longer supported)
     Yield,
+    /// `enum` keyword (reserved for future enum type declaration)
+    Enum,
     /// `_` wildcard
     Underscore,
 
@@ -312,6 +314,7 @@ impl Token {
             Token::Break => "break".into(),
             Token::Continue => "continue".into(),
             Token::Yield => "yield".into(),
+            Token::Enum => "enum".into(),
             Token::Underscore => "_".into(),
             Token::Ident(s) => s.clone(),
             Token::Int(i) => i.to_string(),
@@ -431,7 +434,8 @@ impl Token {
             Token::Of => "keyword 'of'".into(),
             Token::Break => "keyword 'break'".into(),
             Token::Continue => "keyword 'continue'".into(),
-            Token::Yield => "keyword 'yield'".into(),
+            Token::Yield => "keyword 'yield' (reserved)".into(),
+            Token::Enum => "keyword 'enum'".into(),
             Token::Underscore => "'_'".into(),
             Token::Ident(_) => "identifier".into(),
             Token::Int(_) => "integer literal".into(),

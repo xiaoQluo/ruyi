@@ -2,6 +2,7 @@ pub mod builtins;
 pub mod expand;
 pub mod hygiene;
 pub mod pattern;
+pub mod scope_classifier;
 
 use crate::lexer::token::Token;
 use crate::parser::ast::{MacroRule, Program};

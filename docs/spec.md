@@ -42,6 +42,7 @@
 14. [Async/Await Semantics](#14-asyncawait-semantics)
 15. [Module Semantics](#15-module-semantics)
 16. [Macro Semantics](#16-macro-semantics)
+17. [Enum Type Semantics](#17-enum-type-semantics) (Planned)
 
 ---
 
@@ -115,7 +116,7 @@ Keyword :: one of
   in          instanceof  typeof      void
   delete      as          extends     dyn
   static      get         set         new
-  of          break       continue    yield
+  of          break       continue    enum
   _
 ```
 
@@ -155,7 +156,7 @@ Keyword :: one of
 | `instanceof` | Type check operator |
 | `typeof` | Runtime type inspection operator |
 | `void` | Void expression operator |
-| `delete` | Property deletion operator (parsed, limited codegen) |
+| `delete` | Property deletion operator (dyn objects, Map, Set only) |
 | `as` | Type cast / pattern alias |
 | `extends` | Class inheritance / trait supertraits |
 | `dyn` | Dynamic dispatch / trait object |
@@ -166,7 +167,8 @@ Keyword :: one of
 | `of` | Value iteration / for-of loop |
 | `break` | Exit enclosing loop |
 | `continue` | Skip to next loop iteration |
-| `yield` | Generator yield (parsed; codegen is no-op) |
+| `yield` | **Reserved keyword (removed)** | Generator feature removed. `yield` is reserved to prevent misuse. Alternatives: Iterator trait + async/await + Channel. |
+| `enum` | Enum type declaration | Defines a closed set of variants (tagged union) with constructor pattern matching. |
 | `_` | Wildcard pattern (match/destructuring) |
 
 ### 2.5 Identifiers
@@ -456,7 +458,6 @@ Operator :: one of
   ++  --
   in  instanceof
   typeof  void  delete
-  yield
 
 Punctuator :: one of
   {  }  (  )  [  ]
@@ -943,7 +944,7 @@ Statement ::
   MatchStatement
   BreakStatement
   ContinueStatement
-  YieldStatement
+  YieldStatement (removed)
   LabeledStatement
   EmptyStatement
 ```
@@ -1182,23 +1183,10 @@ outer: for (let i = 0; i < 10; i = i + 1) {
 }
 ```
 
-#### 3.4.13 Yield Statement
+#### 3.4.13 ~~Yield Statement~~ (Removed)
 
-```
-YieldStatement ::
-  yield Expressionopt ;
-```
-
-The `yield` statement suspends a generator function and produces a value. Currently parsed as a statement; codegen treats it as a no-op.
-
-**Examples**:
-```ruyi
-fn* countUp(limit: int) {
-  for (let i = 0; i < limit; i = i + 1) {
-    yield i;
-  }
-}
-```
+> **Removed**: The `yield` statement and generator feature have been removed from Ruyi. `yield` remains a reserved keyword; using it produces a compile error.
+> Alternatives: `Iterator` trait (lazy sequences), `async fn` + `Channel` (async streams), `Fiber` (coroutines).
 
 #### 3.4.14 Labeled Statement
 
@@ -2042,11 +2030,11 @@ Ruyi removes the following JavaScript features. Each removal includes the ration
 | Automatic semicolon insertion edge cases | **Reduced** | Clearer ASI rules | Ruyi simplifies ASI to avoid the most surprising cases. |
 | Octal literals with leading `0` | **Removed** | `0o` prefix | `0777` being octal but `0999` being decimal is confusing. Explicit `0o` prefix is clear. |
 | `function` keyword | **Removed** | `fn` | Shorter, consistent with other declarations. |
-| `function*` / generators | **Partial** | `yield` keyword parsed | `yield` is parsed as a keyword and statement; codegen treats it as a no-op. Full generator support is planned. |
+| `function*` / generators (`yield`) | **Removed** | Iterator trait + async/await + Channel | `yield` was parsed as a keyword and statement (codegen was no-op). Full generators require coroutine frames, which are extremely complex to implement. Ruyi's `Iterator` trait, `async fn` + `Channel`, and `Fiber` already cover all generator use cases. `yield` is reserved as a keyword to prevent misuse. |
 | `this` binding complexity | **Simplified** | Lexical `self` | Arrow functions capture `self` lexically. Methods use `self` explicitly. |
 | Dynamic property access with arbitrary strings | **Restricted** | Index signatures | Ruyi restricts dynamic property access to typed index signatures. |
 | `eval()` | **Removed** | None | `eval` is a security risk and prevents optimization. |
-| `delete` on object properties | **Limited** | `null` assignment | `delete` is parsed as a unary operator; full codegen support is limited. Prefer `obj.prop = null`. |
+| `delete` on object properties | **Restricted** | dyn objects / Map / Set | `delete` is only allowed on `dyn`-typed objects (runtime hash tables), `Map<K,V>`, and `Set<T>`. Compiled-language class instances have fixed layouts and cannot dynamically delete fields. Use `obj.prop = null` for class instances. |
 | `typeof` returning `"object"` for `null` | **Fixed** | `typeof null` returns `"null"` | The JS bug where `typeof null === "object"` is corrected. |
 | Sparse arrays | **Removed** | Dense arrays with `null` | Sparse arrays have invisible holes. Ruyi arrays are always dense. |
 | `Number`, `String`, `Boolean` wrapper objects | **Removed** | Primitive types only | Wrapper objects create confusing identity behavior (`new String("a") !== "a"`). |
@@ -2172,7 +2160,7 @@ let, const, fn, class, trait, impl, dyn, match, if, else, for, while,
 return, throw, try, catch, finally, async, await, import,
 export, macro, type, true, false, null, self, super, this,
 in, instanceof, typeof, void, delete, as, extends, static,
-get, set, new, of, break, continue, yield, _
+get, set, new, of, break, continue, enum, _
 ```
 
 ### A.2 Operator Tokens
@@ -2187,8 +2175,10 @@ get, set, new, of, break, continue, yield, _
 &, |=, ^=, <<=, >>=, >>>=,
 &&=, ||=, ??=,
 =>, ++, --,
-in, instanceof, typeof, void, delete, yield
+in, instanceof, typeof, void, delete
 ```
+
+> **Note**: `yield` has been removed from operator tokens; it remains only as a reserved keyword token.
 
 ### A.3 Punctuator Tokens
 
@@ -2252,6 +2242,7 @@ null, true, false
 ```
 Declaration     → LexicalDeclaration | FunctionDeclaration | ClassDeclaration
                 | TraitDeclaration | ImplDeclaration | TypeAliasDeclaration | MacroDeclaration
+                | EnumDeclaration
 LexicalDecl     → let BindingList ; | const BindingList ;
 FunctionDecl    → fn Identifier TypeParams? ( Params? ) ReturnType? { Body }
 ClassDecl       → @Annot* class Identifier TypeParams? extends Expr? { ClassBody }
@@ -2259,6 +2250,7 @@ TraitDecl       → trait Identifier TypeParams? extends TraitList? { TraitBody 
 ImplDecl        → impl TypeParams? TraitName TypeArgs? for Type { ClassBody }
 TypeAlias       → type Identifier TypeParams? = Type ;
 MacroDecl       → macro Identifier { MacroRules }
+EnumDecl        → enum Identifier TypeParams? { EnumVariants }  (planned)
 ```
 
 ### B.2 Statement Grammar
@@ -2266,7 +2258,7 @@ MacroDecl       → macro Identifier { MacroRules }
 ```
 Statement       → Block | IfStmt | IfLetStmt | WhileStmt | WhileLetStmt
                 | ForStmt | ForInStmt | ForOfStmt | ReturnStmt | ThrowStmt
-                | TryStmt | MatchStmt | BreakStmt | ContinueStmt | YieldStmt
+                | TryStmt | MatchStmt | BreakStmt | ContinueStmt
                 | LabeledStmt | ExprStmt | EmptyStmt
 IfStmt          → if ( Expr ) Stmt else Stmt?
 IfLetStmt       → if let Pattern = Expr Block else Stmt?
@@ -2281,7 +2273,6 @@ TryStmt         → try Block catch ( Pattern ) Block? finally Block?
 MatchStmt       → match ( Expr ) { MatchArms }
 BreakStmt       → break Identifier? ;
 ContinueStmt    → continue Identifier? ;
-YieldStmt       → yield Expr? ;
 LabeledStmt     → Identifier : Stmt
 ```
 
@@ -3641,38 +3632,19 @@ try {
 2. `await` on an errored future re-throws the exception in the awaiting context.
 3. Exceptions do not cross task boundaries unless explicitly propagated via `await`.
 
-### 14.5 Async Iterators
+~~Async Iterators~~ (removed along with `yield`):
 
-Async iterators produce values asynchronously:
-
-```ruyi
-async fn* readLines(file: File): AsyncIterator<string> {
-  while let line = await file.readLine() {
-    yield line;
-  }
-}
-
-for await (let line of readLines(file)) {
-  print(line);
-}
-```
-
-**AsyncIterator trait**:
-
-```ruyi
-trait AsyncIterator<T> {
-  fn next(self): Future<T?>;
-}
-```
-
-`for await` desugars to:
-
-```ruyi
-let iter = readLines(file);
-while let Some(line) = await iter.next() {
-  print(line);
-}
-```
+> Async iteration depended on `yield` syntax, which has been removed. Alternative: use `Channel<T>` + `async fn` for async streams.
+>
+> ```ruyi
+> // Alternative: Channel + async fn
+> async fn readLines(file: File, ch: Channel<string>) {
+>   while let line = await file.readLine() {
+>     ch.send(line);
+>   }
+>   ch.close();
+> }
+> ```
 
 ---
 
@@ -3989,6 +3961,107 @@ debug(x);    // works
 1. Macros must be explicitly exported with `export macro`.
 2. Imported macros are expanded in the context of the importing module.
 3. Macro hygiene ensures that exported macros do not accidentally capture names from the importing module.
+
+---
+
+## 17. Enum Type Semantics (Planned)
+
+> **Status**: Planned. The `enum` keyword is reserved; syntax design is defined; implementation will be rolled out in a future release.
+
+### 17.1 Enum Definition
+
+An enum defines a closed set of variants (tagged union), each of which may carry data:
+
+```
+EnumDeclaration ::
+  enum Identifier TypeParameters? {
+    EnumVariants
+  }
+
+EnumVariants ::
+  EnumVariant
+  EnumVariant , EnumVariants
+
+EnumVariant ::
+  Identifier
+  Identifier ( TypeList )
+```
+
+**Examples**:
+```ruyi
+enum Option<T> {
+    Some(T),
+    None,
+}
+
+enum Result<T, E> {
+    Ok(T),
+    Err(E),
+}
+
+enum Json {
+    Null,
+    Bool(bool),
+    Number(float),
+    Str(string),
+    Array(Array<Json>),
+    Object(Map<string, Json>),
+}
+```
+
+### 17.2 Enum Semantics
+
+- Enums are **closed**: only the defined variants exist; no additional variants are possible.
+- Each variant is a **constructor function**: `Some(42)` creates a value of type `Option<int>`.
+- Data-less variants (e.g. `None`) are singleton values requiring no parentheses.
+- Enum values compile to **tagged unions** (1-byte tag + payload), no heap allocation needed.
+
+### 17.3 Constructor Pattern Matching
+
+`match` expressions support constructor patterns on enum variants:
+
+```ruyi
+fn describe(opt: Option<int>): string {
+    match (opt) {
+        Some(v) => { return "has value: " + v.toString(); }
+        None => { return "no value"; }
+    }
+}
+```
+
+Exhaustiveness checking is based on the enum's closed variant set: if a `match` does not cover all variants, the compiler emits a warning.
+
+### 17.4 Enum Methods
+
+Methods are added to enums via `impl` blocks:
+
+```ruyi
+impl<T> Option<T> {
+    fn isSome(self): bool {
+        match (self) {
+            Some(_) => { return true; }
+            None => { return false; }
+        }
+    }
+
+    fn unwrap(self): T {
+        match (self) {
+            Some(v) => { return v; }
+            None => { throw RuntimeError.new("unwrap on None"); }
+        }
+    }
+}
+```
+
+### 17.5 Coordination with Existing Features
+
+| Existing Feature | Coordination |
+|-----------------|-------------|
+| `type` union type aliases | Retained; simple cases still usable |
+| `class` + `trait` | Retained; use when open class hierarchies are needed |
+| `match` expressions | Extended with constructor patterns |
+| Generics | Direct support for `enum Option<T>` |
+| `if let` / `while let` | Natural support: `if let Some(v) = opt { ... }` |
 
 ---
 

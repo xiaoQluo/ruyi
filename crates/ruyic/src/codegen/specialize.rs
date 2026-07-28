@@ -138,6 +138,42 @@ pub fn bind_type_params(
     }
 }
 
+/**
+ * 与 bind_type_params 类似，但模式侧使用 Type 而非 TypeAnnotation。
+ * 用于从构造函数的声明参数类型和实际参数类型中提取泛型绑定。
+ */
+pub fn bind_type_params_from_type(
+    pattern: &Type,
+    concrete: &Type,
+    params: &[String],
+    out: &mut HashMap<String, Type>,
+) {
+    match (pattern, concrete) {
+        (Type::Named(name, _), ty) => {
+            if params.iter().any(|p| p == name) {
+                out.entry(name.clone()).or_insert_with(|| ty.clone());
+            }
+        }
+        (Type::TypeVar(tv), ty) => {
+            out.entry(tv.name.clone()).or_insert_with(|| ty.clone());
+        }
+        (Type::Nullable(inner_p), Type::Nullable(inner_c)) => {
+            bind_type_params_from_type(inner_p, inner_c, params, out);
+        }
+        (Type::Array(inner_p), Type::Array(inner_c)) => {
+            bind_type_params_from_type(inner_p, inner_c, params, out);
+        }
+        (Type::Generic { base: pb, args: pa }, Type::Generic { base: cb, args: ca })
+            if pb == cb && pa.len() == ca.len() =>
+        {
+            for (p, c) in pa.iter().zip(ca.iter()) {
+                bind_type_params_from_type(p, c, params, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Convert a concrete checker-level `Type` back into a parser-level
 /// annotation so it can be substituted into a method AST. Returns `None`
 /// for types that have no annotation form.

@@ -76,9 +76,9 @@ fn test_type_mismatch_renders() {
   test.ry:5:10
    test.ry
    1 |     let x: int = "hello";
-                           ^^^^^^
-      expected `int`, found `string`
+       |                ^^^^^^^^
 
+  note expected `int`, found `string`
   = help: cast to int with `as int`"#,
     );
 }
@@ -91,7 +91,7 @@ fn test_undefined_variable_renders() {
   test.ry:10:5
    test.ry
    1 |     println(count);
-                   ^^^^^
+       |              ^^^^^
   = help: did you mean `cound`?"#,
     );
 }
@@ -104,7 +104,7 @@ fn test_missing_semicolon_renders() {
   test.ry:3:14
    test.ry
    1 |     let x = 42
-                  ^
+       |               ^
 "#,
     );
 }
@@ -117,7 +117,7 @@ fn test_unused_variable_warning_renders() {
   test.ry:1:5
    test.ry
    1 | let unused = 42;
-             ^^^^^^
+       |     ^^^^^^
 "#,
     );
 }
@@ -152,13 +152,11 @@ fn test_error_chain_renders() {
   main.ry:20:8
    main.ry
    1 |     let result = add("hi", 42);
-                            ^^^^^^^^^^
-  note
-  main.ry:20:8
-   ...arguments to this function are...
-  note
-  main.ry:20:8
-   ...expected `string`, found `int`"#,
+       |              ^^^^^^^^^^^^
+
+  note arguments to this function are...
+
+  note ...expected `string`, found `int`"#,
     );
 }
 

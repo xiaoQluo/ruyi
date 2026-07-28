@@ -260,6 +260,22 @@ impl Parser {
     }
 
     fn parse_module_item(&mut self) -> Result<ModuleItem, ParseError> {
+        // Handle `@annotation export class/fn` by consuming annotations first,
+        // then `export`, then dispatching to the underlying declaration parser.
+        if self.check(&Token::At) && self.has_annotation_followed_by_export() {
+            let annotations = self.parse_annotations();
+            self.expect(Token::Export)?;
+            let decl = match self.current_token() {
+                Some(Token::Class) => {
+                    // parse_class_declaration will skip annotations (already consumed)
+                    // and skip export (already consumed), then parse `class ...`.
+                    self.parse_class_declaration_with(annotations)?
+                }
+                _ => self.parse_fn_declaration_with(annotations)?,
+            };
+            return Ok(ModuleItem::Export(ExportDecl::Declaration(decl)));
+        }
+
         match self.current_token() {
             Some(Token::Import) => self.parse_import().map(ModuleItem::Import),
             Some(Token::Export) => self.parse_export().map(ModuleItem::Export),
@@ -270,6 +286,24 @@ impl Parser {
             }
             _ => self.parse_statement().map(ModuleItem::Statement),
         }
+    }
+
+    /// Lookahead scan: returns `true` if the current position starts with
+    /// one or more `@annotation` pairs followed by the `export` keyword.
+    fn has_annotation_followed_by_export(&self) -> bool {
+        let mut scan = self.pos;
+        while matches!(self.tokens.get(scan).map(|t| &t.token), Some(Token::At)) {
+            scan += 1;
+            if matches!(
+                self.tokens.get(scan).map(|t| &t.token),
+                Some(Token::Ident(_))
+            ) {
+                scan += 1;
+            } else {
+                return false;
+            }
+        }
+        matches!(self.tokens.get(scan).map(|t| &t.token), Some(Token::Export))
     }
 
     // Import / Export
@@ -451,6 +485,16 @@ impl Parser {
             Some(Token::Type) => self.parse_type_alias(),
             Some(Token::Macro) => self.parse_macro_declaration(),
             Some(Token::Extern) => self.parse_extern_declaration(),
+            Some(Token::Enum) => {
+                let loc = self.location();
+                Err(ParseError::SyntaxError {
+                    message: "`enum` declarations are not yet implemented. \
+                              This feature is planned for a future release."
+                        .into(),
+                    line: loc.line,
+                    col: loc.col,
+                })
+            }
             _ => Err(self.error("expected declaration")),
         }
     }
@@ -588,6 +632,68 @@ impl Parser {
             type_params,
             extends,
             body,
+            annotations,
+        })
+    }
+
+    /// Parse a class declaration with pre-parsed annotations (used when
+    /// `@annotation export class` is handled by parse_module_item).
+    fn parse_class_declaration_with(
+        &mut self,
+        annotations: Vec<String>,
+    ) -> Result<Declaration, ParseError> {
+        self.expect(Token::Class)?;
+        let name = self.expect_ident()?;
+        let type_params = self.parse_type_params()?;
+        let extends = if self.match_token(&Token::Extends) {
+            Some(Box::new(self.parse_expression()?))
+        } else {
+            None
+        };
+        self.expect(Token::LBrace)?;
+        let mut body = Vec::new();
+        while !self.check(&Token::RBrace) && !self.is_at_end() {
+            body.push(self.parse_class_element()?);
+        }
+        self.expect(Token::RBrace)?;
+        Ok(Declaration::Class {
+            name,
+            type_params,
+            extends,
+            body,
+            annotations,
+        })
+    }
+
+    /// Parse a function declaration with pre-parsed annotations (used when
+    /// `@annotation export fn` is handled by parse_module_item).
+    fn parse_fn_declaration_with(
+        &mut self,
+        annotations: Vec<String>,
+    ) -> Result<Declaration, ParseError> {
+        let is_async = self.match_token(&Token::Async);
+        self.expect(Token::Fn)?;
+        self.match_token(&Token::Star);
+        let name = self.expect_ident_or_keyword()?;
+        let type_params = self.parse_type_params()?;
+        self.expect(Token::LParen)?;
+        let params = self.parse_formal_params()?;
+        self.expect(Token::RParen)?;
+        let return_type = if self.check(&Token::Colon) {
+            Some(self.parse_type_annotation()?)
+        } else {
+            None
+        };
+        self.expect(Token::LBrace)?;
+        let body = self.parse_function_body()?;
+        self.expect(Token::RBrace)?;
+        Ok(Declaration::Function {
+            name,
+            type_params,
+            params,
+            return_type,
+            body,
+            is_async,
             annotations,
         })
     }
@@ -876,6 +982,14 @@ impl Parser {
                 self.advance();
                 Ok(PropertyName::Ident("delete".to_string()))
             }
+            Some(Token::Enum) => {
+                self.advance();
+                Ok(PropertyName::Ident("enum".to_string()))
+            }
+            Some(Token::Yield) => {
+                self.advance();
+                Ok(PropertyName::Ident("yield".to_string()))
+            }
             Some(Token::Type) => {
                 self.advance();
                 Ok(PropertyName::Ident("type".to_string()))
@@ -927,7 +1041,7 @@ impl Parser {
                 Ok(Statement::Empty)
             }
             Some(Token::Let) | Some(Token::Const) | Some(Token::Class) | Some(Token::Fn)
-            | Some(Token::Async) => {
+            | Some(Token::Async) | Some(Token::Enum) => {
                 let decl = self.parse_declaration()?;
                 Ok(Statement::Declaration(decl))
             }
@@ -1130,16 +1244,22 @@ impl Parser {
         Ok(Statement::Return(value))
     }
 
+    /**
+     * yield 语句已从 Ruyi 中移除，生成器特性不再支持。
+     * 遇到 yield 时产生编译错误，引导用户使用 Iterator/Channel/Fiber 替代。
+     *
+     * @date 2026-07-26
+     */
     fn parse_yield_statement(&mut self) -> Result<Statement, ParseError> {
-        self.expect(Token::Yield)?;
-        let value =
-            if self.check(&Token::SemiColon) || self.check(&Token::RBrace) || self.is_at_end() {
-                None
-            } else {
-                Some(Box::new(self.parse_expression()?))
-            };
-        self.expect(Token::SemiColon)?;
-        Ok(Statement::Yield(value))
+        let loc = self.location();
+        Err(ParseError::SyntaxError {
+            message:
+                "`yield` has been removed from Ruyi. Generator feature is no longer supported. \
+                      Use Iterator trait, async fn + Channel, or Fiber instead."
+                    .into(),
+            line: loc.line,
+            col: loc.col,
+        })
     }
 
     fn parse_throw_statement(&mut self) -> Result<Statement, ParseError> {
@@ -1929,10 +2049,10 @@ impl Parser {
         let then_branch = if then_stmts.len() == 1 {
             match then_stmts.into_iter().next().unwrap() {
                 Statement::Expression(e) => *e,
-                _stmt => Expr::Grouping(Box::new(Expr::Identifier("__block__".into()))),
+                stmt => Expr::Block(vec![stmt]),
             }
         } else {
-            Expr::Grouping(Box::new(Expr::Identifier("__block__".into()))) // placeholder - not ideal
+            Expr::Block(then_stmts)
         };
         let else_branch = if self.match_token(&Token::Else) {
             if self.check(&Token::If) {
@@ -1945,10 +2065,10 @@ impl Parser {
                 if else_stmts.len() == 1 {
                     match else_stmts.into_iter().next().unwrap() {
                         Statement::Expression(e) => Some(Box::new(*e)),
-                        _ => Some(Box::new(Expr::NullLiteral)),
+                        stmt => Some(Box::new(Expr::Block(vec![stmt]))),
                     }
                 } else {
-                    Some(Box::new(Expr::NullLiteral))
+                    Some(Box::new(Expr::Block(else_stmts)))
                 }
             }
         } else {

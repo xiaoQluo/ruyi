@@ -496,6 +496,7 @@ impl Scanner {
             "break" => Token::Break,
             "continue" => Token::Continue,
             "yield" => Token::Yield,
+            "enum" => Token::Enum,
             "_" => Token::Underscore,
             _ => Token::Ident(ident.to_string()),
         }

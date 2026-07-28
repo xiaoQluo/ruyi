@@ -206,26 +206,28 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
     }
 
     /**
-     * Build a catch-all dispatch — unconditional branch to the first handler.
+     * Build a catch dispatch with selector-based type filtering.
      *
-     * Ruyi uses a single exception type (Error), so all catch clauses are
-     * catch-all. No selector comparison is needed: the landing pad unconditionally
-     * branches to the first handler, or to `cleanup_bb` / `resume_bb` when
-     * there are no catch clauses.
+     * When all handlers are catch-all (type_id == 0), emits an
+     * unconditional branch to the first handler (fast path).
+     * Otherwise, extracts the landing-pad selector and compares it
+     * against each handler's `llvm.eh.typeid.for` value, branching
+     * to the first match. Falls through to `cleanup_bb` / `resume_bb`
+     * when no handler matches.
      *
-     * **Caller must ensure** `self.builder` is positioned inside the landing-pad
-     * block before calling this method.
+     * **Caller must ensure** `self.builder` is positioned inside the
+     * landing-pad block before calling this method.
      *
-     * @param _landing_pad_val landingpad 结果值 (catch-all 模式下未使用)
+     * @param landing_pad_val landingpad 结果值
      * @param catch_handlers (类型 id, 处理基本块) 列表
      * @param cleanup_bb 可选的 finally/cleanup 块
      * @param resume_bb 未捕获异常时的 resume 块
      * @author Ruyi Team
-     * @date 2026-07-08
+     * @date 2026-07-26
      */
     pub fn build_catch_dispatch(
         &self,
-        _landing_pad_val: BasicValueEnum<'ctx>,
+        landing_pad_val: BasicValueEnum<'ctx>,
         catch_handlers: &[(TryTypeId, BasicBlock<'ctx>)],
         cleanup_bb: Option<BasicBlock<'ctx>>,
         resume_bb: BasicBlock<'ctx>,
@@ -236,10 +238,81 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
             } else {
                 self.builder.build_unconditional_branch(resume_bb);
             }
-        } else {
-            // catch-all: unconditional branch to first handler
+            return;
+        }
+
+        // EX-H1: If all handlers are catch-all (type_id == 0), use unconditional branch
+        if catch_handlers.iter().all(|(id, _)| *id == 0) {
             let (_, first_handler) = catch_handlers[0];
             self.builder.build_unconditional_branch(first_handler);
+            return;
+        }
+
+        // EX-H1: Selector-based type dispatch
+        let selector = self.extract_selector(landing_pad_val);
+        let func = self
+            .builder
+            .get_insert_block()
+            .unwrap()
+            .get_parent()
+            .unwrap();
+
+        // Pre-compute next-block targets: each handler gets a dispatch block,
+        // the last one falls through to cleanup_bb or resume_bb.
+        let mut next_blocks: Vec<BasicBlock<'ctx>> = Vec::new();
+        for i in 1..catch_handlers.len() {
+            let bb = self
+                .context
+                .append_basic_block(func, &format!("catch.dispatch.next.{}", i));
+            next_blocks.push(bb);
+        }
+
+        for (i, &(type_id, handler_bb)) in catch_handlers.iter().enumerate() {
+            let next_bb = if i + 1 < catch_handlers.len() {
+                next_blocks[i]
+            } else {
+                cleanup_bb.unwrap_or(resume_bb)
+            };
+
+            let eh_typeid = self.build_eh_typeid_for(type_id);
+            let cmp = self.builder.build_int_compare(
+                inkwell::IntPredicate::EQ,
+                selector,
+                eh_typeid,
+                &format!("catch.matches.{}", i),
+            );
+            self.builder
+                .build_conditional_branch(cmp, handler_bb, next_bb);
+
+            // Position builder at the next dispatch block (if any)
+            if i + 1 < catch_handlers.len() {
+                self.builder.position_at_end(next_blocks[i]);
+            }
+        }
+
+        // Last "next" block (no more handlers): route to cleanup or resume
+        if !catch_handlers.is_empty() {
+            let end_block = if next_blocks.is_empty() {
+                // Only one handler — already emitted; nothing to do here
+                None
+            } else {
+                Some(*next_blocks.last().unwrap())
+            };
+            if let Some(bb) = end_block {
+                // The builder was already positioned at end_block above
+                // (the last next_blocks entry). Emit cleanup/resume branch.
+                if self.builder.get_insert_block() == Some(bb) {
+                    if let Some(cleanup) = cleanup_bb {
+                        self.builder.build_unconditional_branch(cleanup);
+                    } else {
+                        self.builder.build_unconditional_branch(resume_bb);
+                    }
+                }
+            } else if cleanup_bb.is_some() || catch_handlers.len() == 1 {
+                // Single handler: no fallthrough block was created;
+                // the conditional branch already routes to cleanup/resume.
+                // Nothing extra to emit here.
+            }
         }
     }
 
@@ -249,6 +322,9 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
         get_or_insert_function(self.module, "__gxx_personality_v0", personality_ty)
     }
 
+    /// EX-H1: Each type ID gets a unique global string initializer so that
+    /// `llvm.eh.typeid.for` returns a distinct selector per type. This
+    /// enables the landing-pad selector comparison in `build_catch_dispatch`.
     fn get_type_info_global(&self, type_id: TryTypeId) -> PointerValue<'ctx> {
         let name = format!("__ruyi_type_info_{}", type_id);
         let i8_ptr = self.context.i8_type().ptr_type(AddressSpace::default());
@@ -257,7 +333,24 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
             global.as_pointer_value()
         } else {
             let global = self.module.add_global(i8_ptr, None, &name);
-            global.set_initializer(&i8_ptr.const_null());
+            // Unique non-null initializer per type so each gets a distinct
+            // address → distinct `llvm.eh.typeid.for` selector value.
+            let init_str = format!("ruyi.exc.type.{}\0", type_id);
+            let init_array = self
+                .context
+                .const_string(&init_str.as_bytes()[..init_str.len() - 1], false);
+            let init_global = self.module.add_global(
+                init_array.get_type(),
+                None,
+                &format!("__ruyi_type_str_{}", type_id),
+            );
+            init_global.set_initializer(&init_array);
+            let init_ptr = init_global.as_pointer_value();
+            let cast_ptr = self
+                .builder
+                .build_bitcast(init_ptr, i8_ptr, &format!("type_info_cast_{}", type_id))
+                .into_pointer_value();
+            global.set_initializer(&cast_ptr);
             global.as_pointer_value()
         }
     }
@@ -338,9 +431,10 @@ mod llvm_tests {
 
         let ir = module.print_to_string().to_string();
 
-        // 确认 type_info global 有 null initializer (定义式,不是外部声明)
+        // 确认 type_info global 有 initializer (定义式,不是外部声明)
+        // EX-H1: globals now use unique string initializers instead of null
         assert!(
-            ir.contains("global i8* null") && !ir.contains("external"),
+            ir.contains("global i8*") && !ir.contains("external"),
             "type_info global must be defined (not external declaration):\n{}",
             ir
         );

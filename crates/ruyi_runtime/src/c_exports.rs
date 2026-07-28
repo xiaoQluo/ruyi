@@ -1,4 +1,6 @@
+use crate::exception::builtin_type_ids;
 use crate::exception::types::ExceptionObject;
+use crate::exception::TypeId;
 use std::alloc::{alloc, Layout};
 use std::ffi::CStr;
 use std::sync::atomic::{AtomicPtr, Ordering};
@@ -22,6 +24,83 @@ pub extern "C" fn ruyi_throw(msg: *const i8) {
         );
         crate::exception::throw_exception(exc);
     }
+}
+
+/// EX-H3: Map class name to builtin type ID.
+///
+/// Returns `builtin_type_ids::ERROR` for unknown class names (safe fallback).
+///
+/// @author Ruyi Team
+/// @date 2026-07-26
+pub fn class_name_to_type_id(name: &str) -> TypeId {
+    match name {
+        "Error" => builtin_type_ids::ERROR,
+        "TypeError" => builtin_type_ids::TYPE_ERROR,
+        "RangeError" => builtin_type_ids::RANGE_ERROR,
+        "RuntimeError" => builtin_type_ids::RUNTIME_ERROR,
+        "LogicError" => builtin_type_ids::LOGIC_ERROR,
+        "AssertionError" => builtin_type_ids::ASSERTION_ERROR,
+        "ArgumentError" => builtin_type_ids::ARGUMENT_ERROR,
+        "NullError" => builtin_type_ids::NULL_ERROR,
+        "ArithmeticError" => builtin_type_ids::ARITHMETIC_ERROR,
+        "IteratorError" => builtin_type_ids::ITERATOR_ERROR,
+        "ParseError" => builtin_type_ids::PARSE_ERROR,
+        "NullAssertionError" => builtin_type_ids::NULL_ASSERTION_ERROR,
+        "IOError" => builtin_type_ids::IO_ERROR,
+        _ => builtin_type_ids::ERROR,
+    }
+}
+
+/// EX-H3: Throw with explicit type ID.
+///
+/// Allows codegen to pass the resolved type ID so the runtime exception
+/// carries the correct type tag for catch dispatch filtering.
+///
+/// @author Ruyi Team
+/// @date 2026-07-26
+#[no_mangle]
+pub extern "C" fn ruyi_throw_with_type(type_id: u64, msg: *const i8) {
+    unsafe {
+        let c_str = CStr::from_ptr(msg);
+        let message = c_str.to_string_lossy().into_owned();
+        let exc = crate::exception::RuyiException::new(type_id, message);
+        crate::exception::throw_exception(exc);
+    }
+}
+
+/// EX-H3: Throw with class name (convenience wrapper).
+///
+/// Maps the class name to a type ID via `class_name_to_type_id`, then
+/// creates a `RuyiException` with the resolved type tag.
+///
+/// @author Ruyi Team
+/// @date 2026-07-26
+#[no_mangle]
+pub extern "C" fn ruyi_throw_typed(class_name: *const i8, msg: *const i8) {
+    unsafe {
+        let name = CStr::from_ptr(class_name).to_string_lossy();
+        let message = CStr::from_ptr(msg).to_string_lossy().into_owned();
+        let type_id = class_name_to_type_id(&name);
+        let exc = crate::exception::RuyiException::new(type_id, message);
+        crate::exception::throw_exception(exc);
+    }
+}
+
+/// Rethrow an exception object captured by a landing pad.
+///
+/// Used by finally blocks to propagate an unhandled exception. The
+/// `exc_ptr` is the raw pointer from the landing-pad result, treated
+/// as an opaque payload (re-thrown as a generic Error).
+///
+/// @author Ruyi Team
+/// @date 2026-07-26
+#[no_mangle]
+pub extern "C" fn ruyi_rethrow(exc_ptr: *const i8) {
+    let exc = crate::exception::RuyiException::new(
+        builtin_type_ids::ERROR,
+        format!("rethrown exception at {:p}", exc_ptr),
+    );
+    crate::exception::throw_exception(exc);
 }
 
 #[no_mangle]

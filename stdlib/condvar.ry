@@ -32,6 +32,8 @@
  * @date 2026-07-25
  */
 
+import { Mutex } from "mutex";
+
 export class Condvar {
     _ptr: dyn;
 
@@ -46,7 +48,7 @@ export class Condvar {
      *  Atomically unlocks the mutex, blocks until notified, re-locks.
      *  After returning, the mutex is locked and the caller should re-check
      *  the condition in a loop. */
-    fn wait(mutex: dyn): void {
+    fn wait(mutex: Mutex): void {
         // The FFI takes raw mutex pointer (not the guard)
         // Internally: lock → condvar.wait(guard) → returns unlocked
         // Caller must re-lock after this
