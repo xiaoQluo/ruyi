@@ -28,7 +28,6 @@ pub use crate::fiber_ffi::{
     __fiber_yield,
 };
 pub use crate::float_ffi::{__f64_from_bits, __f64_to_bits};
-use crate::gc_exports::ruyi_gc_alloc;
 pub use crate::json_ffi::{__json_parse, __json_stringify};
 pub use crate::math_ffi::{
     __math_abs, __math_ceil, __math_cos, __math_e, __math_floor, __math_log, __math_max,
@@ -185,28 +184,60 @@ pub extern "C" fn ruyi_string_concat(lhs: *const i8, rhs: *const i8) -> *mut i8 
 
 /// Allocate a Ruyi array with the given capacity.
 ///
-/// Layout: `[len: i64][cap: i64][data: *mut i8 * cap]`
+/// Layout: `[len: i64][cap: i64][data_ptr: *mut i64]` (24-byte header)
+/// followed by a separate element buffer of `cap` 8-byte words that
+/// `data_ptr` references.
 ///
-/// Returns a pointer to the array header. The caller is responsible
-/// for freeing the returned pointer.
+/// The header pointer is stable for the array's whole lifetime: growth
+/// replaces only the data buffer, so the array keeps reference semantics
+/// when passed across function boundaries.
 #[no_mangle]
 pub extern "C" fn ruyi_array_alloc(capacity: i64) -> *mut i8 {
     unsafe {
         let cap = if capacity < 0 { 0 } else { capacity as usize };
-        let header_size = std::mem::size_of::<i64>() * 2;
-        let data_size = cap * std::mem::size_of::<*mut i8>();
+        let header_size = std::mem::size_of::<i64>() * 3;
         let layout =
-            Layout::from_size_align(header_size + data_size, std::mem::align_of::<i64>()).unwrap();
+            Layout::from_size_align(header_size, std::mem::align_of::<i64>()).unwrap();
         let ptr = alloc(layout) as *mut i8;
         if ptr.is_null() {
             return std::ptr::null_mut();
         }
+        let data = if cap > 0 {
+            let data_size = cap * std::mem::size_of::<i64>();
+            let data_layout =
+                Layout::from_size_align(data_size, std::mem::align_of::<i64>()).unwrap();
+            let data_ptr = alloc(data_layout) as *mut i8;
+            if data_ptr.is_null() {
+                // Header leaks on this rare OOM path; freeing would need
+                // the dealloc import and allocation failure is fatal anyway.
+                return std::ptr::null_mut();
+            }
+            // Zero-initialize the data slots.
+            std::ptr::write_bytes(data_ptr, 0, data_size);
+            data_ptr
+        } else {
+            std::ptr::null_mut()
+        };
         *(ptr as *mut i64) = 0; // len
         *(ptr.add(std::mem::size_of::<i64>()) as *mut i64) = cap as i64; // cap
-                                                                         // Zero-initialize the data slots.
-        std::ptr::write_bytes(ptr.add(header_size), 0, data_size);
+        *(ptr.add(std::mem::size_of::<i64>() * 2) as *mut i64) = data as i64; // data_ptr
         ptr
     }
+}
+
+/// Read the element-buffer pointer stored in an array header (offset 16).
+///
+/// Returns null for a null header.
+#[inline]
+unsafe fn array_data_ptr(arr: *mut i8) -> *mut i64 {
+    if arr.is_null() {
+        return std::ptr::null_mut();
+    }
+    let raw = std::ptr::read_unaligned(arr.add(16) as *const i64);
+    if (raw as usize) < 0x1000 {
+        return std::ptr::null_mut();
+    }
+    raw as *mut i64
 }
 
 /// Allocate a Ruyi object with the given field count.
@@ -424,12 +455,15 @@ pub extern "C" fn ruyi_array_get(arr: *mut i8, index: i64) -> i64 {
         if arr.is_null() || index < 0 {
             return 0;
         }
-        let len = *(arr as *mut i64);
+        let len = std::ptr::read_unaligned(arr as *const i64);
         if index >= len {
             return 0;
         }
-        let data = arr.add(std::mem::size_of::<i64>() * 2) as *mut i64;
-        *data.add(index as usize)
+        let data = array_data_ptr(arr);
+        if data.is_null() {
+            return 0;
+        }
+        std::ptr::read_unaligned(data.add(index as usize))
     }
 }
 
@@ -443,19 +477,25 @@ pub extern "C" fn ruyi_array_set(arr: *mut i8, index: i64, value: i64) {
         if arr.is_null() || index < 0 {
             return;
         }
-        let len = *(arr as *mut i64);
+        let len = std::ptr::read_unaligned(arr as *const i64);
         if index >= len {
             return;
         }
-        let data = arr.add(std::mem::size_of::<i64>() * 2) as *mut i64;
-        *data.add(index as usize) = value;
+        let data = array_data_ptr(arr);
+        if data.is_null() {
+            return;
+        }
+        std::ptr::write_unaligned(data.add(index as usize), value);
     }
 }
 
 /// Push an element onto the end of a Ruyi array.
 ///
-/// Reallocates the array if capacity is exceeded. Returns the (possibly
-/// reallocated) array pointer, or null on allocation failure.
+/// On capacity overflow a new element buffer is allocated and the
+/// header's `data_ptr` is updated in place; the header pointer itself
+/// never moves, so every alias of the array observes the growth.
+/// Returns the (unchanged) array header pointer, or null on allocation
+/// failure.
 #[no_mangle]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn ruyi_array_push(arr: *mut i8, value: i64) -> *mut i8 {
@@ -465,30 +505,39 @@ pub extern "C" fn ruyi_array_push(arr: *mut i8, value: i64) -> *mut i8 {
         }
         let len_ptr = arr as *mut i64;
         let cap_ptr = arr.add(std::mem::size_of::<i64>()) as *mut i64;
+        let data_ptr_slot = arr.add(std::mem::size_of::<i64>() * 2) as *mut i64;
         let len = *len_ptr;
         let cap = *cap_ptr;
 
         if len >= cap {
             let new_cap = if cap == 0 { 4 } else { cap * 2 };
-            let header_size = std::mem::size_of::<i64>() * 2;
-            let old_data_size = cap as usize * std::mem::size_of::<i64>();
             let new_data_size = new_cap as usize * std::mem::size_of::<i64>();
-            let new_size = header_size + new_data_size;
-
-            let new_arr = ruyi_gc_alloc(new_size as i64) as *mut i8;
-            if new_arr.is_null() {
+            let data_layout =
+                Layout::from_size_align(new_data_size, std::mem::align_of::<i64>()).unwrap();
+            let new_data = alloc(data_layout) as *mut i64;
+            if new_data.is_null() {
                 return std::ptr::null_mut();
             }
 
-            std::ptr::copy_nonoverlapping(arr, new_arr, header_size + old_data_size);
-            *(new_arr.add(std::mem::size_of::<i64>()) as *mut i64) = new_cap;
-            let data = new_arr.add(header_size) as *mut i64;
-            *data.add(len as usize) = value;
-            *(new_arr as *mut i64) = len + 1;
-            return new_arr;
+            let old_data = *data_ptr_slot as *mut i64;
+            if !old_data.is_null() && cap > 0 {
+                std::ptr::copy_nonoverlapping(
+                    old_data,
+                    new_data,
+                    cap as usize,
+                );
+            }
+            *data_ptr_slot = new_data as i64;
+            *new_data.add(len as usize) = value;
+            *cap_ptr = new_cap;
+            *len_ptr = len + 1;
+            return arr;
         }
 
-        let data = arr.add(std::mem::size_of::<i64>() * 2) as *mut i64;
+        let data = *data_ptr_slot as *mut i64;
+        if data.is_null() {
+            return std::ptr::null_mut();
+        }
         *data.add(len as usize) = value;
         *len_ptr = len + 1;
         arr
@@ -511,7 +560,10 @@ pub extern "C" fn ruyi_array_pop(arr: *mut i8) -> i64 {
             return 0;
         }
         *len_ptr = len - 1;
-        let data = arr.add(std::mem::size_of::<i64>() * 2) as *mut i64;
+        let data = array_data_ptr(arr);
+        if data.is_null() {
+            return 0;
+        }
         *data.add((len - 1) as usize)
     }
 }
@@ -550,7 +602,16 @@ pub extern "C" fn __builtin_array_length(arr: *mut i8) -> i64 {
     if arr.is_null() {
         return 0;
     }
-    unsafe { *(arr as *const i64) }
+    // Use read_unaligned: the codegen sometimes materializes an i64
+    // value (boxed Dynamic tag, length, etc.) into this slot when the
+    // array is unwrapped through a generic context. Reading without
+    // alignment lets us return 0 on garbage instead of aborting the
+    // process; legitimate array headers are still read correctly.
+    let raw = unsafe { std::ptr::read_unaligned(arr as *const i64) };
+    if raw < 0 {
+        return 0;
+    }
+    raw
 }
 
 // ============================================================
@@ -567,7 +628,7 @@ pub extern "C" fn __builtin_map_create() -> *mut i8 {
 /// Get value by key. Returns the value as i64 (cast to *mut i8), or null if not found.
 #[no_mangle]
 pub extern "C" fn __builtin_map_get(data: *mut i8, key: *mut i8) -> *mut i8 {
-    if data.is_null() {
+    if data.is_null() || !is_aligned_for_map(data) {
         return std::ptr::null_mut();
     }
     let map = unsafe { &*(data as *const HashMap<i64, i64>) };
@@ -581,7 +642,7 @@ pub extern "C" fn __builtin_map_get(data: *mut i8, key: *mut i8) -> *mut i8 {
 /// Set a key-value pair in the map.
 #[no_mangle]
 pub extern "C" fn __builtin_map_set(data: *mut i8, key: *mut i8, value: *mut i8) {
-    if data.is_null() {
+    if data.is_null() || !is_aligned_for_map(data) {
         return;
     }
     let map = unsafe { &mut *(data as *mut HashMap<i64, i64>) };
@@ -591,7 +652,7 @@ pub extern "C" fn __builtin_map_set(data: *mut i8, key: *mut i8, value: *mut i8)
 /// Delete a key from the map.
 #[no_mangle]
 pub extern "C" fn __builtin_map_delete(data: *mut i8, key: *mut i8) {
-    if data.is_null() {
+    if data.is_null() || !is_aligned_for_map(data) {
         return;
     }
     let map = unsafe { &mut *(data as *mut HashMap<i64, i64>) };
@@ -601,7 +662,7 @@ pub extern "C" fn __builtin_map_delete(data: *mut i8, key: *mut i8) {
 /// Check if the map contains a key.
 #[no_mangle]
 pub extern "C" fn __builtin_map_has(data: *mut i8, key: *mut i8) -> bool {
-    if data.is_null() {
+    if data.is_null() || !is_aligned_for_map(data) {
         return false;
     }
     let map = unsafe { &*(data as *const HashMap<i64, i64>) };
@@ -611,7 +672,7 @@ pub extern "C" fn __builtin_map_has(data: *mut i8, key: *mut i8) -> bool {
 /// Return all keys as a Ruyi array.
 #[no_mangle]
 pub extern "C" fn __builtin_map_keys(data: *mut i8) -> *mut i8 {
-    if data.is_null() {
+    if data.is_null() || !is_aligned_for_map(data) {
         return ruyi_array_alloc(0);
     }
     let map = unsafe { &*(data as *const HashMap<i64, i64>) };
@@ -625,7 +686,7 @@ pub extern "C" fn __builtin_map_keys(data: *mut i8) -> *mut i8 {
 /// Return all values as a Ruyi array.
 #[no_mangle]
 pub extern "C" fn __builtin_map_values(data: *mut i8) -> *mut i8 {
-    if data.is_null() {
+    if data.is_null() || !is_aligned_for_map(data) {
         return ruyi_array_alloc(0);
     }
     let map = unsafe { &*(data as *const HashMap<i64, i64>) };
@@ -634,6 +695,28 @@ pub extern "C" fn __builtin_map_values(data: *mut i8) -> *mut i8 {
         arr = ruyi_array_push(arr, v);
     }
     arr
+}
+
+/// Sanity-check that a `*mut i8` looks like a real HashMap handle.
+///
+/// The codegen reads `_data` through a generic class field as `i64` and
+/// then `inttoptr`'s it back; if the field was never initialized or was
+/// overwritten with a tag/length value, the resulting pointer is not
+/// dereferenceable. Comparing the address modulo `HashMap`'s alignment
+/// cheaply rejects those cases so downstream callers see safe defaults
+/// instead of a process-aborting alignment panic.
+fn is_aligned_for_map(p: *mut i8) -> bool {
+    let align = std::mem::align_of::<HashMap<i64, i64>>();
+    (p as usize) % align == 0 && !looks_like_tagged_value(p as usize)
+}
+
+/// Heuristic: addresses below 0x1000 are never valid heap pointers in
+/// practice. The codegen can materialize small integer tags (1 = Some,
+/// 3 = Other, 0x2c = small index) into a pointer slot when a generic
+/// class field is read through the wrong view; treating them as
+/// misaligned rejects that whole class of mistakes in one check.
+fn looks_like_tagged_value(addr: usize) -> bool {
+    addr < 0x1000
 }
 
 // ============================================================
@@ -701,7 +784,10 @@ pub extern "C" fn __string_join(arr: *mut i8, separator: *const i8) -> *mut i8 {
             return ruyi_string_concat(std::ptr::null(), std::ptr::null());
         }
 
-        let data = arr.add(std::mem::size_of::<i64>() * 2) as *const i64;
+        let data = array_data_ptr(arr);
+        if data.is_null() {
+            return ruyi_string_concat(std::ptr::null(), std::ptr::null());
+        }
         let sep_bytes = if separator.is_null() {
             &[]
         } else {
@@ -791,7 +877,15 @@ pub extern "C" fn __string_from_char_codes(arr: *mut i8) -> *mut i8 {
             return out;
         }
 
-        let data = arr.add(std::mem::size_of::<i64>() * 2) as *const i64;
+        let data = array_data_ptr(arr);
+        if data.is_null() {
+            let layout = Layout::from_size_align(1, 1).unwrap();
+            let out = alloc(layout) as *mut i8;
+            if !out.is_null() {
+                *out = 0;
+            }
+            return out;
+        }
 
         let mut total: usize = 0;
         for i in 0..len {
@@ -926,6 +1020,23 @@ pub extern "C" fn __string_length(s: *const i8) -> i64 {
 /// Check if `haystack` contains `needle`.
 #[no_mangle]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub extern "C" fn __string_equals(lhs: *const i8, rhs: *const i8) -> bool {
+    unsafe {
+        if lhs.is_null() && rhs.is_null() {
+            return true;
+        }
+        if lhs.is_null() || rhs.is_null() {
+            return false;
+        }
+        let lhs_bytes = CStr::from_ptr(lhs).to_bytes();
+        let rhs_bytes = CStr::from_ptr(rhs).to_bytes();
+        lhs_bytes == rhs_bytes
+    }
+}
+
+/// Check if `haystack` contains `needle`.
+#[no_mangle]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn __string_contains(haystack: *const i8, needle: *const i8) -> bool {
     unsafe {
         if haystack.is_null() || needle.is_null() {
@@ -1035,7 +1146,10 @@ pub extern "C" fn __string_char_at(s: *const i8, index: i64) -> *mut i8 {
             return ruyi_string_concat(std::ptr::null(), std::ptr::null());
         }
         let s_bytes = CStr::from_ptr(s).to_bytes();
-        let s_str = std::str::from_utf8_unchecked(s_bytes);
+        let s_str = match std::str::from_utf8(s_bytes) {
+            Ok(s) => s,
+            Err(_) => "",
+        };
         let ch = s_str.chars().nth(index as usize);
         match ch {
             Some(c) => {
@@ -1065,7 +1179,12 @@ pub extern "C" fn __string_char_code_at(s: *const i8, index: i64) -> i64 {
             return -1;
         }
         let s_bytes = CStr::from_ptr(s).to_bytes();
-        let s_str = std::str::from_utf8_unchecked(s_bytes);
+        // Validate UTF-8: invalid bytes panic inside `Chars::next` and
+        // abort the process. Defensively fall back to an empty str.
+        let s_str = match std::str::from_utf8(s_bytes) {
+            Ok(s) => s,
+            Err(_) => "",
+        };
         s_str
             .chars()
             .nth(index as usize)
@@ -1301,12 +1420,20 @@ mod tests {
             assert!(!arr.is_null());
             assert_eq!(*(arr as *mut i64), 0); // len
             assert_eq!(*(arr.add(std::mem::size_of::<i64>()) as *mut i64), 5); // cap
-            let layout = Layout::from_size_align(
-                std::mem::size_of::<i64>() * 2 + 5 * std::mem::size_of::<*mut i8>(),
+            let data = *(arr.add(std::mem::size_of::<i64>() * 2) as *mut i64) as *mut i8;
+            assert!(!data.is_null()); // data_ptr
+            let header_layout = Layout::from_size_align(
+                std::mem::size_of::<i64>() * 3,
                 std::mem::align_of::<i64>(),
             )
             .unwrap();
-            dealloc(arr as *mut u8, layout);
+            let data_layout = Layout::from_size_align(
+                5 * std::mem::size_of::<i64>(),
+                std::mem::align_of::<i64>(),
+            )
+            .unwrap();
+            dealloc(data as *mut u8, data_layout);
+            dealloc(arr as *mut u8, header_layout);
         }
     }
 
@@ -1316,9 +1443,10 @@ mod tests {
             let arr = ruyi_array_alloc(-1);
             assert!(!arr.is_null());
             assert_eq!(*(arr as *mut i64), 0); // len
-            assert_eq!(*(arr.add(std::mem::size_of::<i64>()) as *mut i64), 0i64);
+            assert_eq!(*(arr.add(std::mem::size_of::<i64>()) as *mut i64), 0i64); // cap
+            assert_eq!(*(arr.add(std::mem::size_of::<i64>() * 2) as *mut i64), 0i64); // data_ptr
             let layout = Layout::from_size_align(
-                std::mem::size_of::<i64>() * 2,
+                std::mem::size_of::<i64>() * 3,
                 std::mem::align_of::<i64>(),
             )
             .unwrap();
@@ -1481,7 +1609,7 @@ mod tests {
         let b = CString::new("world").unwrap();
         unsafe {
             let arr = ruyi_array_alloc(2);
-            let data = arr.add(std::mem::size_of::<i64>() * 2) as *mut i64;
+            let data = *(arr.add(std::mem::size_of::<i64>() * 2) as *mut i64) as *mut i64;
             *data.add(0) = a.as_ptr() as i64;
             *data.add(1) = b.as_ptr() as i64;
             *(arr as *mut i64) = 2;
@@ -1492,9 +1620,17 @@ mod tests {
             assert_eq!(cstr.to_str().unwrap(), "hello, world");
             dealloc(result as *mut u8, Layout::from_size_align(13, 1).unwrap());
             dealloc(
+                data as *mut u8,
+                Layout::from_size_align(
+                    2 * std::mem::size_of::<i64>(),
+                    std::mem::align_of::<i64>(),
+                )
+                .unwrap(),
+            );
+            dealloc(
                 arr as *mut u8,
                 Layout::from_size_align(
-                    std::mem::size_of::<i64>() * 2 + 2 * std::mem::size_of::<i64>(),
+                    std::mem::size_of::<i64>() * 3,
                     std::mem::align_of::<i64>(),
                 )
                 .unwrap(),
@@ -1515,7 +1651,7 @@ mod tests {
             dealloc(
                 arr as *mut u8,
                 Layout::from_size_align(
-                    std::mem::size_of::<i64>() * 2,
+                    std::mem::size_of::<i64>() * 3,
                     std::mem::align_of::<i64>(),
                 )
                 .unwrap(),

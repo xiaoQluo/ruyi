@@ -42,7 +42,7 @@ unsafe fn str_to_heap(s: &str) -> *mut c_char {
 }
 
 /// Read the array length from an opaque array handle.
-/// The array layout is: [length: i64] [capacity: i64] [elements: *const i8...]
+/// The array layout is: [length: i64] [capacity: i64] [data_ptr: i64]
 unsafe fn array_len(arr: *mut c_char) -> i64 {
     if arr.is_null() {
         return 0;
@@ -52,7 +52,7 @@ unsafe fn array_len(arr: *mut c_char) -> i64 {
 
 /// Read the element pointer at the given index from an array handle.
 unsafe fn array_get(arr: *mut c_char, index: i64) -> *const c_char {
-    let data = arr.add(std::mem::size_of::<i64>() * 2) as *const i64;
+    let data = *(arr.add(std::mem::size_of::<i64>() * 2) as *const i64) as *const i64;
     *data.add(index as usize) as *const c_char
 }
 
@@ -325,21 +325,20 @@ mod tests {
 
     #[test]
     fn test_join_simple() {
-        // Build a mock array handle: [len:3] [cap:3] [ptr1, ptr2, ptr3]
+        // Build a mock array handle: [len:3] [cap:3] [data_ptr] + buffer
         let seg1 = CString::new("home").unwrap().into_raw();
         let seg2 = CString::new("user").unwrap().into_raw();
         let seg3 = CString::new("docs").unwrap().into_raw();
 
         unsafe {
-            let layout = Layout::from_size_align(
-                std::mem::size_of::<i64>() * 2 + std::mem::size_of::<*const c_char>() * 3,
-                8,
-            )
-            .unwrap();
+            let layout = Layout::from_size_align(std::mem::size_of::<i64>() * 3, 8).unwrap();
             let arr = alloc(layout) as *mut i64;
             *arr = 3; // length
             *arr.add(1) = 3; // capacity
-            let data = arr.add(2) as *mut *const c_char;
+            let data_layout =
+                Layout::from_size_align(std::mem::size_of::<i64>() * 3, 8).unwrap();
+            let data = alloc(data_layout) as *mut *const c_char;
+            *arr.add(2) = data as i64; // data_ptr
             *data = seg1 as *const c_char;
             *data.add(1) = seg2 as *const c_char;
             *data.add(2) = seg3 as *const c_char;
@@ -356,15 +355,14 @@ mod tests {
         let seg3 = CString::new("docs").unwrap().into_raw();
 
         unsafe {
-            let layout = Layout::from_size_align(
-                std::mem::size_of::<i64>() * 2 + std::mem::size_of::<*const c_char>() * 3,
-                8,
-            )
-            .unwrap();
+            let layout = Layout::from_size_align(std::mem::size_of::<i64>() * 3, 8).unwrap();
             let arr = alloc(layout) as *mut i64;
             *arr = 3;
             *arr.add(1) = 3;
-            let data = arr.add(2) as *mut *const c_char;
+            let data_layout =
+                Layout::from_size_align(std::mem::size_of::<i64>() * 3, 8).unwrap();
+            let data = alloc(data_layout) as *mut *const c_char;
+            *arr.add(2) = data as i64;
             *data = seg1 as *const c_char;
             *data.add(1) = seg2 as *const c_char;
             *data.add(2) = seg3 as *const c_char;

@@ -15,7 +15,7 @@
  * @author Ruyi Team
  * @date 2026-07-17
  */
-use std::alloc::{alloc, Layout};
+use std::alloc::{alloc, dealloc, Layout};
 use std::ffi::CStr;
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -47,21 +47,35 @@ pub(crate) unsafe fn str_to_heap(s: &str) -> *mut c_char {
 }
 
 /// Build a Ruyi array handle from a Vec of C string pointers.
-/// Layout: [len: i64] [cap: i64] [ptr0: i64, ptr1: i64, ...]
+/// Layout: [len: i64] [cap: i64] [data_ptr: i64] header + separate
+/// element buffer referenced by data_ptr.
 unsafe fn build_string_array(strings: Vec<*mut c_char>) -> *mut c_char {
     let len = strings.len() as i64;
     let cap = len;
-    let layout = Layout::from_size_align(
-        (std::mem::size_of::<i64>() * 2) + (len as usize * std::mem::size_of::<i64>()),
-        8,
-    )
-    .unwrap();
-    let arr = alloc(layout) as *mut i64;
+    let header_layout = Layout::from_size_align(std::mem::size_of::<i64>() * 3, 8).unwrap();
+    let arr = alloc(header_layout) as *mut i64;
+    if arr.is_null() {
+        return std::ptr::null_mut();
+    }
     *arr = len;
     *arr.add(1) = cap;
-    let data = arr.add(2) as *mut i64;
-    for (i, s) in strings.into_iter().enumerate() {
-        *data.add(i) = s as i64;
+    if len > 0 {
+        let data_layout = Layout::from_size_align(
+            len as usize * std::mem::size_of::<i64>(),
+            8,
+        )
+        .unwrap();
+        let data = alloc(data_layout) as *mut i64;
+        if data.is_null() {
+            dealloc(arr as *mut u8, header_layout);
+            return std::ptr::null_mut();
+        }
+        for (i, s) in strings.into_iter().enumerate() {
+            *data.add(i) = s as i64;
+        }
+        *arr.add(2) = data as i64;
+    } else {
+        *arr.add(2) = 0;
     }
     arr as *mut c_char
 }
@@ -444,13 +458,14 @@ pub extern "C" fn __fs_close(handle: i64) {
 // ── read / write helpers ─────────────────────────────────────
 //
 // Array<int> layout (from builtins.rs ruyi_array_alloc):
-//   [len: i64][cap: i64][data: i64 * cap]
-// Each byte (0-255) is stored as an i64 value in the data section.
+//   [len: i64][cap: i64][data_ptr: i64] header; the element buffer
+//   (cap i64 words) lives at data_ptr.
+// Each byte (0-255) is stored as an i64 value in the data buffer.
 
 pub(crate) unsafe fn array_ptr(ptr: *mut i8) -> (*mut i64, *mut i64, *mut i64) {
     let len_ptr = ptr as *mut i64;
     let cap_ptr = ptr.add(8) as *mut i64;
-    let data_ptr = ptr.add(16) as *mut i64;
+    let data_ptr = *(ptr.add(16) as *mut i64) as *mut i64;
     (len_ptr, cap_ptr, data_ptr)
 }
 
