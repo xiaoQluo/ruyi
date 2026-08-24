@@ -391,7 +391,17 @@ pub fn predeclare_function<'ctx>(
     };
     ctx.function_types.insert(name.to_string(), ruyi_fn_type);
 
-    ctx.module.add_function(name, fn_type, None);
+    let function = ctx.module.add_function(name, fn_type, None);
+    // Keep user-defined symbols out of the global namespace: a Ruyi
+    // function named like a libc/libm symbol (e.g. `pow`, `sqrt` in
+    // stdlib/math.ry) would otherwise capture the runtime's reference
+    // to the real libc function at link time (Rust's `f64::powf`
+    // lowers to a `pow` call), producing infinite recursion. Internal
+    // linkage keeps all calls module-local; `main` stays external as
+    // the process entry point.
+    if name != "main" {
+        function.set_linkage(inkwell::module::Linkage::Internal);
+    }
 }
 
 pub fn compile_function<'ctx>(
@@ -454,11 +464,27 @@ pub fn compile_function<'ctx>(
         }
     }
 
+    // Record default-parameter expressions so call sites that omit
+    // trailing arguments can synthesize them (LLVM has no default
+    // arguments; passing too few arguments reads undefined registers).
+    if params.iter().any(|p| p.init.is_some()) {
+        let defaults: Vec<Option<crate::parser::ast::Expr>> = params
+            .iter()
+            .map(|p| p.init.as_deref().cloned())
+            .collect();
+        ctx.default_params.insert(name.to_string(), defaults);
+    }
+
     let function = if let Some(existing) = ctx.module.get_function(name) {
         existing
     } else {
         ctx.module.add_function(name, fn_type, None)
     };
+    // See predeclare_function: internal linkage prevents user functions
+    // from shadowing libc/libm symbols at link time.
+    if name != "main" {
+        function.set_linkage(inkwell::module::Linkage::Internal);
+    }
 
     // Set personality function so the C++ exception runtime can unwind through
     // every Ruyi function frame. Without this, functions without a landingpad

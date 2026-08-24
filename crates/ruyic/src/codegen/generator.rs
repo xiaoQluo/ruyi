@@ -107,6 +107,11 @@ pub struct CodegenContext<'ctx, 'm, 'env> {
     pub anon_counter: u64,
     pub async_arrow_counter: u64,
     pub function_types: HashMap<String, Type>,
+    /// Maps function name to per-parameter default expressions
+    /// (`None` for parameters without a default). Call sites that omit
+    /// trailing arguments compile these expressions to synthesize the
+    /// missing arguments, since LLVM has no default-argument concept.
+    pub default_params: HashMap<String, Vec<Option<crate::parser::ast::Expr>>>,
     /// Maps function name to (rest_param_index, element_type) for rest parameter handling.
     pub rest_params: HashMap<String, (usize, Type)>,
     /// Tracks the return type of the current function for null sentinel handling.
@@ -217,6 +222,7 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
             anon_counter: 0,
             async_arrow_counter: 0,
             function_types: HashMap::new(),
+            default_params: HashMap::new(),
             rest_params: HashMap::new(),
             current_return_type: None,
             expected_expr_type: None,
@@ -298,6 +304,14 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
     pub fn add_gc_root(&mut self, ptr: inkwell::values::PointerValue<'ctx>, ty: Type) {
         if let Some(scope) = self.gc_roots.last_mut() {
             scope.push((ptr, ty.clone()));
+            // Stub mode: cc_alloc returns raw malloc memory (no GC header).
+            // Calling ruyi_gc_add_root on such a pointer would treat the
+            // 32 bytes preceding it as a GcObjectHeader, corrupting malloc
+            // bookkeeping and eventually poisoning the root mutex
+            // (observed as deadlock via __psynch_mutexwait).
+            if self.gc_mode == GcMode::Stub {
+                return;
+            }
             let llvm_ty = super::types::ruyi_type_to_llvm(self.context, &ty);
             if llvm_ty.is_pointer_type() {
                 let loaded = self
@@ -1225,6 +1239,9 @@ fn compile_monomorphized_function<'ctx>(
     let function = ctx
         .module
         .add_function(&mono_func.mangled_name, fn_type, None);
+    // Internal linkage: monomorphizations must not export global symbols
+    // (see decl::predeclare_function for the libc-shadowing rationale).
+    function.set_linkage(inkwell::module::Linkage::Internal);
 
     let entry_bb = ctx.context.append_basic_block(function, "entry");
     let prev_function = ctx.current_function();

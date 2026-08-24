@@ -9,6 +9,7 @@
 use inkwell::values::BasicValueEnum;
 
 use ruyi_exception::landing_pad::LandingPadGenerator;
+use ruyi_exception::ALL_BUILTIN_EXCEPTION_TYPE_IDS;
 
 use super::builtins::{build_ruyi_clear_pending_exception, build_ruyi_get_pending_exception};
 use super::expr::{compile_expr, ExprResult};
@@ -492,21 +493,35 @@ fn compile_for_in<'ctx>(
     ctx.builder().position_at_end(body_bb);
     let idx = ctx.builder().build_load(i64_ty, idx_ptr, "idx").unwrap().into_int_value();
     let one = i64_ty.const_int(1, false);
+    // 数组元素在独立缓冲中（头部偏移 16 存 data_ptr）；
+    // 每次迭代重新加载以容忍循环体内的扩容。
+    let data_slot = unsafe {
+        ctx.builder()
+            .build_gep(ctx.context.i8_type(), keys_arr, &[ctx.context.i32_type().const_int(16, false)], "data_slot")
+            .unwrap()
+    };
+    let data_slot_ptr = ctx
+        .builder()
+        .build_bit_cast(data_slot, i64_ptr_ty, "data_slot_ptr").unwrap()
+        .into_pointer_value();
+    let data_addr = ctx
+        .builder()
+        .build_load(i64_ty, data_slot_ptr, "data_addr").unwrap()
+        .into_int_value();
+    let data_base = ctx
+        .builder()
+        .build_int_to_ptr(data_addr, i64_ptr_ty, "data_base").unwrap();
     let elem_offset = ctx
         .builder()
         .build_int_mul(idx, i64_ty.const_int(8, false), "elem_offset").unwrap();
-    let data_start = i64_ty.const_int(16, false);
-    let elem_offset_with_header =
-        ctx.builder()
-            .build_int_add(data_start, elem_offset, "elem_offset_hdr").unwrap();
     let elem_offset_i32 = ctx.builder().build_int_cast(
-        elem_offset_with_header,
+        elem_offset,
         ctx.context.i32_type(),
         "elem_offset_i32",
     ).unwrap();
     let elem_ptr = unsafe {
         ctx.builder()
-            .build_gep(ctx.context.i8_type(), keys_arr, &[elem_offset_i32], "elem_ptr")
+            .build_gep(ctx.context.i8_type(), data_base, &[elem_offset_i32], "elem_ptr")
             .unwrap()
     };
     let elem_i64_ptr = ctx
@@ -556,7 +571,7 @@ fn compile_for_of<'ctx>(
     let iter_result = compile_expr(ctx, iterable)?;
 
     match &iter_result.ty {
-        Type::Array(_) => {
+        Type::Array(elem_ty) => {
             let array_ptr = iter_result.value.into_pointer_value();
 
             let len_ptr = ctx
@@ -569,9 +584,15 @@ fn compile_for_of<'ctx>(
             let var_ptr = ctx.builder().build_alloca(i64_ty, variable).unwrap();
             ctx.builder()
                 .build_store(idx_ptr, i64_ty.const_int(0, false)).unwrap();
+            // Bind the loop variable to the array's element type (not a
+            // hardcoded Int): elements are stored uniformly as 8-byte
+            // words, so the load/store below is type-agnostic under
+            // opaque pointers, while the recorded type drives correct
+            // dispatch/printing for e.g. Array<string> elements.
+            let var_ty = *elem_ty.clone();
             let old_var = ctx
                 .variables
-                .insert(variable.to_string(), (var_ptr, Type::Int));
+                .insert(variable.to_string(), (var_ptr, var_ty));
 
             let cond_bb = ctx.context.append_basic_block(func, "for_of_cond");
             let body_bb = ctx.context.append_basic_block(func, "for_of_body");
@@ -596,21 +617,35 @@ fn compile_for_of<'ctx>(
             ctx.builder().position_at_end(body_bb);
             let idx = ctx.builder().build_load(i64_ty, idx_ptr, "idx").unwrap().into_int_value();
             let one = i64_ty.const_int(1, false);
+            // 数组元素在独立缓冲中（头部偏移 16 存 data_ptr）；
+            // 每次迭代重新加载以容忍循环体内的扩容。
+            let data_slot = unsafe {
+                ctx.builder()
+                    .build_gep(ctx.context.i8_type(), array_ptr, &[ctx.context.i32_type().const_int(16, false)], "data_slot")
+                    .unwrap()
+            };
+            let data_slot_ptr = ctx
+                .builder()
+                .build_bit_cast(data_slot, i64_ptr_ty, "data_slot_ptr").unwrap()
+                .into_pointer_value();
+            let data_addr = ctx
+                .builder()
+                .build_load(i64_ty, data_slot_ptr, "data_addr").unwrap()
+                .into_int_value();
+            let data_base = ctx
+                .builder()
+                .build_int_to_ptr(data_addr, i64_ptr_ty, "data_base").unwrap();
             let elem_offset =
                 ctx.builder()
                     .build_int_mul(idx, i64_ty.const_int(8, false), "elem_offset").unwrap();
-            let data_start = i64_ty.const_int(16, false);
-            let elem_offset_with_header =
-                ctx.builder()
-                    .build_int_add(data_start, elem_offset, "elem_offset_hdr").unwrap();
             let elem_offset_i32 = ctx.builder().build_int_cast(
-                elem_offset_with_header,
+                elem_offset,
                 ctx.context.i32_type(),
                 "elem_offset_i32",
             ).unwrap();
             let elem_ptr = unsafe {
                 ctx.builder()
-                    .build_gep(ctx.context.i8_type(), array_ptr, &[elem_offset_i32], "elem_ptr")
+                    .build_gep(ctx.context.i8_type(), data_base, &[elem_offset_i32], "elem_ptr")
                     .unwrap()
             };
             let elem_i64_ptr = ctx
@@ -1268,7 +1303,17 @@ fn compile_try<'ctx>(
     {
         let lp_gen = LandingPadGenerator::new(ctx.context, ctx.module, ctx.builder());
 
-        // Create per-catch handler blocks; EX-H1: map type annotations to real type IDs
+        // Create per-catch handler blocks; EX-H1: map type annotations to real type IDs.
+        //
+        // Catch-all clauses (`catch (e) { ... }` with no type annotation)
+        // must accept *any* thrown exception, not just the canonical
+        // `builtin_type_ids::ANY == 0` slot. Throws register themselves
+        // with their concrete type id (`AssertionError → 6`, etc.), so
+        // registering only the catch-all type id leaves concrete throws
+        // uncaught and the exception escapes the landing pad. Expand
+        // every catch-all entry into one catch clause per builtin error
+        // type id so the LLVM personality routine has a clause for each
+        // thrown selector.
         let mut catch_handlers: Vec<(
             ruyi_exception::TryTypeId,
             inkwell::basic_block::BasicBlock<'ctx>,
@@ -1277,12 +1322,18 @@ fn compile_try<'ctx>(
             let handler_bb = ctx
                 .context
                 .append_basic_block(func, &format!("try.catch.{}", i));
-            let type_id = catch_clause
-                .ty
-                .as_ref()
-                .map(catch_type_to_type_id)
-                .unwrap_or(0u32); // no type annotation = catch-all
-            catch_handlers.push((type_id, handler_bb));
+            match catch_clause.ty.as_ref().map(catch_type_to_type_id) {
+                Some(specific_id) => {
+                    catch_handlers.push((specific_id, handler_bb));
+                }
+                None => {
+                    // Catch-all: emit one clause per builtin exception
+                    // type. All branches land in the same handler.
+                    for type_id in ALL_BUILTIN_EXCEPTION_TYPE_IDS {
+                        catch_handlers.push((*type_id, handler_bb));
+                    }
+                }
+            }
         }
 
         let catch_type_ids: Vec<ruyi_exception::TryTypeId> =
@@ -2088,10 +2139,29 @@ pub(super) fn bind_pattern_in_codegen<'ctx>(
                     // 每个字段按顺序占 8 字节，类型为 Dynamic
                     let i32_ty = ctx.context.i32_type();
                     let i64_ty = ctx.context.i64_type();
-                    let obj_ptr_raw = match val.value {
+                    let mut obj_ptr_raw = match val.value {
                         BasicValueEnum::PointerValue(p) => p,
                         _ => return Err("Object pattern requires pointer".to_string()),
                     };
+                    // A Dynamic scrutinee points at a boxed `{tag, data}`
+                    // struct whose `data` field holds the real object
+                    // pointer (flat slot layout). Unbox before field
+                    // extraction, otherwise the tag and data fields of the
+                    // box itself would be read as object slots.
+                    if matches!(val.ty, Type::Dynamic) {
+                        let dyn_llvm_ty =
+                            super::types::ruyi_type_to_llvm(ctx.context, &Type::Dynamic);
+                        let boxed = ctx
+                            .builder()
+                            .build_load(dyn_llvm_ty, obj_ptr_raw, "dyn_box_load")
+                            .unwrap()
+                            .into_struct_value();
+                        obj_ptr_raw = ctx
+                            .builder()
+                            .build_extract_value(boxed, 1, "dyn_obj_ptr")
+                            .unwrap()
+                            .into_pointer_value();
+                    }
                     let mut field_idx = 0u64;
                     for field in fields {
                         match field {
@@ -2124,8 +2194,7 @@ pub(super) fn bind_pattern_in_codegen<'ctx>(
                                 bind_pattern_in_codegen(ctx, inner, &field_result)?;
                                 field_idx += 1;
                             }
-                            ObjectPatternField::Shorthand(name)
-                            | ObjectPatternField::ShorthandDefault(name, _) => {
+                            ObjectPatternField::Shorthand(name) => {
                                 let offset = i32_ty.const_int(field_idx * 8, false);
                                 let field_ptr = unsafe {
                                     ctx.builder().build_gep(
@@ -2144,12 +2213,56 @@ pub(super) fn bind_pattern_in_codegen<'ctx>(
                                     ).unwrap()
                                     .into_pointer_value();
                                 let field_val = ctx.builder().build_load(i64_ty, typed_ptr, name).unwrap();
+                                let field_word = field_val.into_int_value();
+                                // Box the raw slot word into a full
+                                // {tag, data} Dynamic struct: storing a
+                                // bare i64 into the 16-byte struct alloca
+                                // would leave the data field uninitialised.
                                 let llvm_ty =
                                     super::types::ruyi_type_to_llvm(ctx.context, &Type::Dynamic);
+                                let data_ptr = ctx
+                                    .builder()
+                                    .build_int_to_ptr(
+                                        field_word,
+                                        ctx.context.ptr_type(Default::default()),
+                                        "slot_dyn_data",
+                                    ).unwrap();
+                                let mut boxed = llvm_ty
+                                    .into_struct_type()
+                                    .const_zero();
+                                boxed = ctx
+                                    .builder()
+                                    .build_insert_value(boxed, i64_ty.const_int(1, false), 0, "slot_dyn_tag")
+                                    .unwrap()
+                                    .into_struct_value();
+                                boxed = ctx
+                                    .builder()
+                                    .build_insert_value(boxed, data_ptr, 1, "slot_dyn_ptr")
+                                    .unwrap()
+                                    .into_struct_value();
                                 let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
-                                ctx.builder().build_store(ptr, field_val).unwrap();
+                                ctx.builder().build_store(ptr, boxed).unwrap();
                                 ctx.define_variable(name.clone(), (ptr, Type::Dynamic));
                                 field_idx += 1;
+                            }
+                            ObjectPatternField::ShorthandDefault(name, default_expr) => {
+                                // The flat object layout carries no field
+                                // count, so a default field cannot safely
+                                // read a slot (it may not exist). Evaluate
+                                // the default expression instead to avoid
+                                // out-of-bounds reads.
+                                let default_result =
+                                    super::expr::compile_expr(ctx, default_expr)?;
+                                let llvm_ty = super::types::ruyi_type_to_llvm(
+                                    ctx.context,
+                                    &default_result.ty,
+                                );
+                                let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
+                                ctx.builder().build_store(ptr, default_result.value).unwrap();
+                                ctx.define_variable(
+                                    name.clone(),
+                                    (ptr, default_result.ty.clone()),
+                                );
                             }
                             ObjectPatternField::Rest(_) => {}
                         }

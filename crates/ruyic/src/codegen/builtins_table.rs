@@ -197,6 +197,11 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         params: &[BuiltinSig::Ptr],
     },
     BuiltinDecl {
+        name: "__string_equals",
+        ret: BuiltinSig::Bool,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
         name: "__string_contains",
         ret: BuiltinSig::Bool,
         params: &[BuiltinSig::Ptr, BuiltinSig::Ptr],
@@ -759,7 +764,7 @@ pub static BUILTINS: &[BuiltinDecl] = &[
     BuiltinDecl {
         name: "__net_tcp_write_raw",
         ret: BuiltinSig::Int,
-        params: &[BuiltinSig::Int, BuiltinSig::Ptr, BuiltinSig::Int],
+        params: &[BuiltinSig::Int, BuiltinSig::Ptr],
     },
     BuiltinDecl {
         name: "__net_tcp_read_raw",

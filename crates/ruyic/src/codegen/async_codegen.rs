@@ -279,12 +279,16 @@ pub fn compile_async_function<'ctx>(
     let new_fn = ctx
         .module
         .add_function(&format!("{}$new", name), new_fn_type, None);
+    // Internal linkage: generated functions must not export global
+    // symbols (see decl::predeclare_function for the rationale).
+    new_fn.set_linkage(inkwell::module::Linkage::Internal);
 
     // ── 2. Poll function: {name}$poll ──────────────────────────
     let poll_fn_type = i32_ty.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
     let poll_fn = ctx
         .module
         .add_function(&format!("{}$poll", name), poll_fn_type, None);
+    poll_fn.set_linkage(inkwell::module::Linkage::Internal);
 
     let poll_entry = ctx.context.append_basic_block(poll_fn, "entry");
     let poll_start = ctx.context.append_basic_block(poll_fn, "start");
@@ -499,6 +503,7 @@ pub fn compile_async_function<'ctx>(
         &Type::Future(Box::new(ret_type.clone())),
     );
     let wrapper_fn = ctx.module.add_function(wrapper_name, wrapper_fn_type, None);
+    wrapper_fn.set_linkage(inkwell::module::Linkage::Internal);
 
     let wrapper_entry = ctx.context.append_basic_block(wrapper_fn, "entry");
     ctx.builder().position_at_end(wrapper_entry);

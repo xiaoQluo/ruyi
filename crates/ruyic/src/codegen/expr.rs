@@ -355,7 +355,8 @@ pub fn compile_expr<'ctx>(
                     ).unwrap()
                 }
                 BasicValueEnum::IntValue(v) if matches!(result.ty, Type::Nullable(_)) => {
-                    // Nullable int sentinel check (all ones = null)
+                    // Nullable int sentinel check (all ones = null; 0 is a
+                    // legitimate int value and must not collide with null)
                     let sentinel = ctx.context.i64_type().const_all_ones();
                     ctx.builder().build_int_compare(
                         inkwell::IntPredicate::EQ,
@@ -721,9 +722,11 @@ fn compile_null_literal<'ctx>(
     let is_nullable_int = matches!(ctx.expected_expr_type(), Some(Type::Nullable(ref inner)) if **inner == Type::Int)
         || matches!(ctx.current_return_type(), Some(Type::Nullable(ref inner)) if **inner == Type::Int);
     if is_nullable_int {
-        // Use 0 as null sentinel for Nullable<int>, matching the erased
-        // path behavior where null is i8* null → ptrtoint → 0.
-        let sentinel = ctx.context.i64_type().const_int(0, false);
+        // Use all-ones as the null sentinel for Nullable<int>: 0 is a
+        // legitimate int value (e.g. the first element of an iterator)
+        // and must not be mistaken for null by `if let` / `while let`
+        // and null comparisons.
+        let sentinel = ctx.context.i64_type().const_all_ones();
         Ok(ExprResult::new(
             BasicValueEnum::IntValue(sentinel),
             Type::Nullable(Box::new(Type::Int)),
@@ -812,13 +815,10 @@ fn compile_member_access<'ctx>(
                     let dyn_struct_ty =
                         ruyi_type_to_llvm(ctx.context, &Type::Dynamic).into_struct_type();
                     let i64_ty = ctx.context.i64_type();
-                    let header_size = i64_ty.const_int(16, false);
+                    let data_base = load_array_data_ptr(ctx, arr_ptr, "dyn_data");
                     let stride = i64_ty.const_int(16, false);
-                    let byte_offset = ctx.builder().build_int_add(
-                        header_size,
-                        ctx.builder().build_int_mul(index_val, stride, "dyn_stride").unwrap(),
-                        "dyn_offset",
-                    ).unwrap();
+                    let byte_offset = ctx.builder()
+                        .build_int_mul(index_val, stride, "dyn_stride").unwrap();
                     let offset_i32 = ctx.builder().build_int_truncate(
                         byte_offset,
                         ctx.context.i32_type(),
@@ -826,7 +826,7 @@ fn compile_member_access<'ctx>(
                     ).unwrap();
                     let elem_gep = unsafe {
                         ctx.builder()
-                            .build_gep(ctx.context.i8_type(), arr_ptr, &[offset_i32], "dyn_elem_gep")
+                            .build_gep(ctx.context.i8_type(), data_base, &[offset_i32], "dyn_elem_gep")
                             .unwrap()
                     };
                     let struct_ptr = ctx.builder().build_pointer_cast(
@@ -910,6 +910,141 @@ fn compile_member_access<'ctx>(
             let key_result = compile_expr(ctx, key_expr)?;
             let obj_ptr = value_to_i8_ptr(ctx, &obj_result.value)?;
             let key_ptr = value_to_i8_ptr(ctx, &key_result.value)?;
+
+            // Object literals use a flat slot layout ([value_0][value_1]...)
+            // without embedded key names, so the runtime ruyi_obj_get
+            // (which expects [field_count][key,value pairs]) cannot be
+            // used on them. When the shape is statically known, emit a
+            // strcmp dispatch chain over the field names and box the
+            // matched slot value into a Dynamic result.
+            if let Type::Object(fields) = &obj_result.ty {
+                if !fields.is_empty() {
+                    let func = ctx.current_function.ok_or("No current function")?;
+                    let i8_ptr_ty = ctx.context.ptr_type(Default::default());
+                    let dyn_llvm_ty = ruyi_type_to_llvm(ctx.context, &Type::Dynamic);
+
+                    // Declare strcmp if not present.
+                    let strcmp_fn = match ctx.module.get_function("strcmp") {
+                        Some(f) => f,
+                        None => {
+                            let strcmp_ty = ctx.context.i32_type().fn_type(
+                                &[i8_ptr_ty.into(), i8_ptr_ty.into()],
+                                false,
+                            );
+                            ctx.module.add_function("strcmp", strcmp_ty, None)
+                        }
+                    };
+
+                    let merge_bb = ctx.context.append_basic_block(func, "obj_get_merge");
+                    let miss_bb = ctx.context.append_basic_block(func, "obj_get_miss");
+                    let mut incoming: Vec<(BasicValueEnum<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)> =
+                        Vec::new();
+
+                    // Chain: entry -> test_0 -> test_1 -> ... -> miss.
+                    // All test blocks are created up front (appended at the
+                    // function tail) so branch targets exist before use and
+                    // names never collide. Blocks must never be inserted
+                    // mid-function: inserting a block between the current
+                    // block and its pending instructions would make the
+                    // builder fall through into the new block and emit the
+                    // current block's instructions there, producing invalid
+                    // IR with two terminators.
+                    let test_bbs: Vec<inkwell::basic_block::BasicBlock<'ctx>> = fields
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, _)| {
+                            ctx.context
+                                .append_basic_block(func, &format!("obj_get_test_{}", idx))
+                        })
+                        .collect();
+
+                    let entry_bb = ctx.builder().get_insert_block().unwrap();
+                    ctx.builder().position_at_end(entry_bb);
+                    ctx.builder().build_unconditional_branch(test_bbs[0]).unwrap();
+
+                    for (idx, field) in fields.iter().enumerate() {
+                        let test_bb = test_bbs[idx];
+                        let match_bb = ctx
+                            .context
+                            .append_basic_block(func, &format!("obj_get_match_{}", idx));
+                        let next_test_bb = if idx + 1 < fields.len() {
+                            test_bbs[idx + 1]
+                        } else {
+                            miss_bb
+                        };
+
+                        // Test: strcmp(key, "name") == 0 ?
+                        ctx.builder().position_at_end(test_bb);
+                        let key_name_global = ctx
+                            .builder()
+                            .build_global_string_ptr(&field.name, "obj_key_name")
+                            .unwrap();
+                        let cmp = ctx
+                            .builder()
+                            .build_call(
+                                strcmp_fn,
+                                &[key_ptr.into(), key_name_global.as_pointer_value().into()],
+                                "key_cmp",
+                            )
+                            .unwrap()
+                            .try_as_basic_value()
+                            .unwrap_basic()
+                            .into_int_value();
+                        let eq = ctx
+                            .builder()
+                            .build_int_compare(
+                                inkwell::IntPredicate::EQ,
+                                cmp,
+                                ctx.context.i32_type().const_int(0, false),
+                                "key_eq",
+                            )
+                            .unwrap();
+                        ctx.builder()
+                            .build_conditional_branch(eq, match_bb, next_test_bb)
+                            .unwrap();
+
+                        // Match: load flat slot and box into Dynamic.
+                        ctx.builder().position_at_end(match_bb);
+                        let offset = ctx.context.i32_type().const_int((idx * 8) as u64, false);
+                        let slot_ptr = unsafe {
+                            ctx.builder()
+                                .build_gep(ctx.context.i8_type(), obj_ptr, &[offset], "obj_field_slot")
+                                .unwrap()
+                        };
+                        let field_llvm_ty = ruyi_type_to_llvm(ctx.context, &field.ty);
+                        let raw = ctx
+                            .builder()
+                            .build_load(field_llvm_ty, slot_ptr, &field.name)
+                            .unwrap();
+                        let boxed = build_box_dynamic(ctx, raw, &field.ty);
+                        ctx.builder().build_unconditional_branch(merge_bb).unwrap();
+                        incoming.push((boxed, match_bb));
+                    }
+                    // Last test misses to the miss block.
+
+                    // Miss: null dynamic {0, null}.
+                    ctx.builder().position_at_end(miss_bb);
+                    let null_dyn = ruyi_type_to_llvm(ctx.context, &Type::Dynamic)
+                        .into_struct_type()
+                        .const_zero();
+                    ctx.builder().build_unconditional_branch(merge_bb).unwrap();
+                    incoming.push((BasicValueEnum::StructValue(null_dyn), miss_bb));
+
+                    ctx.builder().position_at_end(merge_bb);
+                    let phi = ctx
+                        .builder()
+                        .build_phi(dyn_llvm_ty, "obj_get_result")
+                        .unwrap();
+                    phi.add_incoming(
+                        &incoming
+                            .iter()
+                            .map(|(v, bb)| (v as &dyn inkwell::values::BasicValue, *bb))
+                            .collect::<Vec<_>>(),
+                    );
+                    return Ok(ExprResult::new(phi.as_basic_value(), Type::Dynamic));
+                }
+            }
+
             let result =
                 super::builtins::build_ruyi_obj_get(ctx.builder(), ctx.module, obj_ptr, key_ptr);
             Ok(ExprResult::new(
@@ -2238,6 +2373,21 @@ fn compile_power<'ctx>(
     }
 }
 
+/// Ensure the libc `strcmp` symbol is declared in the module and
+/// return it. String values are C strings, so value-equality (`===`)
+/// requires content comparison via `strcmp` rather than pointer
+/// identity.
+fn ensure_strcmp<'ctx>(ctx: &CodegenContext<'ctx, '_, '_>) -> inkwell::values::FunctionValue<'ctx> {
+    ctx.module.get_function("strcmp").unwrap_or_else(|| {
+        let i8_ptr = ctx.context.ptr_type(Default::default());
+        let fn_ty = ctx
+            .context
+            .i32_type()
+            .fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
+        ctx.module.add_function("strcmp", fn_ty, None)
+    })
+}
+
 fn compile_eq<'ctx>(
     ctx: &CodegenContext<'ctx, '_, '_>,
     left: &ExprResult<'ctx>,
@@ -2421,6 +2571,29 @@ fn compile_eq<'ctx>(
                 BasicValueEnum::IntValue(result),
                 Type::Bool,
             ))
+        }
+        // String vs String: value equality via strcmp (spec: === is
+        // "value and type equality"), not pointer identity.
+        (BasicValueEnum::PointerValue(l), BasicValueEnum::PointerValue(r))
+            if left.ty == Type::String && right.ty == Type::String =>
+        {
+            let strcmp_fn = ensure_strcmp(ctx);
+            let cmp = ctx
+                .builder()
+                .build_call(strcmp_fn, &[(*l).into(), (*r).into()], "str_cmp")
+                .unwrap()
+                .try_as_basic_value()
+                .unwrap_basic()
+                .into_int_value();
+            let res = ctx
+                .builder()
+                .build_int_compare(
+                    IntPredicate::EQ,
+                    cmp,
+                    ctx.context.i32_type().const_int(0, false),
+                    "str_eq",
+                ).unwrap();
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
         }
         (BasicValueEnum::PointerValue(l), BasicValueEnum::PointerValue(r)) => {
             let l_int = ctx
@@ -2676,6 +2849,29 @@ fn compile_ne<'ctx>(
         return Ok(result);
     }
     match (&left.value, &right.value) {
+        // String vs String: value inequality via strcmp (spec: !== negates
+        // ===, which is content equality for strings).
+        (BasicValueEnum::PointerValue(l), BasicValueEnum::PointerValue(r))
+            if left.ty == Type::String && right.ty == Type::String =>
+        {
+            let strcmp_fn = ensure_strcmp(ctx);
+            let cmp = ctx
+                .builder()
+                .build_call(strcmp_fn, &[(*l).into(), (*r).into()], "str_cmp")
+                .unwrap()
+                .try_as_basic_value()
+                .unwrap_basic()
+                .into_int_value();
+            let res = ctx
+                .builder()
+                .build_int_compare(
+                    IntPredicate::NE,
+                    cmp,
+                    ctx.context.i32_type().const_int(0, false),
+                    "str_ne",
+                ).unwrap();
+            Ok(ExprResult::new(BasicValueEnum::IntValue(res), Type::Bool))
+        }
         (BasicValueEnum::PointerValue(l), BasicValueEnum::PointerValue(r)) => {
             let l_int = ctx
                 .builder()
@@ -4106,6 +4302,10 @@ fn compile_call<'ctx>(
     // Concrete receiver type (when known) for on-demand specialization
     // and return-type parameter substitution below.
     let mut call_receiver_ty: Option<Type> = None;
+    // `self_arg` is always a memory slot holding the receiver value
+    // (a variable alloca, a spilled call/index result, or a field
+    // address); the actual value must be loaded before being passed as
+    // the implicit first argument.
     let (name, self_arg) = match callee {
         Expr::Identifier(n) => {
             if ctx.class_struct_types.contains_key(n) {
@@ -4611,6 +4811,14 @@ fn compile_call<'ctx>(
                     };
                 }
             }
+            // `Thread.spawn(closure)` is a language-level builtin: the
+            // stdlib stub cannot pass a Ruyi closure to `__thread_spawn`
+            // (ABI mismatch: closures take a `{i64, ptr}` Dynamic while
+            // the runtime expects `extern "C" fn(usize)`), so emit the
+            // real OS-thread spawn here.
+            if class_name == "Thread" && method_name == "spawn" {
+                return compile_thread_spawn(ctx, args);
+            }
             let func_name = format!("{}_{}", class_name, method_name);
             // On-demand specialization: when the receiver is a generic
             // class instance with fully concrete type arguments,
@@ -4804,19 +5012,20 @@ fn compile_call<'ctx>(
     let mut arg_values: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> = Vec::new();
     let mut arg_types: Vec<Type> = Vec::new(); // track types for rest args boxing
     if let Some(self_ptr) = self_arg {
-        if name.starts_with("ruyi_") {
-            let loaded = ctx.builder().build_load(ctx.context.ptr_type(Default::default()), self_ptr, "obj").unwrap();
-            arg_values.push(loaded.into());
-        } else {
-            let self_ptr_ty = self_ptr.get_type();
-            let is_i8_ptr = self_ptr_ty == ctx.context.ptr_type(Default::default());
-            if is_i8_ptr {
-                arg_values.push(self_ptr.into());
-            } else {
-                let loaded = ctx.builder().build_load(ctx.context.ptr_type(Default::default()), self_ptr, "obj").unwrap();
-                arg_values.push(loaded.into());
-            }
-        }
+        // Under LLVM opaque pointers every pointer shares the same type,
+        // so the old `is_i8_ptr` heuristic can no longer distinguish a
+        // receiver slot from a receiver value. It therefore mis-passed
+        // the slot address itself to runtime builtins such as
+        // __builtin_array_* and __string_*, which then read the slot
+        // address as array/string data (garbage `length()`, memory
+        // corruption in `push()`). Always load the receiver value from
+        // its slot instead; for scalar receivers the load preserves the
+        // value bit pattern.
+        let loaded = ctx
+            .builder()
+            .build_load(ctx.context.ptr_type(Default::default()), self_ptr, "obj")
+            .unwrap();
+        arg_values.push(loaded.into());
     }
     // Get the function's LLVM parameter types for type-aware conversion
     let func_param_types: Vec<_> = func.get_type().get_param_types();
@@ -5075,20 +5284,16 @@ fn compile_call<'ctx>(
             };
             let dyn_struct_ty = ruyi_type_to_llvm(ctx.context, &Type::Dynamic).into_struct_type();
             let i64_ty = ctx.context.i64_type();
-            let header_size = i64_ty.const_int(16, false);
+            let data_base = load_array_data_ptr(ctx, arr_ptr, "dyn_data2");
             let stride = i64_ty.const_int(16, false);
-            let byte_offset = ctx.builder().build_int_add(
-                header_size,
-                ctx.builder()
-                    .build_int_mul(index_val, stride, "dyn_stride2").unwrap(),
-                "dyn_offset2",
-            ).unwrap();
+            let byte_offset = ctx.builder()
+                .build_int_mul(index_val, stride, "dyn_stride2").unwrap();
             let offset_i32 =
                 ctx.builder()
                     .build_int_truncate(byte_offset, ctx.context.i32_type(), "off32b").unwrap();
             let elem_gep = unsafe {
                 ctx.builder()
-                    .build_gep(ctx.context.i8_type(), arr_ptr, &[offset_i32], "dyn_elem_gep2")
+                    .build_gep(ctx.context.i8_type(), data_base, &[offset_i32], "dyn_elem_gep2")
                     .unwrap()
             };
             let struct_ptr = ctx.builder().build_pointer_cast(
@@ -5098,6 +5303,83 @@ fn compile_call<'ctx>(
             ).unwrap();
             let loaded = ctx.builder().build_load(dyn_struct_ty, struct_ptr, "dyn_elem2").unwrap();
             return Ok(ExprResult::new(loaded, Type::Dynamic));
+        }
+    }
+
+    // Default parameters: synthesize omitted trailing arguments at the
+    // call site. LLVM has no default-argument concept; without this the
+    // call passes too few arguments and the callee reads undefined
+    // registers (e.g. a wild pointer in an omitted string parameter).
+    if arg_values.len() < func_param_types.len() {
+        let defaults = ctx.default_params.get(&name).cloned();
+        for param_idx in arg_values.len()..func_param_types.len() {
+            let default_expr = defaults
+                .as_ref()
+                .and_then(|d| d.get(param_idx))
+                .and_then(|d| d.as_ref());
+            let value: BasicValueEnum<'ctx> = match default_expr {
+                Some(def_expr) => compile_expr(ctx, def_expr)?.value,
+                // No default expression: pass the null representation for
+                // the expected parameter type (optional-param convention).
+                None => match func_param_types.get(param_idx) {
+                    Some(t) if t.is_int_type() => {
+                        t.into_int_type().const_zero().as_basic_value_enum()
+                    }
+                    Some(t) if t.is_float_type() => {
+                        t.into_float_type().const_zero().as_basic_value_enum()
+                    }
+                    Some(t) if t.is_struct_type() => {
+                        let st = t.into_struct_type();
+                        if st.count_fields() == 2 {
+                            // Dynamic {i64 tag, ptr data} — null dynamic.
+                            ctx.context
+                                .const_struct(
+                                    &[
+                                        ctx.context.i64_type().const_zero().into(),
+                                        ctx.context
+                                            .ptr_type(Default::default())
+                                            .const_null()
+                                            .into(),
+                                    ],
+                                    false,
+                                )
+                                .as_basic_value_enum()
+                        } else {
+                            st.get_undef().as_basic_value_enum()
+                        }
+                    }
+                    _ => ctx
+                        .context
+                        .ptr_type(Default::default())
+                        .const_null()
+                        .as_basic_value_enum(),
+                },
+            };
+            // Adjust the synthesized value to the declared LLVM parameter
+            // type (mirrors the main argument loop above).
+            let i8_ptr = ctx.context.ptr_type(Default::default());
+            let i64_ty = ctx.context.i64_type();
+            let adjusted: inkwell::values::BasicMetadataValueEnum<'ctx> =
+                match func_param_types.get(param_idx) {
+                    Some(t) if *t == i8_ptr.into() => match value {
+                        BasicValueEnum::IntValue(iv) => ctx
+                            .builder()
+                            .build_int_to_ptr(iv, i8_ptr, "def_to_ptr")
+                            .unwrap()
+                            .into(),
+                        other => other.into(),
+                    },
+                    Some(t) if *t == i64_ty.into() => match value {
+                        BasicValueEnum::PointerValue(pv) => ctx
+                            .builder()
+                            .build_ptr_to_int(pv, i64_ty, "def_to_i64")
+                            .unwrap()
+                            .into(),
+                        other => other.into(),
+                    },
+                    _ => value.into(),
+                };
+            arg_values.push(adjusted);
         }
     }
 
@@ -5756,6 +6038,35 @@ fn compile_if_expr<'ctx>(
     Ok(ExprResult::new(phi.as_basic_value(), result_ty))
 }
 
+/// 从数组头（24 字节：[len][cap][data_ptr]）加载元素缓冲指针。
+///
+/// 数据缓冲与头部分离，扩容时只替换缓冲、头指针保持稳定，
+/// 因此所有元素访问必须先经此函数取到当前缓冲地址。
+fn load_array_data_ptr<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
+    arr_ptr: inkwell::values::PointerValue<'ctx>,
+    name: &str,
+) -> inkwell::values::PointerValue<'ctx> {
+    let slot = unsafe {
+        ctx.builder().build_gep(
+            ctx.context.i8_type(),
+            arr_ptr,
+            &[ctx.context.i32_type().const_int(16, false)],
+            &format!("{}_slot", name),
+        ).unwrap()
+    };
+    let slot_ptr = ctx
+        .builder()
+        .build_bit_cast(slot, ctx.context.ptr_type(Default::default()), &format!("{}_slot_ptr", name)).unwrap()
+        .into_pointer_value();
+    let addr = ctx
+        .builder()
+        .build_load(ctx.context.i64_type(), slot_ptr, &format!("{}_addr", name)).unwrap()
+        .into_int_value();
+    ctx.builder()
+        .build_int_to_ptr(addr, ctx.context.ptr_type(Default::default()), name).unwrap()
+}
+
 fn compile_array_literal<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_, '_>,
     elements: &[crate::parser::ast::ArrayElement],
@@ -5769,11 +6080,16 @@ fn compile_array_literal<'ctx>(
         return compile_array_literal_with_spread(ctx, elements);
     }
 
-    // 快速路径：无 spread 元素时使用静态分配
+    // 快速路径：无 spread 元素时使用静态分配。
+    // 布局：24 字节头 [len][cap][data_ptr] + 独立元素缓冲，
+    // 保证数组头指针在扩容时保持稳定（引用语义）。
     let len = elements.len() as u64;
     let cap = if len == 0 { 4 } else { len };
-    let total_size = ctx.context.i64_type().const_int(16 + cap * 8, false);
-    let ptr = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), ctx.module, total_size);
+    let header_size = ctx.context.i64_type().const_int(24, false);
+    let ptr = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), ctx.module, header_size);
+
+    let data_size = ctx.context.i64_type().const_int(cap * 8, false);
+    let data_ptr = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), ctx.module, data_size);
 
     let len_ptr = ctx
         .builder()
@@ -5805,6 +6121,28 @@ fn compile_array_literal<'ctx>(
     ctx.builder()
         .build_store(cap_i64_ptr, ctx.context.i64_type().const_int(cap, false)).unwrap();
 
+    // 头部第三槽存储数据缓冲指针。
+    let data_slot_ptr = unsafe {
+        ctx.builder().build_gep(
+            ctx.context.i8_type(),
+            ptr,
+            &[ctx.context.i32_type().const_int(16, false)],
+            "data_slot_ptr",
+        ).unwrap()
+    };
+    let data_slot_i64_ptr = ctx
+        .builder()
+        .build_bit_cast(
+            data_slot_ptr,
+            ctx.context.ptr_type(Default::default()),
+            "data_slot_i64_ptr",
+        ).unwrap()
+        .into_pointer_value();
+    let data_addr = ctx
+        .builder()
+        .build_ptr_to_int(data_ptr, ctx.context.i64_type(), "data_addr").unwrap();
+    ctx.builder().build_store(data_slot_i64_ptr, data_addr).unwrap();
+
     let mut elem_ty: Option<Type> = None;
     for (i, elem) in elements.iter().enumerate() {
         match elem {
@@ -5818,8 +6156,8 @@ fn compile_array_literal<'ctx>(
                     Some(t) if *t != val.ty => elem_ty = Some(Type::Dynamic),
                     _ => {}
                 }
-                let offset = ctx.context.i32_type().const_int((16 + i * 8) as u64, false);
-                let elem_ptr = unsafe { ctx.builder().build_gep(ctx.context.i8_type(), ptr, &[offset], "elem_ptr").unwrap() };
+                let offset = ctx.context.i32_type().const_int((i * 8) as u64, false);
+                let elem_ptr = unsafe { ctx.builder().build_gep(ctx.context.i8_type(), data_ptr, &[offset], "elem_ptr").unwrap() };
                 let i64_ptr = ctx
                     .builder()
                     .build_bit_cast(
@@ -5845,14 +6183,14 @@ fn compile_array_literal<'ctx>(
 
                 if super::builtins::is_gc_managed(&val.ty) {
                     if let BasicValueEnum::PointerValue(pv) = val.value {
-                        super::builtins::build_gc_write_barrier(ctx.builder(), ctx.module, ptr, pv);
+                        super::builtins::build_gc_write_barrier(ctx.builder(), ctx.module, data_ptr, pv);
                     }
                 }
             }
             crate::parser::ast::ArrayElement::Elision => {
                 // Elision: 存储零值
-                let offset = ctx.context.i32_type().const_int((16 + i * 8) as u64, false);
-                let elem_ptr = unsafe { ctx.builder().build_gep(ctx.context.i8_type(), ptr, &[offset], "elem_ptr").unwrap() };
+                let offset = ctx.context.i32_type().const_int((i * 8) as u64, false);
+                let elem_ptr = unsafe { ctx.builder().build_gep(ctx.context.i8_type(), data_ptr, &[offset], "elem_ptr").unwrap() };
                 let i64_ptr = ctx
                     .builder()
                     .build_bit_cast(
@@ -6092,8 +6430,15 @@ fn compile_rest_args_to_array<'ctx>(
     let total_size = ctx
         .context
         .i64_type()
-        .const_int(16 + cap * elem_size, false);
+        .const_int(24, false);
     let ptr = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), ctx.module, total_size);
+
+    // 独立元素缓冲：头指针保持稳定，扩容只替换数据缓冲。
+    let data_total = ctx
+        .context
+        .i64_type()
+        .const_int(cap * elem_size, false);
+    let data_ptr = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), ctx.module, data_total);
 
     let len_ptr = ctx
         .builder()
@@ -6125,6 +6470,28 @@ fn compile_rest_args_to_array<'ctx>(
     ctx.builder()
         .build_store(cap_i64_ptr, ctx.context.i64_type().const_int(cap, false)).unwrap();
 
+    // 头部第三槽存储数据缓冲指针。
+    let data_slot_ptr = unsafe {
+        ctx.builder().build_gep(
+            ctx.context.i8_type(),
+            ptr,
+            &[ctx.context.i32_type().const_int(16, false)],
+            "rest_data_slot",
+        ).unwrap()
+    };
+    let data_slot_i64_ptr = ctx
+        .builder()
+        .build_bit_cast(
+            data_slot_ptr,
+            ctx.context.ptr_type(Default::default()),
+            "rest_data_slot_i64",
+        ).unwrap()
+        .into_pointer_value();
+    let data_addr = ctx
+        .builder()
+        .build_ptr_to_int(data_ptr, ctx.context.i64_type(), "rest_data_addr").unwrap();
+    ctx.builder().build_store(data_slot_i64_ptr, data_addr).unwrap();
+
     if matches!(elem_ty, Type::Dynamic) {
         // Dynamic rest args: store full {i64, i8*} structs to preserve type info
         let dyn_struct_ty = ruyi_type_to_llvm(ctx.context, &Type::Dynamic).into_struct_type();
@@ -6133,8 +6500,8 @@ fn compile_rest_args_to_array<'ctx>(
             let offset = ctx
                 .context
                 .i32_type()
-                .const_int((16 + i * 16) as u64, false);
-            let raw_elem_ptr = unsafe { ctx.builder().build_gep(ctx.context.i8_type(), ptr, &[offset], "dyn_elem_ptr").unwrap() };
+                .const_int((i * 16) as u64, false);
+            let raw_elem_ptr = unsafe { ctx.builder().build_gep(ctx.context.i8_type(), data_ptr, &[offset], "dyn_elem_ptr").unwrap() };
             let elem_ptr = ctx.builder().build_pointer_cast(
                 raw_elem_ptr,
                 dyn_struct_ptr_ty,
@@ -6159,8 +6526,8 @@ fn compile_rest_args_to_array<'ctx>(
     } else {
         // Non-Dynamic: store as i64 values (legacy behavior)
         for (i, val) in rest_args.iter().enumerate() {
-            let offset = ctx.context.i32_type().const_int((16 + i * 8) as u64, false);
-            let elem_ptr = unsafe { ctx.builder().build_gep(ctx.context.i8_type(), ptr, &[offset], "elem_ptr").unwrap() };
+            let offset = ctx.context.i32_type().const_int((i * 8) as u64, false);
+            let elem_ptr = unsafe { ctx.builder().build_gep(ctx.context.i8_type(), data_ptr, &[offset], "elem_ptr").unwrap() };
             let i64_ptr = ctx
                 .builder()
                 .build_bit_cast(
@@ -6456,6 +6823,452 @@ fn store_value_at_slot<'ctx>(
     Ok(())
 }
 
+/// Compile `Thread.spawn(closure[, arg])` as a language-level builtin.
+///
+/// Emits a per-closure trampoline matching the runtime's
+/// `extern "C" fn(usize)` thread-entry ABI, calls `__thread_spawn`,
+/// and returns a `Thread` instance whose `_handle` field holds the
+/// registry handle used by `join` / `detach` / `isFinished`.
+///
+/// Captures: closures compiled inside another function resolve outer
+/// locals to the enclosing frame's allocas (cross-function references).
+/// Those slots are invalid from another OS thread, so every outer local
+/// the closure actually touches is copied by value into a heap context
+/// block at spawn time, and the closure's loads/stores are patched to
+/// use that block (spec: closures capture by value, deep copy).
+fn compile_thread_spawn<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
+    args: &[crate::parser::ast::Argument],
+) -> Result<ExprResult<'ctx>, String> {
+    let closure_expr = match args.first() {
+        Some(crate::parser::ast::Argument::Expr(e)) => e,
+        _ => return Err("Thread.spawn expects a closure argument".to_string()),
+    };
+    // Optional explicit user argument (`Thread.spawn(fn, arg)`), carried
+    // to the closure via the context block header.
+    let user_arg_expr = match args.get(1) {
+        Some(crate::parser::ast::Argument::Expr(e)) => Some(e),
+        _ => None,
+    };
+
+    // Snapshot the enclosing scope before compiling the closure; after
+    // compilation ctx.variables is restored, so anything the closure
+    // referenced from this snapshot is a by-value capture candidate.
+    let outer_scope: std::collections::HashMap<String, (inkwell::values::PointerValue<'ctx>, Type)> = ctx
+        .variables
+        .iter()
+        .map(|(k, (p, t))| (k.clone(), (*p, t.clone())))
+        .collect();
+
+    // Compile the closure first so its function and registered type
+    // signature exist before the trampoline is emitted.
+    let closure_result = compile_expr(ctx, closure_expr)?;
+    let fn_ptr = closure_result.value.into_pointer_value();
+    // Named/arrow closures carry their real signature in the ExprResult;
+    // anonymous `fn` expressions report an empty placeholder, so fall
+    // back to the signature registered under the function's own name.
+    let mut param_count = match &closure_result.ty {
+        Type::Function { params, .. } => params.len(),
+        _ => 1,
+    };
+    let mut closure_ret = match &closure_result.ty {
+        Type::Function { return_type, .. } => (**return_type).clone(),
+        _ => Type::Void,
+    };
+    let fn_key = fn_ptr.get_name().to_string_lossy().to_string();
+    if let Some(Type::Function { params, return_type }) = ctx.function_types.get(&fn_key) {
+        param_count = params.len();
+        closure_ret = (**return_type).clone();
+    }
+    // The compiled closure as a FunctionValue, for basic-block /
+    // parameter iteration (fn_ptr is the bare call-target pointer).
+    let closure_fn = ctx
+        .module
+        .get_function(&fn_key)
+        .ok_or_else(|| format!("Thread.spawn: closure '{}' not found", fn_key))?;
+
+    let i64_ty = ctx.context.i64_type();
+    let ptr_ty = ctx.context.ptr_type(Default::default());
+    let dyn_ty = ruyi_type_to_llvm(ctx.context, &Type::Dynamic);
+
+    // ── Capture scan: find loads/stores in the closure that touch
+    // allocas owned by the enclosing function. ─────────────────────
+    if param_count == 0 {
+        // Pre-check: a capture-less scan leaves the closure untouched,
+        // but captured outer locals need the closure's first parameter
+        // slot to carry the context pointer, which a zero-parameter
+        // closure has no room for.
+        let mut has_capture = false;
+        let mut bb = closure_fn.get_first_basic_block();
+        'outer: while let Some(block) = bb {
+            let mut inst = block.get_first_instruction();
+            while let Some(i) = inst {
+                let addr_idx = match i.get_opcode() {
+                    inkwell::values::InstructionOpcode::Load => Some(0),
+                    inkwell::values::InstructionOpcode::Store => Some(1),
+                    _ => None,
+                };
+                if let Some(idx) = addr_idx {
+                    if let Some(inkwell::values::Operand::Value(BasicValueEnum::PointerValue(
+                        op_ptr,
+                    ))) = i.get_operand(idx)
+                    {
+                        if outer_scope.values().any(|(alloca, _)| *alloca == op_ptr) {
+                            has_capture = true;
+                            break 'outer;
+                        }
+                    }
+                }
+                inst = i.get_next_instruction();
+            }
+            bb = block.get_next_basic_block();
+        }
+        if has_capture {
+            return Err(
+                "Thread.spawn closure captures locals but declares no parameter; \
+                 declare one parameter to receive the capture context"
+                    .to_string(),
+            );
+        }
+    }
+
+    let mut captures: Vec<(inkwell::values::PointerValue<'ctx>, Type)> = Vec::new();
+    // (instruction, operand index, capture slot index)
+    let mut patch_targets: Vec<(inkwell::values::InstructionValue<'ctx>, u32, usize)> = Vec::new();
+    // Entry store of the closure's first parameter into its alloca —
+    // the patch point that restores the user arg from the context
+    // block header (operand 0 of that store is replaced).
+    let closure_param = closure_fn.get_nth_param(0);
+    let mut param_store: Option<inkwell::values::InstructionValue<'ctx>> = None;
+    let mut bb = closure_fn.get_first_basic_block();
+    while let Some(block) = bb {
+        let mut inst = block.get_first_instruction();
+        while let Some(i) = inst {
+            let opcode = i.get_opcode();
+            // LLVM operand order: load has [ptr] at index 0; store has
+            // [value, ptr] with the address at index 1.
+            let addr_idx = match opcode {
+                inkwell::values::InstructionOpcode::Load => Some(0),
+                inkwell::values::InstructionOpcode::Store => Some(1),
+                _ => None,
+            };
+            if let Some(idx) = addr_idx {
+                if let Some(inkwell::values::Operand::Value(BasicValueEnum::PointerValue(op_ptr))) =
+                    i.get_operand(idx)
+                {
+                    let found = captures.iter().position(|(alloca, _)| *alloca == op_ptr);
+                    let slot_idx = match found {
+                        Some(s) => s,
+                        None => {
+                            let outer_ty = outer_scope
+                                .values()
+                                .find(|(alloca, _)| *alloca == op_ptr)
+                                .map(|(_, ty)| ty.clone());
+                            match outer_ty {
+                                Some(ty) => {
+                                    captures.push((op_ptr, ty));
+                                    captures.len() - 1
+                                }
+                                None => usize::MAX,
+                            }
+                        }
+                    };
+                    if slot_idx != usize::MAX {
+                        patch_targets.push((i, idx as u32, slot_idx));
+                    }
+                }
+            }
+            // Detect `store <param0>, ptr <alloca>` (the param spill
+            // emitted by compile_function before the body runs).
+            if opcode == inkwell::values::InstructionOpcode::Store && param_store.is_none() {
+                if let (Some(p0), Some(inkwell::values::Operand::Value(val))) =
+                    (closure_param, i.get_operand(0))
+                {
+                    if val == p0 {
+                        param_store = Some(i);
+                    }
+                }
+            }
+            inst = i.get_next_instruction();
+        }
+        bb = block.get_next_basic_block();
+    }
+
+    // ── User arg: box into the Dynamic `{tag, data}` convention so
+    // the closure receives it unchanged despite the arg channel being
+    // repurposed to carry the context pointer. ────────────────────
+    let boxed_arg: Option<(inkwell::values::IntValue<'ctx>, inkwell::values::PointerValue<'ctx>)> =
+        match user_arg_expr {
+            Some(e) => {
+                let r = compile_expr(ctx, e)?;
+                let (tag, data) = match &r.ty {
+                    Type::Dynamic => {
+                        let s = r.value.into_struct_value();
+                        let t = ctx
+                            .builder()
+                            .build_extract_value(s, 0, "ua_tag")
+                            .unwrap()
+                            .into_int_value();
+                        let d = ctx
+                            .builder()
+                            .build_extract_value(s, 1, "ua_data")
+                            .unwrap()
+                            .into_pointer_value();
+                        (t, d)
+                    }
+                    Type::Int => (
+                        i64_ty.const_int(1, false),
+                        ctx.builder()
+                            .build_int_to_ptr(r.value.into_int_value(), ptr_ty, "ua_data")
+                            .unwrap(),
+                    ),
+                    Type::Float => {
+                        let bits = ctx
+                            .builder()
+                            .build_bit_cast(r.value.into_float_value(), i64_ty, "ua_fbits")
+                            .unwrap()
+                            .into_int_value();
+                        let marker = ctx
+                            .builder()
+                            .build_int_to_ptr(i64_ty.const_int(2, false), ptr_ty, "ua_data")
+                            .unwrap();
+                        (bits, marker)
+                    }
+                    Type::Bool => {
+                        let z = ctx
+                            .builder()
+                            .build_int_z_extend(r.value.into_int_value(), i64_ty, "ua_b")
+                            .unwrap();
+                        let marker = ctx
+                            .builder()
+                            .build_int_to_ptr(i64_ty.const_int(3, false), ptr_ty, "ua_data")
+                            .unwrap();
+                        (z, marker)
+                    }
+                    Type::String => (i64_ty.const_int(0, false), r.value.into_pointer_value()),
+                    Type::Named(cn, _) => {
+                        let tid = ctx.type_ids.get(cn).copied().unwrap_or(0);
+                        (i64_ty.const_int(tid, false), r.value.into_pointer_value())
+                    }
+                    _ => (
+                        i64_ty.const_int(0, false),
+                        ctx.context.ptr_type(Default::default()).const_null(),
+                    ),
+                };
+                Some((tag, data))
+            }
+            None => None,
+        };
+
+    // ── Context block layout (spawn-time snapshot): [0..16) holds the
+    // boxed user arg Dynamic `{tag, data}` (zeroed when absent);
+    // [16 + 8k) holds capture k copied by value from the still-live
+    // enclosing frame. The block pointer travels through the single
+    // `extern "C" fn(usize)` thread-entry word. ─────────────────
+    let needs_ctx =
+        !captures.is_empty() || (boxed_arg.is_some() && param_count > 0);
+    let ctx_ptr_val = if !needs_ctx {
+        i64_ty.const_int(0, false)
+    } else {
+        let total = ctx
+            .context
+            .i64_type()
+            .const_int((16 + captures.len() * 8) as u64, false);
+        let ctx_block = GcAllocFn::for_mode(ctx.gc_mode).emit(ctx.builder(), ctx.module, total);
+        // Header: boxed user arg (tag at +0, data at +8).
+        if let Some((tag, data)) = boxed_arg {
+            let tag_off = ctx.context.i32_type().const_int(0, false);
+            let tag_ptr = unsafe {
+                ctx.builder()
+                    .build_gep(ctx.context.i8_type(), ctx_block, &[tag_off], "ua_tag_slot")
+                    .unwrap()
+            };
+            ctx.builder().build_store(tag_ptr, tag).unwrap();
+            let data_off = ctx.context.i32_type().const_int(8, false);
+            let data_ptr = unsafe {
+                ctx.builder()
+                    .build_gep(ctx.context.i8_type(), ctx_block, &[data_off], "ua_data_slot")
+                    .unwrap()
+            };
+            ctx.builder().build_store(data_ptr, data).unwrap();
+        }
+        for (slot_idx, (alloca, ty)) in captures.iter().enumerate() {
+            let llvm_ty = ruyi_type_to_llvm(ctx.context, ty);
+            let current = ctx.builder().build_load(llvm_ty, *alloca, "cap_cur").unwrap();
+            let offset = ctx
+                .context
+                .i32_type()
+                .const_int((16 + slot_idx * 8) as u64, false);
+            let slot_ptr = unsafe {
+                ctx.builder()
+                    .build_gep(ctx.context.i8_type(), ctx_block, &[offset], "cap_slot")
+                    .unwrap()
+            };
+            ctx.builder().build_store(slot_ptr, current).unwrap();
+        }
+        ctx.builder()
+            .build_ptr_to_int(ctx_block, i64_ty, "ctx_word")
+            .unwrap()
+    };
+
+    // Patch the closure for execution on the new thread. Slot addresses
+    // are derived inside the closure itself from its own parameter (the
+    // trampoline boxes the context pointer into the Dynamic `data`
+    // field), so no cross-function SSA value references occur.
+    if needs_ctx {
+        let closure_entry = closure_fn.get_first_basic_block().unwrap();
+        let param_val = closure_param.ok_or_else(|| {
+            "Thread.spawn closure parameter missing for capture context".to_string()
+        })?;
+        let caller_bb = ctx.builder().get_insert_block();
+        ctx.builder()
+            .position_before(&closure_entry.get_first_instruction().unwrap());
+        // The closure declares an untyped (Dynamic `{tag, data}`) or
+        // raw parameter; in every supported shape the context block
+        // pointer travels in the parameter's data slot.
+        let closure_ctx_ptr = match param_val {
+            BasicValueEnum::StructValue(s) => ctx
+                .builder()
+                .build_extract_value(s, 1, "cap_ctx")
+                .unwrap()
+                .into_pointer_value(),
+            BasicValueEnum::IntValue(iv) => ctx
+                .builder()
+                .build_int_to_ptr(iv, ptr_ty, "cap_ctx")
+                .unwrap(),
+            BasicValueEnum::PointerValue(pv) => pv,
+            _ => {
+                return Err(
+                    "Thread.spawn closure parameter type cannot carry the capture context"
+                        .to_string(),
+                )
+            }
+        };
+        // Restore the user arg: replace the stored parameter value in
+        // the entry spill with the Dynamic loaded from the block header,
+        // so every later read of the parameter sees the original arg.
+        if boxed_arg.is_some() {
+            if let Some(store_inst) = param_store {
+                let dyn_load = ctx
+                    .builder()
+                    .build_load(dyn_ty, closure_ctx_ptr, "ua_restore")
+                    .unwrap();
+                store_inst.set_operand(0, dyn_load);
+            }
+        }
+        for (inst, idx, slot_idx) in &patch_targets {
+            let offset = ctx
+                .context
+                .i32_type()
+                .const_int((16 + *slot_idx * 8) as u64, false);
+            let slot_ptr = unsafe {
+                ctx.builder()
+                    .build_gep(ctx.context.i8_type(), closure_ctx_ptr, &[offset], "cap_slot_ref")
+                    .unwrap()
+            };
+            inst.set_operand(*idx, slot_ptr);
+        }
+        if let Some(bb) = caller_bb {
+            ctx.builder().position_at_end(bb);
+        }
+    }
+
+    // Trampoline: extern "C" fn(usize) that forwards to the closure.
+    // The spawn word (context block pointer) is boxed as a Dynamic
+    // `{0, inttoptr(word)}` and passed as the closure's first parameter;
+    // the closure's patched entry recovers the real user arg and
+    // captures from the block.
+    let trampoline_name = format!("__ruyi_thread_trampoline_{}", ctx.anon_counter);
+    ctx.anon_counter += 1;
+    let trampoline_fn =
+        ctx.module
+            .add_function(&trampoline_name, ctx.context.void_type().fn_type(&[i64_ty.into()], false), None);
+    trampoline_fn.set_linkage(inkwell::module::Linkage::Internal);
+    // Unwinding must be able to cross the trampoline frame when the
+    // closure throws.
+    let lp_gen = LandingPadGenerator::new(ctx.context, ctx.module, ctx.builder());
+    trampoline_fn.set_personality_function(lp_gen.get_personality_function());
+
+    // The context word only needs forwarding when the closure declares
+    // a parameter (zero-parameter closures cannot receive it; their
+    // capture case is rejected by the pre-check above).
+    let needs_arg = param_count > 0;
+    let closure_params: Vec<Type> = if needs_arg {
+        vec![Type::Dynamic]
+    } else {
+        Vec::new()
+    };
+    let closure_fn_ty = function_type_from_ruyi(ctx.context, &closure_params, &closure_ret);
+
+    let caller_bb = ctx.builder().get_insert_block();
+    let tramp_entry = ctx.context.append_basic_block(trampoline_fn, "entry");
+    ctx.builder().position_at_end(tramp_entry);
+    if needs_arg {
+        let arg_val = trampoline_fn.get_nth_param(0).unwrap().into_int_value();
+        let data_ptr = ctx
+            .builder()
+            .build_int_to_ptr(arg_val, ptr_ty, "spawn_arg_ptr")
+            .unwrap();
+        let zero_tag = i64_ty.const_int(0, false);
+        let mut boxed = dyn_ty.into_struct_type().const_zero();
+        boxed = ctx
+            .builder()
+            .build_insert_value(boxed, zero_tag, 0, "spawn_arg_tag")
+            .unwrap()
+            .into_struct_value();
+        boxed = ctx
+            .builder()
+            .build_insert_value(boxed, data_ptr, 1, "spawn_arg_data")
+            .unwrap()
+            .into_struct_value();
+        let boxed_meta: inkwell::values::BasicMetadataValueEnum<'ctx> = boxed.into();
+        ctx.builder()
+            .build_indirect_call(closure_fn_ty, fn_ptr, &[boxed_meta], "closure_call")
+            .unwrap();
+    } else {
+        ctx.builder()
+            .build_indirect_call(closure_fn_ty, fn_ptr, &[], "closure_call")
+            .unwrap();
+    }
+    ctx.builder().build_return(None).unwrap();
+    if let Some(bb) = caller_bb {
+        ctx.builder().position_at_end(bb);
+    }
+
+    // handle = __thread_spawn(trampoline, context_word)
+    let spawn_fn = match ctx.module.get_function("__thread_spawn") {
+        Some(f) => f,
+        None => {
+            let fty = i64_ty.fn_type(&[ptr_ty.into(), ptr_ty.into()], false);
+            ctx.module.add_function("__thread_spawn", fty, None)
+        }
+    };
+    let trampoline_ptr = trampoline_fn.as_global_value().as_pointer_value();
+    let ctx_word_ptr = ctx
+        .builder()
+        .build_int_to_ptr(ctx_ptr_val, ptr_ty, "ctx_word_ptr")
+        .unwrap();
+    let handle = ctx
+        .builder()
+        .build_call(spawn_fn, &[trampoline_ptr.into(), ctx_word_ptr.into()], "thread_handle")
+        .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
+        .into_int_value();
+
+    // Allocate the Thread instance (typeid + zeroed fields via the
+    // standard `new` path) and store the handle into `_handle`.
+    let new_result = compile_new(ctx, &crate::parser::ast::Expr::Identifier("Thread".to_string()), &[])?;
+    let thread_obj = new_result.value.into_pointer_value();
+    let (handle_ptr, _) = class_field_access(ctx, thread_obj, "Thread", "_handle")?;
+    ctx.builder().build_store(handle_ptr, handle).unwrap();
+
+    Ok(ExprResult::new(
+        BasicValueEnum::PointerValue(thread_obj),
+        Type::Named("Thread".to_string(), Vec::new()),
+    ))
+}
+
 pub(crate) fn compile_new<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_, '_>,
     callee: &crate::parser::ast::Expr,
@@ -6749,8 +7562,9 @@ fn compile_match_expr<'ctx>(
         }
 
         let body_len = arm.body.len();
+        let mut wrote_result = false;
         for (j, stmt) in arm.body.iter().enumerate() {
-            compile_stmt_for_match(ctx, stmt, j == body_len - 1, result_ptr, llvm_ty)?;
+            wrote_result = compile_stmt_for_match(ctx, stmt, j == body_len - 1, result_ptr, llvm_ty)?;
             if let Some(bb) = ctx.builder().get_insert_block() {
                 if bb.get_terminator().is_some() {
                     break;
@@ -6760,16 +7574,17 @@ fn compile_match_expr<'ctx>(
 
         if let Some(bb) = ctx.builder().get_insert_block() {
             if bb.get_terminator().is_none() {
-                let undef: BasicValueEnum<'ctx> = match llvm_ty {
-                    inkwell::types::BasicTypeEnum::IntType(t) => t.get_undef().into(),
-                    inkwell::types::BasicTypeEnum::FloatType(t) => t.get_undef().into(),
-                    inkwell::types::BasicTypeEnum::PointerType(t) => t.get_undef().into(),
-                    inkwell::types::BasicTypeEnum::StructType(t) => t.get_undef().into(),
-                    inkwell::types::BasicTypeEnum::ArrayType(t) => t.get_undef().into(),
-                    inkwell::types::BasicTypeEnum::VectorType(t) => t.get_undef().into(),
-                    _ => panic!("Unsupported type in match undef"),
-                };
-                ctx.builder().build_store(result_ptr, undef).unwrap();
+                if !wrote_result {
+                    // The arm body wrote no result (e.g. an empty block or a
+                    // non-expression tail). Seed the slot with a null Dynamic
+                    // `{0, null}` instead of undef so the merge block never
+                    // observes garbage. A result already written by the last
+                    // statement must never be overwritten.
+                    let null_dyn = llvm_ty
+                        .into_struct_type()
+                        .const_zero();
+                    ctx.builder().build_store(result_ptr, null_dyn).unwrap();
+                }
                 ctx.builder().build_unconditional_branch(merge_bb).unwrap();
             }
         }
@@ -6786,16 +7601,28 @@ fn compile_stmt_for_match<'ctx>(
     is_last: bool,
     result_ptr: inkwell::values::PointerValue<'ctx>,
     _llvm_ty: inkwell::types::BasicTypeEnum<'ctx>,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     use crate::parser::ast::Statement;
     match stmt {
         Statement::Expression(expr) => {
             let result = compile_expr(ctx, expr)?;
             if is_last {
-                ctx.builder().build_store(result_ptr, result.value).unwrap();
+                // The result slot is a Dynamic `{tag, data}` struct. Box the
+                // arm value accordingly; storing a raw i64/pointer into the
+                // struct slot would leave it half-written and type-mismatched.
+                let boxed: BasicValueEnum<'ctx> = if matches!(result.ty, Type::Dynamic) {
+                    match result.value {
+                        BasicValueEnum::StructValue(s) => s.into(),
+                        v => build_box_dynamic(ctx, v, &result.ty),
+                    }
+                } else {
+                    build_box_dynamic(ctx, result.value, &result.ty)
+                };
+                ctx.builder().build_store(result_ptr, boxed).unwrap();
+                return Ok(true);
             }
-            Ok(())
+            Ok(false)
         }
-        _ => super::stmt::compile_stmt(ctx, stmt),
+        _ => super::stmt::compile_stmt(ctx, stmt).map(|_| false),
     }
 }

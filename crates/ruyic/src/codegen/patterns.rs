@@ -88,6 +88,24 @@ pub fn bind_array_pattern<'ctx>(
 
     let i32_ty = ctx.context.i32_type();
 
+    // 数组元素在独立缓冲中：头部偏移 16 存 data_ptr。
+    let data_slot = unsafe {
+        ctx.builder()
+            .build_gep(ctx.context.i8_type(), array_ptr, &[i32_ty.const_int(16, false)], "data_slot")
+            .unwrap()
+    };
+    let data_slot_ptr = ctx
+        .builder()
+        .build_bit_cast(data_slot, ctx.context.ptr_type(Default::default()), "data_slot_ptr").unwrap()
+        .into_pointer_value();
+    let data_addr = ctx
+        .builder()
+        .build_load(ctx.context.i64_type(), data_slot_ptr, "data_addr").unwrap()
+        .into_int_value();
+    let data_base = ctx
+        .builder()
+        .build_int_to_ptr(data_addr, ctx.context.ptr_type(Default::default()), "data_base").unwrap();
+
     let mut idx = 0;
     for elem in elements {
         match elem {
@@ -105,10 +123,10 @@ pub fn bind_array_pattern<'ctx>(
                 };
                 let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &elem_ty);
 
-                let offset = i32_ty.const_int((16 + idx * 8) as u64, false);
+                let offset = i32_ty.const_int((idx * 8) as u64, false);
                 let elem_ptr = unsafe {
                     ctx.builder()
-                        .build_gep(ctx.context.i8_type(), array_ptr, &[offset], &format!("elem_ptr_{}", idx)).unwrap()
+                        .build_gep(ctx.context.i8_type(), data_base, &[offset], &format!("elem_ptr_{}", idx)).unwrap()
                 };
                 let typed_ptr = ctx.builder().build_bit_cast(
                     elem_ptr,
@@ -146,10 +164,28 @@ pub fn bind_object_pattern<'ctx>(
     fields: &[crate::parser::ast::ObjectPatternField],
     scrutinee: &ExprResult<'ctx>,
 ) -> Result<(), String> {
-    let obj_ptr = match scrutinee.value {
+    let mut obj_ptr = match scrutinee.value {
         BasicValueEnum::PointerValue(p) => p,
         _ => return Err("Object pattern requires pointer scrutinee".to_string()),
     };
+
+    // A Dynamic scrutinee points at a boxed `{tag, data}` struct whose
+    // `data` field holds the real object pointer (flat slot layout).
+    // Unbox before field extraction, otherwise the tag and data fields
+    // of the box itself would be read as object slots.
+    if matches!(scrutinee.ty, Type::Dynamic) {
+        let dyn_llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &Type::Dynamic);
+        let boxed = ctx
+            .builder()
+            .build_load(dyn_llvm_ty, obj_ptr, "dyn_box_load")
+            .unwrap()
+            .into_struct_value();
+        obj_ptr = ctx
+            .builder()
+            .build_extract_value(boxed, 1, "dyn_obj_ptr")
+            .unwrap()
+            .into_pointer_value();
+    }
 
     let i32_ty = ctx.context.i32_type();
 
@@ -281,6 +317,115 @@ pub fn bind_object_pattern<'ctx>(
                     ctx.define_variable(name.clone(), (ptr, field_ty.clone()));
                 }
                 _ => {}
+            }
+        }
+    } else {
+        // Fallback (Dynamic or unknown shape): treat the object as a flat
+        // array of 8-byte slots and bind each pattern field as a boxed
+        // Dynamic value in declaration order. Defaulted fields cannot read
+        // a slot safely (the layout carries no field count), so evaluate
+        // their default expression instead.
+        let i64_ty = ctx.context.i64_type();
+        let dyn_llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &Type::Dynamic);
+        let mut field_idx = 0u64;
+        for f in fields {
+            match f {
+                crate::parser::ast::ObjectPatternField::Property {
+                    key,
+                    pattern: inner,
+                } => {
+                    let offset = i32_ty.const_int(field_idx * 8, false);
+                    let field_ptr = unsafe {
+                        ctx.builder()
+                            .build_gep(
+                                ctx.context.i8_type(),
+                                obj_ptr,
+                                &[offset],
+                                &format!("{}_ptr", key),
+                            )
+                            .unwrap()
+                    };
+                    let field_val = ctx
+                        .builder()
+                        .build_load(i64_ty, field_ptr, key)
+                        .unwrap()
+                        .into_int_value();
+                    let data_ptr = ctx
+                        .builder()
+                        .build_int_to_ptr(
+                            field_val,
+                            ctx.context.ptr_type(Default::default()),
+                            "slot_dyn_data",
+                        )
+                        .unwrap();
+                    let mut boxed = dyn_llvm_ty.into_struct_type().const_zero();
+                    boxed = ctx
+                        .builder()
+                        .build_insert_value(boxed, i64_ty.const_int(1, false), 0, "slot_dyn_tag")
+                        .unwrap()
+                        .into_struct_value();
+                    boxed = ctx
+                        .builder()
+                        .build_insert_value(boxed, data_ptr, 1, "slot_dyn_ptr")
+                        .unwrap()
+                        .into_struct_value();
+                    bind_pattern(
+                        ctx,
+                        inner,
+                        &ExprResult::new(BasicValueEnum::StructValue(boxed), Type::Dynamic),
+                    )?;
+                    field_idx += 1;
+                }
+                crate::parser::ast::ObjectPatternField::Shorthand(name) => {
+                    let offset = i32_ty.const_int(field_idx * 8, false);
+                    let field_ptr = unsafe {
+                        ctx.builder()
+                            .build_gep(
+                                ctx.context.i8_type(),
+                                obj_ptr,
+                                &[offset],
+                                &format!("{}_ptr", name),
+                            )
+                            .unwrap()
+                    };
+                    let slot_word = ctx
+                        .builder()
+                        .build_load(i64_ty, field_ptr, name)
+                        .unwrap()
+                        .into_int_value();
+                    let data_ptr = ctx
+                        .builder()
+                        .build_int_to_ptr(
+                            slot_word,
+                            ctx.context.ptr_type(Default::default()),
+                            "slot_dyn_data",
+                        )
+                        .unwrap();
+                    let mut boxed = dyn_llvm_ty.into_struct_type().const_zero();
+                    boxed = ctx
+                        .builder()
+                        .build_insert_value(boxed, i64_ty.const_int(1, false), 0, "slot_dyn_tag")
+                        .unwrap()
+                        .into_struct_value();
+                    boxed = ctx
+                        .builder()
+                        .build_insert_value(boxed, data_ptr, 1, "slot_dyn_ptr")
+                        .unwrap()
+                        .into_struct_value();
+                    let ptr = ctx.builder().build_alloca(dyn_llvm_ty, name).unwrap();
+                    ctx.builder().build_store(ptr, boxed).unwrap();
+                    ctx.define_variable(name.clone(), (ptr, Type::Dynamic));
+                    field_idx += 1;
+                }
+                crate::parser::ast::ObjectPatternField::ShorthandDefault(name, default_expr) => {
+                    let default_result = compile_expr(ctx, default_expr)?;
+                    let llvm_ty =
+                        super::types::ruyi_type_to_llvm(ctx.context, &default_result.ty);
+                    let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
+                    ctx.builder().build_store(ptr, default_result.value).unwrap();
+                    ctx.define_variable(name.clone(), (ptr, default_result.ty.clone()));
+                }
+                crate::parser::ast::ObjectPatternField::Rest(_) => {}
             }
         }
     }

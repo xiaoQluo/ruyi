@@ -10,6 +10,7 @@ use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::types::{BasicType, FunctionType};
 use inkwell::values::{BasicValueEnum, FunctionValue};
+use inkwell::IntPredicate;
 
 use crate::cli::gc_mode::GcMode;
 use crate::typechecker::types::Type;
@@ -234,10 +235,121 @@ pub fn build_print<'ctx>(
         Type::Bool => {
             build_print_bool(context, builder, module, value.into_int_value(), function);
         }
+        Type::Dynamic => {
+            build_print_dynamic(context, builder, module, value, function);
+        }
         _ => {
             build_print_primitive(builder, module, value);
         }
     }
+}
+
+/// Print a boxed Dynamic `{i64 tag, ptr data}` value by dispatching on
+/// its encoding:
+///   - string : tag = 0,                  data = string pointer
+///   - int    : tag = 1,                  data = inttoptr(value)
+///   - float  : tag = f64 bits,           data = inttoptr(2)
+///   - bool   : tag = 0/1,                data = inttoptr(3)
+///   - object : tag = typeid (non-zero),  data = object pointer
+///
+/// All blocks are appended at the function tail; blocks must never be
+/// inserted mid-function or the builder would fall through into them.
+fn build_print_dynamic<'ctx>(
+    context: &'ctx Context,
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    value: BasicValueEnum<'ctx>,
+    function: FunctionValue<'ctx>,
+) {
+    let printf = module.get_function("printf").expect("printf not declared");
+    let i64_ty = context.i64_type();
+
+    let dyn_struct = value.into_struct_value();
+    let tag = builder
+        .build_extract_value(dyn_struct, 0, "dyn_tag")
+        .unwrap()
+        .into_int_value();
+    let data = builder
+        .build_extract_value(dyn_struct, 1, "dyn_data")
+        .unwrap()
+        .into_pointer_value();
+    let data_int = builder.build_ptr_to_int(data, i64_ty, "dyn_data_i").unwrap();
+
+    let chk_bool_bb = context.append_basic_block(function, "print_dyn_chk_bool");
+    let chk_str_bb = context.append_basic_block(function, "print_dyn_chk_str");
+    let chk_int_bb = context.append_basic_block(function, "print_dyn_chk_int");
+    let float_bb = context.append_basic_block(function, "print_dyn_float");
+    let bool_bb = context.append_basic_block(function, "print_dyn_bool");
+    let str_bb = context.append_basic_block(function, "print_dyn_str");
+    let int_bb = context.append_basic_block(function, "print_dyn_int");
+    let obj_bb = context.append_basic_block(function, "print_dyn_obj");
+    let merge_bb = context.append_basic_block(function, "print_dyn_merge");
+
+    // Chain: entry -> chk_bool -> chk_str -> chk_int -> obj. Class
+    // instances use non-zero typeids that cannot collide with the small
+    // float/bool marker values.
+    let is_float = builder
+        .build_int_compare(IntPredicate::EQ, data_int, i64_ty.const_int(2, false), "is_float")
+        .unwrap();
+    builder.build_conditional_branch(is_float, float_bb, chk_bool_bb).unwrap();
+
+    builder.position_at_end(chk_bool_bb);
+    let is_bool = builder
+        .build_int_compare(IntPredicate::EQ, data_int, i64_ty.const_int(3, false), "is_bool")
+        .unwrap();
+    builder.build_conditional_branch(is_bool, bool_bb, chk_str_bb).unwrap();
+
+    builder.position_at_end(chk_str_bb);
+    let is_str = builder
+        .build_int_compare(IntPredicate::EQ, tag, i64_ty.const_int(0, false), "is_str")
+        .unwrap();
+    builder.build_conditional_branch(is_str, str_bb, chk_int_bb).unwrap();
+
+    builder.position_at_end(chk_int_bb);
+    let is_int = builder
+        .build_int_compare(IntPredicate::EQ, tag, i64_ty.const_int(1, false), "is_int")
+        .unwrap();
+    builder.build_conditional_branch(is_int, int_bb, obj_bb).unwrap();
+
+    // float: tag carries the f64 bit pattern.
+    builder.position_at_end(float_bb);
+    let fbits = builder.build_bit_cast(tag, context.f64_type(), "dyn_f").unwrap();
+    let fmt_f = builder.build_global_string_ptr("%f", "fmt_dyn_float").unwrap();
+    builder.build_call(printf, &[fmt_f.as_pointer_value().into(), fbits.into()], "print_dyn_float").unwrap();
+    builder.build_unconditional_branch(merge_bb).unwrap();
+
+    // bool: tag holds 0/1.
+    builder.position_at_end(bool_bb);
+    let is_true = builder
+        .build_int_compare(IntPredicate::NE, tag, i64_ty.const_int(0, false), "dyn_true")
+        .unwrap();
+    let fmt_true = builder.build_global_string_ptr("true", "fmt_dyn_true").unwrap();
+    let fmt_false = builder.build_global_string_ptr("false", "fmt_dyn_false").unwrap();
+    let fmt_sel = builder
+        .build_select(is_true, fmt_true.as_pointer_value(), fmt_false.as_pointer_value(), "fmt_sel")
+        .unwrap();
+    builder.build_call(printf, &[fmt_sel.into()], "print_dyn_bool").unwrap();
+    builder.build_unconditional_branch(merge_bb).unwrap();
+
+    // string: data is the string pointer.
+    builder.position_at_end(str_bb);
+    let fmt_s = builder.build_global_string_ptr("%s", "fmt_dyn_str").unwrap();
+    builder.build_call(printf, &[fmt_s.as_pointer_value().into(), data.into()], "print_dyn_str").unwrap();
+    builder.build_unconditional_branch(merge_bb).unwrap();
+
+    // int: data holds the value as inttoptr.
+    builder.position_at_end(int_bb);
+    let fmt_i = builder.build_global_string_ptr("%ld", "fmt_dyn_int").unwrap();
+    builder.build_call(printf, &[fmt_i.as_pointer_value().into(), data_int.into()], "print_dyn_int").unwrap();
+    builder.build_unconditional_branch(merge_bb).unwrap();
+
+    // Fallback (class instance / unknown): show the object address.
+    builder.position_at_end(obj_bb);
+    let fmt_o = builder.build_global_string_ptr("[object %p]", "fmt_dyn_obj").unwrap();
+    builder.build_call(printf, &[fmt_o.as_pointer_value().into(), data.into()], "print_dyn_obj").unwrap();
+    builder.build_unconditional_branch(merge_bb).unwrap();
+
+    builder.position_at_end(merge_bb);
 }
 
 fn build_print_bool<'ctx>(
@@ -315,9 +427,8 @@ fn build_print_primitive<'ctx>(
 ///
 /// Array memory layout:
 ///   offset 0: length (i64)
-///   offset 8: element 0 (i64)
-///   offset 16: element 1 (i64)
-///   ...
+///   offset 8: capacity (i64)
+///   offset 16: data_ptr (i64) — element buffer of i64 words
 fn build_print_array<'ctx>(
     context: &'ctx Context,
     builder: &inkwell::builder::Builder<'ctx>,
@@ -374,13 +485,28 @@ fn build_print_array<'ctx>(
     builder.position_at_end(print_elem_bb);
     let one = i64_ty.const_int(1, false);
     let eight = i64_ty.const_int(8, false);
-    let sixteen = i64_ty.const_int(16, false);
+    // 数组布局：[len][cap][data_ptr]，元素在独立缓冲中；
+    // 循环体内每次重新加载 data_ptr 以容忍 push 扩容。
+    let data_slot = unsafe {
+        builder.build_gep(
+            context.i8_type(),
+            array_ptr,
+            &[i32_ty.const_int(16, false)],
+            "data_slot",
+        ).unwrap()
+    };
+    let data_slot_ptr = builder
+        .build_bit_cast(data_slot, i64_ptr_ty, "data_slot_ptr").unwrap()
+        .into_pointer_value();
+    let data_addr = builder
+        .build_load(i64_ty, data_slot_ptr, "data_addr").unwrap()
+        .into_int_value();
+    let data_base = builder
+        .build_int_to_ptr(data_addr, i64_ptr_ty, "data_base").unwrap();
     let elem_byte_offset = builder.build_int_mul(i, eight, "elem_byte_offset").unwrap();
-    let elem_offset_with_header =
-        builder.build_int_add(sixteen, elem_byte_offset, "elem_offset_hdr").unwrap();
     let elem_offset_i32 =
-        builder.build_int_cast(elem_offset_with_header, i32_ty, "elem_offset_i32").unwrap();
-    let elem_ptr = unsafe { builder.build_gep(context.i8_type(), array_ptr, &[elem_offset_i32], "elem_ptr").unwrap() };
+        builder.build_int_cast(elem_byte_offset, i32_ty, "elem_offset_i32").unwrap();
+    let elem_ptr = unsafe { builder.build_gep(context.i8_type(), data_base, &[elem_offset_i32], "elem_ptr").unwrap() };
     let elem_i64_ptr = builder
         .build_bit_cast(elem_ptr, i64_ptr_ty, "elem_i64_ptr").unwrap()
         .into_pointer_value();
