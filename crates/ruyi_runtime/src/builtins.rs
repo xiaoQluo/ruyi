@@ -1171,6 +1171,13 @@ pub extern "C" fn __string_char_at(s: *const i8, index: i64) -> *mut i8 {
 }
 
 /// Get the Unicode code point at `index`. Returns -1 if out of bounds.
+///
+/// Binary-safe: when `s` is not valid UTF-8 (e.g. raw bytes from
+/// `__io_read_random` / `Buffer.fromString`), each byte is returned as
+/// its numeric value 0-255 instead of mapping every position to -1.
+/// Without this fallback, byte-indexed lookup on a buffer of 0x80-0xFF
+/// would report -1 for every index, and downstream hex encoding would
+/// collapse the entire buffer to "ff..ff".
 #[no_mangle]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn __string_char_code_at(s: *const i8, index: i64) -> i64 {
@@ -1179,17 +1186,21 @@ pub extern "C" fn __string_char_code_at(s: *const i8, index: i64) -> i64 {
             return -1;
         }
         let s_bytes = CStr::from_ptr(s).to_bytes();
-        // Validate UTF-8: invalid bytes panic inside `Chars::next` and
-        // abort the process. Defensively fall back to an empty str.
-        let s_str = match std::str::from_utf8(s_bytes) {
-            Ok(s) => s,
-            Err(_) => "",
-        };
-        s_str
-            .chars()
-            .nth(index as usize)
-            .map(|c| c as u32 as i64)
-            .unwrap_or(-1)
+        match std::str::from_utf8(s_bytes) {
+            Ok(s_str) => s_str
+                .chars()
+                .nth(index as usize)
+                .map(|c| c as u32 as i64)
+                .unwrap_or(-1),
+            Err(_) => {
+                // Binary fallback: treat `s` as raw bytes and return the
+                // byte at `index` (clamped to 0-255) instead of failing
+                // the whole call with -1. This keeps `cryptoRandomBytes`,
+                // `Buffer.toString`, and friends functional on
+                // /dev/urandom-style byte buffers.
+                s_bytes.get(index as usize).copied().map(i64::from).unwrap_or(-1)
+            }
+        }
     }
 }
 
