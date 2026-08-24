@@ -260,6 +260,17 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
 
     /// Emit `ruyi_gc_remove_root` calls for every root in the current scope.
     pub fn emit_gc_root_removals(&self) {
+        // EX-R1: `add_gc_root` is a no-op in Stub mode (it would treat raw
+        // malloc memory as a GC header and corrupt the root mutex), so the
+        // matching `remove_root` calls must also be skipped here. Otherwise
+        // `remove_root` walks a pointer that was never added, and the runtime
+        // dereferences `*(ptr - 8)` looking for a GcObjectHeader — observed
+        // as `EXC_BAD_ACCESS` at address `0x20` from `cryptoRandomInt + 619`
+        // because the heap pointer happened to land at a 32-byte offset
+        // relative to its malloc chunk header.
+        if self.gc_mode == GcMode::Stub {
+            return;
+        }
         if let Some(roots) = self.gc_roots.last() {
             for (ptr, ty) in roots {
                 let llvm_ty = super::types::ruyi_type_to_llvm(self.context, ty);
