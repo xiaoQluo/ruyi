@@ -75,8 +75,13 @@ pub extern "C" fn ruyi_throw_with_type(type_id: u64, msg: *const i8) {
 ///
 /// @author Ruyi Team
 /// @date 2026-07-26
+/// EX-C5: marked `extern "C-unwind"` so the Itanium ABI unwinder is allowed
+/// to walk this frame when propagating an exception. With plain `extern
+/// "C"` Rust implicitly attaches the `nounwind` attribute, which makes the
+/// Rust runtime abort with "panic in a function that cannot unwind" the
+/// moment the unwinder tries to leave this frame.
 #[no_mangle]
-pub extern "C" fn ruyi_throw_typed(class_name: *const i8, msg: *const i8) {
+pub extern "C-unwind" fn ruyi_throw_typed(class_name: *const i8, msg: *const i8) {
     unsafe {
         let name = CStr::from_ptr(class_name).to_string_lossy();
         let message = CStr::from_ptr(msg).to_string_lossy().into_owned();
@@ -94,8 +99,12 @@ pub extern "C" fn ruyi_throw_typed(class_name: *const i8, msg: *const i8) {
 ///
 /// @author Ruyi Team
 /// @date 2026-07-26
+/// EX-C5: marked `extern "C-unwind"` for the same reason as
+/// `ruyi_throw_typed` — the Itanium ABI unwinder must be allowed to walk
+/// this frame while propagating a rethrown exception, otherwise Rust's
+/// runtime aborts with "panic in a function that cannot unwind".
 #[no_mangle]
-pub extern "C" fn ruyi_rethrow(exc_ptr: *const i8) {
+pub extern "C-unwind" fn ruyi_rethrow(exc_ptr: *const i8) {
     let exc = crate::exception::RuyiException::new(
         builtin_type_ids::ERROR,
         format!("rethrown exception at {:p}", exc_ptr),

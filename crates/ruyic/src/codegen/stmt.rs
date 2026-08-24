@@ -8,7 +8,7 @@
  */
 use inkwell::values::BasicValueEnum;
 
-use ruyi_exception::landing_pad::LandingPadGenerator;
+use ruyi_exception::landing_pad::{LandingPadGenerator, CATCH_ALL_TYPE_ID};
 use ruyi_exception::ALL_BUILTIN_EXCEPTION_TYPE_IDS;
 
 use super::builtins::{build_ruyi_clear_pending_exception, build_ruyi_get_pending_exception};
@@ -1303,17 +1303,24 @@ fn compile_try<'ctx>(
     {
         let lp_gen = LandingPadGenerator::new(ctx.context, ctx.module, ctx.builder());
 
-        // Create per-catch handler blocks; EX-H1: map type annotations to real type IDs.
+        // EX-C4: Map type annotations to real type IDs.
         //
-        // Catch-all clauses (`catch (e) { ... }` with no type annotation)
-        // must accept *any* thrown exception, not just the canonical
-        // `builtin_type_ids::ANY == 0` slot. Throws register themselves
-        // with their concrete type id (`AssertionError → 6`, etc.), so
-        // registering only the catch-all type id leaves concrete throws
-        // uncaught and the exception escapes the landing pad. Expand
-        // every catch-all entry into one catch clause per builtin error
-        // type id so the LLVM personality routine has a clause for each
-        // thrown selector.
+        // A catch-all clause (`catch (e) { ... }` without a type annotation)
+        // is emitted as a single sentinel entry (`CATCH_ALL_TYPE_ID`). The
+        // landing-pad generator translates that into exactly one `catch ptr
+        // null` clause, which `__gxx_personality_v0` matches unconditionally
+        // (the Itanium ABI's wildcard form, equivalent to C++'s `catch
+        // (...)`). Dispatch in `build_catch_dispatch` then branches directly
+        // to the handler without consulting the selector.
+        //
+        // We deliberately do NOT enumerate every builtin exception type id
+        // here anymore, because the runtime's `ruyi_throw` does not populate
+        // the type_info slot on the unwind header — so the previous fan-out
+        // into 14 typed `catch @__ruyi_type_info_N` clauses never matched
+        // and the exception escaped the try, eventually aborting in
+        // `ruyi_throw`. The single `catch ptr null` clause sidesteps that
+        // mismatch by letting the personality routine succeed without
+        // type_info comparison.
         let mut catch_handlers: Vec<(
             ruyi_exception::TryTypeId,
             inkwell::basic_block::BasicBlock<'ctx>,
@@ -1327,11 +1334,14 @@ fn compile_try<'ctx>(
                     catch_handlers.push((specific_id, handler_bb));
                 }
                 None => {
-                    // Catch-all: emit one clause per builtin exception
-                    // type. All branches land in the same handler.
-                    for type_id in ALL_BUILTIN_EXCEPTION_TYPE_IDS {
-                        catch_handlers.push((*type_id, handler_bb));
-                    }
+                    // Sentinel: landing-pad emits exactly one `catch ptr
+                    // null` and dispatch branches to the handler
+                    // unconditionally.
+                    catch_handlers.push((CATCH_ALL_TYPE_ID, handler_bb));
+                    // ALL_BUILTIN_EXCEPTION_TYPE_IDS is still referenced so
+                    // it stays in scope for future typed-catch-all expansion
+                    // work without removing the constant definition.
+                    let _ = ALL_BUILTIN_EXCEPTION_TYPE_IDS;
                 }
             }
         }
@@ -1367,9 +1377,26 @@ fn compile_try<'ctx>(
 
             build_ruyi_clear_pending_exception(ctx.builder(), ctx.module);
 
+            // EX-C3: Route the raw landing-pad exception through
+            // `ruyi_begin_catch` to obtain the actual `*mut ExceptionObject`.
+            // Without this, the catch variable would hold the raw unwinder
+            // pointer and any `print(e)` would try to interpret it as a
+            // Dynamic value, reading the type tag from the wrong offset
+            // (the unwinder header) and crashing on deref of the message.
+            let raw_exc = ctx
+                .builder()
+                .build_load(i8_ptr, exception_ptr, "raw_exc").unwrap()
+                .into_pointer_value();
+            let begin_catch = ctx
+                .module
+                .get_function("ruyi_begin_catch")
+                .expect("ruyi_begin_catch must be declared in declare_runtime_builtins");
             let exc_val = ctx
                 .builder()
-                .build_load(i8_ptr, exception_ptr, "exc_val").unwrap()
+                .build_call(begin_catch, &[raw_exc.into()], "exc_obj")
+                .unwrap()
+                .try_as_basic_value()
+                .unwrap_basic()
                 .into_pointer_value();
             if let Some(pattern) = &catch_clause.pattern {
                 if let crate::parser::ast::Pattern::Identifier(name) = pattern {
