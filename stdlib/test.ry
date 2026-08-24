@@ -13,12 +13,58 @@
  *
  * Throws `AssertionError` with a descriptive message on failure.
  *
+ * NOTE on assert_eq: the generic `assert_eq<T>` shape compiles to a
+ * single dispatcher that compares pointer values; for strings that
+ * would compare buffer addresses instead of contents and reject equal
+ * strings that live in distinct allocations. We work around this by
+ * exposing non-generic `assert_eq_string` and `assert_eq_int` helpers
+ * (used by the demos directly) and re-exporting the generic version
+ * under the same name. Codegen keeps the string-specific body
+ * unchanged so `__string_equals` always runs the strcmp path.
+ *
  * @author Ruyi Team
- * @date 2026-07-12
+ * @date 2026-08-24
  */
 
+// __string_equals is a runtime builtin (prefixed `__`) so it doesn't
+// need an import. It's defined in crates/ruyi_runtime/src/builtins.rs
+// and registered in crates/ruyic/src/codegen/builtins_table.rs.
+
 /**
- * Assert that two values are strictly equal.
+ * Assert that two integers are strictly equal.
+ *
+ * @param actual Value produced by the test
+ * @param expected Value the test requires
+ */
+export fn assert_eq_int(actual: int, expected: int): void {
+    if (actual !== expected) {
+        throw AssertionError.new("assert_eq failed: actual !== expected");
+    }
+}
+
+/**
+ * Assert that two strings are strictly equal (byte-for-byte via strcmp).
+ *
+ * This is the string counterpart of `assert_eq_int`. `===` on strings
+ * inside generic call sites lowers to pointer comparison in the
+ * compiler; using this explicit helper guarantees the strcmp path
+ * regardless of where the assertion is invoked from.
+ *
+ * @param actual Value produced by the test
+ * @param expected Value the test requires
+ */
+export fn assert_eq_string(actual: string, expected: string): void {
+    if (!__string_equals(actual, expected)) {
+        throw AssertionError.new("assert_eq failed: actual !== expected");
+    }
+}
+
+/**
+ * Backwards-compatible generic assert_eq kept so existing `assert_eq(x, y)`
+ * calls still resolve to *something*. The codegen emits a generic
+ * dispatcher that compares pointer values, which is correct for ints
+ * and bools (their `===` lowers to integer comparison) but wrong for
+ * strings. New code should use `assert_eq_string` for string arguments.
  *
  * @param actual Value produced by the test
  * @param expected Value the test requires
