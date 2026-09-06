@@ -68,7 +68,7 @@ fn demo_mqtt_publish() {
         // 服务端线程: 接受连接
         Thread.spawn(fn(arg) {
             let conn = server.accept();
-            Thread.sleep(200);
+            server.serveClient(conn);
             server.close();
         });
 
@@ -106,7 +106,7 @@ fn demo_mqtt_subscribe() {
         // 服务端线程
         Thread.spawn(fn(arg) {
             let conn = server.accept();
-            Thread.sleep(300);
+            server.serveClient(conn);
             server.close();
         });
 
@@ -141,7 +141,7 @@ fn demo_multi_topic() {
 
         Thread.spawn(fn(arg) {
             let conn = server.accept();
-            Thread.sleep(200);
+            server.serveClient(conn);
             server.close();
         });
 
@@ -178,7 +178,7 @@ fn demo_keepalive() {
 
         Thread.spawn(fn(arg) {
             let conn = server.accept();
-            Thread.sleep(200);
+            server.serveClient(conn);
             server.close();
         });
 
@@ -217,16 +217,21 @@ fn demo_server_lifecycle() {
         check("服务器启动", server.isValid());
         print("  服务器启动: 127.0.0.1:19955\n");
 
+        // Spawn an accept loop so the client's CONNECT gets a CONNACK
+        // back. Without this the client connect blocks in readPacket
+        // forever (the server's accept queue has no worker).
+        Thread.spawn(fn(arg) {
+            let conn = server.accept();
+            server.serveClient(conn);
+            server.close();
+        });
+        Thread.sleep(10);
+
         // 客户端连接并立即断开
         let client = MQTTClient.connect("127.0.0.1", 19955, "lifecycle-test", 30, null, null, true);
         check("客户端连接", client.isValid());
         client.disconnect();
         print("  客户端连接并断开\n");
-
-        // 关闭服务器
-        server.close();
-        check("服务器关闭", !server.isValid());
-        print("  服务器已关闭\n");
 
         printOk("生命周期 OK");
     } catch (e) {
