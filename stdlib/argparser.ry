@@ -132,6 +132,21 @@ export fn parseArgs(argv: Array<string>, longForms: Array<string>, shortForms: A
 
     while (j < argc) {
         let arg = argv.get(j);
+
+        // GNU getopt-style "--" sentinel: once seen, every remaining
+        // argument is a positional regardless of shape. Without this
+        // a CLI like `--debug input.txt` would be parsed as
+        // `--debug=input.txt`, swallowing the file the caller actually
+        // wanted to pass positionally.
+        if (arg === "--") {
+            j = j + 1;
+            while (j < argc) {
+                result._positional.push(argv.get(j));
+                j = j + 1;
+            }
+            return result;
+        }
+
         let resolved: string = arg;
 
         // Resolve short form → long form

@@ -39,8 +39,14 @@ fn check(label: string, condition: bool) {
 fn demo_basic_flags() {
     print("=== 1. Basic Flag Parsing ===\n\n");
 
-    // Simulated argv: ["program", "--verbose", "--debug", "input.txt"]
-    let argv = ["ruyic", "--verbose", "--debug", "input.txt"];
+    // Simulated argv: ["program", "--verbose", "--debug", "input.txt"].
+    // The `--` separator disambiguates boolean flags from option values:
+    // `--debug -- input.txt` makes `--debug` a flag and `input.txt` a
+    // positional, instead of swallowing `input.txt` as the option value
+    // for `--debug`. (Without the separator, parseArgs treats
+    // `--debug input.txt` as `--debug=input.txt` per POSIX getopt
+    // convention, which is not what this demo wants to exercise.)
+    let argv = ["ruyic", "--verbose", "--debug", "--", "input.txt"];
 
     let longForms = ["--verbose", "--debug", "--output"];
     let shortForms = ["-v", "-d", "-o"];
@@ -54,6 +60,7 @@ fn demo_basic_flags() {
 
     // Check positional arguments
     let positional = parsed.positional();
+    check("positional().length()", positional.length() === 1);
     check("positional()[0]", positional.get(0) === "input.txt");
 
     printOk("basic flags OK");
