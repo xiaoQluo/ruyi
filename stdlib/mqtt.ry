@@ -155,20 +155,109 @@ fn buildUnsubscribePayload(packetId: int, topic: string): Buffer {
 // ── Receive a full MQTT packet from a socket ──
 
 fn readPacket(sock: TCPSocket): Buffer? {
-    let hbuf = sock.readRaw(5);
-    if (hbuf.length() < 2) { return null; }
-    let rl = decodeRemainingLength(hbuf, 1);
+    // Read the MQTT fixed header in pieces: 2 bytes cover the type byte
+    // plus the common-case single-byte varint; additional varint bytes
+    // are pulled only when the continuation bit is set. Each `readRaw`
+    // may return fewer bytes than asked (TCP partial reads / coalesced
+    // packets), so we accumulate until the full header is in hand. The
+    // body is then read in a loop for the same reason — previously a
+    // short body read returned a buffer padded with trailing zeros and
+    // the caller moved on, deadlocking on the next `readRaw`.
+    let header = sock.readRaw(2);
+    if (header.length() < 2) { return null; }
+    // Ruyi has no `let mut` rebinding, so we accumulate the varint
+    // bytes by overwriting `header` through a helper that returns the
+    // same name. Each step handles the next continuation byte.
+    let buf = readPacketAccumVarint(sock, header);
+    if (buf === null) { return null; }
+    let rl = decodeRemainingLength(buf, 1);
     let headerUsed = 1 + rl.used;
-    let body = sock.readRaw(rl.len);
+    // Build a complete packet buffer = header_used_bytes + body_bytes.
+    if (rl.len === 0) {
+        let hdrOnly = Buffer.alloc(headerUsed);
+        for (let i = 0; i < headerUsed; i = i + 1) {
+            hdrOnly.writeUInt8(i, buf.readUInt8(i));
+        }
+        return hdrOnly;
+    }
     let total = headerUsed + rl.len;
     let full = Buffer.alloc(total);
     for (let i = 0; i < headerUsed; i = i + 1) {
-        full.writeUInt8(i, hbuf.readUInt8(i));
+        full.writeUInt8(i, buf.readUInt8(i));
     }
-    for (let i = 0; i < body.length(); i = i + 1) {
-        full.writeUInt8(headerUsed + i, body.readUInt8(i));
+    let bodyNeeded = rl.len;
+    let bodyAccum = readPacketAccumBody(sock, full, headerUsed, bodyNeeded);
+    if (bodyAccum === null) { return null; }
+    return bodyAccum;
+}
+
+// Helper: returns a buffer that contains the type byte plus the complete
+// varint. `buf` must have at least 2 bytes; we read up to 3 more varint
+// bytes when continuation bits are set.
+fn readPacketAccumVarint(sock: TCPSocket, buf: Buffer): Buffer? {
+    let step1 = buf;
+    if ((step1.readUInt8(step1.length() - 1) & 128) === 0) {
+        return step1;
     }
-    return full;
+    let m1 = sock.readRaw(1);
+    if (m1.length() < 1) { return null; }
+    let n1 = step1.length();
+    let step2 = Buffer.alloc(n1 + 1);
+    for (let i = 0; i < n1; i = i + 1) {
+        step2.writeUInt8(i, step1.readUInt8(i));
+    }
+    step2.writeUInt8(n1, m1.readUInt8(0));
+    if ((step2.readUInt8(step2.length() - 1) & 128) === 0) {
+        return step2;
+    }
+    let m2 = sock.readRaw(1);
+    if (m2.length() < 1) { return null; }
+    let n2 = step2.length();
+    let step3 = Buffer.alloc(n2 + 1);
+    for (let i = 0; i < n2; i = i + 1) {
+        step3.writeUInt8(i, step2.readUInt8(i));
+    }
+    step3.writeUInt8(n2, m2.readUInt8(0));
+    if ((step3.readUInt8(step3.length() - 1) & 128) === 0) {
+        return step3;
+    }
+    let m3 = sock.readRaw(1);
+    if (m3.length() < 1) { return null; }
+    let n3 = step3.length();
+    let step4 = Buffer.alloc(n3 + 1);
+    for (let i = 0; i < n3; i = i + 1) {
+        step4.writeUInt8(i, step3.readUInt8(i));
+    }
+    step4.writeUInt8(n3, m3.readUInt8(0));
+    return step4;
+}
+
+// Helper: writes `bodyNeeded` bytes into `full` starting at
+// `headerUsed`, looping `readRaw` until the full body has been
+// accumulated. Returns null on EOF.
+fn readPacketAccumBody(
+    sock: TCPSocket,
+    full: Buffer,
+    headerUsed: int,
+    bodyNeeded: int,
+): Buffer? {
+    let got = 0;
+    let acc = full;
+    while (got < bodyNeeded) {
+        let chunk = sock.readRaw(bodyNeeded - got);
+        let cn = chunk.length();
+        if (cn === 0) { return null; }
+        let next = Buffer.alloc(acc.length());
+        for (let i = 0; i < acc.length(); i = i + 1) {
+            next.writeUInt8(i, acc.readUInt8(i));
+        }
+        for (let i = 0; i < cn; i = i + 1) {
+            next.writeUInt8(headerUsed + got + i, chunk.readUInt8(i));
+        }
+        acc = next;
+        got = got + cn;
+    }
+    return acc;
 }
 
 // ============================================================

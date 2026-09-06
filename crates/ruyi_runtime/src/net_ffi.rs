@@ -175,23 +175,46 @@ pub extern "C" fn __net_tcp_write_raw(handle: i64, arr: *mut i8) -> i64 {
         return -1;
     };
     let mut stream = entry.lock().unwrap();
-    match stream.write(&buf) {
-        Ok(n) => n as i64,
-        Err(_) => -1,
+    // `Write::write` is a partial write: TCP send buffers can be full
+    // when the socket is busy, so the kernel may accept only a subset of
+    // the requested bytes. Without retrying until the full payload is
+    // written, the MQTT `connect` (18 bytes) was sometimes sent in
+    // pieces (e.g. 16 bytes) — the server then blocked forever on
+    // `readRaw(remaining)` for the last two bytes that never arrived.
+    let mut written = 0usize;
+    while written < len {
+        match stream.write(&buf[written..]) {
+            Ok(0) => return -1,
+            Ok(n) => written += n,
+            Err(_) => return -1,
+        }
     }
+    written as i64
 }
 
 /// Read raw bytes from socket handle into a Ruyi Array<int>.
-/// The array's capacity determines the max read size.
 /// Returns bytes actually read (0 = EOF), or -1/-2 on error.
+///
+/// The caller passes a Ruyi Array whose `len` field carries the
+/// user-requested payload size (e.g. `readRaw(2)` constructs
+/// `Buffer.alloc(2)`, which sets `len=2`). The internal `cap` may be
+/// larger (Ruyi array growth jumps from 0 to 4 — see
+/// `__builtin_array_push`), so we must honour the requested length
+/// instead of the underlying capacity; otherwise `stream.read` will
+/// happily slurp up to `cap` bytes from the kernel, the surplus
+/// silently bleeds into the next packet, and the MQTT `readPacket`
+/// state machine desynchronises. We leave the array length untouched
+/// (so `Buffer.length()` still reports the originally-requested size
+/// for the accumulator loop) and write only the first `n` payload
+/// bytes into the array.
 #[no_mangle]
 pub extern "C" fn __net_tcp_read_raw(handle: i64, arr: *mut i8) -> i64 {
     if arr.is_null() {
         return -1;
     }
-    let (len_ptr, cap_ptr, data_ptr) = unsafe { crate::io_ffi::array_ptr(arr) };
-    let cap = unsafe { *cap_ptr } as usize;
-    if cap == 0 {
+    let (len_ptr, _cap_ptr, data_ptr) = unsafe { crate::io_ffi::array_ptr(arr) };
+    let requested = unsafe { *len_ptr } as usize;
+    if requested == 0 {
         return 0;
     }
 
@@ -199,20 +222,18 @@ pub extern "C" fn __net_tcp_read_raw(handle: i64, arr: *mut i8) -> i64 {
         return -2;
     };
     let mut stream = entry.lock().unwrap();
-    let mut buf = vec![0u8; cap];
-    match stream.read(&mut buf) {
-        Ok(0) => 0,
-        Ok(n) => {
-            unsafe {
-                *len_ptr = n as i64;
-                for i in 0..n {
-                    *data_ptr.add(i) = buf[i] as i64;
-                }
-            }
-            n as i64
+    let mut buf = vec![0u8; requested];
+    let n = match stream.read(&mut buf) {
+        Ok(0) => return 0, // EOF: surface as 0-byte read so callers can detect
+        Ok(n) => n,
+        Err(_) => return -1,
+    };
+    unsafe {
+        for i in 0..n {
+            *data_ptr.add(i) = buf[i] as i64;
         }
-        Err(_) => -1,
     }
+    n as i64
 }
 
 /// Close socket handle and remove from registry. In-flight I/O on other
