@@ -2,7 +2,7 @@
 # Derived data. Always rebuildable from artifacts. Lost/corrupt → fall back to content-level detection.
 
 # === Core state ===
-state: closing
+state: archived
 workflow: tweak
 
 # === Hashes (fast staleness detection) ===
@@ -16,9 +16,9 @@ test_result: pass
 
 # === Metadata ===
 change_name: v0.5.6-codegen-doc-drift
-last_transition: 2026-07-11T14:47:22.034Z
-last_transition_from: executing
-last_transition_to: closing
+last_transition: 2026-10-18T00:00:00Z
+last_transition_from: closing
+last_transition_to: archived
 
 # === Decision points ===
 dp_0_decisions: 变更名: v0.5.6-codegen-doc-drift; 意图: 关闭 codegen 类别 1.8/1.9/1.10 P1 项（仅文档漂移更新）; 拆分决议: 原 v0.5.6-p1-defects 拆分为 (1) 本变更（doc-only tweak）+ (2) v0.5.7-p1-defects（full 12 真工作项，后续开 change）; 范围边界: 仅 2 文件（docs/roadmap.md + crates/ruyic/tests/codegen.rs 头部注释），match 集成测试推迟至 v0.5.7; 已知约束: LLVM 14、Rust 2021、clippy zero-warning、Javadoc 保留; 沟通偏好: 草稿先行、整体送审

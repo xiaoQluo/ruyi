@@ -2,7 +2,7 @@
 # Derived data. Always rebuildable from artifacts. Lost/corrupt → fall back to content-level detection.
 
 # === Core state ===
-state: closing
+state: archived
 workflow: hotfix
 
 # === Hashes (fast staleness detection) ===
@@ -16,9 +16,9 @@ test_result: "33/33 examples pass; cargo test lexer 57/57, macro_expand 15/15, r
 
 # === Metadata ===
 change_name: fix-remaining-examples
-last_transition: 2026-07-11T13:59:14.530Z
-last_transition_from: approved-for-build
-last_transition_to: closing
+last_transition: 2026-10-18T00:00:00Z
+last_transition_from: closing
+last_transition_to: archived
 
 # === Decision points ===
 dp_0_decisions: "变更名:fix-remaining-examples; 意图:修复 examples/run_examples.sh 剩余 2 个失败(macros.ry lexer $ 合并, type_aliases.ry 顶层 let segfault),目标 33/33 PASS"

@@ -8,3 +8,10 @@ dp_2_result: "approved: 8 SPEC 需求 + 4 设计决策 + 6 Batch TDD 任务，�
 dp_2_timestamp: "2026-07-16T10:00:00Z"
 dp_3_result: "approved: 执行合同通过审查，6 Batch 顺序实施"
 dp_3_timestamp: "2026-07-16T10:15:00Z"
+
+state: archived
+
+# === Closure addendum (2026-10-18, manual) ===
+status_note: "State field had been left blank with only `status: dp_2_approved`; implementation verified present: codegen/expr.rs:2399-2404 (generic object expr path), :2494-2505 (scalar receiver reroute), :2570 (optional); previously-ignored tests codegen_class_creation / codegen_fixture_member_access / test_new_class_8_fields now run in the default suite (tests/codegen.rs: 94 passed, 0 ignored, re-verified 2026-10-18). Commits a30b3a9, 7ed33b0, 1b3411e."
+dp_7_result: "confirmed: v0.5.9-class-codegen archived after implementation audit."
+dp_7_timestamp: 2026-10-18T00:00:00Z

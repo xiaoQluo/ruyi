@@ -2,7 +2,7 @@
 # Lightweight state machine. Derived data; rebuildable from artifacts.
 
 # === Core state ===
-state: closing
+state: archived
 workflow: hotfix
 
 # === Hashes (fast staleness detection) ===
@@ -16,9 +16,9 @@ test_result: "math+time slices wiring complete across runtime/typechecker/codege
 
 # === Metadata ===
 change_name: v0.5.8-stdlib-core
-last_transition: 2026-07-12T18:55:00Z
-last_transition_from: executing
-last_transition_to: closing
+last_transition: 2026-10-18T00:00:00Z
+last_transition_from: closing
+last_transition_to: archived
 
 # === Decision points ===
 dp_0_decisions: "变更名: v0.5.8-stdlib-core; 意图: 补全 roadmap 4.2/4.3/4.4（math/time/json 三个 P0 stdlib 模块）在四层的接线；命名路线 A 路（runtime 改 __X_* 与 28 条现存 __builtin_*/__string_* 一致）；dev/v0.5.8 分支推进；不在本卷修 parser dyn bug 与 runtime archive 异常"

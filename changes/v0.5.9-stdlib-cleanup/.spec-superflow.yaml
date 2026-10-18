@@ -2,7 +2,7 @@
 # Derived data. Rebuildable from artifacts. Lost/corrupt → fall back to content-level detection.
 
 # === Core state ===
-state: closing
+state: archived
 workflow: full
 
 # === Hashes (fast staleness detection) ===
@@ -16,9 +16,9 @@ test_result: "PASS: cargo check --workspace OK; cargo test -p ruyic --lib 174/17
 
 # === Metadata ===
 change_name: v0.5.9-stdlib-cleanup
-last_transition: 2026-07-14T00:00:00Z
-last_transition_from: executing
-last_transition_to: closing
+last_transition: 2026-10-18T00:00:00Z
+last_transition_from: closing
+last_transition_to: archived
 
 # === Decision points ===
 dp_0_decisions: "变更名: v0.5.9-stdlib-cleanup; 意图: 闭合 v0.5.8 收尾已知风险 R1/R2/R3/R4 + 架构级重构 R5（codegen 声明表驱动）。5 sub-batch 单 change，Full e2e 验收门槛（33/33 examples + 9/9 stdlib --check + binary e2e + 零新增 clippy）。分支: dev/v0.5.9-stdlib-cleanup。沟通: 玉帝飞书直接圣裁。"

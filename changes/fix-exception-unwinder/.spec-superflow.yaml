@@ -2,7 +2,7 @@
 # Derived data. Always rebuildable from artifacts.
 
 # === Core state ===
-state: specifying
+state: archived
 workflow: full
 
 # === Metadata ===
@@ -26,3 +26,23 @@ dp_4_result: "SDD: 10 tasks across 3 modules (runtime/compiler/tests), cross-mod
 dp_4_timestamp: 2026-07-16T10:00:00Z
 execution_mode: SDD
 batches_completed: 0
+
+# === Execution addendum (2026-10-18) ===
+# The original D1–D4 design assumed `_Unwind_RaiseException` + landing pads.
+# Execution audit found the runtime had already converged on the
+# pending-exception + return protocol (ruyi_runtime/src/exception/runtime.rs),
+# and the real breakage was in that protocol's glue. Fixed in place instead:
+#  1. ruyi_find_handler: accept 32-bit CATCH_ALL_TYPE_ID widened to i64
+#     (previously only u64::MAX matched -> every `catch (e)` arm missed).
+#  2. codegen emit_propagation_return: use the LLVM function's real return
+#     type (`main` is i32 but records no Ruyi return type -> `ret void`).
+#  3. try_propagate: outer try is `try_stack.last()` after the pop, not
+#     `nth(1)`; also pop this try's runtime frame before propagating.
+#  4. pending-exception checks after declaration initializers and before
+#     returning `return expr;` (previously only expression statements).
+#  5. catch_type_to_type_id: unknown/user classes map to ERROR, matching
+#     class_name_to_type_id on the throw side (previously 0 -> never matched).
+state_note: "archived via pending-exception protocol; original unwinder design superseded"
+dp_5_result: "PASS: examples 65/65; cargo test --workspace 1291 passed / 0 failed (3 pre-existing ignores); try_catch_invoke 14/14 (6 formerly ignored + 2 new regressions); ruyi_runtime lib 223 passed (new u32 catch-all sentinel test); clippy zero warnings; fmt clean."
+dp_7_result: "confirmed: fix-exception-unwinder archived. All 6 end-to-end tests un-ignored; parallel temp-file race in the test helper fixed with unique paths."
+dp_7_timestamp: 2026-10-18T00:00:00Z

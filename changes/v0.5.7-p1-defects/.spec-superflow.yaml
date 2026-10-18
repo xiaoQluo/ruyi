@@ -2,7 +2,7 @@
 # Derived data. Always rebuildable from artifacts. Lost/corrupt → fall back to content-level detection.
 
 # === Core state ===
-state: closing
+state: archived
 workflow: full
 
 # === Hashes (fast staleness detection) ===
@@ -16,9 +16,9 @@ test_result: pass
 
 # === Metadata ===
 change_name: v0.5.7-p1-defects
-last_transition: 2026-07-11T22:54:45.366Z
-last_transition_from: executing
-last_transition_to: closing
+last_transition: 2026-10-18T00:00:00Z
+last_transition_from: closing
+last_transition_to: archived
 
 # === Decision points ===
 dp_0_decisions: 变更名: v0.5.7-p1-defects; 意图: 实现 v0.5.6-p1-defects 调研中识别的 12 项 P1 缺陷修复; 拆分来源: 由原 v0.5.6-p1-defects split 决议分出（option 戊+壬），3 项 doc-drift 已由 v0.5.6-codegen-doc-drift 关闭; 范围: 12 项跨 4 类别（typechecker 3.2/3.4/3.5/3.6 + runtime 2.6 + stdlib 4.5/4.6/4.8/4.9），不含 P2/P3; 已知约束: LLVM 14、Rust 2021、clippy zero-warning、Javadoc 保留、不引入新警告; 沟通偏好: 草稿先行、整体送审（与历史一致）

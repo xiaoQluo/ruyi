@@ -2,7 +2,7 @@
 # Derived data. Always rebuildable from artifacts. Lost/corrupt → fall back to content-level detection.
 
 # === Core state ===
-state: closing
+state: archived
 workflow: hotfix
 
 # === Hashes (fast staleness detection) ===
@@ -16,9 +16,9 @@ test_result: "33/33 examples pass; cargo check --workspace 0 errors 0 warnings; 
 
 # === Metadata ===
 change_name: fix-codegen-gaps
-last_transition: 2026-07-11T13:59:14.516Z
+last_transition: 2026-10-18T00:00:00Z
 last_transition_from: closing
-last_transition_to: closing
+last_transition_to: archived
 
 # === Decision points ===
 dp_0_decisions: "变更名:fix-codegen-gaps; 意图:补全codegen中对BigInt模式匹配、宏声明、类型别名三个特性的LLVM IR生成支持"

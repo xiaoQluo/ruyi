@@ -1,6 +1,6 @@
 # .spec-superflow.yaml — stdlib-io-path-process-ffi
 
-state: executing
+state: archived
 workflow: full
 
 change_name: stdlib-io-path-process-ffi
@@ -16,3 +16,8 @@ dp_4_result: "inline: 3 batches consolidated execution, TDD full (RED→GREEN→
 dp_4_timestamp: 2026-07-17T14:30:00Z
 dp_5_result: "PASS: 39/39 new tests (path 13 + io 10 + process 14 + builtins_table 2); cargo check --workspace: 0 errors 0 warnings; cargo fmt: clean; make build-release: OK with LLVM 14; commit 920eccf on dev/stdlib-io-path-process-ffi; 1 pre-existing GC test failure (async_gc_roots::register_and_unregister_track_ids) unrelated; .ry integration test blocked by pre-existing parser bug in auto-loaded stdlib (nested generics >>)"
 dp_5_timestamp: 2026-07-17T15:02:00Z
+
+# === Closure addendum (2026-10-18, manual — ssf CLI unavailable) ===
+dp_5_verified: "PASS re-confirmed 2026-10-18: crates/ruyi_runtime/src/io_ffi.rs, path_ffi.rs, process_ffi.rs all present on main; delivery commit 920eccf is an ancestor of main (git merge-base --is-ancestor)."
+dp_7_result: "confirmed: stdlib-io-path-process-ffi archived. 45 IO/Path/Process FFI backend functions delivered and merged; state had been left at `executing` only because the closure step needs the missing ssf CLI. Delta specs under specs/ remain unsynced by project convention (no central spec base)."
+dp_7_timestamp: 2026-10-18T00:00:00Z
