@@ -46,14 +46,22 @@ unsafe fn dealloc_int(ptr: *mut i8) {
 }
 
 unsafe fn dealloc_array(arr: *mut i8) {
+    // Header layout: [len][cap][data_ptr]; elements live in a separate
+    // buffer (see ruyi_array_alloc in builtins.rs).
     let cap = *(arr.add(std::mem::size_of::<i64>()) as *mut i64);
-    let data_size = cap as usize * std::mem::size_of::<i64>();
-    let layout = Layout::from_size_align(
-        std::mem::size_of::<i64>() * 2 + data_size,
-        std::mem::align_of::<i64>(),
-    )
-    .unwrap();
-    dealloc(arr as *mut u8, layout);
+    let data = *(arr.add(std::mem::size_of::<i64>() * 2) as *mut *mut i8);
+    if !data.is_null() && cap > 0 {
+        let data_layout = Layout::from_size_align(
+            cap as usize * std::mem::size_of::<i64>(),
+            std::mem::align_of::<i64>(),
+        )
+        .unwrap();
+        dealloc(data as *mut u8, data_layout);
+    }
+    let header_layout =
+        Layout::from_size_align(std::mem::size_of::<i64>() * 3, std::mem::align_of::<i64>())
+            .unwrap();
+    dealloc(arr as *mut u8, header_layout);
 }
 
 #[test]
@@ -74,7 +82,8 @@ fn test_keys_of_2_field_object() {
     assert_eq!(ruyi_array_length(arr), 2);
 
     unsafe {
-        let data = arr.add(std::mem::size_of::<i64>() * 2) as *const i64;
+        let data_slot = arr.add(std::mem::size_of::<i64>() * 2) as *const *const i64;
+        let data = *data_slot;
         let k0 = CStr::from_ptr(*data.add(0) as *const i8).to_str().unwrap();
         let k1 = CStr::from_ptr(*data.add(1) as *const i8).to_str().unwrap();
         let mut keys = vec![k0, k1];

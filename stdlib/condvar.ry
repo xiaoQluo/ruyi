@@ -49,10 +49,9 @@ export class Condvar {
      *  After returning, the mutex is locked and the caller should re-check
      *  the condition in a loop. */
     fn wait(mutex: Mutex): void {
-        // The FFI takes raw mutex pointer (not the guard)
-        // Internally: lock → condvar.wait(guard) → returns unlocked
-        // Caller must re-lock after this
-        __condvar_wait(self._ptr, mutex._ptr);
+        // FFI 接收当前持有的 guard 并消耗它（原子释放→阻塞→重加锁），
+        // 返回的新 guard 必须回写，否则 unlock() 会释放已 drop 的旧 guard。
+        mutex._guard = __condvar_wait(self._ptr, mutex._guard);
     }
 
     /** Wake one thread waiting on this condition variable. */

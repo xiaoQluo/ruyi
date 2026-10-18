@@ -189,22 +189,29 @@ pub fn create_trait_object<'ctx>(
     } else {
         let alloca = ctx
             .builder
-            .build_alloca(ruyi_type_to_llvm(ctx.context, value_ty), "trait_data").unwrap();
+            .build_alloca(ruyi_type_to_llvm(ctx.context, value_ty), "trait_data")
+            .unwrap();
         ctx.builder().build_store(alloca, value).unwrap();
         alloca
     };
 
-    let void_data = ctx.builder().build_bit_cast(
-        data_ptr,
-        ctx.context.ptr_type(Default::default()),
-        "data_void",
-    ).unwrap();
+    let void_data = ctx
+        .builder()
+        .build_bit_cast(
+            data_ptr,
+            ctx.context.ptr_type(Default::default()),
+            "data_void",
+        )
+        .unwrap();
 
-    let vtable_ptr = ctx.builder().build_bit_cast(
-        vtable.vtable_global.as_pointer_value(),
-        ctx.context.ptr_type(Default::default()),
-        "vtable_ptr",
-    ).unwrap();
+    let vtable_ptr = ctx
+        .builder()
+        .build_bit_cast(
+            vtable.vtable_global.as_pointer_value(),
+            ctx.context.ptr_type(Default::default()),
+            "vtable_ptr",
+        )
+        .unwrap();
 
     Some(TraitObject {
         data: void_data.into_pointer_value(),
@@ -235,11 +242,17 @@ pub fn build_dynamic_dispatch<'ctx>(
     let vtable_ptr_type = ctx.context.ptr_type(Default::default());
     let vtable_typed = ctx
         .builder
-        .build_bit_cast(trait_obj.vtable, vtable_ptr_type, "vtable_typed").unwrap();
+        .build_bit_cast(trait_obj.vtable, vtable_ptr_type, "vtable_typed")
+        .unwrap();
 
     let vtable_loaded = ctx
         .builder
-        .build_load(vtable.vtable_type, vtable_typed.into_pointer_value(), "vtable_loaded").unwrap();
+        .build_load(
+            vtable.vtable_type,
+            vtable_typed.into_pointer_value(),
+            "vtable_loaded",
+        )
+        .unwrap();
 
     let method_ptr = match ctx.builder().build_extract_value(
         vtable_loaded.into_struct_value(),
@@ -267,7 +280,12 @@ pub fn build_dynamic_dispatch<'ctx>(
         let ret_ty = ctx.context.ptr_type(Default::default());
         let fn_type = ret_ty.fn_type(&vec![ptr_ty.into(); call_args.len()], false);
         ctx.builder()
-            .build_indirect_call(fn_type, fn_ptr, &call_args, &format!("dyn_call_{}", method_name))
+            .build_indirect_call(
+                fn_type,
+                fn_ptr,
+                &call_args,
+                &format!("dyn_call_{}", method_name),
+            )
             .unwrap()
     };
 

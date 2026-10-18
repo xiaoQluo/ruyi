@@ -251,8 +251,8 @@ fn test_decimal_integers() {
 
 #[test]
 fn test_floats() {
-    let toks = token_kinds("3.14 0.5 1.0");
-    assert!(matches!(toks[0], Token::Float(f) if (f - 3.14).abs() < 0.0001));
+    let toks = token_kinds("2.5 0.5 1.0");
+    assert!(matches!(toks[0], Token::Float(f) if (f - 2.5).abs() < 0.0001));
     assert!(matches!(toks[1], Token::Float(f) if (f - 0.5).abs() < 0.0001));
     assert!(matches!(toks[2], Token::Float(f) if (f - 1.0).abs() < 0.0001));
     assert!(matches!(toks[3], Token::Eof));

@@ -187,17 +187,28 @@ fn test_retain_release_any_boundary() {
 
 // ── Codegen Tests ──────────────────────────────────────────
 
-#[cfg(feature = "inkwell")]
+/// ARC helpers are declared lazily on first emission. Exercising the
+/// three emit paths must leave all three declared in the module.
 #[test]
 fn test_codegen_arc_helpers_declared() {
     use inkwell::context::Context;
-    use ruyic::codegen::{CodeGenerator, CodegenContext};
+    use ruyic::codegen::{arc_ops, CodegenContext};
 
     let context = Context::create();
-    let generator = CodeGenerator::new(&context, "test_arc");
-    let module = generator.module();
+    let module = context.create_module("test_arc");
+    let builder = context.create_builder();
+    let fn_ty = context.void_type().fn_type(&[], false);
+    let test_fn = module.add_function("test_main", fn_ty, None);
+    let entry = context.append_basic_block(test_fn, "entry");
+    builder.position_at_end(entry);
+    let mut ctx = CodegenContext::new(&context, &module, builder, None);
 
-    assert!(module.get_function("ruyi_arc_retain").is_some() || true);
-    assert!(module.get_function("ruyi_arc_release").is_some() || true);
-    assert!(module.get_function("ruyi_arc_alloc").is_some() || true);
+    let null_ptr = context.ptr_type(Default::default()).const_null();
+    arc_ops::emit_arc_retain(&mut ctx, null_ptr);
+    arc_ops::emit_arc_release(&mut ctx, null_ptr);
+    arc_ops::emit_arc_alloc(&mut ctx, context.i64_type().const_int(8, false), null_ptr);
+
+    assert!(module.get_function("ruyi_arc_retain").is_some());
+    assert!(module.get_function("ruyi_arc_release").is_some());
+    assert!(module.get_function("ruyi_arc_alloc").is_some());
 }

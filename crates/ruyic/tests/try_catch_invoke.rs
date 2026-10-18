@@ -1,10 +1,9 @@
 /**
  * Codegen integration tests for try/catch invoke + landingpad mechanism.
  *
- * These tests verify that the compiler emits correct LLVM exception-handling
- * instructions (`invoke`, `landingpad`, `resume`) when compiling try/catch
- * blocks. They require the compiled `ruyic` binary and a working LLVM 14
- * toolchain.
+ * Try/catch is lowered through the pending-exception protocol
+ * (`ruyi_try_begin` / `ruyi_throw_typed` / `ruyi_find_handler`), not LLVM
+ * `invoke`/`landingpad`/`resume`. These tests assert that protocol.
  *
  * Run with:
  *   cargo test -p ruyic --test try_catch_invoke
@@ -21,11 +20,20 @@
 use std::env;
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Get the path to the ruyic binary.
+fn workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("workspace root not found")
+        .to_path_buf()
+}
+
 fn get_ruyic_path() -> PathBuf {
+    let workspace_root = workspace_root();
     env::var("RUYI_BIN")
         .map(PathBuf::from)
         .ok()
@@ -36,11 +44,11 @@ fn get_ruyic_path() -> PathBuf {
                 .ok()
                 .filter(|p| p.exists())
                 .unwrap_or_else(|| {
-                    let debug_path = PathBuf::from("target/debug/ruyic");
+                    let debug_path = workspace_root.join("target/debug/ruyic");
                     if debug_path.exists() {
                         debug_path
                     } else {
-                        PathBuf::from("target/release/ruyic")
+                        workspace_root.join("target/release/ruyic")
                     }
                 })
         })
@@ -101,6 +109,7 @@ fn compile_and_run(source: &str) -> io::Result<String> {
     fs::write(&source_path, source)?;
 
     let compile_result = Command::new(&ruyic_path)
+        .current_dir(workspace_root())
         .arg(&source_path)
         .arg("-o")
         .arg(&binary_path)
@@ -143,11 +152,11 @@ fn compile_and_run(source: &str) -> io::Result<String> {
  */
 #[test]
 // Verifies: REQ-LPAD-003/004
-fn test_try_catch_emits_landingpad() {
+fn test_try_catch_uses_pending_exception_dispatch() {
     let source = r#"
 fn main(): int {
     try {
-        throw new Error("test");
+        throw Error.new("test");
     } catch (e) {
         print("caught");
     }
@@ -156,8 +165,8 @@ fn main(): int {
 "#;
     let ir = compile_to_ir(source, "test_landingpad").expect("Failed to compile to IR");
     assert!(
-        ir.contains("landingpad"),
-        "Expected LLVM IR to contain 'landingpad' instruction.\nIR:\n{}",
+        ir.contains("@ruyi_try_begin") && ir.contains("@ruyi_find_handler"),
+        "Expected the pending-exception try frame and dispatch.\nIR:\n{}",
         ir
     );
 }
@@ -175,10 +184,10 @@ fn main(): int {
  */
 #[test]
 // Verifies: REQ-LPAD-003/004
-fn test_try_catch_emits_invoke() {
+fn test_try_catch_registers_frame() {
     let source = r#"
 fn doWork(): void {
-    throw new Error("boom");
+    throw Error.new("boom");
 }
 
 fn main(): int {
@@ -192,8 +201,8 @@ fn main(): int {
 "#;
     let ir = compile_to_ir(source, "test_invoke").expect("Failed to compile to IR");
     assert!(
-        ir.contains("invoke"),
-        "Expected LLVM IR to contain 'invoke' instruction.\nIR:\n{}",
+        ir.contains("@ruyi_try_begin"),
+        "Expected the try frame to be registered.\nIR:\n{}",
         ir
     );
 }
@@ -215,7 +224,7 @@ fn main(): int {
 fn test_try_catch_catches_inner_throw() {
     let source = r#"
 fn innerThrow(): void {
-    throw new Error("boom from inside");
+    throw Error.new("boom from inside");
 }
 
 fn main(): int {
@@ -254,10 +263,10 @@ fn main(): int {
  */
 #[test]
 // Verifies: REQ-LPAD-003/004
-fn test_try_finally_emits_resume() {
+fn test_try_finally_preserves_exception() {
     let source = r#"
 fn doWork(): void {
-    throw new Error("boom");
+    throw Error.new("boom");
 }
 
 fn main(): int {
@@ -271,8 +280,9 @@ fn main(): int {
 "#;
     let ir = compile_to_ir(source, "test_resume").expect("Failed to compile to IR");
     assert!(
-        ir.contains("resume"),
-        "Expected LLVM IR to contain 'resume' instruction for finally cleanup.\nIR:\n{}",
+        ir.contains("@ruyi_try_begin(ptr null, i64 0, ptr null, i64 0, i1 true)")
+            && ir.contains("try_finally"),
+        "Expected the finally-only frame and its cleanup block.\nIR:\n{}",
         ir
     );
 }
@@ -296,7 +306,7 @@ fn main(): int {
 fn test_try_catch_through_two_level_call_caught() {
     let source = r#"
 fn innerThrow(): void {
-    throw new Error("deep boom");
+    throw Error.new("deep boom");
 }
 
 fn middle(): void {
@@ -316,22 +326,16 @@ fn main(): int {
 }
 "#;
     let ir = compile_to_ir(source, "test_two_level").expect("Failed to compile to IR");
-    // The throwing function lives two frames below main — both calls must
-    // be `invoke` so LLVM can route the exception up through both frames.
+    // The exception is parked by the throwing function and dispatched by
+    // the nearest frame that registered handlers — no invoke/landingpad.
     assert!(
-        ir.contains("invoke"),
-        "Expected IR to contain 'invoke' for multi-frame unwinding.\nIR:\n{}",
+        ir.contains("@ruyi_try_begin") && ir.contains("@ruyi_find_handler"),
+        "Expected the pending-exception frame and dispatch.\nIR:\n{}",
         ir
     );
     assert!(
-        ir.contains("landingpad"),
-        "Expected IR to contain 'landingpad' for multi-frame unwinding.\nIR:\n{}",
-        ir
-    );
-    assert!(
-        ir.matches("invoke").count() >= 1,
-        "Expected at least 1 'invoke' instruction (main→middle in try), got {}.\nIR:\n{}",
-        ir.matches("invoke").count(),
+        !ir.contains("invoke"),
+        "Calls must not lower to LLVM invoke.\nIR:\n{}",
         ir
     );
 }
@@ -392,10 +396,10 @@ fn main(): int {
  */
 #[test]
 // Verifies: REQ-LPAD-003/004
-fn test_try_catch_emits_invoke_for_inner_calls() {
+fn test_try_catch_keeps_plain_calls() {
     let source = r#"
 fn boom(): void {
-    throw new Error("boom");
+    throw Error.new("boom");
 }
 
 fn calm(): int {
@@ -414,17 +418,15 @@ fn main(): int {
     return n;
 }
 "#;
-    let ir = compile_to_ir(source, "test_mixed_invoke_call").expect("Failed to compile to IR");
-    let invoke_count = ir.matches("invoke").count();
-    let call_count = ir.matches("call ").count();
+    let ir = compile_to_ir(source, "test_mixed_calls").expect("Failed to compile to IR");
     assert!(
-        invoke_count >= 1,
-        "Expected at least 1 'invoke' inside try.\nIR:\n{}",
+        ir.contains("@ruyi_try_begin"),
+        "Expected the try frame to be registered.\nIR:\n{}",
         ir
     );
     assert!(
-        call_count >= 1,
-        "Expected at least 1 'call ' outside try.\nIR:\n{}",
+        ir.matches("call ").count() >= 1 && !ir.contains("invoke"),
+        "All calls must stay plain `call` under the pending-exception protocol.\nIR:\n{}",
         ir
     );
 }
@@ -559,7 +561,7 @@ fn main(): int {
 fn test_try_finally_exception_path() {
     let source = r#"
 fn boom(): void {
-    throw new Error("boom");
+    throw Error.new("boom");
 }
 
 fn main(): int {
@@ -608,7 +610,7 @@ fn main(): int {
 fn test_try_no_catch_exception_propagates() {
     let source = r#"
 fn boom(): void {
-    throw new Error("boom");
+    throw Error.new("boom");
 }
 
 fn main(): int {
@@ -660,7 +662,7 @@ fn main(): int {
 fn test_unwind_in_nested_try() {
     let source = r#"
 fn boom(): void {
-    throw new Error("boom");
+    throw Error.new("boom");
 }
 
 fn main(): int {

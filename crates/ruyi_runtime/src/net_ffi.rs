@@ -101,7 +101,9 @@ fn insert_socket(stream: TcpStream) -> i64 {
     if map.is_none() {
         *map = Some(HashMap::new());
     }
-    map.as_mut().unwrap().insert(handle, Arc::new(Mutex::new(stream)));
+    map.as_mut()
+        .unwrap()
+        .insert(handle, Arc::new(Mutex::new(stream)));
     handle
 }
 

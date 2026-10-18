@@ -170,6 +170,25 @@ pub fn bind_type_params_from_type(
                 bind_type_params_from_type(p, c, params, out);
             }
         }
+        // A generic method's type parameter usually appears inside a
+        // callback's signature — `fn map<U>(self, f: fn(T) -> U)` binds
+        // `U` from the closure's return type — so unification has to
+        // descend through function types on both sides.
+        (
+            Type::Function {
+                params: pp,
+                return_type: pr,
+            },
+            Type::Function {
+                params: cp,
+                return_type: cr,
+            },
+        ) => {
+            for (p, c) in pp.iter().zip(cp.iter()) {
+                bind_type_params_from_type(p, c, params, out);
+            }
+            bind_type_params_from_type(pr, cr, params, out);
+        }
         _ => {}
     }
 }
@@ -569,11 +588,131 @@ fn subst_args(args: &[Argument], map: &AnnMap) -> Vec<Argument> {
 
 // ── On-demand instantiation ──────────────────────────────────
 
+/// Look up a method's declared signature in a generic class body,
+/// returning its own type parameters (`fn map<U>` → `["U"]`) and its
+/// parameters with any leading `self` removed.
+fn find_method_signature(
+    class_body: &[ClassElement],
+    method_name: &str,
+) -> Option<(Vec<String>, Vec<TypeAnnotation>)> {
+    let element = class_body.iter().find(|el| match el {
+        ClassElement::Method {
+            name: PropertyName::Ident(n),
+            is_static: false,
+            ..
+        } if n == method_name => true,
+        _ => false,
+    })?;
+    let (type_params, params) = match element {
+        ClassElement::Method {
+            type_params,
+            params,
+            ..
+        } => (type_params, params),
+        _ => return None,
+    };
+    let external = params
+        .iter()
+        .filter(|p| !matches!(&p.pattern, Pattern::Identifier(n) if n == "self"))
+        .map(|p| {
+            p.ty.clone()
+                .unwrap_or(TypeAnnotation::Builtin("dyn".to_string()))
+        })
+        .collect();
+    Some((
+        type_params.iter().map(|tp| tp.name.clone()).collect(),
+        external,
+    ))
+}
+
+/// Infer a generic method's own type arguments (`fn map<U>`) from the
+/// actual argument types at a call site.
+///
+/// `class_subst` must already map the *class's* type parameters to their
+/// concrete arguments — the method's signature mentions both, and only
+/// the method's own parameters are being solved here. Returns `None`
+/// when a parameter stays unbound or non-concrete, so the caller falls
+/// back to the erased path instead of emitting a half-specialized body.
+pub fn infer_method_type_args(
+    class_body: &[ClassElement],
+    method_name: &str,
+    class_subst: &HashMap<String, Type>,
+    arg_types: &[Type],
+) -> Option<Vec<Type>> {
+    let (method_params, declared) = find_method_signature(class_body, method_name)?;
+    if method_params.is_empty() {
+        return Some(Vec::new());
+    }
+    // Class parameters must be resolved first: the method's declared
+    // signature refers to them (`f: fn(T) -> U`), and binding `U`
+    // against a signature that still says `T` would infer `U = T`.
+    let declared: Vec<Type> = declared
+        .iter()
+        .map(|ann| {
+            let mut ann = ann.clone();
+            subst_annotation_class_params(&mut ann, class_subst);
+            crate::typechecker::types::Type::from_annotation(&ann)
+        })
+        .collect();
+
+    let mut bindings: HashMap<String, Type> = HashMap::new();
+    for (declared, concrete) in declared.iter().zip(arg_types.iter()) {
+        bind_type_params_from_type(declared, concrete, &method_params, &mut bindings);
+    }
+    let type_args: Vec<Type> = method_params
+        .iter()
+        .map(|n| bindings.get(n).cloned())
+        .collect::<Option<Vec<_>>>()?;
+    if type_args.iter().any(|t| !is_concrete(t)) {
+        return None;
+    }
+    Some(type_args)
+}
+
+/// Rewrite `Identifier(name)` annotations that name a class type
+/// parameter into the concrete type they were instantiated with.
+fn subst_annotation_class_params(ann: &mut TypeAnnotation, class_subst: &HashMap<String, Type>) {
+    match ann {
+        TypeAnnotation::Identifier(name) => {
+            if let Some(ty) = class_subst.get(name) {
+                if let Some(replacement) = type_to_annotation(ty) {
+                    *ann = replacement;
+                }
+            }
+        }
+        TypeAnnotation::Nullable(inner) => subst_annotation_class_params(inner, class_subst),
+        TypeAnnotation::Array(inner) => subst_annotation_class_params(inner, class_subst),
+        TypeAnnotation::Generic { args, .. } => {
+            for a in args.iter_mut() {
+                subst_annotation_class_params(a, class_subst);
+            }
+        }
+        TypeAnnotation::Function {
+            params,
+            return_type,
+        } => {
+            for p in params.iter_mut() {
+                subst_annotation_class_params(p, class_subst);
+            }
+            subst_annotation_class_params(return_type, class_subst);
+        }
+        TypeAnnotation::Object(fields) => {
+            for f in fields.iter_mut() {
+                subst_annotation_class_params(&mut f.ty, class_subst);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Try to instantiate `{base}_{method}` specialized for `type_args`,
 /// producing the LLVM function `specialized_name`. Returns `Ok(true)`
 /// when the specialized function is available (already compiled or
 /// freshly instantiated), `Ok(false)` when specialization is not
 /// possible and the caller should fall back to the erased path.
+///
+/// `type_args` carries the class's type parameters first, then the
+/// method's own (`Ok<int, string>.map<U>` → `[int, string, int]`).
 pub fn ensure_method_specialization<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_, '_>,
     base: &str,
@@ -598,19 +737,9 @@ pub fn ensure_method_specialization<'ctx>(
         Some(entry) => entry.clone(),
         None => return Ok(false),
     };
-    if type_params.len() != type_args.len() {
+    let class_arg_count = type_params.len();
+    if type_args.len() < class_arg_count {
         return Ok(false);
-    }
-
-    // Build the annotation substitution map T -> int, ...
-    let mut map: AnnMap = HashMap::new();
-    for (param, arg) in type_params.iter().zip(type_args.iter()) {
-        match type_to_annotation(arg) {
-            Some(ann) => {
-                map.insert(param.clone(), ann);
-            }
-            None => return Ok(false),
-        }
     }
 
     // Locate the method AST inside the class body.
@@ -622,25 +751,64 @@ pub fn ensure_method_specialization<'ctx>(
         } if n == method_name => Some(el.clone()),
         _ => None,
     });
-    let (params, return_type, method_body, is_async) = match element {
+    let (method_type_params, params, return_type, method_body, is_async) = match element {
         Some(ClassElement::Method {
+            type_params,
             params,
             return_type,
             body,
             is_async,
             ..
-        }) => (params, return_type, body, is_async),
+        }) => (type_params, params, return_type, body, is_async),
         _ => return Ok(false),
     };
+    if type_args.len() != class_arg_count + method_type_params.len() {
+        return Ok(false);
+    }
+
+    // Build the annotation substitution map: the class's `T`/`E` first,
+    // then the method's own `U`/`F` so that a signature mentioning both
+    // (`fn map<U>(f: fn(T) -> U): Result<U, E>`) fully resolves.
+    let mut map: AnnMap = HashMap::new();
+    for (param, arg) in type_params.iter().zip(&type_args[..class_arg_count]) {
+        match type_to_annotation(arg) {
+            Some(ann) => {
+                map.insert(param.clone(), ann);
+            }
+            None => return Ok(false),
+        }
+    }
+    for (param, arg) in method_type_params.iter().zip(&type_args[class_arg_count..]) {
+        match type_to_annotation(arg) {
+            Some(ann) => {
+                map.insert(param.name.clone(), ann);
+            }
+            None => return Ok(false),
+        }
+    }
+
     if is_async {
         // Async state-machine codegen is not specialization-aware yet.
         return Ok(false);
     }
 
     // Substitute type parameters into the method signature and body.
+    //
+    // `self` keeps the class's concrete type arguments so field accesses in
+    // the body resolve to the instantiated field type. With a bare
+    // `Identifier(base)` annotation the field stays at its erased type
+    // parameter, and `Ok<T, E>.toString`'s `self.value.toString()` would
+    // look for a nonexistent `T_toString`.
+    let self_args: Vec<TypeAnnotation> = type_args[..class_arg_count]
+        .iter()
+        .filter_map(type_to_annotation)
+        .collect();
     let mut method_params = vec![Param {
         pattern: Pattern::Identifier("self".to_string()),
-        ty: Some(TypeAnnotation::Identifier(base.to_string())),
+        ty: Some(TypeAnnotation::Generic {
+            base: base.to_string(),
+            args: self_args,
+        }),
         init: None,
         is_rest: false,
         is_optional: false,
@@ -665,6 +833,7 @@ pub fn ensure_method_specialization<'ctx>(
         None,
         None,
         &subst_body,
+        None,
     );
     ctx.variables = saved_vars;
 

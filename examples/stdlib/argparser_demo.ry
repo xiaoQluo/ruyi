@@ -16,6 +16,8 @@
  * @date 2026-07-25
  */
 
+import { exit } from "process";
+
 import { parseArgs, ParsedArgs } from "argparser";
 
 // -----------------------------------------------------------------------------
@@ -25,11 +27,14 @@ fn printOk(label: string) {
     print("  ✓ " + label + "\n");
 }
 
+let failedChecks = 0;
+
 fn check(label: string, condition: bool) {
     if (condition) {
         print("  ✓ " + label + "\n");
     } else {
         print("  ✗ FAILED: " + label + "\n");
+        failedChecks = failedChecks + 1;
     }
 }
 
@@ -196,4 +201,11 @@ fn main() {
     demo_complete_cli();
 
     print("\nAll Argument Parser demos completed!\n");
+
+    // Report check failures through the exit status so runners
+    // (examples/run_examples.sh, sweep scripts) can detect them.
+    if (failedChecks > 0) {
+        print("  " + failedChecks + " check(s) FAILED\n");
+        exit(1);
+    }
 }

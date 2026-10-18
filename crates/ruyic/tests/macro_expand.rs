@@ -6,11 +6,6 @@ fn parse_ok(source: &str) -> Program {
     parser.parse().expect("parse should succeed")
 }
 
-fn parse_err(source: &str) -> ParseError {
-    let mut parser = Parser::new(source).expect("lexer should not fail");
-    parser.parse().expect_err("parse should fail")
-}
-
 fn single_item(source: &str) -> ModuleItem {
     let program = parse_ok(source);
     assert_eq!(program.items.len(), 1, "expected exactly one module item");
@@ -160,7 +155,7 @@ fn test_macro_undefined() {
 
 #[test]
 fn test_macro_registry_contains() {
-    let mut registry = MacroRegistry::with_builtins();
+    let registry = MacroRegistry::with_builtins();
     assert!(registry.contains("todo"));
     assert!(registry.contains("unreachable"));
     assert!(registry.contains("stringify"));
@@ -189,7 +184,7 @@ fn test_macro_registry_user_macros() {
 
 #[test]
 fn test_macro_hygiene_context() {
-    use ruyic::macro_expand::hygiene::{HygieneContext, StandardHygieneContext, SyntaxContext};
+    use ruyic::macro_expand::hygiene::{HygieneContext, StandardHygieneContext};
 
     let mut ctx = StandardHygieneContext::new();
     let ident = ctx.fresh_ident("temp");
@@ -212,7 +207,7 @@ fn test_macro_hygiene_unique_contexts() {
 
 #[test]
 fn test_pattern_meta_var() {
-    use ruyic::macro_expand::pattern::{parse_pattern, PatternToken};
+    use ruyic::macro_expand::pattern::parse_pattern;
 
     let tokens = vec![
         ruyic::lexer::token::Token::LParen,
@@ -228,7 +223,7 @@ fn test_pattern_meta_var() {
 
 #[test]
 fn test_pattern_repetition() {
-    use ruyic::macro_expand::pattern::{parse_pattern, RepetitionMode};
+    use ruyic::macro_expand::pattern::parse_pattern;
 
     let tokens = vec![
         ruyic::lexer::token::Token::Dollar,
@@ -246,7 +241,7 @@ fn test_pattern_repetition() {
 
 #[test]
 fn test_expansion_depth_limit() {
-    use ruyic::macro_expand::{MacroError, MAX_EXPANSION_DEPTH};
+    use ruyic::macro_expand::MAX_EXPANSION_DEPTH;
 
     assert_eq!(MAX_EXPANSION_DEPTH, 128);
 }

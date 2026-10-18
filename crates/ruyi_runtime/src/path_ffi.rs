@@ -335,8 +335,7 @@ mod tests {
             let arr = alloc(layout) as *mut i64;
             *arr = 3; // length
             *arr.add(1) = 3; // capacity
-            let data_layout =
-                Layout::from_size_align(std::mem::size_of::<i64>() * 3, 8).unwrap();
+            let data_layout = Layout::from_size_align(std::mem::size_of::<i64>() * 3, 8).unwrap();
             let data = alloc(data_layout) as *mut *const c_char;
             *arr.add(2) = data as i64; // data_ptr
             *data = seg1 as *const c_char;
@@ -359,8 +358,7 @@ mod tests {
             let arr = alloc(layout) as *mut i64;
             *arr = 3;
             *arr.add(1) = 3;
-            let data_layout =
-                Layout::from_size_align(std::mem::size_of::<i64>() * 3, 8).unwrap();
+            let data_layout = Layout::from_size_align(std::mem::size_of::<i64>() * 3, 8).unwrap();
             let data = alloc(data_layout) as *mut *const c_char;
             *arr.add(2) = data as i64;
             *data = seg1 as *const c_char;

@@ -1,5 +1,0 @@
-import { HEX_CHARS } from "encoding";
-
-fn main() {
-    print("hello\n");
-}

@@ -21,6 +21,7 @@ import { Aes256Gcm } from "crypto/aes";
 import { X25519 } from "crypto/dh";
 import { cryptoRandomBytes, cryptoRandomHex, cryptoRandomInt, cryptoRandomUUID } from "crypto/random";
 import { timingSafeEqual } from "crypto/util";
+import { hexEncode, hexDecode } from "encoding";
 
 // =============================================================================
 // 1. Hash — 消息摘要
@@ -132,22 +133,34 @@ fn demo_aes() {
   print(nonce);
   print("\n");
 
-  // 加密
+  // 加密 —— 本模块采用 hex 编解码 I/O，明文需先编码为 hex
   let plaintext = "Secret message for AES demo";
-  let cipher = Aes256Gcm.encrypt(key, nonce, plaintext);
+  let cipher = Aes256Gcm.encrypt(key, nonce, hexEncode(plaintext));
   print("密文: ");
   print(cipher);
   print("\n");
 
-  // 解密
-  let decrypted = Aes256Gcm.decrypt(key, nonce, cipher);
+  // 解密 —— FFI 返回 hex，需解码回原文
   print("解密: ");
-  print(decrypted);
+  if (cipher === null) {
+    print("(加密失败)");
+    print("\n");
+    print("解密正确: ");
+    print(false);
+    print("\n\n");
+    return;
+  }
+  let decrypted = Aes256Gcm.decrypt(key, nonce, cipher!);
+  if (decrypted === null) {
+    print("(解密失败)");
+  } else {
+    print(hexDecode(decrypted!));
+  }
   print("\n");
 
   // 验证
   print("解密正确: ");
-  print(decrypted === plaintext);
+  print(decrypted !== null && hexDecode(decrypted!) === plaintext);
   print("\n\n");
 }
 

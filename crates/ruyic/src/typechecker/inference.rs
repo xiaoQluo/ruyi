@@ -1663,8 +1663,16 @@ impl TypeInference {
             Expr::New { callee, args: _ } => {
                 let callee_ty = self.synthesize(callee);
                 match callee_ty {
+                    // Preserve generic instantiation so codegen can
+                    // substitute `T`/`E` in field/method signatures. The
+                    // previous implementation erased to a bare
+                    // `Type::Named(base, vec![])`, which made every
+                    // `Ok<T,E>`/`Some<T>` look like a non-generic
+                    // `Ok`/`Some`, causing field loads to use the bare
+                    // `T` placeholder (a `ptr` slot) instead of the
+                    // concrete instantiation.
                     Type::Named(name, fields) => Type::Named(name, fields),
-                    Type::Generic { base, .. } => Type::Named(base, vec![]),
+                    Type::Generic { base, args } => Type::Generic { base, args },
                     _ => Type::Dynamic,
                 }
             }
@@ -2001,6 +2009,79 @@ impl TypeInference {
         }
     }
 
+    /// Substitute generic type-parameter names with their concrete type
+    /// arguments. Looks up each `Type::Named("T", _)` in `bindings` and
+    /// replaces it with the bound type, recursing into Nullable, Array,
+    /// Future, Generic, Function, Object, and Union variants. Type
+    /// parameters that are not bound (e.g. a class-level type param
+    /// referenced from a context that has no substitution) are kept as
+    /// opaque named types; this preserves previous behavior when the
+    /// caller doesn't know the full set of type parameters.
+    fn substitute_type_params(
+        &self,
+        ty: &Type,
+        bindings: &std::collections::HashMap<String, Type>,
+    ) -> Type {
+        if bindings.is_empty() {
+            return ty.clone();
+        }
+        match ty {
+            Type::Named(name, _) => match bindings.get(name) {
+                Some(bound) => bound.clone(),
+                None => ty.clone(),
+            },
+            Type::Nullable(inner) => {
+                Type::Nullable(Box::new(self.substitute_type_params(inner, bindings)))
+            }
+            Type::Array(inner) => {
+                Type::Array(Box::new(self.substitute_type_params(inner, bindings)))
+            }
+            Type::Future(inner) => {
+                Type::Future(Box::new(self.substitute_type_params(inner, bindings)))
+            }
+            Type::Tuple(elems) => Type::Tuple(
+                elems
+                    .iter()
+                    .map(|e| self.substitute_type_params(e, bindings))
+                    .collect(),
+            ),
+            Type::Object(fields) => Type::Object(
+                fields
+                    .iter()
+                    .map(|f| ObjectField {
+                        name: f.name.clone(),
+                        ty: self.substitute_type_params(&f.ty, bindings),
+                        optional: f.optional,
+                    })
+                    .collect(),
+            ),
+            Type::Function {
+                params,
+                return_type,
+            } => Type::Function {
+                params: params
+                    .iter()
+                    .map(|p| self.substitute_type_params(p, bindings))
+                    .collect(),
+                return_type: Box::new(self.substitute_type_params(return_type, bindings)),
+            },
+            Type::Generic { base, args } => Type::Generic {
+                base: base.clone(),
+                args: args
+                    .iter()
+                    .map(|a| self.substitute_type_params(a, bindings))
+                    .collect(),
+            },
+            Type::Union(elems) => Type::Union(
+                elems
+                    .iter()
+                    .map(|e| self.substitute_type_params(e, bindings))
+                    .collect(),
+            ),
+            _ => ty.clone(),
+        }
+    }
+
     /// Instance method calls (`obj.method(...)`) carry the receiver as an
     /// implicit first parameter: `synthesize_member_access` prepends the
     /// receiver type when resolving a non-static, non-constructor method on a
@@ -2195,15 +2276,34 @@ impl TypeInference {
                 }
             }
             Type::Array(_) => Type::Dynamic,
-            Type::Generic { ref base, args: _ } => {
+            Type::Generic { ref base, args } => {
                 let type_name = base;
+                // Build a `param-name → concrete type` map from the class's
+                // declared type parameters and the receiver's type arguments
+                // so that field/method types like `T` or `Option<T>` are
+                // resolved against the actual instantiation (e.g. `Ok<int,void>`
+                // exposes its `value` field as `int`, not as the bare type
+                // parameter `T`). Without this, codegen would keep the field
+                // at its erased `ptr` layout and `print(ok.value)` would try
+                // to dereference an integer as a string pointer — segfault.
+                let param_subst: std::collections::HashMap<String, Type> = self
+                    .tracker
+                    .get_generic(type_name)
+                    .map(|def| {
+                        def.type_params
+                            .iter()
+                            .map(|p| p.name.clone())
+                            .zip(args.iter().cloned())
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 if let Some(field_ty) = self
                     .class_fields
                     .get(type_name)
                     .and_then(|fields| fields.iter().find(|f| f.name == prop_name))
                     .map(|f| f.ty.clone())
                 {
-                    field_ty
+                    self.substitute_type_params(&field_ty, &param_subst)
                 } else if let Some(method_ty) = self
                     .class_methods
                     .get(type_name)
@@ -2235,10 +2335,28 @@ impl TypeInference {
                         // `p.method` has type `fn(Receiver, ...) => Ret`.
                         // Expr::Call strips this implicit `self` before
                         // checking call arguments.
+                        //
+                        // Also substitute the class's type parameters from
+                        // the receiver's type arguments (`T` → `int`, `E` →
+                        // `string`, …) so generic method return types do not
+                        // leak unresolved TypeVars into the caller's
+                        // inference. Without this, `doubled.unwrap()` after
+                        // `ok_val.map(...)` ends up with return type `T`
+                        // (TypeVar), the union dispatch sees `[U, string]`
+                        // as `type_args`, monomorphizes to
+                        // `Ok_unwrap__U__string` (LLVM `ptr`), and SEGVs
+                        // when `printf("%s", v)` tries to deref
+                        // `inttoptr i64 -1` as a C string.
                         let new_params: Vec<Type> = std::iter::once(obj_ty.clone())
-                            .chain(params.iter().map(|p| self.substitute_self_type(p, obj_ty)))
+                            .chain(
+                                params
+                                    .iter()
+                                    .map(|p| self.substitute_type_params(p, &param_subst))
+                                    .map(|p| self.substitute_self_type(&p, obj_ty)),
+                            )
                             .collect();
-                        let new_ret = self.substitute_self_type(&return_type, obj_ty);
+                        let subst_ret = self.substitute_type_params(&return_type, &param_subst);
+                        let new_ret = self.substitute_self_type(&subst_ret, obj_ty);
                         Type::Function {
                             params: new_params,
                             return_type: Box::new(new_ret),

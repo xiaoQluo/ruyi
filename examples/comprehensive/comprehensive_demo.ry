@@ -293,7 +293,7 @@ fn demo_filesystem() {
     }
 
     // Cleanup
-    removeDir(workDir);
+    removeDir(workDir, true);
     check("removeDir() cleanup", !exists(workDir));
     printOk("fs directory operations OK");
 
@@ -352,9 +352,9 @@ fn demo_data() {
     });
     check("binarySearch(5)", idx >= 0);
 
-    let minVal = minBy(arr, fn(x: int): int { return x; });
+    let minVal = minBy(arr, fn(x: int): float { return x; });
     check("minBy()", minVal === 1);
-    let maxVal = maxBy(arr, fn(x: int): int { return x; });
+    let maxVal = maxBy(arr, fn(x: int): float { return x; });
     check("maxBy()", maxVal === 9);
     printOk("sort module OK");
 
@@ -444,13 +444,18 @@ fn demo_crypto() {
     printSection("4.4 AES-256-GCM");
     let aesKey = cryptoRandomHex(32);
     let nonce = cryptoRandomHex(12);
+    // aes 模块采用 hex 编解码 I/O，明文需先编码为 hex
     let plaintext = "Top Secret Ruyi Data";
-    let ciphertext = Aes256Gcm.encrypt(aesKey, nonce, plaintext);
-    check("AES encrypt produces output", ciphertext !== "");
-    check("AES ciphertext ≠ plaintext", ciphertext !== plaintext);
+    let ciphertext = Aes256Gcm.encrypt(aesKey, nonce, hexEncode(plaintext));
+    check("AES encrypt produces output", ciphertext !== null && ciphertext! !== "");
+    check("AES ciphertext ≠ plaintext", ciphertext !== null && ciphertext !== plaintext);
 
-    let decrypted = Aes256Gcm.decrypt(aesKey, nonce, ciphertext);
-    check("AES decrypt roundtrip", decrypted === plaintext);
+    if (ciphertext === null) {
+      check("AES decrypt roundtrip", false);
+    } else {
+      let decrypted = Aes256Gcm.decrypt(aesKey, nonce, ciphertext!);
+      check("AES decrypt roundtrip", decrypted !== null && hexDecode(decrypted!) === plaintext);
+    }
     printOk("aes module OK");
 
     // --- diffie-hellman: key exchange ---
@@ -545,7 +550,7 @@ fn demo_concurrency() {
         val = pch.recv();
     }
     let dummy = pdone.recv();
-    check("Producer-consumer pattern", sum === 30);
+    check("Producer-consumer pattern", sum === 60);
     printOk("channel OK");
 
     // --- fiber: lightweight concurrency ---
@@ -751,7 +756,7 @@ fn demo_datetime() {
 
     // --- fmt: printf-style formatting ---
     printSection("6.3 Format Strings");
-    let fmtd = fmtFormat("Ruyi v%s released on %s", "0.5", "2026-07-25");
+    let fmtd = fmtFormat("Ruyi v{} released on {}", "0.5", "2026-07-25");
     check("fmtFormat()", fmtd === "Ruyi v0.5 released on 2026-07-25");
     print("  Formatted: " + fmtd + "\n");
     printOk("fmt module OK");
@@ -791,8 +796,8 @@ fn demo_math() {
 
     check("atan2(1, 1)", atan2(1.0, 1.0) > 0.0);
 
-    check("mathMin(3, 7)", mathMin(3, 7) === 3);
-    check("mathMax(3, 7)", mathMax(3, 7) === 7);
+    check("mathMin(3.0, 7.0)", mathMin(3.0, 7.0) === 3.0);
+    check("mathMax(3.0, 7.0)", mathMax(3.0, 7.0) === 7.0);
     printOk("math module OK");
 
     // --- bigint: arbitrary precision ---
@@ -940,6 +945,18 @@ fn demo_networking() {
         let mqttServer = MQTTServer.listen("127.0.0.1", 19993);
         print("  MQTT server listening on :19993\n");
 
+        // Broker threads: MQTTServer is a raw listener — each connection
+        // must be accepted and served explicitly (see stdlib/mqtt_demo.ry).
+        // Without this, clients block forever waiting for CONNACK.
+        Thread.spawn(fn(arg) {
+            let conn = mqttServer.accept();
+            mqttServer.serveClient(conn);
+        });
+        Thread.spawn(fn(arg) {
+            let conn = mqttServer.accept();
+            mqttServer.serveClient(conn);
+        });
+
         // Publisher thread
         Thread.spawn(fn(arg) {
             let pub = MQTTClient.connect("127.0.0.1", 19993, "publisher-1", 30, null, null, true);
@@ -1068,7 +1085,7 @@ fn demo_serialization() {
     print("  ──────────────────────────────────────────────\n");
 
     // Demonstrate with JSON roundtrip
-    let obj = "{x: 10, y: 20}";
+    let obj = "{\"x\": 10, \"y\": 20}";
     let serialized = jsonStringify(jsonParse(obj));
     check("serialize pattern works", serialized !== null);
     print("  Serialized: " + serialized + "\n");

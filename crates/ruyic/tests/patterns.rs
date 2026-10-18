@@ -8,13 +8,38 @@ use ruyic::parser::Parser;
 use ruyic::typechecker::TypeChecker;
 
 fn check_program(source: &str) -> ruyic::typechecker::TypeCheckResult {
-    let mut parser = match Parser::new(source) {
+    // Snippets are bare statements referencing free variables. Scope them
+    // inside a function with declarations so the checker focuses on
+    // pattern semantics instead of reporting unknown variables.
+    let full = format!(
+        "fn __pattern_test() {{\n\
+         let x: int = 0;\n\
+         let value: int = 0;\n\
+         let n: int = 0;\n\
+         let one: int = 1;\n\
+         let two: int = 2;\n\
+         let other: int = 3;\n\
+         let s: string = \"\";\n\
+         let name: string = \"\";\n\
+         let arr: Array<int> = [];\n\
+         let list: Array<int> = [];\n\
+         let obj: dyn = 0;\n\
+         let data: dyn = 0;\n\
+         let point: dyn = 0;\n\
+         let maybe: dyn = 0;\n\
+         let result: dyn = 0;\n\
+         let iter: dyn = 0;\n\
+         {}\n\
+         }}\n",
+        source
+    );
+    let mut parser = match Parser::new(&full) {
         Ok(p) => p,
-        Err(_) => {
+        Err(e) => {
             let env = ruyic::typechecker::TypeEnvironment::new();
             let mut bag = ruyic::typechecker::DiagnosticBag::new();
             bag.add_error(ruyic::typechecker::DiagnosticKind::Other {
-                message: "lexer error".into(),
+                message: format!("lexer error: {}", e),
             });
             return ruyic::typechecker::TypeCheckResult {
                 env,
@@ -26,11 +51,11 @@ fn check_program(source: &str) -> ruyic::typechecker::TypeCheckResult {
     };
     let program = match parser.parse() {
         Ok(p) => p,
-        Err(_) => {
+        Err(e) => {
             let env = ruyic::typechecker::TypeEnvironment::new();
             let mut bag = ruyic::typechecker::DiagnosticBag::new();
             bag.add_error(ruyic::typechecker::DiagnosticKind::Other {
-                message: "parse error".into(),
+                message: format!("parse error: {}", e),
             });
             return ruyic::typechecker::TypeCheckResult {
                 env,
@@ -136,13 +161,13 @@ fn test_match_as_pattern() {
 
 #[test]
 fn test_if_let_basic() {
-    let result = check_program("if let Some(x) = maybe { }");
+    let result = check_program("if let { x } = obj { }");
     assert_no_errors(&result);
 }
 
 #[test]
 fn test_if_let_with_else() {
-    let result = check_program("if let Ok(x) = result { } else { }");
+    let result = check_program("if let { x } = obj { } else { }");
     assert_no_errors(&result);
 }
 
@@ -160,7 +185,7 @@ fn test_if_let_array_pattern() {
 
 #[test]
 fn test_while_let() {
-    let result = check_program("while let Some(x) = iter { }");
+    let result = check_program("while let [head, ...tail] = list { }");
     assert_no_errors(&result);
 }
 

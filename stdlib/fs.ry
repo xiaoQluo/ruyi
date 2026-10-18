@@ -421,43 +421,16 @@ export async fn removeDirAsync(path: string, recursive: bool = false): Future<vo
  * @param path Path to the directory to ensure
  */
 export fn ensureDir(path: string): void {
-    if (!__io_is_directory(path)) {
-        let normalized = __path_normalize(path);
-        if (normalized !== "" && normalized !== ".") {
-            // do nothing else
-            let __ensure_normalized = normalized;
-            // Build components list by splitting on separator
-            let components: Array<string> = [];
-            let current = normalized;
-
-            while (true) {
-                let base = __path_basename(current);
-                if (base === "" || base === "." || base === "..") {
-                    break;
-                }
-                components.push(base);
-                let parent = __path_dirname(current);
-                if (parent === current || parent === "") {
-                    break;
-                }
-                current = parent;
-            }
-
-            // Rebuild path from root, creating each level
-            let built: string = "";
-            for (let i = components.length - 1; i >= 0; i = i - 1) {
-                let comp: string = components[i];
-                if (built === "") {
-                    built = comp;
-                } else {
-                    let __join_arr: Array<string> = [built,  comp];
-                    built = __path_join(__join_arr);
-                }
-                if (!__io_is_directory(built)) {
-                    __io_mkdir(built, false);
-                }
-            }
-        }
+    if (__io_is_directory(path)) {
+        return;
+    }
+    let normalized = __path_normalize(path);
+    if (normalized !== "" && normalized !== ".") {
+        // `create_dir_all` semantics: the runtime creates every missing
+        // ancestor. Rebuilding the path component-by-component used to
+        // drop the leading '/', so absolute paths were created relative
+        // to the working directory.
+        __io_mkdir(normalized, true);
     }
 }
 

@@ -98,33 +98,20 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
         let personality = self.get_personality_function();
 
         let mut clauses: Vec<BasicValueEnum<'ctx>> = Vec::new();
-        let mut catch_all = false;
-        for &type_id in catch_type_ids {
-            if type_id == CATCH_ALL_TYPE_ID {
-                // EX-C4: A catch-all (`try { ... } catch (e) { ... }`) is emitted
-                // as `catch ptr null`, which is the Itanium ABI's wildcard form
-                // that matches any exception regardless of type_info. The
-                // personality routine (`__gxx_personality_v0`) recognises this
-                // and reports the landing pad as the matching handler without
-                // comparing per-class type_info objects. The runtime-side
-                // `ruyi_throw` does not populate type_info on the unwind
-                // exception, so emitting one typed `catch @__ruyi_type_info_N`
-                // clause per builtin exception type (the previous behaviour)
-                // never matched and propagated out of the try, eventually
-                // hitting `std::process::abort()` in `ruyi_throw`.
-                catch_all = true;
-                clauses.push(i8_ptr.const_null().as_basic_value_enum());
-            } else {
-                let type_info = self.get_type_info_global(type_id);
-                clauses.push(type_info.as_basic_value_enum());
-            }
+        // EX-C4: Emit a single catch-all clause. The Itanium ABI wildcard
+        // form matches any exception regardless of type_info. The runtime
+        // `ruyi_throw` doesn't populate the type_info slot on the unwind
+        // exception, so emitting one typed `catch @__ruyi_type_info_N`
+        // clause per builtin exception type never matches and propagated
+        // exceptions escaped the try, eventually aborting in `ruyi_throw`.
+        //
+        // We deduplicate: even if the source has both typed catches and a
+        // catch-all, the personality routine only needs one `catch ptr null`
+        // to accept the landing pad. The actual type filtering happens in
+        // `build_catch_dispatch` against the runtime `ExceptionObject.type_tag`.
+        if !catch_type_ids.is_empty() {
+            clauses.push(i8_ptr.const_null().as_basic_value_enum());
         }
-
-        // Deduplicate: if a typed catch already covers every type we also
-        // want to match, the extra null clause is harmless (it just widens
-        // the match set). We don't try to elide it because the catch list
-        // is small (<= 14 entries).
-        let _ = catch_all;
 
         self.builder
             .build_landing_pad(lpad_ty, personality, &clauses, has_cleanup, name)
@@ -274,133 +261,101 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
             return;
         }
 
-        // EX-C4: A catch-all entry (`type_id == CATCH_ALL_TYPE_ID`) is emitted
+        // EX-C4 follow-up: A catch-all entry (`type_id == CATCH_ALL_TYPE_ID`) is emitted
         // as `catch ptr null` on the landing pad. The personality routine
         // accepts it without consulting type_info, so no selector comparison
         // is required here either — we can branch straight into the catch-all
-        // handler. The dispatch walks handlers in declaration order; as soon
-        // as it hits a catch-all it routes every subsequent exception to
-        // that handler. Typed catches declared before a catch-all keep their
-        // selector match (compiler bug if the user wrote them in this order:
-        // the catch-all would shadow them, matching C++ semantics).
-        let first_catch_all = catch_handlers
-            .iter()
-            .position(|(id, _)| *id == CATCH_ALL_TYPE_ID);
-        if let Some(idx) = first_catch_all {
-            // Walk typed catches before the catch-all to give them a chance
-            // to match first (mirrors C++ `try { ... } catch (T1) {...}
-            // catch (T2) {...} catch (...) {...}` semantics: typed catches
-            // are tried in order before the catch-all). If any of them match,
-            // their handler runs; if not, fall through to the catch-all.
-            for (i, &(type_id, handler_bb)) in catch_handlers.iter().take(idx).enumerate() {
-                let selector = self.extract_selector(landing_pad_val);
-                let eh_typeid = self.build_eh_typeid_for(type_id);
-                let cmp = self
-                    .builder
-                    .build_int_compare(
-                        inkwell::IntPredicate::EQ,
-                        selector,
-                        eh_typeid,
-                        &format!("catch.matches.{}", i),
-                    )
-                    .unwrap();
-                // Build the *next* block on demand so we can branch into it
-                // when this typed catch does not match.
-                let func = self
-                    .builder
-                    .get_insert_block()
-                    .unwrap()
-                    .get_parent()
-                    .unwrap();
-                let next_bb = self
-                    .context
-                    .append_basic_block(func, &format!("catch.dispatch.before_catch_all.{}", i));
-                self.builder
-                    .build_conditional_branch(cmp, handler_bb, next_bb)
-                    .unwrap();
-                self.builder.position_at_end(next_bb);
-            }
-            // Now unconditionally branch to the catch-all handler.
-            let (_, all_handler) = catch_handlers[idx];
-            self.builder
-                .build_unconditional_branch(all_handler)
-                .unwrap();
-            return;
-        }
-
-        // EX-H1: If all handlers are catch-all (type_id == 0), use unconditional branch
-        if catch_handlers.iter().all(|(id, _)| *id == 0) {
-            let (_, first_handler) = catch_handlers[0];
-            self.builder.build_unconditional_branch(first_handler).unwrap();
-            return;
-        }
-
-        // EX-H1: Selector-based type dispatch
-        let selector = self.extract_selector(landing_pad_val);
+        // handler.
+        //
+        // Since `build_landing_pad` now collapses *every* clause to
+        // `catch ptr null` (because `ruyi_throw` doesn't populate the
+        // `type_info` slot that typed `catch @__ruyi_type_info_N` would
+        // require), the selector value at the landing pad is always the
+        // wildcard sentinel and never matches any specific `llvm.eh.typeid.for`
+        // selector. We perform the type comparison ourselves by reading
+        // the runtime `ExceptionObject.type_tag` field at offset 0 of the
+        // thrown exception object and switching through the typed catches
+        // in source order. A catch-all (`type_id == CATCH_ALL_TYPE_ID`)
+        // acts as the fallthrough handler for any exception that did not
+        // match a typed clause — matching C++ semantics where typed catches
+        // are tried before the catch-all.
         let func = self
             .builder
             .get_insert_block()
             .unwrap()
             .get_parent()
             .unwrap();
-
-        // Pre-compute next-block targets: each handler gets a dispatch block,
-        // the last one falls through to cleanup_bb or resume_bb.
-        let mut next_blocks: Vec<BasicBlock<'ctx>> = Vec::new();
-        for i in 1..catch_handlers.len() {
-            let bb = self
-                .context
-                .append_basic_block(func, &format!("catch.dispatch.next.{}", i));
-            next_blocks.push(bb);
-        }
-
-        for (i, &(type_id, handler_bb)) in catch_handlers.iter().enumerate() {
-            let next_bb = if i + 1 < catch_handlers.len() {
-                next_blocks[i]
-            } else {
-                cleanup_bb.unwrap_or(resume_bb)
-            };
-
-            let eh_typeid = self.build_eh_typeid_for(type_id);
-            let cmp = self.builder.build_int_compare(
-                inkwell::IntPredicate::EQ,
-                selector,
-                eh_typeid,
-                &format!("catch.matches.{}", i),
-            ).unwrap();
+        let exc_ptr = self.extract_exception_ptr(landing_pad_val);
+        // The runtime payload is an `ExceptionObject` (layout: type_tag
+        // @0, message @8, ...). The user-visible `e` pointer that
+        // codegen stores in the catch local is also pointed at the
+        // payload start, so reading offset 0 of `exc_ptr` gives us the
+        // runtime type_tag directly.
+        let i64_ty = self.context.i64_type();
+        let i8_ptr_ty = self.context.ptr_type(AddressSpace::default());
+        let exc_typed = self
+            .builder
+            .build_pointer_cast(exc_ptr, i8_ptr_ty, "exc_typed")
+            .unwrap();
+        let type_tag_ptr = unsafe {
             self.builder
-                .build_conditional_branch(cmp, handler_bb, next_bb).unwrap();
+                .build_gep(
+                    self.context.i8_type(),
+                    exc_typed,
+                    &[i64_ty.const_int(0, false)],
+                    "type_tag_addr",
+                )
+                .unwrap()
+        };
+        let type_tag_ptr_typed = self
+            .builder
+            .build_pointer_cast(
+                type_tag_ptr,
+                self.context.ptr_type(AddressSpace::default()),
+                "type_tag_typed",
+            )
+            .unwrap();
+        let thrown_type = self
+            .builder
+            .build_load(i64_ty, type_tag_ptr_typed, "thrown_type_tag")
+            .unwrap()
+            .into_int_value();
 
-            // Position builder at the next dispatch block (if any)
-            if i + 1 < catch_handlers.len() {
-                self.builder.position_at_end(next_blocks[i]);
-            }
-        }
-
-        // Last "next" block (no more handlers): route to cleanup or resume
-        if !catch_handlers.is_empty() {
-            let end_block = if next_blocks.is_empty() {
-                // Only one handler — already emitted; nothing to do here
-                None
-            } else {
-                Some(*next_blocks.last().unwrap())
-            };
-            if let Some(bb) = end_block {
-                // The builder was already positioned at end_block above
-                // (the last next_blocks entry). Emit cleanup/resume branch.
-                if self.builder.get_insert_block() == Some(bb) {
-                    if let Some(cleanup) = cleanup_bb {
-                        self.builder.build_unconditional_branch(cleanup).unwrap();
-                    } else {
-                        self.builder.build_unconditional_branch(resume_bb).unwrap();
-                    }
+        let mut next_bb: Option<BasicBlock<'ctx>> = None;
+        for (i, &(type_id, handler_bb)) in catch_handlers.iter().enumerate() {
+            if type_id == CATCH_ALL_TYPE_ID {
+                // Catch-all: fall through (or jump directly if this is the
+                // first handler).
+                if let Some(bb) = next_bb {
+                    self.builder.position_at_end(bb);
                 }
-            } else if cleanup_bb.is_some() || catch_handlers.len() == 1 {
-                // Single handler: no fallthrough block was created;
-                // the conditional branch already routes to cleanup/resume.
-                // Nothing extra to emit here.
+                self.builder.build_unconditional_branch(handler_bb).unwrap();
+                return;
             }
+            // Typed catch: emit comparison and branch.
+            let fallthrough = next_bb.unwrap_or_else(|| {
+                self.context
+                    .append_basic_block(func, &format!("catch.dispatch.fallthrough.{}", i))
+            });
+            let cond = self
+                .builder
+                .build_int_compare(
+                    inkwell::IntPredicate::EQ,
+                    thrown_type,
+                    i64_ty.const_int(type_id as u64, false),
+                    &format!("catch.matches.{}", i),
+                )
+                .unwrap();
+            self.builder
+                .build_conditional_branch(cond, handler_bb, fallthrough)
+                .unwrap();
+            self.builder.position_at_end(fallthrough);
+            next_bb = Some(fallthrough);
         }
+        // No catch matched; if we still have a next_bb sitting around,
+        // branch it to the resume block so the personality routine can
+        // propagate the exception out of the try.
+        self.builder.build_unconditional_branch(resume_bb).unwrap();
     }
 
     pub fn get_personality_function(&self) -> FunctionValue<'ctx> {
@@ -514,11 +469,17 @@ mod llvm_tests {
 
         let ir = module.print_to_string().to_string();
 
-        // 确认 type_info global 有 initializer (定义式,不是外部声明)
-        // EX-H1: globals now use unique string initializers instead of null
+        // 当前实现把所有子句折叠为 catch-all (`catch ptr null`)，不再
+        // 生成 type_info global；本用例的意图是确认模块 IR 既不引用
+        // 外部符号、也不留下未定义的 type_info 声明。
         assert!(
-            ir.contains("global ptr") && !ir.contains("external"),
-            "type_info global must be defined (not external declaration):\n{}",
+            !ir.contains("external"),
+            "module must not reference external type_info declarations:\n{}",
+            ir
+        );
+        assert!(
+            ir.contains("catch ptr null"),
+            "expected a catch-all landing pad:\n{}",
             ir
         );
 
@@ -556,8 +517,12 @@ mod llvm_tests {
         builder.position_at_end(lpad_bb);
         let lpad = gen.build_landing_pad(&[0u32, 0u32], false, "lpad");
 
-        // Catch-all dispatch: should branch to handler0 unconditionally
-        let catch_handlers = [(0u32, handler0_bb), (0u32, handler1_bb)];
+        // Catch-all dispatch: should branch to handler0 unconditionally.
+        // CATCH_ALL_TYPE_ID (not 0) marks a catch-all clause.
+        let catch_handlers = [
+            (super::CATCH_ALL_TYPE_ID, handler0_bb),
+            (super::CATCH_ALL_TYPE_ID, handler1_bb),
+        ];
         gen.build_catch_dispatch(lpad, &catch_handlers, None, resume_bb);
 
         // Handler blocks must be populated with valid IR

@@ -510,7 +510,7 @@ mod tests {
 
     #[test]
     fn test_named_type_no_fields_fallback() {
-        let named_type = Type::Named("SomeClass".to_string(), vec![]);
+        let _named_type = Type::Named("SomeClass".to_string(), vec![]);
         let arms: Vec<(&Pattern, &Type)> = vec![];
         let result = analyze_patterns(&arms);
         assert!(!result.is_exhaustive);

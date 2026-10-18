@@ -60,11 +60,8 @@ unsafe fn build_string_array(strings: Vec<*mut c_char>) -> *mut c_char {
     *arr = len;
     *arr.add(1) = cap;
     if len > 0 {
-        let data_layout = Layout::from_size_align(
-            len as usize * std::mem::size_of::<i64>(),
-            8,
-        )
-        .unwrap();
+        let data_layout =
+            Layout::from_size_align(len as usize * std::mem::size_of::<i64>(), 8).unwrap();
         let data = alloc(data_layout) as *mut i64;
         if data.is_null() {
             dealloc(arr as *mut u8, header_layout);
@@ -768,7 +765,7 @@ mod tests {
         let path = temp_path("delete.txt");
         fs::write(&path, "x").unwrap();
         __io_file_delete(c(&path));
-        assert!(!fs::metadata(&path).is_ok());
+        assert!(fs::metadata(&path).is_err());
     }
 
     #[test]

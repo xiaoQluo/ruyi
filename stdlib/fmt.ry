@@ -3,14 +3,15 @@
  *
  * Provides a small printf-style `format()` and a convenience `println()`
  * that expand `{}` placeholders in a template string against the supplied
- * positional arguments. Each `{}` consumes the next argument's
- * `.toString()` form (resolved by the codegen layer: `int.toString()`
- * → `ruyi_int_to_string`, `float.toString()` → `ruyi_float_to_string`,
- * `bool.toString()` → `ruyi_bool_to_string`).
+ * positional arguments. The first `{}` consumes the first argument, the
+ * second `{}` consumes the second, and so on; placeholders without a
+ * matching argument are left untouched.
  *
- * The stdlib layer is intentionally thin: every actual substitution is
- * delegated to the runtime FFI `__string_replace_all`. No regex, no
- * allocation of intermediate buffers by the stdlib.
+ * Substitution is delegated in one pass to the runtime FFI
+ * `__fmt_format_dyn`, which decodes each boxed dyn element of the
+ * rest-pack array (int/float/bool/string) and returns the formatted
+ * result. A Ruyi-side loop cannot express this: `replace_all` swaps
+ * every remaining placeholder with the same argument each pass.
  *
  * @author Ruyi Team
  * @date 2026-07-11
@@ -22,23 +23,14 @@
 
 /**
  * Substitute `{}` placeholders in `template` with the string form of
- * each successive `arg`. The first `{}` consumes the first argument,
- * the second `{}` consumes the second, and so on. Placeholders that
- * have no matching argument are left untouched in the output.
+ * each successive `arg`.
  *
  * @param template Template string containing `{}` placeholders
  * @param args Positional values to substitute into the placeholders
  * @return Resulting string after substitution
  */
 export fn format(template: string, ...args: dyn): string {
-    let result = template;
-    let i = 0;
-    while (i < args.length) {
-        let arg: dyn = args[i];
-        result = __string_replace_all_legacy(result, "{}", arg.toString());
-        i = i + 1;
-    }
-    return result;
+    return __fmt_format_dyn(template, args);
 }
 
 /**
@@ -48,5 +40,5 @@ export fn format(template: string, ...args: dyn): string {
  * @param args Positional values to substitute
  */
 export fn println(template: string, ...args: dyn): void {
-    print(format(template, args) + "\n");
+    print(__fmt_format_dyn(template, args) + "\n");
 }

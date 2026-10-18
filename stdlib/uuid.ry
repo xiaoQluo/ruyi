@@ -67,7 +67,7 @@ export fn v4(): string {
  * @return Array of UUID v4 strings
  */
 export fn v4Batch(count: int): Array<string> {
-    let result = [];
+    let result: Array<string> = [];
     let i = 0;
     while (i < count) {
         result.push(v4());

@@ -40,12 +40,14 @@ pub fn declare_builtins<'ctx>(context: &'ctx Context, module: &Module<'ctx>, gc_
     declare_ruyi_throw(context, module);
     declare_ruyi_get_pending_exception(context, module);
     declare_ruyi_clear_pending_exception(context, module);
+    declare_ruyi_find_handler(context, module);
     declare_ruyi_str_concat(context, module);
     declare_ruyi_begin_catch(context, module);
     declare_ruyi_end_catch(context, module);
     declare_ruyi_async_poll(context, module);
     declare_ruyi_await(context, module);
     declare_ruyi_spawn(context, module);
+    declare_ruyi_spawn_fn(context, module);
     declare_ruyi_wake_task(context, module);
     declare_ruyi_run_scheduler(context, module);
     declare_ruyi_obj_keys(context, module);
@@ -204,7 +206,38 @@ pub fn build_ruyi_clear_pending_exception<'ctx>(
     let fn_val = module
         .get_function("ruyi_clear_pending_exception")
         .expect("ruyi_clear_pending_exception not declared");
-    builder.build_call(fn_val, &[], "clear_pending_exc").unwrap();
+    builder
+        .build_call(fn_val, &[], "clear_pending_exc")
+        .unwrap();
+}
+
+fn declare_ruyi_find_handler<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.ptr_type(Default::default());
+    let i64_ty = context.i64_type();
+    let fn_type = i64_ty.fn_type(&[i8_ptr.into(), i8_ptr.into(), i64_ty.into()], false);
+    module.add_function("ruyi_find_handler", fn_type, None);
+}
+
+pub fn build_ruyi_find_handler<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    exception: inkwell::values::PointerValue<'ctx>,
+    catch_type_ids: inkwell::values::PointerValue<'ctx>,
+    catch_count: inkwell::values::IntValue<'ctx>,
+) -> inkwell::values::IntValue<'ctx> {
+    let fn_val = module
+        .get_function("ruyi_find_handler")
+        .expect("ruyi_find_handler not declared");
+    builder
+        .build_call(
+            fn_val,
+            &[exception.into(), catch_type_ids.into(), catch_count.into()],
+            "handler_idx",
+        )
+        .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
+        .into_int_value()
 }
 
 fn declare_ruyi_begin_catch<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
@@ -229,8 +262,8 @@ pub fn build_print<'ctx>(
     function: FunctionValue<'ctx>,
 ) {
     match ty {
-        Type::Array(_elem_ty) => {
-            build_print_array(context, builder, module, value, function);
+        Type::Array(elem_ty) => {
+            build_print_array(context, builder, module, value, function, Some(elem_ty));
         }
         Type::Bool => {
             build_print_bool(context, builder, module, value.into_int_value(), function);
@@ -244,13 +277,13 @@ pub fn build_print<'ctx>(
     }
 }
 
-/// Print a boxed Dynamic `{i64 tag, ptr data}` value by dispatching on
-/// its encoding:
-///   - string : tag = 0,                  data = string pointer
-///   - int    : tag = 1,                  data = inttoptr(value)
-///   - float  : tag = f64 bits,           data = inttoptr(2)
-///   - bool   : tag = 0/1,                data = inttoptr(3)
-///   - object : tag = typeid (non-zero),  data = object pointer
+/// Print a boxed Dynamic `{i64 value, ptr marker}` value by dispatching
+/// on its encoding (see `build_box_dynamic`):
+///   - int    : value = int value,   marker = inttoptr(1)
+///   - float  : value = f64 bits,    marker = inttoptr(2)
+///   - bool   : value = 0/1,         marker = inttoptr(3)
+///   - string : value = 0,           marker = string pointer
+///   - object : value = typeid,      marker = object pointer
 ///
 /// All blocks are appended at the function tail; blocks must never be
 /// inserted mid-function or the builder would fall through into them.
@@ -273,7 +306,9 @@ fn build_print_dynamic<'ctx>(
         .build_extract_value(dyn_struct, 1, "dyn_data")
         .unwrap()
         .into_pointer_value();
-    let data_int = builder.build_ptr_to_int(data, i64_ty, "dyn_data_i").unwrap();
+    let data_int = builder
+        .build_ptr_to_int(data, i64_ty, "dyn_data_i")
+        .unwrap();
 
     let chk_bool_bb = context.append_basic_block(function, "print_dyn_chk_bool");
     let chk_str_bb = context.append_basic_block(function, "print_dyn_chk_str");
@@ -285,71 +320,152 @@ fn build_print_dynamic<'ctx>(
     let obj_bb = context.append_basic_block(function, "print_dyn_obj");
     let merge_bb = context.append_basic_block(function, "print_dyn_merge");
 
-    // Chain: entry -> chk_bool -> chk_str -> chk_int -> obj. Class
-    // instances use non-zero typeids that cannot collide with the small
-    // float/bool marker values.
+    // Chain: entry -> chk_bool -> chk_str -> chk_int -> obj. The marker
+    // lives in the data word (1=int, 2=float, 3=bool — see
+    // build_box_dynamic), so scalar checks run on `data_int` first; the
+    // `tag == 0` string probe must come after the int probe or a boxed
+    // 0 (tag = 0) would be dereferenced as a string.
     let is_float = builder
-        .build_int_compare(IntPredicate::EQ, data_int, i64_ty.const_int(2, false), "is_float")
+        .build_int_compare(
+            IntPredicate::EQ,
+            data_int,
+            i64_ty.const_int(2, false),
+            "is_float",
+        )
         .unwrap();
-    builder.build_conditional_branch(is_float, float_bb, chk_bool_bb).unwrap();
+    builder
+        .build_conditional_branch(is_float, float_bb, chk_bool_bb)
+        .unwrap();
 
     builder.position_at_end(chk_bool_bb);
     let is_bool = builder
-        .build_int_compare(IntPredicate::EQ, data_int, i64_ty.const_int(3, false), "is_bool")
+        .build_int_compare(
+            IntPredicate::EQ,
+            data_int,
+            i64_ty.const_int(3, false),
+            "is_bool",
+        )
         .unwrap();
-    builder.build_conditional_branch(is_bool, bool_bb, chk_str_bb).unwrap();
+    builder
+        .build_conditional_branch(is_bool, bool_bb, chk_int_bb)
+        .unwrap();
+
+    builder.position_at_end(chk_int_bb);
+    let is_int = builder
+        .build_int_compare(
+            IntPredicate::EQ,
+            data_int,
+            i64_ty.const_int(1, false),
+            "is_int",
+        )
+        .unwrap();
+    builder
+        .build_conditional_branch(is_int, int_bb, chk_str_bb)
+        .unwrap();
 
     builder.position_at_end(chk_str_bb);
     let is_str = builder
         .build_int_compare(IntPredicate::EQ, tag, i64_ty.const_int(0, false), "is_str")
         .unwrap();
-    builder.build_conditional_branch(is_str, str_bb, chk_int_bb).unwrap();
-
-    builder.position_at_end(chk_int_bb);
-    let is_int = builder
-        .build_int_compare(IntPredicate::EQ, tag, i64_ty.const_int(1, false), "is_int")
+    builder
+        .build_conditional_branch(is_str, str_bb, obj_bb)
         .unwrap();
-    builder.build_conditional_branch(is_int, int_bb, obj_bb).unwrap();
 
     // float: tag carries the f64 bit pattern.
     builder.position_at_end(float_bb);
-    let fbits = builder.build_bit_cast(tag, context.f64_type(), "dyn_f").unwrap();
-    let fmt_f = builder.build_global_string_ptr("%f", "fmt_dyn_float").unwrap();
-    builder.build_call(printf, &[fmt_f.as_pointer_value().into(), fbits.into()], "print_dyn_float").unwrap();
+    let fbits = builder
+        .build_bit_cast(tag, context.f64_type(), "dyn_f")
+        .unwrap();
+    let fmt_f = builder
+        .build_global_string_ptr("%f", "fmt_dyn_float")
+        .unwrap();
+    builder
+        .build_call(
+            printf,
+            &[fmt_f.as_pointer_value().into(), fbits.into()],
+            "print_dyn_float",
+        )
+        .unwrap();
     builder.build_unconditional_branch(merge_bb).unwrap();
 
     // bool: tag holds 0/1.
     builder.position_at_end(bool_bb);
     let is_true = builder
-        .build_int_compare(IntPredicate::NE, tag, i64_ty.const_int(0, false), "dyn_true")
+        .build_int_compare(
+            IntPredicate::NE,
+            tag,
+            i64_ty.const_int(0, false),
+            "dyn_true",
+        )
         .unwrap();
-    let fmt_true = builder.build_global_string_ptr("true", "fmt_dyn_true").unwrap();
-    let fmt_false = builder.build_global_string_ptr("false", "fmt_dyn_false").unwrap();
+    let fmt_true = builder
+        .build_global_string_ptr("true", "fmt_dyn_true")
+        .unwrap();
+    let fmt_false = builder
+        .build_global_string_ptr("false", "fmt_dyn_false")
+        .unwrap();
     let fmt_sel = builder
-        .build_select(is_true, fmt_true.as_pointer_value(), fmt_false.as_pointer_value(), "fmt_sel")
+        .build_select(
+            is_true,
+            fmt_true.as_pointer_value(),
+            fmt_false.as_pointer_value(),
+            "fmt_sel",
+        )
         .unwrap();
-    builder.build_call(printf, &[fmt_sel.into()], "print_dyn_bool").unwrap();
+    builder
+        .build_call(printf, &[fmt_sel.into()], "print_dyn_bool")
+        .unwrap();
     builder.build_unconditional_branch(merge_bb).unwrap();
 
     // string: data is the string pointer.
     builder.position_at_end(str_bb);
-    let fmt_s = builder.build_global_string_ptr("%s", "fmt_dyn_str").unwrap();
-    builder.build_call(printf, &[fmt_s.as_pointer_value().into(), data.into()], "print_dyn_str").unwrap();
+    let fmt_s = builder
+        .build_global_string_ptr("%s", "fmt_dyn_str")
+        .unwrap();
+    builder
+        .build_call(
+            printf,
+            &[fmt_s.as_pointer_value().into(), data.into()],
+            "print_dyn_str",
+        )
+        .unwrap();
     builder.build_unconditional_branch(merge_bb).unwrap();
 
-    // int: data holds the value as inttoptr.
+    // int: tag (field 0) holds the value itself.
     builder.position_at_end(int_bb);
-    let fmt_i = builder.build_global_string_ptr("%ld", "fmt_dyn_int").unwrap();
-    builder.build_call(printf, &[fmt_i.as_pointer_value().into(), data_int.into()], "print_dyn_int").unwrap();
+    let fmt_i = builder
+        .build_global_string_ptr("%ld", "fmt_dyn_int")
+        .unwrap();
+    builder
+        .build_call(
+            printf,
+            &[fmt_i.as_pointer_value().into(), tag.into()],
+            "print_dyn_int",
+        )
+        .unwrap();
     builder.build_unconditional_branch(merge_bb).unwrap();
 
     // Fallback (class instance / unknown): show the object address.
     builder.position_at_end(obj_bb);
-    let fmt_o = builder.build_global_string_ptr("[object %p]", "fmt_dyn_obj").unwrap();
-    builder.build_call(printf, &[fmt_o.as_pointer_value().into(), data.into()], "print_dyn_obj").unwrap();
+    let fmt_o = builder
+        .build_global_string_ptr("[object %p]", "fmt_dyn_obj")
+        .unwrap();
+    builder
+        .build_call(
+            printf,
+            &[fmt_o.as_pointer_value().into(), data.into()],
+            "print_dyn_obj",
+        )
+        .unwrap();
     builder.build_unconditional_branch(merge_bb).unwrap();
 
+    // Every other print variant terminates with a newline; the dynamic
+    // branches print bare values, so emit it once here.
     builder.position_at_end(merge_bb);
+    let fmt_n = builder.build_global_string_ptr("\n", "fmt_dyn_nl").unwrap();
+    builder
+        .build_call(printf, &[fmt_n.as_pointer_value().into()], "print_dyn_nl")
+        .unwrap();
 }
 
 fn build_print_bool<'ctx>(
@@ -363,22 +479,32 @@ fn build_print_bool<'ctx>(
     let true_bb = context.append_basic_block(function, "print_bool_true");
     let false_bb = context.append_basic_block(function, "print_bool_false");
     let merge_bb = context.append_basic_block(function, "print_bool_merge");
-    builder.build_conditional_branch(value, true_bb, false_bb).unwrap();
+    builder
+        .build_conditional_branch(value, true_bb, false_bb)
+        .unwrap();
     builder.position_at_end(true_bb);
-    let fmt_true = builder.build_global_string_ptr("true\n", "fmt_bool_true").unwrap();
-    builder.build_call(
-        printf,
-        &[fmt_true.as_pointer_value().into()],
-        "print_bool_true",
-    ).unwrap();
+    let fmt_true = builder
+        .build_global_string_ptr("true\n", "fmt_bool_true")
+        .unwrap();
+    builder
+        .build_call(
+            printf,
+            &[fmt_true.as_pointer_value().into()],
+            "print_bool_true",
+        )
+        .unwrap();
     builder.build_unconditional_branch(merge_bb).unwrap();
     builder.position_at_end(false_bb);
-    let fmt_false = builder.build_global_string_ptr("false\n", "fmt_bool_false").unwrap();
-    builder.build_call(
-        printf,
-        &[fmt_false.as_pointer_value().into()],
-        "print_bool_false",
-    ).unwrap();
+    let fmt_false = builder
+        .build_global_string_ptr("false\n", "fmt_bool_false")
+        .unwrap();
+    builder
+        .build_call(
+            printf,
+            &[fmt_false.as_pointer_value().into()],
+            "print_bool_false",
+        )
+        .unwrap();
     builder.build_unconditional_branch(merge_bb).unwrap();
     builder.position_at_end(merge_bb);
 }
@@ -394,31 +520,43 @@ fn build_print_primitive<'ctx>(
     match value {
         BasicValueEnum::IntValue(v) => {
             let fmt = builder.build_global_string_ptr("%ld\n", "fmt_int").unwrap();
-            builder.build_call(
-                printf,
-                &[fmt.as_pointer_value().into(), v.into()],
-                "print_int",
-            ).unwrap();
+            builder
+                .build_call(
+                    printf,
+                    &[fmt.as_pointer_value().into(), v.into()],
+                    "print_int",
+                )
+                .unwrap();
         }
         BasicValueEnum::FloatValue(v) => {
-            let fmt = builder.build_global_string_ptr("%f\n", "fmt_float").unwrap();
-            builder.build_call(
-                printf,
-                &[fmt.as_pointer_value().into(), v.into()],
-                "print_float",
-            ).unwrap();
+            let fmt = builder
+                .build_global_string_ptr("%f\n", "fmt_float")
+                .unwrap();
+            builder
+                .build_call(
+                    printf,
+                    &[fmt.as_pointer_value().into(), v.into()],
+                    "print_float",
+                )
+                .unwrap();
         }
         BasicValueEnum::PointerValue(v) => {
             let fmt = builder.build_global_string_ptr("%s\n", "fmt_str").unwrap();
-            builder.build_call(
-                printf,
-                &[fmt.as_pointer_value().into(), v.into()],
-                "print_str",
-            ).unwrap();
+            builder
+                .build_call(
+                    printf,
+                    &[fmt.as_pointer_value().into(), v.into()],
+                    "print_str",
+                )
+                .unwrap();
         }
         _ => {
-            let fmt = builder.build_global_string_ptr("<unknown>\n", "fmt_unknown").unwrap();
-            builder.build_call(printf, &[fmt.as_pointer_value().into()], "print_unknown").unwrap();
+            let fmt = builder
+                .build_global_string_ptr("<unknown>\n", "fmt_unknown")
+                .unwrap();
+            builder
+                .build_call(printf, &[fmt.as_pointer_value().into()], "print_unknown")
+                .unwrap();
         }
     }
 }
@@ -435,6 +573,7 @@ fn build_print_array<'ctx>(
     module: &Module<'ctx>,
     array_ptr: BasicValueEnum<'ctx>,
     function: FunctionValue<'ctx>,
+    elem_ty: Option<&Type>,
 ) {
     use inkwell::IntPredicate;
 
@@ -445,9 +584,13 @@ fn build_print_array<'ctx>(
     let i64_ptr_ty = context.ptr_type(Default::default());
 
     let len_ptr = builder
-        .build_bit_cast(array_ptr, i64_ptr_ty, "len_ptr").unwrap()
+        .build_bit_cast(array_ptr, i64_ptr_ty, "len_ptr")
+        .unwrap()
         .into_pointer_value();
-    let len = builder.build_load(i64_ty, len_ptr, "len").unwrap().into_int_value();
+    let len = builder
+        .build_load(i64_ty, len_ptr, "len")
+        .unwrap()
+        .into_int_value();
 
     let entry_bb = builder.get_insert_block().unwrap();
     let loop_header = context.append_basic_block(function, "array_loop_header");
@@ -459,27 +602,39 @@ fn build_print_array<'ctx>(
 
     builder.position_at_end(entry_bb);
     let fmt_open = builder.build_global_string_ptr("[", "fmt_open").unwrap();
-    builder.build_call(printf, &[fmt_open.as_pointer_value().into()], "print_open").unwrap();
+    builder
+        .build_call(printf, &[fmt_open.as_pointer_value().into()], "print_open")
+        .unwrap();
     builder.build_unconditional_branch(loop_header).unwrap();
 
     builder.position_at_end(loop_header);
     let phi = builder.build_phi(i64_ty, "array_idx_phi").unwrap();
     let i = phi.as_basic_value().into_int_value();
-    let cond = builder.build_int_compare(IntPredicate::ULT, i, len, "array_loop_cond").unwrap();
-    builder.build_conditional_branch(cond, loop_body, loop_merge).unwrap();
+    let cond = builder
+        .build_int_compare(IntPredicate::ULT, i, len, "array_loop_cond")
+        .unwrap();
+    builder
+        .build_conditional_branch(cond, loop_body, loop_merge)
+        .unwrap();
 
     builder.position_at_end(loop_body);
     let zero = i64_ty.const_int(0, false);
-    let is_first = builder.build_int_compare(IntPredicate::EQ, i, zero, "is_first").unwrap();
-    builder.build_conditional_branch(is_first, print_elem_bb, print_comma_bb).unwrap();
+    let is_first = builder
+        .build_int_compare(IntPredicate::EQ, i, zero, "is-first")
+        .unwrap();
+    builder
+        .build_conditional_branch(is_first, print_elem_bb, print_comma_bb)
+        .unwrap();
 
     builder.position_at_end(print_comma_bb);
     let fmt_comma = builder.build_global_string_ptr(", ", "fmt_comma").unwrap();
-    builder.build_call(
-        printf,
-        &[fmt_comma.as_pointer_value().into()],
-        "print_comma",
-    ).unwrap();
+    builder
+        .build_call(
+            printf,
+            &[fmt_comma.as_pointer_value().into()],
+            "print_comma",
+        )
+        .unwrap();
     builder.build_unconditional_branch(print_elem_bb).unwrap();
 
     builder.position_at_end(print_elem_bb);
@@ -488,38 +643,78 @@ fn build_print_array<'ctx>(
     // 数组布局：[len][cap][data_ptr]，元素在独立缓冲中；
     // 循环体内每次重新加载 data_ptr 以容忍 push 扩容。
     let data_slot = unsafe {
-        builder.build_gep(
-            context.i8_type(),
-            array_ptr,
-            &[i32_ty.const_int(16, false)],
-            "data_slot",
-        ).unwrap()
+        builder
+            .build_gep(
+                context.i8_type(),
+                array_ptr,
+                &[i32_ty.const_int(16, false)],
+                "data_slot",
+            )
+            .unwrap()
     };
     let data_slot_ptr = builder
-        .build_bit_cast(data_slot, i64_ptr_ty, "data_slot_ptr").unwrap()
+        .build_bit_cast(data_slot, i64_ptr_ty, "data_slot_ptr")
+        .unwrap()
         .into_pointer_value();
     let data_addr = builder
-        .build_load(i64_ty, data_slot_ptr, "data_addr").unwrap()
+        .build_load(i64_ty, data_slot_ptr, "data_addr")
+        .unwrap()
         .into_int_value();
     let data_base = builder
-        .build_int_to_ptr(data_addr, i64_ptr_ty, "data_base").unwrap();
+        .build_int_to_ptr(data_addr, i64_ptr_ty, "data_base")
+        .unwrap();
     let elem_byte_offset = builder.build_int_mul(i, eight, "elem_byte_offset").unwrap();
-    let elem_offset_i32 =
-        builder.build_int_cast(elem_byte_offset, i32_ty, "elem_offset_i32").unwrap();
-    let elem_ptr = unsafe { builder.build_gep(context.i8_type(), data_base, &[elem_offset_i32], "elem_ptr").unwrap() };
+    let elem_offset_i32 = builder
+        .build_int_cast(elem_byte_offset, i32_ty, "elem_offset_i32")
+        .unwrap();
+    let elem_ptr = unsafe {
+        builder
+            .build_gep(context.i8_type(), data_base, &[elem_offset_i32], "elem_ptr")
+            .unwrap()
+    };
     let elem_i64_ptr = builder
-        .build_bit_cast(elem_ptr, i64_ptr_ty, "elem_i64_ptr").unwrap()
+        .build_bit_cast(elem_ptr, i64_ptr_ty, "elem_i64_ptr")
+        .unwrap()
         .into_pointer_value();
     let elem_val = builder
-        .build_load(i64_ty, elem_i64_ptr, "elem_val").unwrap()
+        .build_load(i64_ty, elem_i64_ptr, "elem_val")
+        .unwrap()
         .into_int_value();
 
-    let fmt_elem = builder.build_global_string_ptr("%ld", "fmt_elem").unwrap();
-    builder.build_call(
-        printf,
-        &[fmt_elem.as_pointer_value().into(), elem_val.into()],
-        "print_elem",
-    ).unwrap();
+    // Pick the printf format based on the element type. String-typed
+    // arrays hold `*mut i8` payloads that the prior codegen stored as
+    // a 64-bit integer slot — printf("%s", ...) wants the raw pointer,
+    // not its bit-cast-to-i64 representation, so emit an explicit
+    // ptr_to_int + arg pass for the String case.
+    let fmt_str = match elem_ty {
+        Some(Type::String) => "%s",
+        Some(Type::Float) => "%f",
+        Some(Type::Bool) => "%d",
+        _ => "%ld",
+    };
+    let fmt_elem = builder
+        .build_global_string_ptr(fmt_str, "fmt_elem")
+        .unwrap();
+    let elem_arg = match elem_ty {
+        Some(Type::String) => {
+            let ptr = builder
+                .build_int_to_ptr(elem_val, i64_ptr_ty, "elem_str_ptr")
+                .unwrap();
+            inkwell::values::BasicValueEnum::PointerValue(ptr).into()
+        }
+        Some(Type::Bool) => builder
+            .build_int_compare(IntPredicate::NE, elem_val, zero, "elem_bool")
+            .unwrap()
+            .into(),
+        _ => elem_val.into(),
+    };
+    builder
+        .build_call(
+            printf,
+            &[fmt_elem.as_pointer_value().into(), elem_arg],
+            "print_elem",
+        )
+        .unwrap();
     builder.build_unconditional_branch(loop_increment).unwrap();
 
     builder.position_at_end(loop_increment);
@@ -530,11 +725,13 @@ fn build_print_array<'ctx>(
 
     builder.position_at_end(loop_merge);
     let fmt_close = builder.build_global_string_ptr("]\n", "fmt_close").unwrap();
-    builder.build_call(
-        printf,
-        &[fmt_close.as_pointer_value().into()],
-        "print_close",
-    ).unwrap();
+    builder
+        .build_call(
+            printf,
+            &[fmt_close.as_pointer_value().into()],
+            "print_close",
+        )
+        .unwrap();
 }
 
 /// Build a call to the active allocator via [`crate::codegen::gc_alloc::GcAllocFn`].
@@ -560,7 +757,9 @@ pub fn build_gc_add_root<'ctx>(
     let fn_val = module
         .get_function("ruyi_gc_add_root")
         .expect("ruyi_gc_add_root not declared");
-    builder.build_call(fn_val, &[ptr.into()], "gc_add_root").unwrap();
+    builder
+        .build_call(fn_val, &[ptr.into()], "gc_add_root")
+        .unwrap();
 }
 
 /// Build a call to `ruyi_gc_remove_root`.
@@ -572,7 +771,9 @@ pub fn build_gc_remove_root<'ctx>(
     let fn_val = module
         .get_function("ruyi_gc_remove_root")
         .expect("ruyi_gc_remove_root not declared");
-    builder.build_call(fn_val, &[ptr.into()], "gc_remove_root").unwrap();
+    builder
+        .build_call(fn_val, &[ptr.into()], "gc_remove_root")
+        .unwrap();
 }
 
 /// Build a call to `ruyi_gc_write_barrier`.
@@ -585,7 +786,9 @@ pub fn build_gc_write_barrier<'ctx>(
     let fn_val = module
         .get_function("ruyi_gc_write_barrier")
         .expect("ruyi_gc_write_barrier not declared");
-    builder.build_call(fn_val, &[parent.into(), field.into()], "gc_write_barrier").unwrap();
+    builder
+        .build_call(fn_val, &[parent.into(), field.into()], "gc_write_barrier")
+        .unwrap();
 }
 
 fn declare_ruyi_async_poll<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
@@ -605,6 +808,12 @@ fn declare_ruyi_spawn<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
     let i8_ptr = context.ptr_type(Default::default());
     let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
     module.add_function("ruyi_spawn", fn_type, None);
+}
+
+fn declare_ruyi_spawn_fn<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
+    let i8_ptr = context.ptr_type(Default::default());
+    let fn_type = i8_ptr.fn_type(&[i8_ptr.into()], false);
+    module.add_function("ruyi_spawn_fn", fn_type, None);
 }
 
 fn declare_ruyi_wake_task<'ctx>(context: &'ctx Context, module: &Module<'ctx>) {
@@ -677,6 +886,26 @@ pub fn build_ruyi_spawn<'ctx>(
         .expect("ruyi_spawn not declared");
     builder
         .build_call(fn_val, &[future.into()], "spawn")
+        .unwrap()
+        .try_as_basic_value()
+        .unwrap_basic()
+        .into_pointer_value()
+}
+
+/// Build a call to `ruyi_spawn_fn` for the `spawn()` builtin.
+///
+/// `ruyi_spawn` expects a pointer to a heap-allocated future object, but
+/// the builtin only has the bare call target of the submitted function.
+pub fn build_ruyi_spawn_fn<'ctx>(
+    builder: &inkwell::builder::Builder<'ctx>,
+    module: &Module<'ctx>,
+    entry: inkwell::values::PointerValue<'ctx>,
+) -> inkwell::values::PointerValue<'ctx> {
+    let fn_val = module
+        .get_function("ruyi_spawn_fn")
+        .expect("ruyi_spawn_fn not declared");
+    builder
+        .build_call(fn_val, &[entry.into()], "spawn_fn")
         .unwrap()
         .try_as_basic_value()
         .unwrap_basic()
@@ -799,11 +1028,13 @@ pub fn build_builtin_array_set<'ctx>(
     let fn_val = module
         .get_function("__builtin_array_set")
         .expect("__builtin_array_set not declared");
-    builder.build_call(
-        fn_val,
-        &[arr.into(), index.into(), value.into()],
-        "array_set",
-    ).unwrap();
+    builder
+        .build_call(
+            fn_val,
+            &[arr.into(), index.into(), value.into()],
+            "array_set",
+        )
+        .unwrap();
 }
 
 /// Build a call to `__builtin_array_get(arr, index)`.

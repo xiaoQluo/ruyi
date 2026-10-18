@@ -24,7 +24,9 @@ pub fn emit_arc_retain<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>, ptr: Pointe
         let fn_ty = void_ty.fn_type(&[param_ty.into()], false);
         ctx.module.add_function(fn_name, fn_ty, None)
     });
-    ctx.builder().build_call(func, &[ptr.into()], "arc_retain").unwrap();
+    ctx.builder()
+        .build_call(func, &[ptr.into()], "arc_retain")
+        .unwrap();
 }
 
 /// Emit a call to `ruyi_arc_release` for the given pointer.
@@ -40,7 +42,9 @@ pub fn emit_arc_release<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>, ptr: Point
         let fn_ty = void_ty.fn_type(&[param_ty.into()], false);
         ctx.module.add_function(fn_name, fn_ty, None)
     });
-    ctx.builder().build_call(func, &[ptr.into()], "arc_release").unwrap();
+    ctx.builder()
+        .build_call(func, &[ptr.into()], "arc_release")
+        .unwrap();
 }
 
 /// Emit a call to `ruyi_arc_alloc`.

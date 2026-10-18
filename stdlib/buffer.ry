@@ -62,7 +62,7 @@ fn hexCharToValue(c: string): int {
  * @return New zero-filled array
  */
 fn makeZeroArray(size: int): Array<byte> {
-    let arr = [];
+    let arr: Array<byte> = [];
     let i = 0;
     while (i < size) {
         arr.push(0);
@@ -183,7 +183,7 @@ export class Buffer {
      * @return New Buffer containing encoded bytes
      */
     static fn fromString(s: string, encoding: string = "utf8"): Buffer {
-        let arr = [];
+        let arr: Array<byte> = [];
         let len = s.length();
 
         if (encoding === "hex") {
@@ -211,10 +211,16 @@ export class Buffer {
         }
 
         // Default: UTF-8
+        // `s.length()` counts bytes while `charCodeAt` indexes Unicode
+        // scalars, so iterate until the first out-of-range index (-1).
+        // Running to the byte length re-encodes the tail of multi-byte
+        // strings as 0xFF padding.
         let i = 0;
-        while (i < len) {
-            encodeUtf8CodePoint(arr, s.charCodeAt(i));
+        let cp = s.charCodeAt(i);
+        while (cp !== -1) {
+            encodeUtf8CodePoint(arr, cp);
             i = i + 1;
+            cp = s.charCodeAt(i);
         }
         return Buffer(arr);
     }
@@ -257,7 +263,7 @@ export class Buffer {
      * @return New Buffer containing decoded bytes
      */
     static fn fromHex(s: string): Buffer {
-        let arr = [];
+        let arr: Array<byte> = [];
         let len = s.length();
         let i = 0;
         while (i + 1 < len) {

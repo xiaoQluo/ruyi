@@ -126,12 +126,8 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: RuyiType) -> BasicTyp
         RuyiType::Int => BasicTypeEnum::IntType(context.i64_type()),
         RuyiType::Float => BasicTypeEnum::FloatType(context.f64_type()),
         RuyiType::Bool => BasicTypeEnum::IntType(context.bool_type()),
-        RuyiType::String => {
-            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
-        }
-        RuyiType::Null => {
-            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
-        }
+        RuyiType::String => BasicTypeEnum::PointerType(context.ptr_type(Default::default())),
+        RuyiType::Null => BasicTypeEnum::PointerType(context.ptr_type(Default::default())),
         RuyiType::Dyn => {
             // Tagged union: { type_id: i64, payload: i8* }
             let dyn_type = context.struct_type(
@@ -152,9 +148,7 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: RuyiType) -> BasicTyp
             // Opaque pointer for user-defined types in the baseline.
             BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
         }
-        RuyiType::Future => {
-            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
-        }
+        RuyiType::Future => BasicTypeEnum::PointerType(context.ptr_type(Default::default())),
     }
 }
 

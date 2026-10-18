@@ -4,7 +4,6 @@ use crate::codegen::generator::CodegenContext;
 use crate::codegen::stmt::compile_block;
 use crate::parser::ast::{Expr, MatchArm, Pattern};
 use crate::typechecker::types::Type;
-use inkwell::types::BasicType;
 /**
  * Pattern matching code generation for Ruyi.
  *
@@ -91,20 +90,36 @@ pub fn bind_array_pattern<'ctx>(
     // 数组元素在独立缓冲中：头部偏移 16 存 data_ptr。
     let data_slot = unsafe {
         ctx.builder()
-            .build_gep(ctx.context.i8_type(), array_ptr, &[i32_ty.const_int(16, false)], "data_slot")
+            .build_gep(
+                ctx.context.i8_type(),
+                array_ptr,
+                &[i32_ty.const_int(16, false)],
+                "data_slot",
+            )
             .unwrap()
     };
     let data_slot_ptr = ctx
         .builder()
-        .build_bit_cast(data_slot, ctx.context.ptr_type(Default::default()), "data_slot_ptr").unwrap()
+        .build_bit_cast(
+            data_slot,
+            ctx.context.ptr_type(Default::default()),
+            "data_slot_ptr",
+        )
+        .unwrap()
         .into_pointer_value();
     let data_addr = ctx
         .builder()
-        .build_load(ctx.context.i64_type(), data_slot_ptr, "data_addr").unwrap()
+        .build_load(ctx.context.i64_type(), data_slot_ptr, "data_addr")
+        .unwrap()
         .into_int_value();
     let data_base = ctx
         .builder()
-        .build_int_to_ptr(data_addr, ctx.context.ptr_type(Default::default()), "data_base").unwrap();
+        .build_int_to_ptr(
+            data_addr,
+            ctx.context.ptr_type(Default::default()),
+            "data_base",
+        )
+        .unwrap();
 
     let mut idx = 0;
     for elem in elements {
@@ -126,18 +141,30 @@ pub fn bind_array_pattern<'ctx>(
                 let offset = i32_ty.const_int((idx * 8) as u64, false);
                 let elem_ptr = unsafe {
                     ctx.builder()
-                        .build_gep(ctx.context.i8_type(), data_base, &[offset], &format!("elem_ptr_{}", idx)).unwrap()
+                        .build_gep(
+                            ctx.context.i8_type(),
+                            data_base,
+                            &[offset],
+                            &format!("elem_ptr_{}", idx),
+                        )
+                        .unwrap()
                 };
-                let typed_ptr = ctx.builder().build_bit_cast(
-                    elem_ptr,
-                    ctx.context.ptr_type(Default::default()),
-                    &format!("elem_typed_ptr_{}", idx),
-                ).unwrap();
-                let loaded = ctx.builder().build_load(
-                    llvm_ty,
-                    typed_ptr.into_pointer_value(),
-                    &format!("loaded_elem_{}", idx),
-                ).unwrap();
+                let typed_ptr = ctx
+                    .builder()
+                    .build_bit_cast(
+                        elem_ptr,
+                        ctx.context.ptr_type(Default::default()),
+                        &format!("elem_typed_ptr_{}", idx),
+                    )
+                    .unwrap();
+                let loaded = ctx
+                    .builder()
+                    .build_load(
+                        llvm_ty,
+                        typed_ptr.into_pointer_value(),
+                        &format!("loaded_elem_{}", idx),
+                    )
+                    .unwrap();
                 let name = match p {
                     Pattern::Identifier(n) => n.clone(),
                     _ => format!("_anon_{}", idx),
@@ -200,11 +227,14 @@ pub fn bind_object_pattern<'ctx>(
             .get(class_name)
             .ok_or_else(|| format!("No struct type for class: {}", class_name))?;
 
-        let struct_ptr = ctx.builder().build_pointer_cast(
-            obj_ptr,
-            ctx.context.ptr_type(Default::default()),
-            "obj_struct_cast",
-        ).unwrap();
+        let struct_ptr = ctx
+            .builder()
+            .build_pointer_cast(
+                obj_ptr,
+                ctx.context.ptr_type(Default::default()),
+                "obj_struct_cast",
+            )
+            .unwrap();
 
         for f in fields {
             match f {
@@ -219,17 +249,26 @@ pub fn bind_object_pattern<'ctx>(
                     let (_, field_ty) = &class_fields[field_index];
 
                     let field_ptr = unsafe {
-                        ctx.builder().build_gep(
-                            struct_type,
-                            struct_ptr,
-                            &[
-                                i32_ty.const_int(0, false),
-                                i32_ty.const_int(field_index as u64, false),
-                            ],
-                            &format!("{}_ptr", key),
-                        ).unwrap()
+                        ctx.builder()
+                            .build_gep(
+                                struct_type,
+                                struct_ptr,
+                                &[
+                                    i32_ty.const_int(0, false),
+                                    i32_ty.const_int(field_index as u64, false),
+                                ],
+                                &format!("{}_ptr", key),
+                            )
+                            .unwrap()
                     };
-                    let field_val = ctx.builder().build_load(super::types::ruyi_type_to_llvm(ctx.context, field_ty), field_ptr, key).unwrap();
+                    let field_val = ctx
+                        .builder()
+                        .build_load(
+                            super::types::ruyi_type_to_llvm(ctx.context, field_ty),
+                            field_ptr,
+                            key,
+                        )
+                        .unwrap();
 
                     bind_pattern(ctx, inner, &ExprResult::new(field_val, field_ty.clone()))?;
                 }
@@ -241,17 +280,26 @@ pub fn bind_object_pattern<'ctx>(
                     let (_, field_ty) = &class_fields[field_index];
 
                     let field_ptr = unsafe {
-                        ctx.builder().build_gep(
-                            struct_type,
-                            struct_ptr,
-                            &[
-                                i32_ty.const_int(0, false),
-                                i32_ty.const_int(field_index as u64, false),
-                            ],
-                            &format!("{}_ptr", name),
-                        ).unwrap()
+                        ctx.builder()
+                            .build_gep(
+                                struct_type,
+                                struct_ptr,
+                                &[
+                                    i32_ty.const_int(0, false),
+                                    i32_ty.const_int(field_index as u64, false),
+                                ],
+                                &format!("{}_ptr", name),
+                            )
+                            .unwrap()
                     };
-                    let field_val = ctx.builder().build_load(super::types::ruyi_type_to_llvm(ctx.context, field_ty), field_ptr, name).unwrap();
+                    let field_val = ctx
+                        .builder()
+                        .build_load(
+                            super::types::ruyi_type_to_llvm(ctx.context, field_ty),
+                            field_ptr,
+                            name,
+                        )
+                        .unwrap();
 
                     let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, field_ty);
                     let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
@@ -277,16 +325,30 @@ pub fn bind_object_pattern<'ctx>(
                     let offset = i32_ty.const_int((field_index * 8) as u64, false);
                     let field_ptr = unsafe {
                         ctx.builder()
-                            .build_gep(ctx.context.i8_type(), obj_ptr, &[offset], &format!("{}_ptr", key)).unwrap()
+                            .build_gep(
+                                ctx.context.i8_type(),
+                                obj_ptr,
+                                &[offset],
+                                &format!("{}_ptr", key),
+                            )
+                            .unwrap()
                     };
-                    let typed_ptr = ctx.builder().build_bit_cast(
-                        field_ptr,
-                        ctx.context.ptr_type(Default::default()),
-                        &format!("{}_typed_ptr", key),
-                    ).unwrap();
+                    let typed_ptr = ctx
+                        .builder()
+                        .build_bit_cast(
+                            field_ptr,
+                            ctx.context.ptr_type(Default::default()),
+                            &format!("{}_typed_ptr", key),
+                        )
+                        .unwrap();
                     let field_val = ctx
                         .builder()
-                        .build_load(super::types::ruyi_type_to_llvm(ctx.context, field_ty), typed_ptr.into_pointer_value(), key).unwrap();
+                        .build_load(
+                            super::types::ruyi_type_to_llvm(ctx.context, field_ty),
+                            typed_ptr.into_pointer_value(),
+                            key,
+                        )
+                        .unwrap();
 
                     bind_pattern(ctx, inner, &ExprResult::new(field_val, field_ty.clone()))?;
                 }
@@ -300,16 +362,30 @@ pub fn bind_object_pattern<'ctx>(
                     let offset = i32_ty.const_int((field_index * 8) as u64, false);
                     let field_ptr = unsafe {
                         ctx.builder()
-                            .build_gep(ctx.context.i8_type(), obj_ptr, &[offset], &format!("{}_ptr", name)).unwrap()
+                            .build_gep(
+                                ctx.context.i8_type(),
+                                obj_ptr,
+                                &[offset],
+                                &format!("{}_ptr", name),
+                            )
+                            .unwrap()
                     };
-                    let typed_ptr = ctx.builder().build_bit_cast(
-                        field_ptr,
-                        ctx.context.ptr_type(Default::default()),
-                        &format!("{}_typed_ptr", name),
-                    ).unwrap();
+                    let typed_ptr = ctx
+                        .builder()
+                        .build_bit_cast(
+                            field_ptr,
+                            ctx.context.ptr_type(Default::default()),
+                            &format!("{}_typed_ptr", name),
+                        )
+                        .unwrap();
                     let field_val = ctx
                         .builder()
-                        .build_load(super::types::ruyi_type_to_llvm(ctx.context, field_ty), typed_ptr.into_pointer_value(), name).unwrap();
+                        .build_load(
+                            super::types::ruyi_type_to_llvm(ctx.context, field_ty),
+                            typed_ptr.into_pointer_value(),
+                            name,
+                        )
+                        .unwrap();
 
                     let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, field_ty);
                     let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
@@ -419,10 +495,11 @@ pub fn bind_object_pattern<'ctx>(
                 }
                 crate::parser::ast::ObjectPatternField::ShorthandDefault(name, default_expr) => {
                     let default_result = compile_expr(ctx, default_expr)?;
-                    let llvm_ty =
-                        super::types::ruyi_type_to_llvm(ctx.context, &default_result.ty);
+                    let llvm_ty = super::types::ruyi_type_to_llvm(ctx.context, &default_result.ty);
                     let ptr = ctx.builder().build_alloca(llvm_ty, name).unwrap();
-                    ctx.builder().build_store(ptr, default_result.value).unwrap();
+                    ctx.builder()
+                        .build_store(ptr, default_result.value)
+                        .unwrap();
                     ctx.define_variable(name.clone(), (ptr, default_result.ty.clone()));
                 }
                 crate::parser::ast::ObjectPatternField::Rest(_) => {}
@@ -540,7 +617,8 @@ fn compile_int_match_switch<'ctx>(
     };
 
     ctx.builder()
-        .build_switch(scrutinee_int, default_block, &cases).unwrap();
+        .build_switch(scrutinee_int, default_block, &cases)
+        .unwrap();
 
     compile_arm_bodies(ctx, arms, &arm_bbs, merge_bb, scrutinee)
 }
@@ -597,14 +675,18 @@ fn compile_int_match_sequential<'ctx>(
         match &arm.pattern {
             Pattern::Literal(lit) => {
                 if let Expr::IntLiteral(n) = lit.as_ref() {
-                    let is_match = ctx.builder().build_int_compare(
-                        inkwell::IntPredicate::EQ,
-                        scrutinee_int,
-                        i64_ty.const_int(*n as u64, true),
-                        &format!("int_seq_check_{}", i),
-                    ).unwrap();
+                    let is_match = ctx
+                        .builder()
+                        .build_int_compare(
+                            inkwell::IntPredicate::EQ,
+                            scrutinee_int,
+                            i64_ty.const_int(*n as u64, true),
+                            &format!("int_seq_check_{}", i),
+                        )
+                        .unwrap();
                     ctx.builder()
-                        .build_conditional_branch(is_match, arm_bbs[i], next_bb).unwrap();
+                        .build_conditional_branch(is_match, arm_bbs[i], next_bb)
+                        .unwrap();
                 } else {
                     ctx.builder().build_unconditional_branch(next_bb).unwrap();
                 }
@@ -614,25 +696,30 @@ fn compile_int_match_sequential<'ctx>(
                 for p in patterns {
                     if let Pattern::Literal(lit) = p {
                         if let Expr::IntLiteral(n) = lit.as_ref() {
-                            let is_eq = ctx.builder().build_int_compare(
-                                inkwell::IntPredicate::EQ,
-                                scrutinee_int,
-                                i64_ty.const_int(*n as u64, true),
-                                &format!("int_seq_or_check_{}", i),
-                            ).unwrap();
-                            final_match = ctx.builder().build_or(
-                                final_match,
-                                is_eq,
-                                &format!("int_seq_or_{}", i),
-                            ).unwrap();
+                            let is_eq = ctx
+                                .builder()
+                                .build_int_compare(
+                                    inkwell::IntPredicate::EQ,
+                                    scrutinee_int,
+                                    i64_ty.const_int(*n as u64, true),
+                                    &format!("int_seq_or_check_{}", i),
+                                )
+                                .unwrap();
+                            final_match = ctx
+                                .builder()
+                                .build_or(final_match, is_eq, &format!("int_seq_or_{}", i))
+                                .unwrap();
                         }
                     }
                 }
                 ctx.builder()
-                    .build_conditional_branch(final_match, arm_bbs[i], next_bb).unwrap();
+                    .build_conditional_branch(final_match, arm_bbs[i], next_bb)
+                    .unwrap();
             }
             Pattern::Wildcard | Pattern::Identifier(_) => {
-                ctx.builder().build_unconditional_branch(arm_bbs[i]).unwrap();
+                ctx.builder()
+                    .build_unconditional_branch(arm_bbs[i])
+                    .unwrap();
             }
             _ => {
                 ctx.builder().build_unconditional_branch(next_bb).unwrap();
@@ -656,11 +743,9 @@ fn compile_int_match_sequential<'ctx>(
             } else {
                 merge_bb
             };
-            ctx.builder().build_conditional_branch(
-                guard_val.value.into_int_value(),
-                body_bb,
-                next_bb,
-            );
+            ctx.builder()
+                .build_conditional_branch(guard_val.value.into_int_value(), body_bb, next_bb)
+                .unwrap();
             ctx.builder().position_at_end(body_bb);
         }
 
@@ -727,7 +812,8 @@ fn compile_bool_match<'ctx>(
     };
 
     ctx.builder()
-        .build_conditional_branch(cond_val, true_target, false_target).unwrap();
+        .build_conditional_branch(cond_val, true_target, false_target)
+        .unwrap();
 
     compile_arm_bodies(ctx, arms, &arm_bbs, merge_bb, scrutinee)
 }
@@ -795,7 +881,10 @@ fn compile_string_match<'ctx>(
         }
 
         ctx.builder().position_at_end(check_bb);
-        let lit_global = ctx.builder().build_global_string_ptr(s, "match_str_lit").unwrap();
+        let lit_global = ctx
+            .builder()
+            .build_global_string_ptr(s, "match_str_lit")
+            .unwrap();
         let cmp_result = ctx
             .builder()
             .build_call(
@@ -807,12 +896,15 @@ fn compile_string_match<'ctx>(
             .try_as_basic_value()
             .unwrap_basic()
             .into_int_value();
-        let is_equal = ctx.builder().build_int_compare(
-            IntPredicate::EQ,
-            cmp_result,
-            i32_ty.const_int(0, false),
-            "str_eq",
-        ).unwrap();
+        let is_equal = ctx
+            .builder()
+            .build_int_compare(
+                IntPredicate::EQ,
+                cmp_result,
+                i32_ty.const_int(0, false),
+                "str_eq",
+            )
+            .unwrap();
 
         let next_bb = if i + 1 < literal_arms.len() {
             ctx.context
@@ -822,7 +914,8 @@ fn compile_string_match<'ctx>(
         };
 
         ctx.builder()
-            .build_conditional_branch(is_equal, *target_bb, next_bb).unwrap();
+            .build_conditional_branch(is_equal, *target_bb, next_bb)
+            .unwrap();
     }
 
     compile_arm_bodies(ctx, arms, &arm_bbs, merge_bb, scrutinee)
@@ -879,22 +972,41 @@ fn compile_nullable_match<'ctx>(
     // Generate null check
     let is_null = match scrutinee.value {
         BasicValueEnum::PointerValue(p) => {
-            let ptr_int = ctx.builder().build_ptr_to_int(p, i64_ty, "ptr_int").unwrap();
-            ctx.builder().build_int_compare(
-                IntPredicate::EQ,
-                ptr_int,
-                i64_ty.const_int(0, false),
-                "is_null",
-            ).unwrap()
+            let ptr_int = ctx
+                .builder()
+                .build_ptr_to_int(p, i64_ty, "ptr_int")
+                .unwrap();
+            ctx.builder()
+                .build_int_compare(
+                    IntPredicate::EQ,
+                    ptr_int,
+                    i64_ty.const_int(0, false),
+                    "is_null",
+                )
+                .unwrap()
         }
         BasicValueEnum::IntValue(v) => {
             // For nullable primitives (erased to inner type), use -1 (all-ones) sentinel
-            ctx.builder().build_int_compare(
-                IntPredicate::EQ,
-                v,
-                i64_ty.const_all_ones(),
-                "is_null_int",
-            ).unwrap()
+            ctx.builder()
+                .build_int_compare(IntPredicate::EQ, v, i64_ty.const_all_ones(), "is_null_int")
+                .unwrap()
+        }
+        BasicValueEnum::FloatValue(v) => {
+            // Nullable float: all-ones bit pattern (NaN) is null. Must
+            // test bits — `NaN == NaN` is false under float semantics.
+            let bits = ctx
+                .builder()
+                .build_bit_cast(v, i64_ty, "f_bits")
+                .unwrap()
+                .into_int_value();
+            ctx.builder()
+                .build_int_compare(
+                    IntPredicate::EQ,
+                    bits,
+                    i64_ty.const_all_ones(),
+                    "is_null_float",
+                )
+                .unwrap()
         }
         _ => return Err("Nullable match requires pointer or integer scrutinee".to_string()),
     };
@@ -903,7 +1015,8 @@ fn compile_nullable_match<'ctx>(
     let value_target = value_bb.or(default_bb).unwrap_or(merge_bb);
 
     ctx.builder()
-        .build_conditional_branch(is_null, null_target, value_target).unwrap();
+        .build_conditional_branch(is_null, null_target, value_target)
+        .unwrap();
 
     compile_arm_bodies(ctx, arms, &arm_bbs, merge_bb, scrutinee)
 }
@@ -928,12 +1041,18 @@ fn compile_array_match<'ctx>(
     let i64_ty = ctx.context.i64_type();
 
     // Get array length: first 8 bytes of array memory store the length
-    let len_ptr = ctx.builder().build_pointer_cast(
-        array_ptr,
-        ctx.context.ptr_type(Default::default()),
-        "array_len_ptr",
-    ).unwrap();
-    let array_len = ctx.builder().build_load(i64_ty, len_ptr, "array_len").unwrap();
+    let len_ptr = ctx
+        .builder()
+        .build_pointer_cast(
+            array_ptr,
+            ctx.context.ptr_type(Default::default()),
+            "array_len_ptr",
+        )
+        .unwrap();
+    let array_len = ctx
+        .builder()
+        .build_load(i64_ty, len_ptr, "array_len")
+        .unwrap();
 
     let mut arm_bbs = Vec::with_capacity(arms.len());
     let mut length_cases: Vec<(u64, inkwell::basic_block::BasicBlock<'ctx>)> = Vec::new();
@@ -979,14 +1098,16 @@ fn compile_array_match<'ctx>(
 
     let default_block = default_bb.unwrap_or(merge_bb);
 
-    ctx.builder().build_switch(
-        array_len.into_int_value(),
-        default_block,
-        &length_cases
-            .iter()
-            .map(|(len, bb)| (i64_ty.const_int(*len, false), *bb))
-            .collect::<Vec<_>>(),
-    );
+    ctx.builder()
+        .build_switch(
+            array_len.into_int_value(),
+            default_block,
+            &length_cases
+                .iter()
+                .map(|(len, bb)| (i64_ty.const_int(*len, false), *bb))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
 
     compile_arm_bodies(ctx, arms, &arm_bbs, merge_bb, scrutinee)
 }
@@ -1040,14 +1161,18 @@ fn compile_bigint_match<'ctx>(
                     };
                     let eq_i8 =
                         build_ruyi_bigint_eq(ctx.builder(), ctx.module, scrutinee_ptr, lit_ptr)?;
-                    let is_match = ctx.builder().build_int_compare(
-                        IntPredicate::NE,
-                        eq_i8,
-                        ctx.context.i8_type().const_int(0, false),
-                        &format!("bigint_eq_{}", i),
-                    ).unwrap();
+                    let is_match = ctx
+                        .builder()
+                        .build_int_compare(
+                            IntPredicate::NE,
+                            eq_i8,
+                            ctx.context.i8_type().const_int(0, false),
+                            &format!("bigint_eq_{}", i),
+                        )
+                        .unwrap();
                     ctx.builder()
-                        .build_conditional_branch(is_match, arm_bbs[i], next).unwrap();
+                        .build_conditional_branch(is_match, arm_bbs[i], next)
+                        .unwrap();
                 } else {
                     ctx.builder().build_unconditional_branch(next).unwrap();
                 }
@@ -1071,25 +1196,34 @@ fn compile_bigint_match<'ctx>(
                                 scrutinee_ptr,
                                 lit_ptr,
                             )?;
-                            final_match = ctx.builder().build_or(final_match, eq_i8, "bigint_or").unwrap();
+                            final_match = ctx
+                                .builder()
+                                .build_or(final_match, eq_i8, "bigint_or")
+                                .unwrap();
                         }
                     }
                 }
                 if had_literal {
-                    let is_match = ctx.builder().build_int_compare(
-                        IntPredicate::NE,
-                        final_match,
-                        i8_ty.const_int(0, false),
-                        &format!("bigint_or_match_{}", i),
-                    ).unwrap();
+                    let is_match = ctx
+                        .builder()
+                        .build_int_compare(
+                            IntPredicate::NE,
+                            final_match,
+                            i8_ty.const_int(0, false),
+                            &format!("bigint_or_match_{}", i),
+                        )
+                        .unwrap();
                     ctx.builder()
-                        .build_conditional_branch(is_match, arm_bbs[i], next).unwrap();
+                        .build_conditional_branch(is_match, arm_bbs[i], next)
+                        .unwrap();
                 } else {
                     ctx.builder().build_unconditional_branch(next).unwrap();
                 }
             }
             Pattern::Wildcard | Pattern::Identifier(_) => {
-                ctx.builder().build_unconditional_branch(arm_bbs[i]).unwrap();
+                ctx.builder()
+                    .build_unconditional_branch(arm_bbs[i])
+                    .unwrap();
             }
             _ => {
                 ctx.builder().build_unconditional_branch(next).unwrap();
@@ -1229,7 +1363,9 @@ fn compile_object_match<'ctx>(
     ctx.builder().position_at_end(entry_bb);
 
     let first_target = check_bbs.iter().find_map(|x| *x).unwrap_or(arm_bbs[0]);
-    ctx.builder().build_unconditional_branch(first_target).unwrap();
+    ctx.builder()
+        .build_unconditional_branch(first_target)
+        .unwrap();
 
     // Build each check block
     for (arm_idx, check_bb_opt) in check_bbs.iter().enumerate() {
@@ -1313,52 +1449,65 @@ fn chain_object_checks<'ctx>(
     i32_ty: inkwell::types::IntType<'ctx>,
 ) -> Result<(), String> {
     if checks.is_empty() {
-        ctx.builder().build_unconditional_branch(success_bb).unwrap();
+        ctx.builder()
+            .build_unconditional_branch(success_bb)
+            .unwrap();
         return Ok(());
     }
 
     let func = ctx.current_function().ok_or("No current function")?;
 
     // Cast object pointer to struct type
-    let struct_ptr = ctx.builder().build_pointer_cast(
-        obj_ptr,
-        ctx.context.ptr_type(Default::default()),
-        "obj_struct_cast",
-    ).unwrap();
+    let struct_ptr = ctx
+        .builder()
+        .build_pointer_cast(
+            obj_ptr,
+            ctx.context.ptr_type(Default::default()),
+            "obj_struct_cast",
+        )
+        .unwrap();
 
     for (i, check) in checks.iter().enumerate() {
         let field_ptr = unsafe {
-            ctx.builder().build_gep(
-                struct_type,
-                struct_ptr,
-                &[
-                    i32_ty.const_int(0, false),
-                    i32_ty.const_int(check.field_index as u64, false),
-                ],
-                &format!("field_ptr_{}", i),
-            ).unwrap()
+            ctx.builder()
+                .build_gep(
+                    struct_type,
+                    struct_ptr,
+                    &[
+                        i32_ty.const_int(0, false),
+                        i32_ty.const_int(check.field_index as u64, false),
+                    ],
+                    &format!("field_ptr_{}", i),
+                )
+                .unwrap()
         };
         let field_val = ctx
             .builder()
-            .build_load(i64_ty, field_ptr, &format!("field_val_{}", i)).unwrap();
+            .build_load(i64_ty, field_ptr, &format!("field_val_{}", i))
+            .unwrap();
 
-        let is_match = ctx.builder().build_int_compare(
-            IntPredicate::EQ,
-            field_val.into_int_value(),
-            i64_ty.const_int(check.expected_value as u64, true),
-            &format!("check_{}", i),
-        ).unwrap();
+        let is_match = ctx
+            .builder()
+            .build_int_compare(
+                IntPredicate::EQ,
+                field_val.into_int_value(),
+                i64_ty.const_int(check.expected_value as u64, true),
+                &format!("check_{}", i),
+            )
+            .unwrap();
 
         if i + 1 < checks.len() {
             let next_check_bb = ctx
                 .context
                 .append_basic_block(func, &format!("next_check_{}", i));
             ctx.builder()
-                .build_conditional_branch(is_match, next_check_bb, fail_bb).unwrap();
+                .build_conditional_branch(is_match, next_check_bb, fail_bb)
+                .unwrap();
             ctx.builder().position_at_end(next_check_bb);
         } else {
             ctx.builder()
-                .build_conditional_branch(is_match, success_bb, fail_bb).unwrap();
+                .build_conditional_branch(is_match, success_bb, fail_bb)
+                .unwrap();
         }
     }
     Ok(())

@@ -13,7 +13,7 @@
  * @author Ruyi Team
  * @date 2026-07-25
  */
-use std::sync::{Condvar, Mutex, MutexGuard};
+use std::sync::{Condvar, MutexGuard};
 
 /// Create a new condition variable.
 #[no_mangle]
@@ -23,28 +23,28 @@ pub extern "C" fn __condvar_new() -> *mut Condvar {
 
 /// Wait on the condition variable.
 ///
-/// `mutex_ptr` is the Mutex pointer (the one from `__mutex_new`),
-/// NOT the guard.  This function internally acquires the lock,
-/// waits, and returns a new guard.  The caller must call
-/// `__mutex_unlock(new_guard)` to release after inspecting the condition.
+/// `guard_ptr` is the HELD mutex guard previously returned by
+/// `__mutex_lock` (or by a previous `__condvar_wait`) — NOT the Mutex
+/// pointer. The guard is consumed: wait atomically releases it, blocks
+/// until notified, and re-acquires the mutex before returning. The
+/// returned new guard MUST replace the old one; unlocking with the
+/// consumed guard would be a double-free.
 ///
-/// Returns a new mutex guard pointer.
+/// Returns the new mutex guard pointer.
 ///
 /// # Safety
-/// The mutex must be unlocked when this is called.  After this returns,
-/// the mutex is locked (the returned guard must be unlocked).
+/// The caller must hold the mutex (own a valid guard) when calling.
 #[no_mangle]
 pub extern "C" fn __condvar_wait(
     cv_ptr: *mut Condvar,
-    mutex_ptr: *mut Mutex<()>,
+    guard_ptr: *mut MutexGuard<'static, ()>,
 ) -> *mut MutexGuard<'static, ()> {
-    if cv_ptr.is_null() || mutex_ptr.is_null() {
+    if cv_ptr.is_null() || guard_ptr.is_null() {
         return std::ptr::null_mut();
     }
     let cv = unsafe { &*cv_ptr };
-    let m = unsafe { &*mutex_ptr };
-    let guard = m.lock().unwrap();
-    let new_guard = cv.wait(guard).unwrap();
+    let guard = unsafe { Box::from_raw(guard_ptr) };
+    let new_guard = cv.wait(*guard).unwrap();
     Box::into_raw(Box::new(new_guard))
 }
 
@@ -81,7 +81,7 @@ pub extern "C" fn __condvar_free(ptr: *mut Condvar) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mutex_ffi::{__mutex_free, __mutex_new, __mutex_unlock};
+    use crate::mutex_ffi::{__mutex_free, __mutex_lock, __mutex_new, __mutex_unlock};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::thread;
@@ -97,8 +97,9 @@ mod tests {
 
         let h = thread::spawn(move || {
             let cv_ptr = cv_raw as *mut Condvar;
-            let m_ptr = m_raw as *mut Mutex<()>;
-            let guard = __condvar_wait(cv_ptr, m_ptr);
+            let m_ptr = m_raw as *mut i8;
+            let held = __mutex_lock(m_ptr);
+            let guard = __condvar_wait(cv_ptr, held as *mut MutexGuard<'static, ()>);
             assert!(r.load(Ordering::SeqCst));
             __mutex_unlock(guard as *mut i8);
         });
@@ -125,8 +126,9 @@ mod tests {
             let c = counter.clone();
             let h = thread::spawn(move || {
                 let cv_ptr = cv_raw as *mut Condvar;
-                let m_ptr = m_raw as *mut Mutex<()>;
-                let guard = __condvar_wait(cv_ptr, m_ptr);
+                let m_ptr = m_raw as *mut i8;
+                let held = __mutex_lock(m_ptr);
+                let guard = __condvar_wait(cv_ptr, held as *mut MutexGuard<'static, ()>);
                 c.fetch_add(1, Ordering::SeqCst);
                 __mutex_unlock(guard as *mut i8);
             });

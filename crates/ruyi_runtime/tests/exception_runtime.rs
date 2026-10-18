@@ -6,8 +6,8 @@
 //! These tests run without the inkwell feature (no LLVM linking required).
 
 use ruyi_runtime::{
-    builtin_type_ids, ruyi_end_catch, ruyi_finally, ruyi_match_exception, ruyi_throw,
-    throw_exception, ExceptionObject, ExceptionTableEntry, ExceptionTableRegistry, ExceptionType,
+    builtin_type_ids, ruyi_finally, ruyi_match_exception, ruyi_throw, throw_exception,
+    ExceptionObject, ExceptionTableEntry, ExceptionTableRegistry, ExceptionType,
     FunctionExceptionTable, LandingPadAction, LandingPadDescriptor, RuyiException, StackFrame,
     TypeId, UnwindException, KLANG_EXCEPTION_CLASS,
 };
@@ -25,14 +25,12 @@ fn make_test_exception(type_tag: TypeId, msg: &'static str) -> *mut ExceptionObj
 
     std::mem::forget(msg_bytes);
 
-    let exc = Box::into_raw(Box::new(ExceptionObject {
+    Box::into_raw(Box::new(ExceptionObject {
         type_tag,
         message: msg_ptr,
         stack_trace_len: 0,
         stack_trace: std::ptr::null_mut(),
-    }));
-
-    exc
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -581,7 +579,12 @@ fn test_most_specific_entry_selected() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[should_panic(expected = "RuyiException(type_id=1, message=test throw)")]
-fn test_throw_exception_helper_panics_with_type_id_and_message() {
+fn test_throw_exception_helper_sets_pending_exception() {
     throw_exception(RuyiException::new(builtin_type_ids::ERROR, "test throw"));
+    let pending = ruyi_runtime::exception::runtime::ruyi_get_pending_exception();
+    assert!(!pending.is_null());
+    unsafe {
+        assert_eq!((*pending).type_tag, builtin_type_ids::ERROR);
+    }
+    ruyi_runtime::exception::runtime::ruyi_clear_pending_exception();
 }

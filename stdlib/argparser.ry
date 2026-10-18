@@ -156,18 +156,34 @@ export fn parseArgs(argv: Array<string>, longForms: Array<string>, shortForms: A
         }
 
         if (knownLong.has(resolved) !== null && knownLong.has(resolved)) {
-            // Check if next argument exists and is not a known flag
+            // An argument takes the next token as its value only when that
+            // token is not itself flag-like. Known short forms and the
+            // "--" sentinel count as flag-like: otherwise `-d`/`-o` and
+            // `--` were swallowed as option values.
+            let next_is_flag = false;
             if (j + 1 < argc) {
                 let next = argv.get(j + 1);
-                if (knownLong.has(next) === null || !knownLong.has(next)) {
-                    // Treat as option: --key value
-                    result._opts.set(resolved, next);
-                    j = j + 2;
-                    continue;
+                let is_known_long = knownLong.has(next);
+                let is_known_short = shortMap.has(next);
+                next_is_flag = is_known_long || is_known_short || next === "--";
+            }
+            if (j + 1 < argc && !next_is_flag) {
+                let next = argv.get(j + 1);
+                result._opts.set(resolved, next);
+                // Also index by the spelling the caller used, so
+                // getOpt("-o") finds a value stored under "--output".
+                if (resolved !== arg) {
+                    result._opts.set(arg, next);
                 }
+                j = j + 2;
+                continue;
             }
             // Treat as boolean flag
             result._flags.push(resolved);
+            if (resolved !== arg) {
+                // hasFlag("-v") must match a flag stored as "--verbose".
+                result._flags.push(arg);
+            }
             j = j + 1;
         } else {
             // Positional argument

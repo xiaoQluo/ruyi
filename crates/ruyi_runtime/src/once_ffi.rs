@@ -59,6 +59,27 @@ pub extern "C" fn __once_do(ptr: *mut Once, fn_ptr: extern "C" fn(usize), arg: u
     }
 }
 
+/// Mark the guard as completed without running a callback.
+/// Returns 1 for the first caller and 0 for every subsequent caller.
+/// Ruyi closures cannot be passed as raw C function pointers, so the
+/// stdlib's `Once.do()` uses this to guard a caller-supplied block.
+#[no_mangle]
+pub extern "C" fn __once_trigger(ptr: *mut Once) -> i32 {
+    if ptr.is_null() {
+        return 0;
+    }
+    let once = unsafe { &*ptr };
+    if once
+        .done
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+    {
+        1
+    } else {
+        0
+    }
+}
+
 /// Check whether the Once guard has already been triggered.
 /// Returns 1 if completed, 0 otherwise.
 #[no_mangle]

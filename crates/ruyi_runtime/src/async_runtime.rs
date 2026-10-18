@@ -491,7 +491,7 @@ impl AsyncException {
         Self { exception_ptr: ptr }
     }
 
-    pub unsafe fn rethrow(&self) -> ! {
+    pub unsafe fn rethrow(&self) {
         crate::exception::runtime::ruyi_throw(self.exception_ptr)
     }
 }

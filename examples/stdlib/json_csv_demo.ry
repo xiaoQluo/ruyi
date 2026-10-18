@@ -10,6 +10,8 @@
  * @date 2026-07-25
  */
 
+import { exit } from "process";
+
 import { parse as jsonParse, stringify as jsonStringify, isValid } from "json";
 import { parseCsv as csvParse, stringifyCsv as csvStringify } from "csv";
 
@@ -20,11 +22,14 @@ fn printOk(label: string) {
     print("  ✓ " + label + "\n");
 }
 
+let failedChecks = 0;
+
 fn check(label: string, condition: bool) {
     if (condition) {
         print("  ✓ " + label + "\n");
     } else {
         print("  ✗ FAILED: " + label + "\n");
+        failedChecks = failedChecks + 1;
     }
 }
 
@@ -52,8 +57,10 @@ fn demo_json_parse() {
     let str = jsonParse("\"hello\"");
     check("parse string", str !== null);
 
+    // `parse` returns `dyn` holding normalized JSON text; compare the
+    // round-tripped text ("null") rather than the boxed value.
     let nil = jsonParse("null");
-    check("parse null", nil === null);
+    check("parse null", jsonStringify(nil) === "null");
 
     printOk("JSON parsing OK");
 }
@@ -167,4 +174,11 @@ fn main() {
     demo_roundtrip();
 
     print("\nAll JSON & CSV demos completed!\n");
+
+    // Report check failures through the exit status so runners
+    // (examples/run_examples.sh, sweep scripts) can detect them.
+    if (failedChecks > 0) {
+        print("  " + failedChecks + " check(s) FAILED\n");
+        exit(1);
+    }
 }

@@ -52,7 +52,7 @@ pub struct BuiltinDecl {
     pub params: &'static [BuiltinSig],
 }
 
-/// All 115 FFI entries known to the compiler.
+/// All 298 FFI entries known to the compiler.
 ///
 /// Each entry mirrors the body of the corresponding `fn declare_xxx` that
 /// previously lived in `codegen/builtins.rs`; the LLVM ABI must be identical.
@@ -127,6 +127,24 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         name: "__builtin_map_values",
         ret: BuiltinSig::Ptr,
         params: &[BuiltinSig::Ptr],
+    },
+    // ============================================================
+    // __fmt_format_dyn — stdlib/fmt.ry format() helper
+    //
+    // Signature: takes a null-terminated template string and a Ruyi
+    // `Array<dyn>` handle (whose header layout is
+    // [len: i64][cap: i64][data_ptr: i64]; each data element is a
+    // 16-byte dyn slot `{ i64 tag, ptr data }`). Performs every `{}`
+    // placeholder substitution in one Rust-side pass and returns a
+    // freshly-allocated null-terminated string. This avoids the Ruyi
+    // loop `for arg in args { args[i].toString() }` which currently
+    // mis-indexes variadic dyn arguments (see v0.6.0-fix-examples
+    // B1 fix).
+    // ============================================================
+    BuiltinDecl {
+        name: "__fmt_format_dyn",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::String, BuiltinSig::Ptr],
     },
     // ============================================================
     // __builtin_set_* (4)
@@ -219,7 +237,7 @@ pub static BUILTINS: &[BuiltinDecl] = &[
     BuiltinDecl {
         name: "__string_index_of",
         ret: BuiltinSig::Int,
-        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr],
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr, BuiltinSig::Int],
     },
     BuiltinDecl {
         name: "__string_last_index_of",
@@ -626,69 +644,92 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         params: &[BuiltinSig::Int],
     },
     // ============================================================
-    // __process_* (20)
+    // __process_* (25)
     // ============================================================
-    // Execution + lifecycle (9)
+    // Synchronous execution capture (5): one run, three separate values.
+    // A single packed C string cannot carry them because Ruyi strings are
+    // NUL-terminated.
     BuiltinDecl {
-        name: "__process_exec",
-        ret: BuiltinSig::Ptr,
-        params: &[BuiltinSig::String],
+        name: "__process_exec_capture",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::String, BuiltinSig::String, BuiltinSig::Bool],
     },
     BuiltinDecl {
-        name: "__process_exec_with",
-        ret: BuiltinSig::Ptr,
-        params: &[
-            BuiltinSig::String,
-            BuiltinSig::String,
-            BuiltinSig::Ptr,
-            BuiltinSig::Bool,
-        ],
+        name: "__process_capture_stdout",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::Int],
     },
+    BuiltinDecl {
+        name: "__process_capture_stderr",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__process_capture_code",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__process_capture_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Int],
+    },
+    // Spawn + handle lifecycle (3)
     BuiltinDecl {
         name: "__process_create",
-        ret: BuiltinSig::Ptr,
+        ret: BuiltinSig::Int,
         params: &[
             BuiltinSig::String,
             BuiltinSig::String,
             BuiltinSig::Ptr,
             BuiltinSig::Bool,
         ],
+    },
+    BuiltinDecl {
+        name: "__process_handle_pid",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
+        name: "__process_handle_free",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Int],
     },
     BuiltinDecl {
         name: "__process_wait",
         ret: BuiltinSig::Int,
-        params: &[BuiltinSig::Ptr],
+        params: &[BuiltinSig::Int],
     },
     BuiltinDecl {
         name: "__process_wait_async",
-        ret: BuiltinSig::Ptr,
-        params: &[BuiltinSig::Ptr],
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Int],
     },
     BuiltinDecl {
         name: "__process_kill",
         ret: BuiltinSig::Void,
-        params: &[BuiltinSig::Ptr, BuiltinSig::Int],
+        params: &[BuiltinSig::Int, BuiltinSig::Int],
     },
     // I/O pipes (4)
     BuiltinDecl {
         name: "__process_write_input",
         ret: BuiltinSig::Void,
-        params: &[BuiltinSig::Ptr, BuiltinSig::String],
+        params: &[BuiltinSig::Int, BuiltinSig::String],
     },
     BuiltinDecl {
         name: "__process_close_input",
         ret: BuiltinSig::Void,
-        params: &[BuiltinSig::Ptr],
+        params: &[BuiltinSig::Int],
     },
     BuiltinDecl {
         name: "__process_read_output",
         ret: BuiltinSig::String,
-        params: &[BuiltinSig::Ptr],
+        params: &[BuiltinSig::Int],
     },
     BuiltinDecl {
         name: "__process_read_error",
         ret: BuiltinSig::String,
-        params: &[BuiltinSig::Ptr],
+        params: &[BuiltinSig::Int],
     },
     // Environment (3)
     BuiltinDecl {
@@ -703,7 +744,7 @@ pub static BUILTINS: &[BuiltinDecl] = &[
     },
     BuiltinDecl {
         name: "__process_get_all_env",
-        ret: BuiltinSig::Ptr,
+        ret: BuiltinSig::String,
         params: &[],
     },
     // System info (6)
@@ -741,6 +782,12 @@ pub static BUILTINS: &[BuiltinDecl] = &[
     BuiltinDecl {
         name: "__process_signal_available",
         ret: BuiltinSig::Bool,
+        params: &[BuiltinSig::Int],
+    },
+    // Exit (1)
+    BuiltinDecl {
+        name: "__process_exit",
+        ret: BuiltinSig::Void,
         params: &[BuiltinSig::Int],
     },
     // ============================================================
@@ -971,6 +1018,16 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         name: "__crypto_hmac_sha256",
         ret: BuiltinSig::String,
         params: &[BuiltinSig::String, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__crypto_hmac_sha256_raw",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr, BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__crypto_hmac_sha512_raw",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr, BuiltinSig::Ptr, BuiltinSig::Ptr],
     },
     BuiltinDecl {
         name: "__crypto_aes_gcm_encrypt_hex",
@@ -1493,6 +1550,16 @@ pub static BUILTINS: &[BuiltinDecl] = &[
         params: &[BuiltinSig::Int],
     },
     BuiltinDecl {
+        name: "__tls_store_str",
+        ret: BuiltinSig::Void,
+        params: &[BuiltinSig::Int, BuiltinSig::String],
+    },
+    BuiltinDecl {
+        name: "__tls_load_str",
+        ret: BuiltinSig::String,
+        params: &[BuiltinSig::Int],
+    },
+    BuiltinDecl {
         name: "__tls_remove",
         ret: BuiltinSig::Int,
         params: &[BuiltinSig::Int],
@@ -1540,6 +1607,11 @@ pub static BUILTINS: &[BuiltinDecl] = &[
     },
     BuiltinDecl {
         name: "__once_is_completed",
+        ret: BuiltinSig::Int,
+        params: &[BuiltinSig::Ptr],
+    },
+    BuiltinDecl {
+        name: "__once_trigger",
         ret: BuiltinSig::Int,
         params: &[BuiltinSig::Ptr],
     },
@@ -1743,11 +1815,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builtins_count_is_289() {
+    fn builtins_count_is_302() {
         assert_eq!(
             BUILTINS.len(),
-            289,
-            "expected exactly 289 FFI entries (279 before + 9 net_async_ffi + 1 tls)"
+            302,
+            "expected exactly 302 FFI entries (279 before + 9 net_async_ffi + 1 tls + 9 process capture/handle + 1 __process_exit + 2 __tls_*_str + 1 __once_trigger)"
         );
     }
 

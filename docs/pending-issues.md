@@ -44,7 +44,31 @@
 ### 6. Error Code Documentation Outdated
 - **File**: `crates/ruyic/src/diagnostics/codes.rs:5-10`
 - **Issue**: Comments still reference "E1xxx/E2xxx/E3xxx/E4xxx/W1xxx" format
-- **Fix**: Update to reflect new "E/W + number" format
+- **Fix**: Update to new "E/W + number" format
+
+---
+
+## Runtime / stdlib Defects (v0.5.11 audit)
+
+### 7. `Once.do()` stdlib stub always returns false — 🟡
+- **File**: `stdlib/sync.ry` (`Once` class)
+- **Issue**: `do()` is a stub returning `false`; `isCompleted()` therefore never becomes true. Exposed by `examples/concurrency/sync_demo.ry` section "Once".
+- **Fix**: Implement `__once_*` runtime FFI backed by `std::sync::Once`, or a Mutex+bool guard closure pair.
+
+### 8. `ThreadLocal.load()` dyn vs string `===` comparison — 🟡
+- **File**: `stdlib/thread_local.ry`
+- **Issue**: `load()` returns `dyn`; comparing the result with a string literal via `===` is always false (dynamic comparison does not unwrap string payloads). Exposed by `sync_demo.ry` section "ThreadLocal".
+- **Fix**: Teach dynamic `===` to compare Dynamic-wrapped strings, or give `ThreadLocal` a typed accessor.
+
+### 9. comprehensive_demo crypto sections exceed 300 s — 🟢
+- **File**: `examples/comprehensive/comprehensive_demo.ry` (section 4 crypto)
+- **Issue**: PBKDF2 passes (~2–4 min, pure compute) but the following `cryptoRandomHex` (CSPRNG) section times out a 300 s budget. Known performance characteristic of the crypto FFI path, not a codegen regression.
+- **Fix**: Reduce demo iteration counts or speed up the CSPRNG FFI.
+
+### 10. `ruyi_obj_keys` returns corrupt key strings for 2+ field objects — 🟡 (pre-existing at 86a7898)
+- **File**: `crates/ruyi_runtime/src/builtins.rs:407` (`ruyi_obj_keys`), test `crates/ruyi_runtime/tests/obj_keys.rs::test_keys_of_2_field_object`
+- **Issue**: `Object.keys()` on a 2-field object yields a key that fails UTF-8 validation (`valid_up_to: 2`) — the array slot does not round-trip the CString. Fails identically on the HEAD baseline worktree.
+- **Fix**: Audit `object_field_map` key ownership vs `ruyi_array_set` slot writes (lifetime/copy semantics of the key pointers).
 
 ---
 

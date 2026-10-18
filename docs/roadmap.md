@@ -1,6 +1,6 @@
 # Ruyi Roadmap
 
-> **Version**: 0.5.10 | **Date**: 2026-07-26 | **Status**: Phase 1 Complete
+> **Version**: 0.5.11 | **Date**: 2026-10-18 | **Status**: Phase 1 Complete
 >
 > [中文版](roadmap-zh.md)
 
@@ -31,6 +31,7 @@ Ruyi is a compiled programming language targeting native code via LLVM. This roa
 | v0.5.8 | dev/v0.5.8 | ✅ Released | 2026-07-12 | v0.5.8 |
 | v0.5.9 | dev/v0.5.9-stdlib-cleanup | ✅ Released | 2026-07-12 | v0.5.9 |
 | v0.5.10 | dev/v0.5.10 | ✅ Released | 2026-07-25 | v0.5.10 |
+| v0.5.11 | dev/v0.5.11 | ✅ Released | 2026-10-18 | v0.5.11 |
 
 ---
 

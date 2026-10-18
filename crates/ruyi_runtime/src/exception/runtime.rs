@@ -1,104 +1,165 @@
 //! Exception runtime: throw, catch, and finally support.
 //!
-//! Provides both the runtime function implementations and the LLVM
-//! code-generation helpers used by the compiler frontend.
-
-mod cxxabi_stubs {
-    use std::sync::atomic::{AtomicPtr, Ordering};
-    static ACTIVE_EXC: AtomicPtr<std::ffi::c_void> = AtomicPtr::new(std::ptr::null_mut());
-
-    pub unsafe fn __cxa_begin_catch(exc: *mut std::ffi::c_void) -> *mut std::ffi::c_void {
-        ACTIVE_EXC.store(exc, Ordering::SeqCst);
-        exc
-    }
-
-    pub unsafe fn __cxa_end_catch() {
-        ACTIVE_EXC.store(std::ptr::null_mut(), Ordering::SeqCst);
-    }
-}
-
-pub use cxxabi_stubs::*;
+//! Uses a global pending-exception model. `ruyi_throw*` functions store
+//! the exception in a global slot and return normally; the generated code
+//! checks the slot after potentially-throwing operations and dispatches to
+//! the matching catch handler. This avoids `setjmp`/`longjmp`, which are
+//! unreliable when crossing Rust `extern "C"` frames on macOS.
 
 use crate::exception::types::{ExceptionObject, ExceptionType};
+use std::sync::atomic::{AtomicPtr, Ordering};
 
-/// Runtime implementation of `ruyi_throw`.
-///
-/// Takes ownership of an `ExceptionObject` and initiates stack unwinding
-/// via the Itanium C++ ABI `_Unwind_RaiseException`.
+// ── Global exception state ────────────────────────────────────
+
+/// Represents a single active try/catch frame.
+#[derive(Debug)]
+pub struct ExceptionFrame {
+    /// Exception types this frame's catch clauses accept.
+    pub catch_types: Vec<ExceptionType>,
+    /// `true` if this frame has a `finally` clause.
+    pub has_finally: bool,
+    /// Whether this frame was already consumed (caught an exception).
+    pub consumed: bool,
+}
+
+/// Active try/catch frames, innermost last.
+static mut EXCEPTION_STACK: Vec<ExceptionFrame> = Vec::new();
+
+/// Currently thrown exception (set by throw functions, read by dispatch).
+static PENDING_EXCEPTION: AtomicPtr<ExceptionObject> = AtomicPtr::new(std::ptr::null_mut());
+
+/// Enter a try block. Pushes a frame onto the exception stack and
+/// returns 0. The generated code uses `ruyi_find_handler` to dispatch
+/// when a pending exception is detected.
+#[no_mangle]
+pub unsafe extern "C" fn ruyi_try_begin(
+    catch_type_ids: *const u64,
+    catch_type_count: usize,
+    _handler_indices: *const u64,
+    _handler_count: usize,
+    has_finally: bool,
+) -> i32 {
+    let catch_types: Vec<ExceptionType> = if catch_type_ids.is_null() || catch_type_count == 0 {
+        vec![ExceptionType::Error]
+    } else {
+        std::slice::from_raw_parts(catch_type_ids, catch_type_count)
+            .iter()
+            .filter_map(|&id| ExceptionType::from_type_id(id))
+            .collect()
+    };
+
+    let frame = ExceptionFrame {
+        catch_types,
+        has_finally,
+        consumed: false,
+    };
+
+    (&raw mut EXCEPTION_STACK).as_mut().unwrap().push(frame);
+    0
+}
+
+/// Exit a try block normally (no exception thrown). Pops the exception
+/// frame from the stack.
+#[no_mangle]
+pub unsafe extern "C" fn ruyi_try_end() {
+    if let Some(frame) = (&raw mut EXCEPTION_STACK).as_mut().unwrap().pop() {
+        let _ = frame;
+    }
+}
+
+/// Throw an exception. Stores the exception in the global pending slot
+/// and returns normally. The caller must check the pending exception
+/// and dispatch to the appropriate handler.
 ///
 /// # Safety
 ///
-/// `exception` must be a valid, uniquely-owned pointer returned by the
-/// runtime allocator.
-pub unsafe fn ruyi_throw(exception: *mut ExceptionObject) -> ! {
-    let layout = std::alloc::Layout::new::<crate::exception::types::UnwindException>();
-    let exc = std::alloc::alloc(layout) as *mut crate::exception::types::UnwindException;
-    if exc.is_null() {
-        std::process::abort();
+/// `exception` must be a valid, uniquely-owned `ExceptionObject` pointer.
+#[no_mangle]
+pub unsafe extern "C" fn ruyi_throw(exception: *mut ExceptionObject) {
+    PENDING_EXCEPTION.store(exception, Ordering::SeqCst);
+}
+
+/// Get the pending exception object (for use by catch handlers).
+#[no_mangle]
+pub extern "C" fn ruyi_get_pending_exception() -> *mut ExceptionObject {
+    PENDING_EXCEPTION.load(Ordering::SeqCst)
+}
+
+/// Clear the pending exception (mark it as caught).
+#[no_mangle]
+pub extern "C" fn ruyi_clear_pending_exception() {
+    PENDING_EXCEPTION.store(std::ptr::null_mut(), Ordering::SeqCst);
+}
+
+/// Find the index of the first catch clause that matches `exception`.
+///
+/// Returns a 0-based handler index, or `-1` if no clause matches.
+/// A `catch_type_id` of `u64::MAX` (catch-all) matches any exception;
+/// `Error` matches all built-in subtypes; otherwise an exact match is
+/// required.
+#[no_mangle]
+pub unsafe extern "C" fn ruyi_find_handler(
+    exception: *mut ExceptionObject,
+    catch_type_ids: *const u64,
+    catch_type_count: usize,
+) -> i64 {
+    if exception.is_null() || catch_type_ids.is_null() || catch_type_count == 0 {
+        return -1;
     }
-    (*exc).exception_class = crate::exception::types::KLANG_EXCEPTION_CLASS;
-    (*exc).exception_cleanup = Some(ruyi_exception_cleanup);
-    (*exc).private = [0; 6];
-    std::ptr::copy_nonoverlapping(exception, &mut (*exc).payload, 1);
 
-    extern "C" {
-        fn _Unwind_RaiseException(exc: *mut std::ffi::c_void) -> i32;
+    let thrown_type =
+        ExceptionType::from_type_id((*exception).type_tag).unwrap_or(ExceptionType::Error);
+    let ids = std::slice::from_raw_parts(catch_type_ids, catch_type_count);
+
+    for (i, &id) in ids.iter().enumerate() {
+        if id == u64::MAX {
+            return i as i64;
+        }
+        if let Some(catch_ty) = ExceptionType::from_type_id(id) {
+            if catch_ty.matches(thrown_type) {
+                return i as i64;
+            }
+        }
     }
-    let _reason = _Unwind_RaiseException(exc as *mut std::ffi::c_void);
-    std::process::abort();
+
+    -1
 }
 
-extern "C" fn ruyi_exception_cleanup(
-    _reason: u64,
-    exc: *mut crate::exception::types::UnwindException,
-) {
-    unsafe {
-        std::alloc::dealloc(
-            exc as *mut u8,
-            std::alloc::Layout::new::<crate::exception::types::UnwindException>(),
-        );
+/// Mark the innermost non-consumed exception frame as consumed.
+#[no_mangle]
+pub unsafe extern "C" fn ruyi_mark_frame_consumed() {
+    if let Some(frame) = (&raw mut EXCEPTION_STACK)
+        .as_mut()
+        .unwrap()
+        .iter_mut()
+        .rev()
+        .find(|f| !f.consumed)
+    {
+        frame.consumed = true;
     }
 }
 
-/// Runtime implementation of `ruyi_begin_catch`.
-///
-/// Called from a catch handler landing pad. Invokes `__cxa_begin_catch`
-/// for ABI compliance and returns the Ruyi exception payload.
-///
-/// # Safety
-///
-/// `exception_ptr` must be the first element of a landing-pad result.
-pub unsafe fn ruyi_begin_catch(exception_ptr: *mut u8) -> *mut ExceptionObject {
-    let exc_ptr = __cxa_begin_catch(exception_ptr as *mut std::ffi::c_void);
-    let unwind_exc = exc_ptr as *mut crate::exception::types::UnwindException;
-    &mut (*unwind_exc).payload as *mut _
+/// Compatibility stub for the old `ruyi_begin_catch` interface.
+#[no_mangle]
+pub unsafe extern "C" fn ruyi_begin_catch(_exception_ptr: *mut u8) -> *mut ExceptionObject {
+    ruyi_get_pending_exception()
 }
 
-/// Runtime implementation of `ruyi_end_catch`.
-///
-/// Marks the end of a catch block and releases exception resources by
-/// calling `__cxa_end_catch`.
-pub fn ruyi_end_catch() {
-    unsafe { __cxa_end_catch() };
+/// Compatibility stub for the old `ruyi_end_catch` interface.
+#[no_mangle]
+pub extern "C" fn ruyi_end_catch() {
+    ruyi_clear_pending_exception();
 }
 
-/// Runtime implementation of finally guard.
-///
-/// Ensures that a finally block is entered with the correct state.
-/// If `pending_exception` is non-null, the finally block must rethrow
-/// it after executing its body.
-///
-/// # Safety
-///
-/// `pending_exception` may be null or a valid exception pointer.
-pub unsafe fn ruyi_finally(pending_exception: *mut ExceptionObject) -> *mut ExceptionObject {
+/// Compatibility stub for the old `ruyi_finally` interface.
+#[no_mangle]
+pub unsafe extern "C" fn ruyi_finally(
+    pending_exception: *mut ExceptionObject,
+) -> *mut ExceptionObject {
     pending_exception
 }
 
 /// Match an exception against a list of catch types.
-///
-/// Returns the index of the first matching handler, or `None` if no
-/// handler matches.
 pub fn ruyi_match_exception(
     exception: &ExceptionObject,
     catch_types: &[ExceptionType],
@@ -113,14 +174,6 @@ pub fn ruyi_match_exception(
 }
 
 /// Capture a stack trace for the current call stack.
-///
-/// EX-H4: Uses `std::backtrace::Backtrace` to walk the native call stack
-/// and extract function names, source files and line numbers. Falls
-/// back gracefully when backtrace support is unavailable (e.g.,
-/// stripped binaries or unsupported platforms).
-///
-/// @author Ruyi Team
-/// @date 2026-07-26
 pub fn capture_stack_trace() -> Vec<crate::exception::StackFrame> {
     use std::backtrace::Backtrace;
 
@@ -129,25 +182,18 @@ pub fn capture_stack_trace() -> Vec<crate::exception::StackFrame> {
 
     let mut frames = Vec::new();
 
-    // Parse the backtrace output:
-    // Each frame has 2 lines:
-    //   N: <function_name>
-    //            at <file>:<line>
     let lines: Vec<&str> = bt_str.lines().collect();
     let mut i = 0;
     while i < lines.len() {
         let line = lines[i].trim();
-        // Try to match a frame line: "N: <name>"
         if let Some(rest) = line.strip_prefix("  ") {
             let rest = rest.trim();
             if let Some(colon_pos) = rest.find(": ") {
                 let func_name = rest[colon_pos + 2..].trim();
-                // Skip internal runtime frames
                 if !func_name.contains("capture_stack_trace")
                     && !func_name.contains("throw_exception")
                     && !func_name.contains("ruyi_throw")
                 {
-                    // Next line should have the location
                     let mut file = String::new();
                     let mut line_num = 0u32;
                     if i + 1 < lines.len() {
@@ -158,7 +204,7 @@ pub fn capture_stack_trace() -> Vec<crate::exception::StackFrame> {
                                 file = at_rest[..last_colon].to_string();
                                 line_num = at_rest[last_colon + 1..].parse().unwrap_or(0);
                             }
-                            i += 1; // consumed location line
+                            i += 1;
                         }
                     }
                     frames.push(crate::exception::StackFrame::new(
@@ -172,7 +218,6 @@ pub fn capture_stack_trace() -> Vec<crate::exception::StackFrame> {
         i += 1;
     }
 
-    // Limit to a reasonable depth
     frames.truncate(64);
     frames
 }
@@ -189,7 +234,6 @@ pub mod llvm {
     use crate::exception::landing_pad::{LandingPadGenerator, TryTypeId};
     use crate::exception::types::ExceptionType;
 
-    /// High-level LLVM exception runtime builder.
     pub struct ExceptionRuntime<'ctx, 'm, 'b> {
         context: &'ctx Context,
         module: &'m Module<'ctx>,
@@ -198,7 +242,6 @@ pub mod llvm {
     }
 
     impl<'ctx, 'm, 'b> ExceptionRuntime<'ctx, 'm, 'b> {
-        /// Create a new exception runtime helper.
         pub fn new(
             context: &'ctx Context,
             module: &'m Module<'ctx>,
@@ -218,18 +261,13 @@ pub mod llvm {
             this
         }
 
-        /// Build a call to the runtime `ruyi_throw` function.
-        ///
-        /// After the call, builds `unreachable` because `ruyi_throw` does not return.
         pub fn build_throw(&self, exception: PointerValue<'ctx>) {
             let throw_fn = self.get_throw_function();
             self.builder
                 .build_call(throw_fn, &[exception.into()], "ruyi.throw")
                 .unwrap();
-            self.builder.build_unreachable().unwrap();
         }
 
-        /// Build a call to `ruyi_begin_catch` inside a catch handler.
         pub fn build_begin_catch(&self, exception_ptr: PointerValue<'ctx>) -> PointerValue<'ctx> {
             let begin_catch_fn = self.get_begin_catch_function();
             self.builder
@@ -240,13 +278,13 @@ pub mod llvm {
                 .into_pointer_value()
         }
 
-        /// Build a call to `ruyi_end_catch`.
         pub fn build_end_catch(&self) {
             let end_catch_fn = self.get_end_catch_function();
-            self.builder.build_call(end_catch_fn, &[], "ruyi.end.catch").unwrap();
+            self.builder
+                .build_call(end_catch_fn, &[], "ruyi.end.catch")
+                .unwrap();
         }
 
-        /// Build a call to `ruyi_finally`.
         pub fn build_finally(
             &self,
             pending_exception: Option<PointerValue<'ctx>>,
@@ -266,12 +304,6 @@ pub mod llvm {
                 .into_pointer_value()
         }
 
-        /// Build the landing pad and dispatch for a try/catch/finally region.
-        ///
-        /// Generates a landing pad that catches the given exception types,
-        /// dispatches to the corresponding handler blocks, and routes to a
-        /// cleanup/finally block when present. Unhandled exceptions resume
-        /// propagation via `resume_bb`.
         pub fn build_try_region(
             &self,
             catch_handlers: &[(ExceptionType, BasicBlock<'ctx>)],
@@ -392,27 +424,5 @@ mod tests {
     #[test]
     fn test_ruyi_end_catch_does_not_panic() {
         ruyi_end_catch();
-    }
-
-    #[test]
-    fn test_ruyi_throw_allocates_unwind_exception() {
-        let mut msg = b"test throw\0".to_vec();
-        let exc = ExceptionObject {
-            type_tag: ExceptionType::Error.type_id(),
-            message: msg.as_mut_ptr(),
-            stack_trace_len: 0,
-            stack_trace: std::ptr::null_mut(),
-        };
-        unsafe {
-            let layout = std::alloc::Layout::new::<crate::exception::types::UnwindException>();
-            let uexc = std::alloc::alloc(layout) as *mut crate::exception::types::UnwindException;
-            assert!(!uexc.is_null());
-            (*uexc).exception_class = crate::exception::types::KLANG_EXCEPTION_CLASS;
-            (*uexc).exception_cleanup = Some(ruyi_exception_cleanup);
-            (*uexc).private = [0; 6];
-            std::ptr::copy_nonoverlapping(&exc, &mut (*uexc).payload, 1);
-            assert_eq!((*uexc).payload.type_tag, ExceptionType::Error.type_id());
-            std::alloc::dealloc(uexc as *mut u8, layout);
-        }
     }
 }

@@ -7,13 +7,19 @@
  * @date 2026-07-24
  */
 
-import { hmacSha256Bytes, hmacSha512Bytes } from "./hmac";
+import { hmacSha256FromBytes, hmacSha512FromBytes } from "./hmac";
 import { bytesToHex } from "../encoding";
-import { stringToBytes, copyArray, bytesToString } from "./util";
+import { stringToBytes, copyArray } from "./util";
 
 // ============================================================
 // PBKDF2 — Password-Based Key Derivation Function 2 (RFC 2898)
 // ============================================================
+//
+// Everything stays in byte arrays: each 32-byte digest is fed back in as
+// the next message, and a digest is not valid UTF-8, so routing it
+// through a `string` would corrupt it. The HMAC itself runs in Rust FFI —
+// a pure-Ruyi SHA-256 makes this ~1000x slower, which at 4096 iterations
+// pushes callers past any sane timeout.
 
 /**
  * Derives a key using PBKDF2-HMAC-SHA256.
@@ -34,27 +40,26 @@ export fn pbkdf2Sha256(password: string, salt: string, iterations: int, keyLen: 
     if (keyLen <= 0) {
         return "";
     }
-    let result: Array<int> = [];
+    let keyBytes = stringToBytes(password);
+    let result: Array<byte> = [];
 
     let blockIndex = 1;
     while (result.length() < keyLen) {
         // Build Salt || INT_BE(blockIndex)
-        let saltBytes = stringToBytes(salt);
-        let salted: Array<int> = copyArray(saltBytes);
-        // 4-byte big-endian block index
+        let salted: Array<byte> = copyArray(stringToBytes(salt));
         salted.push((blockIndex >> 24) & 0xFF);
         salted.push((blockIndex >> 16) & 0xFF);
         salted.push((blockIndex >> 8) & 0xFF);
         salted.push(blockIndex & 0xFF);
 
         // U_1 = PRF(password, salted)
-        let u = hmacSha256Bytes(password, bytesToString(salted));
+        let u = hmacSha256FromBytes(keyBytes, salted);
         let t = copyArray(u);
 
         // U_2 .. U_c
         let iter = 1;
         while (iter < iterations) {
-            u = hmacSha256Bytes(password, bytesToString(u));
+            u = hmacSha256FromBytes(keyBytes, u);
             // XOR u into t
             let i = 0;
             let ulen = u.length();
@@ -95,26 +100,26 @@ export fn pbkdf2Sha512(password: string, salt: string, iterations: int, keyLen: 
     if (keyLen <= 0) {
         return "";
     }
-    let result: Array<int> = [];
+    let keyBytes = stringToBytes(password);
+    let result: Array<byte> = [];
 
     let blockIndex = 1;
     while (result.length() < keyLen) {
         // Build Salt || INT_BE(blockIndex)
-        let saltBytes = stringToBytes(salt);
-        let salted: Array<int> = copyArray(saltBytes);
+        let salted: Array<byte> = copyArray(stringToBytes(salt));
         salted.push((blockIndex >> 24) & 0xFF);
         salted.push((blockIndex >> 16) & 0xFF);
         salted.push((blockIndex >> 8) & 0xFF);
         salted.push(blockIndex & 0xFF);
 
         // U_1 = PRF(password, salted)
-        let u = hmacSha512Bytes(password, bytesToString(salted));
+        let u = hmacSha512FromBytes(keyBytes, salted);
         let t = copyArray(u);
 
         // U_2 .. U_c
         let iter = 1;
         while (iter < iterations) {
-            u = hmacSha512Bytes(password, bytesToString(u));
+            u = hmacSha512FromBytes(keyBytes, u);
             // XOR u into t
             let i = 0;
             let ulen = u.length();

@@ -153,6 +153,7 @@ fn compile_time_impl(source: &str, opt_level: OptLevel) -> std::time::Duration {
         output: Some(output_path.clone()),
         input: input_path.clone(),
         search_paths: vec![],
+        gc_mode: ruyic::cli::gc_mode::GcMode::default(),
     };
 
     let start = std::time::Instant::now();

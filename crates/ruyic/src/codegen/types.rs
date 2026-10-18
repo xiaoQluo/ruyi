@@ -21,7 +21,8 @@ use crate::typechecker::types::Type;
  */
 use inkwell::context::Context;
 use inkwell::types::{
-    BasicType, BasicTypeEnum, FloatType, FunctionType, IntType, PointerType, StructType, VoidType,
+    BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FloatType, FunctionType, IntType, PointerType,
+    StructType, VoidType,
 };
 
 /// 判断是否为泛型类型参数名（如 T, U, V 等单字母大写标识符）。
@@ -32,6 +33,16 @@ pub(crate) fn is_type_param_name(name: &str) -> bool {
             .next()
             .map(|c| c.is_ascii_uppercase())
             .unwrap_or(false)
+}
+
+/// The two-word representation of a first-class function value:
+/// `{ fnptr, env }`. `env` is null for plain functions and capture-free
+/// closures; capturing closures point to a GC heap block holding the
+/// captured values, and their LLVM signature takes the env pointer as a
+/// trailing parameter.
+pub fn fn_value_type<'ctx>(context: &'ctx Context) -> StructType<'ctx> {
+    let ptr = context.ptr_type(Default::default());
+    context.struct_type(&[ptr.into(), ptr.into()], false)
 }
 
 /// Map a Ruyi `Type` to its LLVM `BasicTypeEnum` equivalent.
@@ -49,9 +60,7 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: &Type) -> BasicTypeEn
         }
         Type::BigInt => BasicTypeEnum::PointerType(context.ptr_type(Default::default())),
         Type::Nullable(inner) => ruyi_type_to_llvm(context, inner),
-        Type::Array(_) => {
-            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
-        }
+        Type::Array(_) => BasicTypeEnum::PointerType(context.ptr_type(Default::default())),
         Type::Tuple(types) => {
             let field_types: Vec<_> = types
                 .iter()
@@ -60,12 +69,8 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: &Type) -> BasicTypeEn
             let field_refs: Vec<_> = field_types.to_vec();
             BasicTypeEnum::StructType(context.struct_type(&field_refs, false))
         }
-        Type::Object(_) => {
-            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
-        }
-        Type::Function { .. } => {
-            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
-        }
+        Type::Object(_) => BasicTypeEnum::PointerType(context.ptr_type(Default::default())),
+        Type::Function { .. } => BasicTypeEnum::StructType(fn_value_type(context)),
         Type::Named(name, _) => {
             if is_type_param_name(name) {
                 // 泛型参数统一用 i8*（与 TypeVar/Generic 对齐），
@@ -75,12 +80,8 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: &Type) -> BasicTypeEn
                 BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
             }
         }
-        Type::Generic { .. } => {
-            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
-        }
-        Type::TypeVar(_) => {
-            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
-        }
+        Type::Generic { .. } => BasicTypeEnum::PointerType(context.ptr_type(Default::default())),
+        Type::TypeVar(_) => BasicTypeEnum::PointerType(context.ptr_type(Default::default())),
         Type::Trait(_) => {
             let trait_obj_type = context.struct_type(
                 &[
@@ -91,9 +92,7 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: &Type) -> BasicTypeEn
             );
             BasicTypeEnum::StructType(trait_obj_type)
         }
-        Type::Future(_) => {
-            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
-        }
+        Type::Future(_) => BasicTypeEnum::PointerType(context.ptr_type(Default::default())),
         Type::Self_ => {
             // `Self` should be resolved by the typechecker before codegen
             // reaches here. Treat any leftover as an opaque pointer so the
@@ -111,9 +110,7 @@ pub fn ruyi_type_to_llvm<'ctx>(context: &'ctx Context, ty: &Type) -> BasicTypeEn
             BasicTypeEnum::StructType(dyn_type)
         }
         Type::Error => BasicTypeEnum::IntType(context.i8_type()),
-        Type::Union(_) => {
-            BasicTypeEnum::PointerType(context.ptr_type(Default::default()))
-        }
+        Type::Union(_) => BasicTypeEnum::PointerType(context.ptr_type(Default::default())),
     }
 }
 
@@ -135,6 +132,25 @@ pub fn function_type_from_ruyi<'ctx>(
             let ret = ruyi_type_to_llvm(context, other);
             ret.fn_type(&param_refs, false)
         }
+    }
+}
+
+/// Signature of a capturing closure: the plain signature plus the
+/// environment pointer as a trailing parameter.
+pub fn function_type_with_trailing_env<'ctx>(
+    context: &'ctx Context,
+    params: &[Type],
+    return_type: &Type,
+) -> FunctionType<'ctx> {
+    let mut param_tys: Vec<BasicMetadataTypeEnum<'ctx>> = params
+        .iter()
+        .map(|p| ruyi_type_to_llvm(context, p).into())
+        .collect();
+    param_tys.push(context.ptr_type(Default::default()).into());
+
+    match return_type {
+        Type::Void | Type::Never => context.void_type().fn_type(&param_tys, false),
+        other => ruyi_type_to_llvm(context, other).fn_type(&param_tys, false),
     }
 }
 
@@ -200,8 +216,8 @@ impl<'ctx> LlvmTypes<'ctx> {
     pub fn ruyi_array_type(&self) -> StructType<'ctx> {
         self.context.struct_type(
             &[
-                self.context.i64_type().into(),                             // length
-                self.context.i64_type().into(),                             // capacity
+                self.context.i64_type().into(),                   // length
+                self.context.i64_type().into(),                   // capacity
                 self.context.ptr_type(Default::default()).into(), // element storage
             ],
             false,

@@ -18,7 +18,7 @@ fn test_random_int_range() {
     for _ in 0..1000 {
         let v = __random_int(seed, 5, 10);
         assert!(
-            v >= 5 && v <= 10,
+            (5..=10).contains(&v),
             "__random_int(seed, 5, 10) returned out-of-range value: {}",
             v
         );
@@ -43,7 +43,7 @@ fn test_random_float() {
     for _ in 0..1000 {
         let v = __random_float(seed);
         assert!(
-            v >= 0.0 && v < 1.0,
+            (0.0..1.0).contains(&v),
             "__random_float(seed) returned out-of-range value: {}",
             v
         );

@@ -38,6 +38,15 @@ pub fn compile_declaration<'ctx>(
             is_async,
             ..
         } => {
+            let (inferred_param_types, inferred_return_type): (Option<&[Type]>, Option<Type>) =
+                match ctx.type_environment.and_then(|env| env.lookup(name)) {
+                    Some(Type::Function {
+                        params: fn_params,
+                        return_type: fn_ret,
+                    }) => (Some(fn_params.as_slice()), Some((**fn_ret).clone())),
+                    _ => (None, None),
+                };
+
             if *is_async {
                 super::async_codegen::compile_async_function(
                     ctx,
@@ -47,7 +56,16 @@ pub fn compile_declaration<'ctx>(
                     body,
                 )
             } else {
-                compile_function(ctx, name, params, return_type.as_ref(), None, None, body)
+                compile_function(
+                    ctx,
+                    name,
+                    params,
+                    return_type.as_ref(),
+                    inferred_param_types,
+                    inferred_return_type.as_ref(),
+                    body,
+                    None,
+                )
             }
         }
         Declaration::Class {
@@ -76,6 +94,9 @@ fn compile_simple_binding<'ctx>(
     name: &str,
     binding: &Binding,
 ) -> Result<(), String> {
+    if ctx.closure_shared_names.contains(name) {
+        return compile_shared_binding(ctx, name, binding);
+    }
     let (ty, _llvm_ty, ptr) = if let Some(annotation) = &binding.ty {
         let ty = Type::from_annotation(annotation);
         let llvm_ty = ruyi_type_to_llvm(ctx.context, &ty);
@@ -101,11 +122,11 @@ fn compile_simple_binding<'ctx>(
                     .build_extract_value(sv, 1, "unbox_data")
                     .unwrap()
                     .into_pointer_value();
-                BasicValueEnum::IntValue(ctx.builder().build_ptr_to_int(
-                    data_ptr,
-                    llvm_ty.into_int_type(),
-                    "unbox_s2i",
-                ).unwrap())
+                BasicValueEnum::IntValue(
+                    ctx.builder()
+                        .build_ptr_to_int(data_ptr, llvm_ty.into_int_type(), "unbox_s2i")
+                        .unwrap(),
+                )
             } else {
                 init_result.value
             }
@@ -156,6 +177,104 @@ fn compile_simple_binding<'ctx>(
 
     ctx.define_variable(name.to_string(), (ptr, ty));
     Ok(())
+}
+
+/// Compile a `let` binding that some closure in the module assigns to.
+/// The value lives in a GC-heap cell; the local slot holds the cell
+/// pointer and `lookup_variable` resolves reads/writes to the cell, so
+/// the enclosing scope and every closure capturing the name share one
+/// location. Cell size follows `capture_slot_size` so closure
+/// environment slots can carry the cell pointer uniformly.
+fn compile_shared_binding<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
+    name: &str,
+    binding: &Binding,
+) -> Result<(), String> {
+    let declared_ty = binding.ty.as_ref().map(Type::from_annotation);
+
+    let init_result = match &binding.init {
+        Some(init) => {
+            let prev_expected = ctx.expected_expr_type().cloned();
+            ctx.set_expected_expr_type(declared_ty.clone());
+            let result = compile_expr(ctx, init)?;
+            ctx.set_expected_expr_type(prev_expected);
+            Some(result)
+        }
+        None => None,
+    };
+
+    let ty = declared_ty
+        .or_else(|| init_result.as_ref().map(|r| r.ty.clone()))
+        .unwrap_or(Type::Dynamic);
+
+    let ptr_ty = ctx.context.ptr_type(Default::default());
+    let slot = ctx.builder().build_alloca(ptr_ty, name).unwrap();
+
+    let slot_size = super::capture::capture_slot_size(&ty);
+    let cell = super::gc_alloc::GcAllocFn::for_mode(ctx.gc_mode).emit(
+        ctx.builder(),
+        ctx.module,
+        ctx.context.i64_type().const_int(slot_size, false),
+    );
+    // Zero the cell so a read before the first assignment never sees
+    // malloc garbage (a garbage Dynamic tag would crash the dispatcher).
+    let zero = ctx.context.i64_type().const_zero();
+    for w in 0..(slot_size / 8) {
+        let off = ctx.context.i32_type().const_int(w * 8, false);
+        let word_ptr = unsafe {
+            ctx.builder()
+                .build_gep(ctx.context.i8_type(), cell, &[off], "cell_zero")
+                .unwrap()
+        };
+        ctx.builder().build_store(word_ptr, zero).unwrap();
+    }
+
+    if let Some(result) = init_result {
+        let stored = match &ty {
+            Type::Trait(trait_name) => {
+                super::traits::build_trait_object_value(ctx, result.value, &result.ty, trait_name)?
+                    .into()
+            }
+            _ => adjust_init_for_slot(ctx, result.value, &ty),
+        };
+        ctx.builder().build_store(cell, stored).unwrap();
+    }
+
+    ctx.builder().build_store(slot, cell).unwrap();
+    ctx.add_gc_cell_root(slot);
+    ctx.define_variable(name.to_string(), (slot, ty));
+    Ok(())
+}
+
+/// Match the initializer's runtime value to the declared slot type,
+/// mirroring the adjust logic in `compile_simple_binding`.
+fn adjust_init_for_slot<'ctx>(
+    ctx: &mut CodegenContext<'ctx, '_, '_>,
+    value: BasicValueEnum<'ctx>,
+    ty: &Type,
+) -> BasicValueEnum<'ctx> {
+    let llvm_ty = ruyi_type_to_llvm(ctx.context, ty);
+    let actual_ty = value.get_type();
+    if llvm_ty == actual_ty {
+        return value;
+    }
+    if llvm_ty.is_struct_type() && (actual_ty.is_int_type() || actual_ty.is_pointer_type()) {
+        super::expr::build_box_dynamic(ctx, value, ty)
+    } else if llvm_ty.is_int_type() && actual_ty.is_struct_type() {
+        let sv = value.into_struct_value();
+        let data_ptr = ctx
+            .builder()
+            .build_extract_value(sv, 1, "unbox_data")
+            .unwrap()
+            .into_pointer_value();
+        BasicValueEnum::IntValue(
+            ctx.builder()
+                .build_ptr_to_int(data_ptr, llvm_ty.into_int_type(), "unbox_s2i")
+                .unwrap(),
+        )
+    } else {
+        value
+    }
 }
 
 fn compile_array_destructure<'ctx>(
@@ -268,9 +387,13 @@ fn compile_array_destructure<'ctx>(
                 // 分配循环计数器并初始化
                 let idx_ptr = ctx.builder().build_alloca(i64_ty, "rest_idx_ptr").unwrap();
                 ctx.builder()
-                    .build_store(idx_ptr, i64_ty.const_int(i, false)).unwrap();
+                    .build_store(idx_ptr, i64_ty.const_int(i, false))
+                    .unwrap();
                 // 分配 rest 数组指针（可变）
-                let rest_arr_ptr = ctx.builder().build_alloca(i8_ptr_ty, "rest_arr_ptr").unwrap();
+                let rest_arr_ptr = ctx
+                    .builder()
+                    .build_alloca(i8_ptr_ty, "rest_arr_ptr")
+                    .unwrap();
                 ctx.builder().build_store(rest_arr_ptr, rest_arr).unwrap();
 
                 ctx.builder().build_unconditional_branch(cond_bb).unwrap();
@@ -279,22 +402,23 @@ fn compile_array_destructure<'ctx>(
                 ctx.builder().position_at_end(cond_bb);
                 let cur_idx = ctx
                     .builder()
-                    .build_load(i64_ty, idx_ptr, "cur_idx").unwrap()
+                    .build_load(i64_ty, idx_ptr, "cur_idx")
+                    .unwrap()
                     .into_int_value();
-                let cond = ctx.builder().build_int_compare(
-                    IntPredicate::SLT,
-                    cur_idx,
-                    arr_len,
-                    "rest_cond",
-                ).unwrap();
+                let cond = ctx
+                    .builder()
+                    .build_int_compare(IntPredicate::SLT, cur_idx, arr_len, "rest_cond")
+                    .unwrap();
                 ctx.builder()
-                    .build_conditional_branch(cond, body_bb, end_bb).unwrap();
+                    .build_conditional_branch(cond, body_bb, end_bb)
+                    .unwrap();
 
                 // 循环体：获取元素并 push
                 ctx.builder().position_at_end(body_bb);
                 let loop_idx = ctx
                     .builder()
-                    .build_load(i64_ty, idx_ptr, "loop_idx").unwrap()
+                    .build_load(i64_ty, idx_ptr, "loop_idx")
+                    .unwrap()
                     .into_int_value();
                 let elem = ctx
                     .builder()
@@ -302,7 +426,10 @@ fn compile_array_destructure<'ctx>(
                     .unwrap()
                     .try_as_basic_value()
                     .unwrap_basic();
-                let cur_rest = ctx.builder().build_load(i8_ptr_ty, rest_arr_ptr, "cur_rest").unwrap();
+                let cur_rest = ctx
+                    .builder()
+                    .build_load(i8_ptr_ty, rest_arr_ptr, "cur_rest")
+                    .unwrap();
                 let new_rest = ctx
                     .builder()
                     .build_call(push_fn, &[cur_rest.into(), elem.into()], "rest_push")
@@ -310,18 +437,25 @@ fn compile_array_destructure<'ctx>(
                     .try_as_basic_value()
                     .unwrap_basic();
                 ctx.builder().build_store(rest_arr_ptr, new_rest).unwrap();
-                let next_idx =
-                    ctx.builder()
-                        .build_int_add(loop_idx, i64_ty.const_int(1, false), "next_idx").unwrap();
+                let next_idx = ctx
+                    .builder()
+                    .build_int_add(loop_idx, i64_ty.const_int(1, false), "next_idx")
+                    .unwrap();
                 ctx.builder().build_store(idx_ptr, next_idx).unwrap();
                 ctx.builder().build_unconditional_branch(cond_bb).unwrap();
 
                 // 结束块：绑定 rest 变量
                 ctx.builder().position_at_end(end_bb);
-                let final_rest = ctx.builder().build_load(i8_ptr_ty, rest_arr_ptr, "final_rest").unwrap();
+                let final_rest = ctx
+                    .builder()
+                    .build_load(i8_ptr_ty, rest_arr_ptr, "final_rest")
+                    .unwrap();
                 let rest_ty = Type::Array(Box::new(elem_ty.clone()));
                 let llvm_rest_ty = ruyi_type_to_llvm(ctx.context, &rest_ty);
-                let var_ptr = ctx.builder().build_alloca(llvm_rest_ty, &rest_name).unwrap();
+                let var_ptr = ctx
+                    .builder()
+                    .build_alloca(llvm_rest_ty, &rest_name)
+                    .unwrap();
                 ctx.builder().build_store(var_ptr, final_rest).unwrap();
                 ctx.define_variable(rest_name, (var_ptr, rest_ty));
 
@@ -381,7 +515,18 @@ pub fn predeclare_function<'ctx>(
         })
         .collect();
 
-    let ret_type = return_type.map(Type::from_annotation).unwrap_or(Type::Void);
+    // Prefer inferred return type over explicit annotation (annotation may be absent).
+    let ret_type = return_type
+        .map(Type::from_annotation)
+        .or_else(|| {
+            ctx.type_environment
+                .and_then(|env| env.lookup(name))
+                .and_then(|ty| match ty {
+                    Type::Function { return_type, .. } => Some((**return_type).clone()),
+                    _ => None,
+                })
+        })
+        .unwrap_or(Type::Void);
 
     let fn_type = function_type_from_ruyi(ctx.context, &param_types, &ret_type);
 
@@ -404,6 +549,7 @@ pub fn predeclare_function<'ctx>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn compile_function<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_, '_>,
     name: &str,
@@ -412,6 +558,7 @@ pub fn compile_function<'ctx>(
     inferred_param_types: Option<&[Type]>,
     inferred_return_type: Option<&Type>,
     body: &[crate::parser::ast::Statement],
+    env_captures: Option<&[(String, Type)]>,
 ) -> Result<(), String> {
     let param_types: Vec<Type> = inferred_param_types
         .map(|types| types.to_vec())
@@ -440,7 +587,11 @@ pub fn compile_function<'ctx>(
         .or_else(|| return_type.map(Type::from_annotation))
         .unwrap_or(Type::Void);
 
-    let fn_type = function_type_from_ruyi(ctx.context, &param_types, &ret_type);
+    let fn_type = if env_captures.is_some() {
+        super::types::function_type_with_trailing_env(ctx.context, &param_types, &ret_type)
+    } else {
+        function_type_from_ruyi(ctx.context, &param_types, &ret_type)
+    };
 
     let ruyi_fn_type = Type::Function {
         params: param_types.clone(),
@@ -457,7 +608,13 @@ pub fn compile_function<'ctx>(
                 {
                     Type::from_annotation(&args[0])
                 }
-                _ => Type::Dynamic,
+                // `...paths: string` means each argument is a string; the
+                // signature builder wraps it as Array<string>. Falling
+                // back to Dynamic here boxed every argument, so consumers
+                // reading the array as raw pointers (runtime FFI such as
+                // __path_join) got the box tag instead.
+                Some(ann) => Type::from_annotation(ann),
+                None => Type::Dynamic,
             };
             ctx.rest_params.insert(name.to_string(), (i, elem_ty));
             break;
@@ -468,10 +625,8 @@ pub fn compile_function<'ctx>(
     // trailing arguments can synthesize them (LLVM has no default
     // arguments; passing too few arguments reads undefined registers).
     if params.iter().any(|p| p.init.is_some()) {
-        let defaults: Vec<Option<crate::parser::ast::Expr>> = params
-            .iter()
-            .map(|p| p.init.as_deref().cloned())
-            .collect();
+        let defaults: Vec<Option<crate::parser::ast::Expr>> =
+            params.iter().map(|p| p.init.as_deref().cloned()).collect();
         ctx.default_params.insert(name.to_string(), defaults);
     }
 
@@ -515,6 +670,12 @@ pub fn compile_function<'ctx>(
     // into later compilations (locals shadow globals, so a leaked binding
     // would mask a same-named global with a dangling alloca).
     let saved_vars = ctx.variables.clone();
+    // Frame isolation: drop every frame-backed binding so a nested
+    // function (closure/arrow/method) cannot reference an enclosing
+    // frame's alloca — that cross-function reference is invalid IR and
+    // silently reads garbage at runtime. Outer values reach nested
+    // bodies only through explicit captures.
+    ctx.variables.clear();
 
     // ── Isolate try-frame / try / loop stacks across function boundaries ──
     // A nested function (closure, arrow, or class method) compiled while an
@@ -535,6 +696,55 @@ pub fn compile_function<'ctx>(
     // the defensive error path; the RAII guard closes that gap and any
     // future `?` propagation introduced between push and pop.
     let _gc_scope_guard = unsafe { ctx.gc_root_scope() };
+
+    // Materialize the capture environment: the trailing env parameter
+    // points to a block laid out like the creation-site struct, one slot
+    // per capture in order. Each capture becomes a named local slot so
+    // the body compiles against it unchanged.
+    if let Some(captures) = env_captures {
+        let param_count = function.count_params();
+        let env_param = function
+            .get_nth_param(param_count - 1)
+            .ok_or("Closure environment parameter missing")?
+            .into_pointer_value();
+        let mut offset: u64 = 0;
+        for (cap_name, cap_ty) in captures {
+            let llvm_ty = ruyi_type_to_llvm(ctx.context, cap_ty);
+            let off = ctx.context.i32_type().const_int(offset, false);
+            let slot_ptr = unsafe {
+                ctx.builder()
+                    .build_gep(ctx.context.i8_type(), env_param, &[off], "cap_slot")
+                    .unwrap()
+            };
+            if ctx.closure_shared_names.contains(cap_name) {
+                // Shared mutable capture: the env slot holds the GC cell
+                // pointer; keep the local slot indirect so reads and
+                // writes hit the cell shared with the enclosing scope.
+                let ptr_ty = ctx.context.ptr_type(Default::default());
+                let cell = ctx
+                    .builder()
+                    .build_load(ptr_ty, slot_ptr, cap_name)
+                    .unwrap()
+                    .into_pointer_value();
+                let slot = ctx.builder().build_alloca(ptr_ty, cap_name).unwrap();
+                ctx.builder().build_store(slot, cell).unwrap();
+                ctx.add_gc_cell_root(slot);
+                ctx.define_variable(cap_name.clone(), (slot, cap_ty.clone()));
+            } else {
+                let value = ctx
+                    .builder()
+                    .build_load(llvm_ty, slot_ptr, cap_name)
+                    .unwrap();
+                let slot = ctx.builder().build_alloca(llvm_ty, cap_name).unwrap();
+                ctx.builder().build_store(slot, value).unwrap();
+                if is_gc_managed(cap_ty) {
+                    ctx.add_gc_root(slot, cap_ty.clone());
+                }
+                ctx.define_variable(cap_name.clone(), (slot, cap_ty.clone()));
+            }
+            offset += super::capture::capture_slot_size(cap_ty);
+        }
+    }
 
     // Allocate parameters
     for (i, param) in params.iter().enumerate() {
@@ -612,9 +822,7 @@ pub fn compile_function<'ctx>(
                                 BasicValueEnum::IntValue(ctx.context.i8_type().const_int(0, false))
                             }
                             _ => BasicValueEnum::PointerValue(
-                                ctx.context
-                                    .ptr_type(Default::default())
-                                    .const_null(),
+                                ctx.context.ptr_type(Default::default()).const_null(),
                             ),
                         }
                     }
@@ -651,15 +859,19 @@ fn build_combined_fields<'ctx>(
     class_name: &str,
     own_fields: &[(String, Type)],
 ) -> Vec<(String, Type)> {
-    let mut combined: Vec<(String, Type)> = Vec::new();
+    // The hidden __typeid must stay at struct index 0: `compile_new`
+    // addresses it with GEP [0, 0] and `instanceof` loads byte offset 0.
+    let mut combined: Vec<(String, Type)> = own_fields
+        .iter()
+        .filter(|(n, _)| n == "__typeid")
+        .cloned()
+        .collect();
 
-    // Own fields first — this includes the hidden __typeid field at index 0,
-    // which MUST remain at struct index 0 so that compile_new (GEP [0,0]) and
-    // compile_instanceof (byte-offset-0 load) can access it as i64.
-    combined.extend(own_fields.iter().cloned());
-
-    // Append parent fields (excluding the parent's __typeid to avoid
-    // duplication).  The child's own __typeid at index 0 is authoritative.
+    // Parent fields come next so that a base-class constructor keeps
+    // writing the same slots on subclass instances. Putting own fields
+    // first aliased them: `super.new()` stored the base field into the
+    // first own-field slot (e.g. AppError.code), which the subclass
+    // constructor then overwrote, leaving the base field null.
     if let Some(parent_name) = ctx.class_extends.get(class_name) {
         if let Some(parent_fields) = ctx.class_fields.get(parent_name) {
             combined.extend(
@@ -670,6 +882,9 @@ fn build_combined_fields<'ctx>(
             );
         }
     }
+
+    // Own (non-typeid) fields last.
+    combined.extend(own_fields.iter().filter(|(n, _)| n != "__typeid").cloned());
 
     combined
 }
@@ -682,17 +897,20 @@ fn compile_class<'ctx>(
     body: &[ClassElement],
 ) -> Result<(), String> {
     let is_generic = !type_params.is_empty();
-    if is_generic {
-        // Register the template so call sites can instantiate specialized
-        // method copies on demand (see codegen::specialize).
-        ctx.generic_classes.insert(
-            name.to_string(),
-            (
-                type_params.iter().map(|tp| tp.name.clone()).collect(),
-                body.to_vec(),
-            ),
-        );
-    }
+    // Register the template so call sites can instantiate specialized
+    // method copies on demand (see codegen::specialize). Non-generic
+    // classes register too, with an empty parameter list: a class can
+    // carry generic *methods* without being generic itself (`None` in
+    // stdlib/option.ry declares `map<T, U>`), and those methods still
+    // need a body to specialize. Every consumer degrades to the
+    // non-generic behaviour on an empty parameter list.
+    ctx.generic_classes.insert(
+        name.to_string(),
+        (
+            type_params.iter().map(|tp| tp.name.clone()).collect(),
+            body.to_vec(),
+        ),
+    );
 
     let mut fields: Vec<(String, Type)> = Vec::new();
     let mut methods: Vec<&ClassElement> = Vec::new();
@@ -729,6 +947,23 @@ fn compile_class<'ctx>(
             _ => {}
         }
     }
+
+    let static_method_names: std::collections::HashSet<String> = static_methods
+        .iter()
+        .filter_map(|e| {
+            if let ClassElement::Method {
+                name: PropertyName::Ident(n),
+                ..
+            } = e
+            {
+                Some(n.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+    ctx.class_static_methods
+        .insert(name.to_string(), static_method_names);
 
     if let Some(extends_expr) = extends {
         if let crate::parser::ast::Expr::Identifier(parent_name) = extends_expr {
@@ -781,7 +1016,8 @@ fn compile_class<'ctx>(
             if let Some(init_expr) = init {
                 if let Ok(init_result) = compile_expr(ctx, init_expr) {
                     ctx.builder()
-                        .build_store(global.as_pointer_value(), init_result.value).unwrap();
+                        .build_store(global.as_pointer_value(), init_result.value)
+                        .unwrap();
                 }
             }
             ctx.static_fields.insert(global_name, field_ty);
@@ -914,6 +1150,7 @@ fn compile_class<'ctx>(
                 None,
                 None,
                 method_body,
+                None,
             ) {
                 // Never leave a half-compiled body behind: calls would
                 // silently produce garbage. Reset to a declaration so
@@ -973,6 +1210,7 @@ fn compile_class<'ctx>(
                 None,
                 None,
                 method_body,
+                None,
             ) {
                 reset_to_declaration(ctx, &method_name);
                 if is_generic {
@@ -1096,6 +1334,7 @@ fn compile_impl<'ctx>(
                 None,
                 None,
                 method_body,
+                None,
             ) {
                 reset_to_declaration(ctx, &mangled_name);
                 if ctx.allow_partial_codegen() {

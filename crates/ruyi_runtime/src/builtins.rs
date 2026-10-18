@@ -196,8 +196,7 @@ pub extern "C" fn ruyi_array_alloc(capacity: i64) -> *mut i8 {
     unsafe {
         let cap = if capacity < 0 { 0 } else { capacity as usize };
         let header_size = std::mem::size_of::<i64>() * 3;
-        let layout =
-            Layout::from_size_align(header_size, std::mem::align_of::<i64>()).unwrap();
+        let layout = Layout::from_size_align(header_size, std::mem::align_of::<i64>()).unwrap();
         let ptr = alloc(layout) as *mut i8;
         if ptr.is_null() {
             return std::ptr::null_mut();
@@ -521,11 +520,7 @@ pub extern "C" fn ruyi_array_push(arr: *mut i8, value: i64) -> *mut i8 {
 
             let old_data = *data_ptr_slot as *mut i64;
             if !old_data.is_null() && cap > 0 {
-                std::ptr::copy_nonoverlapping(
-                    old_data,
-                    new_data,
-                    cap as usize,
-                );
+                std::ptr::copy_nonoverlapping(old_data, new_data, cap as usize);
             }
             *data_ptr_slot = new_data as i64;
             *new_data.add(len as usize) = value;
@@ -707,7 +702,7 @@ pub extern "C" fn __builtin_map_values(data: *mut i8) -> *mut i8 {
 /// instead of a process-aborting alignment panic.
 fn is_aligned_for_map(p: *mut i8) -> bool {
     let align = std::mem::align_of::<HashMap<i64, i64>>();
-    (p as usize) % align == 0 && !looks_like_tagged_value(p as usize)
+    (p as usize).is_multiple_of(align) && !looks_like_tagged_value(p as usize)
 }
 
 /// Heuristic: addresses below 0x1000 are never valid heap pointers in
@@ -1087,10 +1082,18 @@ pub extern "C" fn __string_ends_with(s: *const i8, suffix: *const i8) -> bool {
     }
 }
 
-/// Find the first index of `needle` in `haystack`. Returns -1 if not found.
+/// Find the first index of `needle` in `haystack`, starting at
+/// `from_index`. Returns -1 if not found.
+///
+/// The three-argument shape is what codegen emits: the receiver plus both
+/// Ruyi arguments of `indexOf(needle, from)`.
 #[no_mangle]
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-pub extern "C" fn __string_index_of(haystack: *const i8, needle: *const i8) -> i64 {
+pub extern "C" fn __string_index_of(
+    haystack: *const i8,
+    needle: *const i8,
+    from_index: i64,
+) -> i64 {
     unsafe {
         if haystack.is_null() || needle.is_null() {
             return -1;
@@ -1100,10 +1103,14 @@ pub extern "C" fn __string_index_of(haystack: *const i8, needle: *const i8) -> i
         if needle_bytes.is_empty() {
             return 0;
         }
-        haystack_bytes
+        let start = from_index.max(0) as usize;
+        if start > haystack_bytes.len() {
+            return -1;
+        }
+        haystack_bytes[start..]
             .windows(needle_bytes.len())
             .position(|w| w == needle_bytes)
-            .map(|i| i as i64)
+            .map(|i| (i + start) as i64)
             .unwrap_or(-1)
     }
 }
@@ -1146,10 +1153,7 @@ pub extern "C" fn __string_char_at(s: *const i8, index: i64) -> *mut i8 {
             return ruyi_string_concat(std::ptr::null(), std::ptr::null());
         }
         let s_bytes = CStr::from_ptr(s).to_bytes();
-        let s_str = match std::str::from_utf8(s_bytes) {
-            Ok(s) => s,
-            Err(_) => "",
-        };
+        let s_str = std::str::from_utf8(s_bytes).unwrap_or_default();
         let ch = s_str.chars().nth(index as usize);
         match ch {
             Some(c) => {
@@ -1198,7 +1202,11 @@ pub extern "C" fn __string_char_code_at(s: *const i8, index: i64) -> i64 {
                 // the whole call with -1. This keeps `cryptoRandomBytes`,
                 // `Buffer.toString`, and friends functional on
                 // /dev/urandom-style byte buffers.
-                s_bytes.get(index as usize).copied().map(i64::from).unwrap_or(-1)
+                s_bytes
+                    .get(index as usize)
+                    .copied()
+                    .map(i64::from)
+                    .unwrap_or(-1)
             }
         }
     }
@@ -1387,6 +1395,28 @@ mod tests {
     use super::*;
     use std::alloc::{dealloc, Layout};
     use std::ffi::CString;
+
+    #[test]
+    fn test_string_index_of_respects_from_index() {
+        // `String.indexOf(needle, from)` lowers to a three-argument call:
+        // the receiver plus both Ruyi arguments.
+        let haystack = CString::new("a\nb\nc").unwrap();
+        let newline = CString::new("\n").unwrap();
+        assert_eq!(__string_index_of(haystack.as_ptr(), newline.as_ptr(), 0), 1);
+        assert_eq!(__string_index_of(haystack.as_ptr(), newline.as_ptr(), 2), 3);
+        assert_eq!(
+            __string_index_of(haystack.as_ptr(), newline.as_ptr(), 4),
+            -1
+        );
+    }
+
+    #[test]
+    fn test_string_index_of_from_index_beyond_end_returns_minus_one() {
+        let haystack = CString::new("abc").unwrap();
+        let a = CString::new("a").unwrap();
+        assert_eq!(__string_index_of(haystack.as_ptr(), a.as_ptr(), 99), -1);
+        assert_eq!(__string_index_of(haystack.as_ptr(), a.as_ptr(), -5), 0);
+    }
 
     #[test]
     fn test_ruyi_string_concat_basic() {
@@ -1605,11 +1635,11 @@ mod tests {
     #[test]
     fn test_ruyi_float_to_string() {
         unsafe {
-            let result = ruyi_float_to_string(3.14);
+            let result = ruyi_float_to_string(3.5);
             assert!(!result.is_null());
             let cstr = CStr::from_ptr(result);
-            assert_eq!(cstr.to_str().unwrap(), "3.14");
-            dealloc(result as *mut u8, Layout::from_size_align(5, 1).unwrap());
+            assert_eq!(cstr.to_str().unwrap(), "3.5");
+            dealloc(result as *mut u8, Layout::from_size_align(4, 1).unwrap());
         }
     }
 

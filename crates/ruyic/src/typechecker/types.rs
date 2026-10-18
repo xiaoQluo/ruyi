@@ -125,6 +125,27 @@ impl Type {
         matches!(self, Type::Dynamic)
     }
 
+    /// Returns `true` if this type, or any type nested inside it, is dynamic.
+    pub fn contains_dynamic(&self) -> bool {
+        match self {
+            Type::Dynamic => true,
+            Type::Array(inner) | Type::Nullable(inner) | Type::Future(inner) => {
+                inner.contains_dynamic()
+            }
+            Type::Function {
+                params,
+                return_type,
+            } => params.iter().any(|p| p.contains_dynamic()) || return_type.contains_dynamic(),
+            Type::Generic { args, .. } => args.iter().any(|a| a.contains_dynamic()),
+            Type::Tuple(types) | Type::Union(types) => types.iter().any(|t| t.contains_dynamic()),
+            Type::Named(_, fields) | Type::Object(fields) => {
+                fields.iter().any(|f| f.ty.contains_dynamic())
+            }
+            Type::TypeVar(tv) => tv.name == "dyn",
+            _ => false,
+        }
+    }
+
     /// Returns `true` if this type is the error recovery type.
     pub fn is_error(&self) -> bool {
         matches!(self, Type::Error)
@@ -143,6 +164,50 @@ impl Type {
         match ty {
             Type::Named(name, _) => {
                 name.len() == 1 && name.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+            }
+            _ => false,
+        }
+    }
+
+    /// Returns `true` if this type, or any type nested inside it, is an
+    /// unresolved type parameter (`T`, `U`, ... or a `TypeVar`).
+    pub fn contains_type_param(&self) -> bool {
+        match self {
+            Type::TypeVar(_) => true,
+            t if Self::is_type_param_name(t) => true,
+            Type::Array(inner) | Type::Nullable(inner) | Type::Future(inner) => {
+                inner.contains_type_param()
+            }
+            Type::Function {
+                params,
+                return_type,
+            } => {
+                params.iter().any(|p| p.contains_type_param()) || return_type.contains_type_param()
+            }
+            Type::Generic { args, .. } => args.iter().any(|a| a.contains_type_param()),
+            Type::Tuple(types) | Type::Union(types) => {
+                types.iter().any(|t| t.contains_type_param())
+            }
+            Type::Named(_, fields) | Type::Object(fields) => {
+                fields.iter().any(|f| f.ty.contains_type_param())
+            }
+            _ => false,
+        }
+    }
+
+    /// Returns `true` if this type, or any type nested inside it, is nullable.
+    pub fn contains_nullable(&self) -> bool {
+        match self {
+            Type::Nullable(_) => true,
+            Type::Array(inner) | Type::Future(inner) => inner.contains_nullable(),
+            Type::Function {
+                params,
+                return_type,
+            } => params.iter().any(|p| p.contains_nullable()) || return_type.contains_nullable(),
+            Type::Generic { args, .. } => args.iter().any(|a| a.contains_nullable()),
+            Type::Tuple(types) | Type::Union(types) => types.iter().any(|t| t.contains_nullable()),
+            Type::Named(_, fields) | Type::Object(fields) => {
+                fields.iter().any(|f| f.ty.contains_nullable())
             }
             _ => false,
         }
