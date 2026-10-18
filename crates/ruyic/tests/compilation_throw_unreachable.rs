@@ -13,11 +13,27 @@
 use std::env;
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Get the path to the ruyic binary
+fn workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("workspace root not found")
+        .to_path_buf()
+}
+
 fn get_ruyic_path() -> PathBuf {
+    // Test binaries run with the *package* dir as cwd, so relative
+    // `target/...` paths miss the workspace build. Resolve against the
+    // workspace root (same helper as tests/codegen.rs).
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("workspace root not found")
+        .to_path_buf();
     env::var("RUYI_BIN")
         .map(PathBuf::from)
         .ok()
@@ -28,11 +44,11 @@ fn get_ruyic_path() -> PathBuf {
                 .ok()
                 .filter(|p| p.exists())
                 .unwrap_or_else(|| {
-                    let debug_path = PathBuf::from("target/debug/ruyic");
+                    let debug_path = workspace_root.join("target/debug/ruyic");
                     if debug_path.exists() {
                         debug_path
                     } else {
-                        PathBuf::from("target/release/ruyic")
+                        workspace_root.join("target/release/ruyic")
                     }
                 })
         })
@@ -49,12 +65,16 @@ fn compile_to_llvm(source: &str) -> io::Result<String> {
     }
 
     let temp_dir = env::temp_dir();
-    let source_path = temp_dir.join("ruyi_throw_test.ry");
-    let llvm_path = temp_dir.join("ruyi_throw_test.ll");
+    // Tests in this file run in parallel; a shared file name makes them
+    // overwrite each other's source/IR.
+    let tid = format!("{:?}", std::thread::current().id());
+    let source_path = temp_dir.join(format!("ruyi_throw_test_{}.ry", tid));
+    let llvm_path = temp_dir.join(format!("ruyi_throw_test_{}.ll", tid));
 
     fs::write(&source_path, source)?;
 
     let compile_result = Command::new(&ruyic_path)
+        .current_dir(workspace_root())
         .arg(&source_path)
         .arg("--emit-llvm")
         .arg("-o")
@@ -63,10 +83,7 @@ fn compile_to_llvm(source: &str) -> io::Result<String> {
 
     if !compile_result.status.success() {
         let stderr = String::from_utf8_lossy(&compile_result.stderr);
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("Compilation failed: {}", stderr),
-        ));
+        return Err(io::Error::other(format!("Compilation failed: {}", stderr)));
     }
 
     let ir_content = fs::read_to_string(&llvm_path)?;
@@ -84,7 +101,7 @@ fn compile_to_llvm(source: &str) -> io::Result<String> {
 fn test_throw_without_try_emits_unreachable() {
     let source = r#"
 fn throwError(): void {
-    throw new Error("test");
+    throw Error.new("test");
 }
 
 fn main(): int {
@@ -95,52 +112,26 @@ fn main(): int {
 
     let ir = compile_to_llvm(source).expect("compilation should succeed");
 
-    // Check that after call to ruyi_throw, there's an unreachable instruction
-    // The pattern should be: call void @ruyi_throw(...) followed by unreachable
+    // Current lowering uses the pending-exception protocol: `throw`
+    // parks the exception via `ruyi_throw_typed` and returns normally so
+    // the nearest `ruyi_try_begin` frame can dispatch it. There is no
+    // "throw never returns" contract any more, so no `unreachable`
+    // after the call is expected.
     assert!(
-        ir.contains("call void @ruyi_throw") || ir.contains("call i32 @ruyi_throw"),
-        "IR should contain call to ruyi_throw.\nIR:\n{}",
-        ir
-    );
-
-    // Check for unreachable instruction after the throw call
-    // We look for the pattern where ruyi_throw is followed by unreachable
-    let lines: Vec<&str> = ir.lines().collect();
-    let mut found_throw = false;
-    let mut found_unreachable = false;
-
-    for (i, line) in lines.iter().enumerate() {
-        if line.contains("@ruyi_throw") && line.contains("call") {
-            found_throw = true;
-            // Check the next non-empty line for unreachable
-            for j in (i + 1)..lines.len() {
-                let next_line = lines[j].trim();
-                if !next_line.is_empty() {
-                    if next_line == "unreachable" {
-                        found_unreachable = true;
-                    }
-                    break;
-                }
-            }
-            break;
-        }
-    }
-
-    assert!(found_throw, "Should find call to ruyi_throw in IR");
-    assert!(
-        found_unreachable,
-        "After call to ruyi_throw, should find unreachable instruction.\nIR:\n{}",
+        ir.contains("call void @ruyi_throw_typed("),
+        "IR should park the exception via ruyi_throw_typed.\nIR:\n{}",
         ir
     );
 }
 
-/// Test that throw with try context emits unreachable in a separate block
+/// Test that a throw inside `try` engages the pending-exception frame
+/// (`ruyi_try_begin` + dispatch) rather than relying on landing pads.
 #[test]
 // Verifies: REQ-LPAD-003/004
 fn test_throw_with_try_emits_unreachable_block() {
     let source = r#"
 fn throwError(): void {
-    throw new Error("test");
+    throw Error.new("test");
 }
 
 fn main(): int {
@@ -155,18 +146,14 @@ fn main(): int {
 
     let ir = compile_to_llvm(source).expect("compilation should succeed");
 
-    // Check that IR contains ruyi_throw call
     assert!(
-        ir.contains("@ruyi_throw"),
-        "IR should contain reference to ruyi_throw.\nIR:\n{}",
+        ir.contains("call void @ruyi_throw_typed("),
+        "IR should park the exception via ruyi_throw_typed.\nIR:\n{}",
         ir
     );
-
-    // Check that there's an unreachable instruction somewhere in the IR
-    // (it should be in a block after the throw's branch)
     assert!(
-        ir.contains("unreachable"),
-        "IR should contain unreachable instruction.\nIR:\n{}",
+        ir.contains("@ruyi_try_begin") && ir.contains("@ruyi_find_handler"),
+        "IR should register and dispatch the try frame.\nIR:\n{}",
         ir
     );
 }

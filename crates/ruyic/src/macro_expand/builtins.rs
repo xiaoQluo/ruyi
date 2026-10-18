@@ -72,7 +72,11 @@ fn expand_stringify(args: &[Token], _ctx: &dyn HygieneContext) -> MacroResult<Ve
 }
 
 fn expand_file(_args: &[Token], _ctx: &dyn HygieneContext) -> MacroResult<Vec<Token>> {
-    Ok(vec![Token::String("\"<unknown>\"".to_string())])
+    // `Token::String` carries the unquoted payload (the lexer/parser add
+    // the surrounding `"..."`); embedding literal quote characters here
+    // would be reparsed as a string delimiter and turn the trailing
+    // `<unknown>"` into a stray identifier + dangling quote.
+    Ok(vec![Token::String("<unknown>".to_string())])
 }
 
 fn expand_line(_args: &[Token], _ctx: &dyn HygieneContext) -> MacroResult<Vec<Token>> {

@@ -43,24 +43,30 @@
 export class RWLock {
     _ptr: dyn;
     _guard: dyn;
+    // Reader guards stack so overlapping/reentrant read acquisitions can
+    // each be released; a single slot loses the earlier guard and a later
+    // writeLock would block forever.
+    _readers: Array<dyn>;
 
     /** Creates a new unlocked RWLock. Must be freed with free() when done. */
     static fn new(): RWLock {
         let rw = new RWLock();
         rw._ptr = __rwlock_new();
+        rw._readers = [];
         return rw;
     }
 
     /** Acquire a read lock (shared). Multiple readers allowed simultaneously. */
     fn readLock(): void {
-        self._guard = __rwlock_read_lock(self._ptr);
+        let g = __rwlock_read_lock(self._ptr);
+        self._readers.push(g);
     }
 
-    /** Release a read lock. */
+    /** Release the most recent read lock. */
     fn readUnlock(): void {
-        if (self._guard !== null) {
-            __rwlock_read_unlock(self._guard);
-            self._guard = null;
+        if (self._readers.length() > 0) {
+            let g = self._readers.pop();
+            __rwlock_read_unlock(g);
         }
     }
 
@@ -69,7 +75,7 @@ export class RWLock {
     fn tryReadLock(): bool {
         let g = __rwlock_try_read_lock(self._ptr);
         if (g !== null) {
-            self._guard = g;
+            self._readers.push(g);
             return true;
         }
         return false;
@@ -101,6 +107,10 @@ export class RWLock {
 
     /** Deallocate the RWLock. Must NOT be locked when called. */
     fn free(): void {
+        while (self._readers.length() > 0) {
+            let g = self._readers.pop();
+            __rwlock_read_unlock(g);
+        }
         self._guard = null;
         __rwlock_free(self._ptr);
     }

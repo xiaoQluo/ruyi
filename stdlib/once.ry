@@ -10,8 +10,8 @@
  * Usage:
  *   import { Once } from "./once";
  *   let INIT = Once.new();
- *   INIT.do(fn() { print("runs exactly once"); });
- *   let done = INIT.isCompleted();    // true after first do()
+ *   let first = INIT.do();            // true only for the first caller
+ *   let done = INIT.isCompleted();    // true after the first do()
  *   INIT.free();
  *
  * @author Ruyi Team
@@ -28,13 +28,13 @@ export class Once {
         return o;
     }
 
-    /** Execute `cb()`` exactly once across all callers.
-     *  `cb` must be an extern function (a C function pointer).
-     *  Returns true if the function was executed (first caller). */
-    static fn do(fp: dyn, arg: int): bool {
-        // Note: the FFI expects (Once*, fn_ptr, arg).
-        // In practice, callers must pass raw extern function pointers.
-        return false;
+    /** Trigger the guard.
+     *  Returns true exactly once — for the first caller — and false for
+     *  every subsequent caller. Callers use this to guard a block:
+     *  `if (INIT.do()) { ...one-time setup... }`.
+     */
+    fn do(): bool {
+        return __once_trigger(self._ptr) !== 0;
     }
 
     /** Check whether the Once guard has already been triggered. */

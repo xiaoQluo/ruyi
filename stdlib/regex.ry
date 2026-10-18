@@ -67,6 +67,11 @@ class CharClass {
     negate: bool;
 
     fn new(): CharClass {
+        // Without this the field is a null pointer and every push is
+        // lost, so `[...]` / `\d` classes never matched anything.
+        let empty: Array<int> = [];
+        self.ranges = empty;
+        self.negate = false;
         return self;
     }
 
@@ -282,8 +287,12 @@ class Parser {
             return self.buildQuest(atom);
         }
         if (c === 123) {
+            // Consume '{' before reading the count; leaving it in place
+            // made parseRepeatCount see a non-digit and every `{n}`
+            // quantifier fail to compile.
+            self.advance();
             let min = self.parseRepeatCount();
-            if (min === -2) { return frag(-1, []); }
+            if (min < 0) { return frag(-1, []); }
             let max: int = -1;
             if (self.cur() === 44) {
                 self.advance();
@@ -500,7 +509,23 @@ class Parser {
     }
 
     fn cloneFragment(orig: Fragment): Fragment {
-        return orig;
+        // `{n}` repetition needs an independent copy of the atom's entry
+        // state; returning the original made `patch` link the fragment to
+        // itself (self-loop) instead of chaining copies. This covers
+        // single-state atoms (literals, `.`, character classes) — the
+        // shapes `{n}` is used on in practice.
+        if (orig.start >= C_CLASS_BASE) {
+            let idx = orig.start - C_CLASS_BASE;
+            if (idx < classes.length()) {
+                classes.push(classes.get(idx));
+                let s = C_CLASS_BASE + classes.length() - 1;
+                let outs: Array<int> = [s];
+                return frag(s, outs);
+            }
+        }
+        let s = pushState(nfa_c.get(orig.start), 0, 0);
+        let outs: Array<int> = [s];
+        return frag(s, outs);
     }
 }
 
@@ -516,7 +541,14 @@ fn addState(states: Array<int>, stateId: int): void {
         i = i + 1;
     }
     if (!found) {
-        if (stateId >= 0 && stateId < nfa_c.length()) {
+        if (stateId >= C_CLASS_BASE) {
+            // Character-class states live in their own index space
+            // (C_CLASS_BASE + class index) and have no NFA arrays, so
+            // the `nfa_c.length()` bound must not reject them — doing so
+            // silently made every `[...]` / `\d` / `\w` / `\s` match
+            // fail.
+            states.push(stateId);
+        } else if (stateId >= 0 && stateId < nfa_c.length()) {
             states.push(stateId);
             if (nfa_c.get(stateId) === C_SPLIT) {
                 addState(states, nfa_out1.get(stateId));
@@ -545,7 +577,8 @@ fn stepStates(current: Array<int>, inputC: int): Array<int> {
     let i = 0;
     while (i < current.length()) {
         let sid = current.get(i);
-        let sc = nfa_c.get(sid);
+        // Class states carry their class index in the state id itself.
+        let sc = if (sid >= C_CLASS_BASE) { sid } else { nfa_c.get(sid) };
         if (sc === C_SPLIT || sc === C_BOL || sc === C_EOL) {
             i = i + 1;
             continue;
@@ -605,6 +638,10 @@ export class Regex {
 
     fn new(pattern: string): Regex {
         self.pattern = pattern;
+        // -1 means "not compiled" — state index 0 is a perfectly valid
+        // start state, so 0 cannot double as the sentinel.
+        self.startState = -1;
+        self.compile();
         return self;
     }
 
@@ -626,12 +663,11 @@ export class Regex {
     }
 
     /**
-     * Check if the pattern matches the entire string.
+     * Check whether the pattern matches anywhere in the string
+     * (JavaScript `RegExp.test` semantics — not anchored).
      */
     fn test(text: string): bool {
-        let result = self.exec(text);
-        if (result === null) { return false; }
-        return result.index === 0 && result.end === text.length();
+        return self.exec(text) !== null;
     }
 
     /**
@@ -639,7 +675,7 @@ export class Regex {
      * Returns a MatchResult (containing index, text, end), or null if no match found.
      */
     fn exec(text: string): MatchResult? {
-        if (self.startState <= 0) { return null; }
+        if (self.startState < 0) { return null; }
         let n = text.length();
         let pos = 0;
         while (pos <= n) {
@@ -661,7 +697,7 @@ export class Regex {
      */
     fn matchAll(text: string): Array<MatchResult> {
         let results: Array<MatchResult> = [];
-        if (self.startState <= 0) { return results; }
+        if (self.startState < 0) { return results; }
         let pos = 0;
         let n = text.length();
         while (pos <= n) {

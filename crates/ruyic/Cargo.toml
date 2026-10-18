@@ -18,7 +18,7 @@ path = "src/lib.rs"
 
 [dependencies]
 ruyi_runtime = { path = "../ruyi_runtime" }
-ruyi_exception = { workspace = true, features = ["llvm14"] }
+ruyi_exception = { workspace = true, features = ["llvm20"] }
 inkwell.workspace = true
 clap.workspace = true
 thiserror.workspace = true

@@ -148,40 +148,51 @@ fn computeAccept(key: string): string {
 // Internal — Frame Encoding / Decoding
 // ============================================================
 
-fn encodeFrame(opcode: int, payload: string, rsv1: bool = false): string {
+fn encodeFrame(opcode: int, payload: Buffer, rsv1: bool = false): Buffer {
     // opcode: 1=text, 2=binary, 8=close, 9=ping, 10=pong
-    let frame = "";
+    let plen = payload.length();
+    let headerLen = 2;
+    if (plen >= 126 && plen < 65536) {
+        headerLen = 4;
+    } else if (plen >= 65536) {
+        headerLen = 10;
+    }
+    let frame = Buffer.alloc(headerLen + plen);
     let b0 = 0x80 | (opcode & 0x0F);  // FIN=1
     if (rsv1) { b0 = b0 | 0x40; }
-    frame = frame + __string_from_char_code(b0);
+    frame.set(0, b0);
 
-    let plen = payload.length();
     if (plen < 126) {
-        frame = frame + __string_from_char_code(plen);
+        frame.set(1, plen);
     } else if (plen < 65536) {
-        frame = frame + __string_from_char_code(126);
-        frame = frame + __string_from_char_code((plen >> 8) & 0xFF);
-        frame = frame + __string_from_char_code(plen & 0xFF);
+        frame.set(1, 126);
+        frame.set(2, (plen >> 8) & 0xFF);
+        frame.set(3, plen & 0xFF);
     } else {
-        frame = frame + __string_from_char_code(127);
-        let k = 7;
-        while (k >= 0) {
-            frame = frame + __string_from_char_code((plen >> (k * 8)) & 0xFF);
-            k = k - 1;
+        frame.set(1, 127);
+        let k = 0;
+        while (k < 8) {
+            frame.set(2 + k, (plen >> ((7 - k) * 8)) & 0xFF);
+            k = k + 1;
         }
     }
 
-    frame = frame + payload;
+    let i = 0;
+    while (i < plen) {
+        frame.set(headerLen + i, payload.get(i));
+        i = i + 1;
+    }
     return frame;
 }
 
-fn decodeFrame(data: string): { opcode: int, payload: string, fin: bool, rsv1: bool } {
+fn decodeFrame(data: Buffer): { opcode: int, payload: Buffer, fin: bool, rsv1: bool } {
+    let empty = Buffer.alloc(0);
     if (data.length() < 2) {
-        return { opcode: 0, payload: "", fin: false, rsv1: false };
+        return { opcode: 0, payload: empty, fin: false, rsv1: false };
     }
 
-    let b0 = data.charCodeAt(0);
-    let b1 = data.charCodeAt(1);
+    let b0 = data.get(0);
+    let b1 = data.get(1);
     let fin = (b0 & 0x80) !== 0;
     let rsv1 = (b0 & 0x40) !== 0;
     let opcode = b0 & 0x0F;
@@ -191,15 +202,15 @@ fn decodeFrame(data: string): { opcode: int, payload: string, fin: bool, rsv1: b
     let offset = 2;
 
     if (plen === 126) {
-        if (data.length() < 4) { return { opcode: 0, payload: "", fin: false, rsv1: false }; }
-        plen = (data.charCodeAt(2) << 8) | data.charCodeAt(3);
+        if (data.length() < 4) { return { opcode: 0, payload: empty, fin: false, rsv1: false }; }
+        plen = (data.get(2) << 8) | data.get(3);
         offset = 4;
     } else if (plen === 127) {
-        if (data.length() < 10) { return { opcode: 0, payload: "", fin: false, rsv1: false }; }
+        if (data.length() < 10) { return { opcode: 0, payload: empty, fin: false, rsv1: false }; }
         plen = 0;
         let k = 0;
         while (k < 8) {
-            plen = (plen << 8) | data.charCodeAt(2 + k);
+            plen = (plen << 8) | data.get(2 + k);
             k = k + 1;
         }
         offset = 10;
@@ -207,42 +218,88 @@ fn decodeFrame(data: string): { opcode: int, payload: string, fin: bool, rsv1: b
 
     let mask: Array<byte> = [];
     if (masked) {
-        if (data.length() < offset + 4) { return { opcode: 0, payload: "", fin: false, rsv1: false }; }
+        if (data.length() < offset + 4) { return { opcode: 0, payload: empty, fin: false, rsv1: false }; }
         let k = 0;
         while (k < 4) {
-            mask.push(data.charCodeAt(offset + k));
+            mask.push(data.get(offset + k));
             k = k + 1;
         }
         offset = offset + 4;
     }
 
-    let payload = "";
+    let payload = Buffer.alloc(plen);
     let i = 0;
     while (i < plen && offset + i < data.length()) {
-        let b = data.charCodeAt(offset + i);
+        let b = data.get(offset + i);
         if (masked) {
             b = b ^ mask.get(i % 4);
         }
-        payload = payload + __string_from_char_code(b);
+        payload.set(i, b);
         i = i + 1;
     }
 
     return { opcode: opcode, payload: payload, fin: fin, rsv1: rsv1 };
 }
 
+/**
+ * Returns the offset just past the `\r\n\r\n` header terminator, or -1
+ * when the headers are not complete yet. Used to split an HTTP upgrade
+ * exchange from any WebSocket frames that were coalesced into the same
+ * TCP segment.
+ */
+fn indexOfHeaderEnd(buf: Buffer): int {
+    let i = 0;
+    let n = buf.length();
+    while (i + 3 < n) {
+        if (buf.get(i) === 13 && buf.get(i + 1) === 10 && buf.get(i + 2) === 13 && buf.get(i + 3) === 10) {
+            return i + 4;
+        }
+        i = i + 1;
+    }
+    return -1;
+}
+
+/**
+ * Returns the total byte length of the frame at the start of `data`, or
+ * -1 when the header/payload is not yet complete. WebSocket connections
+ * stay open between messages, so `recv` must bound its reads by the
+ * frame length rather than waiting for EOF.
+ */
+fn frameCompleteLen(data: Buffer): int {
+    if (data.length() < 2) {
+        return -1;
+    }
+    let b1 = data.get(1);
+    let masked = (b1 & 0x80) !== 0;
+    let plen = b1 & 0x7F;
+    let offset = 2;
+    if (plen === 126) {
+        if (data.length() < 4) { return -1; }
+        plen = (data.get(2) << 8) | data.get(3);
+        offset = 4;
+    } else if (plen === 127) {
+        if (data.length() < 10) { return -1; }
+        plen = 0;
+        let k = 0;
+        while (k < 8) {
+            plen = (plen << 8) | data.get(2 + k);
+            k = k + 1;
+        }
+        offset = 10;
+    }
+    if (masked) {
+        offset = offset + 4;
+    }
+    let total = offset + plen;
+    if (data.length() < total) {
+        return -1;
+    }
+    return total;
+}
+
 // ============================================================
 // WebSocket Class
 // ============================================================
-
-fn readFromSocket(sock: dyn): string {
-    let buffer = "";
-    let chunk = sock.read(65536);
-    while (chunk !== "") {
-        buffer = buffer + chunk;
-        chunk = sock.read(65536);
-    }
-    return buffer;
-}
 
 /**
  * WebSocket client connection.
@@ -253,7 +310,9 @@ fn readFromSocket(sock: dyn): string {
  */
 export class WebSocket {
     _sock: dyn;
-    _deflate: bool;
+    /** Bytes received but not yet consumed by `recv` (may hold more than
+     *  one frame when the peer coalesces messages in a single segment). */
+    _recvBuf: Buffer;
 
     /**
      * Connects to a WebSocket server and performs the upgrade handshake.
@@ -283,21 +342,31 @@ export class WebSocket {
         req = req + "Connection: Upgrade\r\n";
         req = req + "Sec-WebSocket-Key: " + key + "\r\n";
         req = req + "Sec-WebSocket-Version: 13\r\n";
-        req = req + "Sec-WebSocket-Extensions: permessage-deflate\r\n";
         req = req + "\r\n";
 
         ws._sock.write(req);
 
-        // Read response
-        let resp = "";
-        let chunk = ws._sock.read(4096);
-        while (chunk !== "") {
-            resp = resp + chunk;
-            chunk = ws._sock.read(4096);
+        // Read response. Bound the read at the end of the headers: the
+        // server keeps the connection open after sending 101, so reading
+        // until EOF would block forever. Bytes after the header block
+        // belong to the first frame(s) and must be kept.
+        let respBuf = Buffer.alloc(0);
+        let headerEnd = -1;
+        while (headerEnd === -1) {
+            let chunk = ws._sock.readRaw(4096);
+            if (chunk.length() === 0) {
+                break;
+            }
+            respBuf = Buffer.concat([respBuf, chunk]);
+            headerEnd = indexOfHeaderEnd(respBuf);
         }
-
-        if (resp.toLowerCase().indexOf("sec-websocket-extensions:") !== -1) {
-            ws._deflate = true;
+        let resp = "";
+        if (headerEnd !== -1) {
+            resp = respBuf.slice(0, headerEnd).toString("utf8");
+            ws._recvBuf = respBuf.slice(headerEnd);
+        } else {
+            resp = respBuf.toString("utf8");
+            ws._recvBuf = Buffer.alloc(0);
         }
 
         return ws;
@@ -308,15 +377,8 @@ export class WebSocket {
      * @param data Text payload
      */
     fn send(data: string): void {
-        let payload = data;
-        let rsv1 = false;
-        if (self._deflate) {
-            let buf = Deflate.compress(Buffer.from(data));
-            payload = buf.toString();
-            rsv1 = true;
-        }
-        let frame = encodeFrame(1, payload, rsv1);
-        self._sock.write(frame);
+        let frame = encodeFrame(1, Buffer.from(data));
+        self._sock.writeRaw(frame);
     }
 
     /**
@@ -325,43 +387,43 @@ export class WebSocket {
      * @return Message text, or null if connection is closed
      */
     fn recv(): string? {
-        let buffer = readFromSocket(self._sock);
-        if (buffer === "") { return null; }
-
-        let decoded = decodeFrame(buffer);
-
-        if (decoded.opcode === 8) {
-            let closeFrame = encodeFrame(8, decoded.payload);
-            self._sock.write(closeFrame);
-            return null;
-        }
-        if (decoded.opcode === 9) {
-            let pongFrame = encodeFrame(10, decoded.payload);
-            self._sock.write(pongFrame);
-            return self.recv();
-        }
-        if (decoded.opcode === 10) {
-            return self.recv();
-        }
-
-        if (decoded.opcode === 1 || decoded.opcode === 2) {
-            let result = decoded.payload;
-            if (decoded.rsv1 && self._deflate) {
-                let buf = Deflate.decompress(Buffer.from(result));
-                result = buf.toString();
+        let result: string? = null;
+        let done = false;
+        while (!done) {
+            let complete = frameCompleteLen(self._recvBuf);
+            if (complete === -1) {
+                let chunk = self._sock.readRaw(65536);
+                if (chunk.length() === 0) {
+                    done = true;
+                } else {
+                    self._recvBuf = Buffer.concat([self._recvBuf, chunk]);
+                }
+            } else {
+                let frame = self._recvBuf.slice(0, complete);
+                self._recvBuf = self._recvBuf.slice(complete);
+                let decoded = decodeFrame(frame);
+                if (decoded.opcode === 8) {
+                    self._sock.writeRaw(encodeFrame(8, Buffer.alloc(0)));
+                    done = true;
+                } else if (decoded.opcode === 9) {
+                    self._sock.writeRaw(encodeFrame(10, decoded.payload));
+                } else if (decoded.opcode === 10) {
+                    // pong — nothing to deliver
+                } else if (decoded.opcode === 1 || decoded.opcode === 2) {
+                    result = decoded.payload.toString("utf8");
+                    done = true;
+                }
             }
-            return result;
         }
-
-        return null;
+        return result;
     }
 
     /**
      * Closes the WebSocket connection gracefully.
      */
     fn close(): void {
-        let frame = encodeFrame(8, "");
-        self._sock.write(frame);
+        let frame = encodeFrame(8, Buffer.alloc(0));
+        self._sock.writeRaw(frame);
         self._sock.close();
     }
 
@@ -425,17 +487,26 @@ export class WebSocketServer {
         }
         let ws = new WebSocket();
         ws._sock = client;
+        ws._recvBuf = Buffer.alloc(0);
 
-        // Read the HTTP upgrade request
-        let raw = "";
-        let chunk = ws._sock.read(4096);
-        while (chunk !== "") {
-            raw = raw + chunk;
-            // Stop reading when we have the blank line (end of headers)
-            if (raw.indexOf("\r\n\r\n") !== -1) {
+        // Read the HTTP upgrade request. Keep any bytes past the header
+        // block: they are the first WebSocket frame(s) from the client.
+        let reqBuf = Buffer.alloc(0);
+        let reqEnd = -1;
+        while (reqEnd === -1) {
+            let chunk = ws._sock.readRaw(4096);
+            if (chunk.length() === 0) {
                 break;
             }
-            chunk = ws._sock.read(4096);
+            reqBuf = Buffer.concat([reqBuf, chunk]);
+            reqEnd = indexOfHeaderEnd(reqBuf);
+        }
+        let raw = "";
+        if (reqEnd !== -1) {
+            raw = reqBuf.slice(0, reqEnd).toString("utf8");
+            ws._recvBuf = reqBuf.slice(reqEnd);
+        } else {
+            raw = reqBuf.toString("utf8");
         }
 
         // Extract Sec-WebSocket-Key
@@ -445,21 +516,12 @@ export class WebSocketServer {
             return ws;
         }
 
-        // Check for permessage-deflate extension
-        let extensions = _extractHeader(raw, "Sec-WebSocket-Extensions");
-        if (extensions !== "" && extensions.toLowerCase().indexOf("permessage-deflate") !== -1) {
-            ws._deflate = true;
-        }
-
         // Compute accept and send 101 response
         let accept = computeAccept(key);
         let resp = "HTTP/1.1 101 Switching Protocols\r\n";
         resp = resp + "Upgrade: websocket\r\n";
         resp = resp + "Connection: Upgrade\r\n";
         resp = resp + "Sec-WebSocket-Accept: " + accept + "\r\n";
-        if (ws._deflate) {
-            resp = resp + "Sec-WebSocket-Extensions: permessage-deflate\r\n";
-        }
         resp = resp + "\r\n";
         ws._sock.write(resp);
 

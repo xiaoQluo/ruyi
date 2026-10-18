@@ -1320,7 +1320,7 @@ fn test_check_spread_in_array() {
 
 #[test]
 fn test_check_spread_in_object() {
-    let result = check_program("let x = { ...obj };");
+    let result = check_program("let obj = { a: 1 }; let x = { ...obj };");
     assert_no_errors(&result);
 }
 
@@ -1703,7 +1703,6 @@ fn test_type_inference_has_trait_registry() {
     use ruyic::typechecker::traits::TraitRegistry;
     let registry = TraitRegistry::new();
     let _inference = TypeInference::new(registry);
-    assert!(true);
 }
 
 #[test]

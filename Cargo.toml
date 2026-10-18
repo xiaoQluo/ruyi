@@ -8,14 +8,14 @@ members = [
 ]
 
 [workspace.package]
-version = "0.5.10"
+version = "0.5.11"
 edition = "2021"
 authors = ["Ruyi Team"]
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
-# LLVM binding via inkwell (supports LLVM 14-18)
-inkwell = { version = "0.2", features = ["llvm14-0"] }
+# LLVM binding via inkwell (supports LLVM 11-21.1)
+inkwell = { version = "0.8", features = ["llvm20-1"] }
 
 # Shared exception-handling helpers for compiler and runtime
 ruyi_exception = { path = "crates/ruyi_exception", default-features = false }
@@ -24,7 +24,7 @@ ruyi_exception = { path = "crates/ruyi_exception", default-features = false }
 clap = { version = "4.4", features = ["derive", "cargo"] }
 
 # Error handling
-thiserror = "1.0"
+thiserror = "2.0"
 anyhow = "1.0"
 
 # Logging

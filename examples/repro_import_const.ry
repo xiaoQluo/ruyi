@@ -1,8 +1,0 @@
-import { HEX_CHARS } from "encoding";
-
-fn main() {
-    let c = HEX_CHARS.charAt(3);
-    print("before\n");
-    print(c);
-    print("after\n");
-}

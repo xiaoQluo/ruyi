@@ -12,16 +12,12 @@ pub struct TestCase {
     pub source_path: PathBuf,
     pub expected_path: Option<PathBuf>,
     pub error_path: Option<PathBuf>,
-    pub category: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct TestResult {
-    pub test_id: String,
     pub passed: bool,
     pub message: String,
-    pub stdout: Option<String>,
-    pub stderr: Option<String>,
 }
 
 pub struct DiscoveryResult {
@@ -75,7 +71,6 @@ pub fn discover_tests(cases_dir: &Path) -> io::Result<DiscoveryResult> {
                         } else {
                             None
                         },
-                        category: category.clone(),
                     };
 
                     tests.push(test_case);
@@ -105,11 +100,8 @@ pub fn run_positive_test(test: &TestCase, ruyic_path: &Path) -> TestResult {
     if !compile_result.status.success() {
         let stderr = String::from_utf8_lossy(&compile_result.stderr).to_string();
         return TestResult {
-            test_id: test_id.clone(),
             passed: false,
             message: format!("Compilation failed:\n{}", stderr),
-            stdout: None,
-            stderr: Some(stderr),
         };
     }
 
@@ -120,15 +112,12 @@ pub fn run_positive_test(test: &TestCase, ruyic_path: &Path) -> TestResult {
     if !run_result.status.success() {
         let stderr = String::from_utf8_lossy(&run_result.stderr).to_string();
         return TestResult {
-            test_id: test_id.clone(),
             passed: false,
             message: format!(
                 "Execution failed (exit code: {:?}):\n{}",
                 run_result.status.code(),
                 stderr
             ),
-            stdout: Some(String::from_utf8_lossy(&run_result.stdout).to_string()),
-            stderr: Some(stderr),
         };
     }
 
@@ -136,11 +125,8 @@ pub fn run_positive_test(test: &TestCase, ruyic_path: &Path) -> TestResult {
         Ok(content) => content,
         Err(e) => {
             return TestResult {
-                test_id: test_id.clone(),
                 passed: false,
                 message: format!("Failed to read .expected file: {}", e),
-                stdout: None,
-                stderr: None,
             }
         }
     };
@@ -152,28 +138,21 @@ pub fn run_positive_test(test: &TestCase, ruyic_path: &Path) -> TestResult {
 
     if expected_normalized == actual_normalized {
         TestResult {
-            test_id: test_id.clone(),
             passed: true,
             message: "Test passed".to_string(),
-            stdout: Some(actual),
-            stderr: None,
         }
     } else {
         TestResult {
-            test_id: test_id.clone(),
             passed: false,
             message: format!(
                 "Output mismatch:\nExpected:\n{}\n\nActual:\n{}",
                 expected_normalized, actual_normalized
             ),
-            stdout: Some(actual),
-            stderr: None,
         }
     }
 }
 
 pub fn run_negative_test(test: &TestCase, ruyic_path: &Path) -> TestResult {
-    let test_id = &test.id;
     let source_path = &test.source_path;
     let error_path = test
         .error_path
@@ -184,11 +163,8 @@ pub fn run_negative_test(test: &TestCase, ruyic_path: &Path) -> TestResult {
 
     if compile_result.status.success() {
         return TestResult {
-            test_id: test_id.clone(),
             passed: false,
             message: "Compilation succeeded but was expected to fail".to_string(),
-            stdout: None,
-            stderr: Some(String::from_utf8_lossy(&compile_result.stderr).to_string()),
         };
     }
 
@@ -196,11 +172,8 @@ pub fn run_negative_test(test: &TestCase, ruyic_path: &Path) -> TestResult {
         Ok(content) => content.trim().to_string(),
         Err(e) => {
             return TestResult {
-                test_id: test_id.clone(),
                 passed: false,
                 message: format!("Failed to read .error file: {}", e),
-                stdout: None,
-                stderr: None,
             }
         }
     };
@@ -209,22 +182,16 @@ pub fn run_negative_test(test: &TestCase, ruyic_path: &Path) -> TestResult {
 
     if actual_stderr.contains(&expected_error) {
         TestResult {
-            test_id: test_id.clone(),
             passed: true,
             message: "Negative test passed (compilation failed as expected)".to_string(),
-            stdout: None,
-            stderr: Some(actual_stderr),
         }
     } else {
         TestResult {
-            test_id: test_id.clone(),
             passed: false,
             message: format!(
                 "Error message mismatch:\nExpected pattern:\n{}\n\nActual stderr:\n{}",
                 expected_error, actual_stderr
             ),
-            stdout: None,
-            stderr: Some(actual_stderr),
         }
     }
 }
@@ -291,11 +258,8 @@ pub fn run_integration_tests(cases_dir: &Path) -> HashMap<String, TestResult> {
             run_positive_test(test, &ruyic_path)
         } else {
             TestResult {
-                test_id: test.id.clone(),
                 passed: false,
                 message: "Test case has neither .expected nor .error file".to_string(),
-                stdout: None,
-                stderr: None,
             }
         };
 
@@ -339,24 +303,9 @@ pub fn print_summary(results: &HashMap<String, TestResult>) {
     }
 }
 
-pub fn format_results(results: &HashMap<String, TestResult>) -> String {
-    let mut output = String::new();
-
-    for (id, result) in results.iter() {
-        output.push_str(&format!(
-            "{}: {}\n",
-            id,
-            if result.passed { "ok" } else { "FAILED" }
-        ));
-    }
-
-    output
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn test_discover_tests() {
         let temp_dir = env::temp_dir();

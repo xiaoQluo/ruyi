@@ -50,6 +50,17 @@ fn to_cstring(s: String) -> *mut c_char {
     CString::new(s).unwrap_or_default().into_raw()
 }
 
+/// Failure value for the string-based API.
+///
+/// These symbols are declared to Ruyi as non-nullable `string`, and the
+/// stdlib wrappers hand the result straight to user code, so a null
+/// pointer would surface as a segfault on the next string operation.
+/// An empty string is unambiguous: no digest, ciphertext or public key is
+/// ever empty, so callers can test `result === ""` for failure.
+fn cstring_error() -> *mut c_char {
+    to_cstring(String::new())
+}
+
 // ============================================================
 // String-based Hash API
 // ============================================================
@@ -57,7 +68,7 @@ fn to_cstring(s: String) -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn __crypto_sha256(data: *const c_char) -> *mut c_char {
     if data.is_null() {
-        return std::ptr::null_mut();
+        return cstring_error();
     }
     let input = unsafe { cstr_bytes(data) };
     let hash = Sha256::digest(input);
@@ -67,7 +78,7 @@ pub extern "C" fn __crypto_sha256(data: *const c_char) -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn __crypto_sha512(data: *const c_char) -> *mut c_char {
     if data.is_null() {
-        return std::ptr::null_mut();
+        return cstring_error();
     }
     let input = unsafe { cstr_bytes(data) };
     let hash = Sha512::digest(input);
@@ -77,7 +88,7 @@ pub extern "C" fn __crypto_sha512(data: *const c_char) -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn __crypto_sha1(data: *const c_char) -> *mut c_char {
     if data.is_null() {
-        return std::ptr::null_mut();
+        return cstring_error();
     }
     let input = unsafe { cstr_bytes(data) };
     let hash = Sha1::digest(input);
@@ -91,7 +102,7 @@ pub extern "C" fn __crypto_sha1(data: *const c_char) -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn __crypto_hmac_sha256(key: *const c_char, data: *const c_char) -> *mut c_char {
     if key.is_null() || data.is_null() {
-        return std::ptr::null_mut();
+        return cstring_error();
     }
     let k = unsafe { cstr_bytes(key) };
     let d = unsafe { cstr_bytes(data) };
@@ -106,6 +117,115 @@ pub extern "C" fn __crypto_hmac_sha256(key: *const c_char, data: *const c_char) 
 }
 
 // ============================================================
+// Raw pointer HMAC API
+// ============================================================
+//
+// PBKDF2 feeds each 32-byte digest back in as the next message, which the
+// string API cannot carry: the digest is not valid UTF-8, so a string
+// round-trip corrupts it. These take the bytes directly.
+
+/// Read an array header's elements as bytes.
+///
+/// The crypto byte arrays (`zeroArray`, `stringToBytes`) are built with
+/// `push(<int literal>)`, which monomorphizes the array on the *value*
+/// type, so each element occupies an `i64` rather than a byte. Reinterpret
+/// the element buffer accordingly.
+unsafe fn array_bytes<'a>(header: *const u8) -> Option<&'a [i64]> {
+    if header.is_null() {
+        return None;
+    }
+    let len = *(header as *const i64);
+    if len < 0 {
+        return None;
+    }
+    let data = *(header.add(16) as *const i64) as *const i64;
+    if data.is_null() {
+        return Some(&[]);
+    }
+    Some(std::slice::from_raw_parts(data, len as usize))
+}
+
+/// Narrow an element slice to the bytes it represents.
+fn pack(elements: &[i64]) -> Vec<u8> {
+    elements.iter().map(|v| *v as u8).collect()
+}
+
+/// Widen `bytes` into an array's element buffer, truncating to `len`.
+unsafe fn unpack(elements: *mut i64, len: usize, bytes: &[u8]) {
+    for (i, b) in bytes.iter().take(len).enumerate() {
+        *elements.add(i) = *b as i64;
+    }
+}
+
+/// HMAC-SHA-256 over an `Array<byte>`, writing the 32-byte digest into
+/// `out`.
+///
+/// # Safety
+/// `key`, `data` and `out` must each point at a valid Ruyi array header,
+/// and `out` must hold at least 32 elements. Returns 0 on success and -1
+/// if any argument is malformed.
+#[no_mangle]
+pub extern "C" fn __crypto_hmac_sha256_raw(key: *const u8, data: *const u8, out: *mut u8) -> i32 {
+    let (k, d, out_elems) = match (
+        unsafe { array_bytes(key) },
+        unsafe { array_bytes(data) },
+        unsafe { array_bytes_len_and_data(out) },
+    ) {
+        (Some(k), Some(d), Some(o)) => (pack(k), pack(d), o),
+        _ => return -1,
+    };
+    let mut mac = <hmac::Hmac<Sha256> as hmac::Mac>::new_from_slice(&k).unwrap_or_else(|_| {
+        let hashed = Sha256::digest(&k);
+        <hmac::Hmac<Sha256> as hmac::Mac>::new_from_slice(&hashed).unwrap()
+    });
+    <hmac::Hmac<Sha256> as hmac::Mac>::update(&mut mac, &d);
+    let result = mac.finalize().into_bytes();
+    unsafe { unpack(out_elems.0, out_elems.1, &result) };
+    0
+}
+
+/// HMAC-SHA-512 over an `Array<byte>`, writing the 64-byte digest into
+/// `out`.
+///
+/// # Safety
+/// Same contract as [`__crypto_hmac_sha256_raw`], with a 64-byte output.
+#[no_mangle]
+pub extern "C" fn __crypto_hmac_sha512_raw(key: *const u8, data: *const u8, out: *mut u8) -> i32 {
+    let (k, d, out_elems) = match (
+        unsafe { array_bytes(key) },
+        unsafe { array_bytes(data) },
+        unsafe { array_bytes_len_and_data(out) },
+    ) {
+        (Some(k), Some(d), Some(o)) => (pack(k), pack(d), o),
+        _ => return -1,
+    };
+    let mut mac = <hmac::Hmac<Sha512> as hmac::Mac>::new_from_slice(&k).unwrap_or_else(|_| {
+        let hashed = Sha512::digest(&k);
+        <hmac::Hmac<Sha512> as hmac::Mac>::new_from_slice(&hashed).unwrap()
+    });
+    <hmac::Hmac<Sha512> as hmac::Mac>::update(&mut mac, &d);
+    let result = mac.finalize().into_bytes();
+    unsafe { unpack(out_elems.0, out_elems.1, &result) };
+    0
+}
+
+/// Writable view of an array header: element pointer and element count.
+unsafe fn array_bytes_len_and_data(header: *const u8) -> Option<(*mut i64, usize)> {
+    if header.is_null() {
+        return None;
+    }
+    let len = *(header as *const i64);
+    if len < 0 {
+        return None;
+    }
+    let data = *(header.add(16) as *const i64) as *mut i64;
+    if data.is_null() {
+        return None;
+    }
+    Some((data, len as usize))
+}
+
+// ============================================================
 // Hex-based AES-256-GCM API
 // ============================================================
 
@@ -116,19 +236,19 @@ pub extern "C" fn __crypto_aes_gcm_encrypt_hex(
     plain_hex: *const c_char,
 ) -> *mut c_char {
     if key_hex.is_null() || nonce_hex.is_null() || plain_hex.is_null() {
-        return std::ptr::null_mut();
+        return cstring_error();
     }
     let k = match hex_decode(unsafe { CStr::from_ptr(key_hex) }.to_str().unwrap_or("")) {
         Some(v) if v.len() == 32 => v,
-        _ => return std::ptr::null_mut(),
+        _ => return cstring_error(),
     };
     let n = match hex_decode(unsafe { CStr::from_ptr(nonce_hex) }.to_str().unwrap_or("")) {
         Some(v) if v.len() == 12 => v,
-        _ => return std::ptr::null_mut(),
+        _ => return cstring_error(),
     };
     let p = match hex_decode(unsafe { CStr::from_ptr(plain_hex) }.to_str().unwrap_or("")) {
         Some(v) => v,
-        _ => return std::ptr::null_mut(),
+        _ => return cstring_error(),
     };
 
     let cipher = Aes256Gcm::new_from_slice(&k).unwrap();
@@ -140,7 +260,7 @@ pub extern "C" fn __crypto_aes_gcm_encrypt_hex(
             out.push_str(&hex_encode(tag.as_slice()));
             to_cstring(out)
         }
-        Err(_) => std::ptr::null_mut(),
+        Err(_) => cstring_error(),
     }
 }
 
@@ -151,15 +271,15 @@ pub extern "C" fn __crypto_aes_gcm_decrypt_hex(
     combined_hex: *const c_char,
 ) -> *mut c_char {
     if key_hex.is_null() || nonce_hex.is_null() || combined_hex.is_null() {
-        return std::ptr::null_mut();
+        return cstring_error();
     }
     let k = match hex_decode(unsafe { CStr::from_ptr(key_hex) }.to_str().unwrap_or("")) {
         Some(v) if v.len() == 32 => v,
-        _ => return std::ptr::null_mut(),
+        _ => return cstring_error(),
     };
     let n = match hex_decode(unsafe { CStr::from_ptr(nonce_hex) }.to_str().unwrap_or("")) {
         Some(v) if v.len() == 12 => v,
-        _ => return std::ptr::null_mut(),
+        _ => return cstring_error(),
     };
     let combined = hex_decode(
         unsafe { CStr::from_ptr(combined_hex) }
@@ -168,7 +288,7 @@ pub extern "C" fn __crypto_aes_gcm_decrypt_hex(
     );
     let combined = match combined {
         Some(v) if v.len() >= 16 => v,
-        _ => return std::ptr::null_mut(),
+        _ => return cstring_error(),
     };
 
     let cipher_len = combined.len() - 16;
@@ -179,7 +299,7 @@ pub extern "C" fn __crypto_aes_gcm_decrypt_hex(
     let nonce = Nonce::from_slice(&n);
     match c.decrypt_in_place_detached(nonce, b"", &mut ct, t) {
         Ok(()) => to_cstring(hex_encode(&ct)),
-        Err(_) => std::ptr::null_mut(),
+        Err(_) => cstring_error(),
     }
 }
 
@@ -202,11 +322,11 @@ pub extern "C" fn __crypto_x25519_dh_hex(
     peer_pub_hex: *const c_char,
 ) -> *mut c_char {
     if priv_hex.is_null() || peer_pub_hex.is_null() {
-        return std::ptr::null_mut();
+        return cstring_error();
     }
     let priv_bytes = match hex_decode(unsafe { CStr::from_ptr(priv_hex) }.to_str().unwrap_or("")) {
         Some(v) if v.len() == 32 => v,
-        _ => return std::ptr::null_mut(),
+        _ => return cstring_error(),
     };
     let pub_bytes = match hex_decode(
         unsafe { CStr::from_ptr(peer_pub_hex) }
@@ -214,7 +334,7 @@ pub extern "C" fn __crypto_x25519_dh_hex(
             .unwrap_or(""),
     ) {
         Some(v) if v.len() == 32 => v,
-        _ => return std::ptr::null_mut(),
+        _ => return cstring_error(),
     };
 
     let priv_arr: [u8; 32] = priv_bytes[..].try_into().unwrap();
@@ -228,11 +348,11 @@ pub extern "C" fn __crypto_x25519_dh_hex(
 #[no_mangle]
 pub extern "C" fn __crypto_x25519_pubkey_hex(priv_hex: *const c_char) -> *mut c_char {
     if priv_hex.is_null() {
-        return std::ptr::null_mut();
+        return cstring_error();
     }
     let priv_bytes = match hex_decode(unsafe { CStr::from_ptr(priv_hex) }.to_str().unwrap_or("")) {
         Some(v) if v.len() == 32 => v,
-        _ => return std::ptr::null_mut(),
+        _ => return cstring_error(),
     };
     let priv_arr: [u8; 32] = priv_bytes[..].try_into().unwrap();
     let secret = StaticSecret::from(priv_arr);

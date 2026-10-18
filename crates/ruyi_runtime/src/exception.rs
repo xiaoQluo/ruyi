@@ -290,43 +290,21 @@ impl LandingPadDescriptor {
     }
 }
 
-/// Throw a Ruyi exception via the LLVM unwinder.
+/// Throw a Ruyi exception.
 ///
-/// In production builds, constructs an `ExceptionObject` from the `RuyiException`
-/// and delegates to `exception::runtime::ruyi_throw` which invokes
-/// `_Unwind_RaiseException` to initiate stack unwinding. This function never returns.
-///
-/// In test builds (when `RUYI_TEST_NO_UNWIND` env var is set), falls back to
-/// `panic!()` so tests can verify exception construction without triggering SIGABRT.
-pub fn throw_exception(exc: RuyiException) -> ! {
+/// Constructs an `ExceptionObject` from the `RuyiException` and stores it in
+/// the global pending-exception slot via `exception::runtime::ruyi_throw`.
+/// The function returns normally; the generated code is responsible for
+/// checking the pending exception and dispatching to the matching catch
+/// handler. This avoids `setjmp`/`longjmp`, which are unreliable when
+/// crossing Rust `extern "C"` frames on macOS.
+pub fn throw_exception(exc: RuyiException) {
     // EX-H4: Capture stack trace if not already populated
     let exc = if exc.stack_trace.is_empty() {
         exc.with_stack_trace(runtime::capture_stack_trace())
     } else {
         exc
     };
-
-    // In environments where the LLVM unwinder is not available (test builds,
-    // CI, etc.), fall back to panic so the process doesn't SIGABRT.
-    // Set RUYI_USE_UNWIND=1 when running compiled Ruyi binaries to enable
-    // real stack-unwinding via _Unwind_RaiseException.
-    if std::env::var("RUYI_USE_UNWIND").is_err() {
-        let trace_info = if exc.stack_trace.is_empty() {
-            String::new()
-        } else {
-            let frames: Vec<String> = exc
-                .stack_trace
-                .iter()
-                .take(5)
-                .map(|f| format!("  at {} ({}:{})", f.function_name, f.file, f.line))
-                .collect();
-            format!("\nStack trace:\n{}", frames.join("\n"))
-        };
-        panic!(
-            "RuyiException(type_id={}, message={}){}",
-            exc.type_id, exc.message, trace_info
-        );
-    }
 
     use std::ffi::CString;
 
@@ -430,8 +408,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "RuyiException")]
-    fn test_throw_exception() {
+    fn test_throw_exception_sets_pending() {
         throw_exception(RuyiException::new(builtin_type_ids::ERROR, "test throw"));
+        let pending = runtime::ruyi_get_pending_exception();
+        assert!(!pending.is_null());
+        unsafe {
+            assert_eq!((*pending).type_tag, builtin_type_ids::ERROR);
+        }
+        runtime::ruyi_clear_pending_exception();
     }
 }

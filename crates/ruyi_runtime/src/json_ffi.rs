@@ -278,36 +278,23 @@ fn parse_json_object(input: &str) -> Result<(&str, String), String> {
 }
 
 /// Stringify a JSON value (simplified implementation).
+///
+/// Returns the canonical JSON text if `value` parses as valid JSON; otherwise
+/// returns an error so callers can distinguish invalid input.
 fn stringify_json_value(value: &str) -> Result<String, String> {
     let value = value.trim();
 
-    // Already a valid JSON value
-    if value == "null" || value == "true" || value == "false" {
-        return Ok(value.to_string());
+    if value.is_empty() {
+        return Err("Empty input".to_string());
     }
 
-    // Number
-    if value.starts_with('-') || value.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-        return Ok(value.to_string());
+    // Parse the input and return the re-emitted JSON. This validates the
+    // input and normalizes whitespace at the cost of a full parse pass.
+    let (remaining, json) = parse_json_value(value)?;
+    if !remaining.trim().is_empty() {
+        return Err("Trailing data after JSON value".to_string());
     }
-
-    // String
-    if value.starts_with('"') && value.ends_with('"') {
-        return Ok(value.to_string());
-    }
-
-    // Array
-    if value.starts_with('[') && value.ends_with(']') {
-        return Ok(value.to_string());
-    }
-
-    // Object
-    if value.starts_with('{') && value.ends_with('}') {
-        return Ok(value.to_string());
-    }
-
-    // Treat as string if not recognized
-    Ok(format!("\"{}\"", value.replace('"', "\\\"")))
+    Ok(json)
 }
 
 #[cfg(test)]
@@ -316,7 +303,7 @@ mod tests {
 
     #[test]
     fn test_parse_null() {
-        let result = unsafe { __json_parse(b"null\0".as_ptr() as *const i8) };
+        let result = unsafe { __json_parse(c"null".as_ptr()) };
         assert!(!result.is_null());
         let s = unsafe { CStr::from_ptr(result) }.to_str().unwrap();
         assert_eq!(s, "null");
@@ -324,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_parse_boolean() {
-        let result = unsafe { __json_parse(b"true\0".as_ptr() as *const i8) };
+        let result = unsafe { __json_parse(c"true".as_ptr()) };
         assert!(!result.is_null());
         let s = unsafe { CStr::from_ptr(result) }.to_str().unwrap();
         assert_eq!(s, "true");
@@ -332,7 +319,7 @@ mod tests {
 
     #[test]
     fn test_parse_string() {
-        let result = unsafe { __json_parse(b"\"hello\"\0".as_ptr() as *const i8) };
+        let result = unsafe { __json_parse(c"\"hello\"".as_ptr()) };
         assert!(!result.is_null());
         let s = unsafe { CStr::from_ptr(result) }.to_str().unwrap();
         assert_eq!(s, "\"hello\"");
@@ -340,7 +327,7 @@ mod tests {
 
     #[test]
     fn test_parse_number() {
-        let result = unsafe { __json_parse(b"42\0".as_ptr() as *const i8) };
+        let result = unsafe { __json_parse(c"42".as_ptr()) };
         assert!(!result.is_null());
         let s = unsafe { CStr::from_ptr(result) }.to_str().unwrap();
         assert_eq!(s, "42");
@@ -348,9 +335,18 @@ mod tests {
 
     #[test]
     fn test_stringify() {
-        let result = unsafe { __json_stringify(b"hello\0".as_ptr() as *const i8) };
+        // Valid JSON string round-trips.
+        let result = unsafe { __json_stringify(c"\"hello\"".as_ptr()) };
         assert!(!result.is_null());
         let s = unsafe { CStr::from_ptr(result) }.to_str().unwrap();
         assert_eq!(s, "\"hello\"");
+    }
+
+    #[test]
+    fn test_stringify_rejects_invalid_json() {
+        // Strict contract: bare (unquoted) input is not JSON; the caller
+        // gets null instead of a silently quoted string.
+        let result = unsafe { __json_stringify(c"hello".as_ptr()) };
+        assert!(result.is_null());
     }
 }

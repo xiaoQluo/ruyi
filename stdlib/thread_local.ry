@@ -7,8 +7,8 @@
  * Usage:
  *   import { ThreadLocal } from "./thread_local";
  *
- *   ThreadLocal.store("my_key", 42);      // store in current thread
- *   let val = ThreadLocal.load("my_key");  // 42 (only in this thread)
+ *   ThreadLocal.store("my_key", "value");   // store in current thread
+ *   let val = ThreadLocal.load("my_key");   // "value" (only in this thread)
  *   ThreadLocal.remove("my_key");
  *   ThreadLocal.clear();                   // clear all
  *
@@ -26,12 +26,12 @@ fn hashString(s: string): int {
 }
 
 export class ThreadLocal {
-    static fn store(key: string, value: dyn): int {
-        return __tls_store(hashString(key), value);
+    static fn store(key: string, value: string): void {
+        __tls_store_str(hashString(key), value);
     }
 
-    static fn load(key: string): dyn {
-        return __tls_load(hashString(key));
+    static fn load(key: string): string? {
+        return __tls_load_str(hashString(key));
     }
 
     static fn remove(key: string): int {

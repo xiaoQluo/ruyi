@@ -13,11 +13,46 @@
 // (Error types from error.ry are auto-loaded — no import needed)
 // ============================================================
 
+// FFI entry points. Every `__process_*` handle is an opaque integer owned by
+// the runtime — never a `Process` instance. Reading a struct field off one
+// would load bytes from the middle of the runtime's own allocation.
+extern fn __process_exec_capture(command: string, cwd: string, shell: bool): int;
+extern fn __process_capture_stdout(handle: int): string;
+extern fn __process_capture_stderr(handle: int): string;
+extern fn __process_capture_code(handle: int): int;
+extern fn __process_capture_free(handle: int): void;
+extern fn __process_create(command: string, cwd: string, env: Map<string, string>, shell: bool): int;
+extern fn __process_handle_pid(handle: int): int;
+extern fn __process_handle_free(handle: int): void;
+extern fn __process_wait(handle: int): int;
+extern fn __process_wait_async(handle: int): int;
+extern fn __process_kill(handle: int, signal: int): void;
+extern fn __process_write_input(handle: int, input: string): void;
+extern fn __process_close_input(handle: int): void;
+extern fn __process_read_output(handle: int): string;
+extern fn __process_read_error(handle: int): string;
+extern fn __process_get_env(name: string): string;
+extern fn __process_set_env(name: string, value: string): void;
+extern fn __process_get_all_env(): string;
+extern fn __process_get_pid(): int;
+extern fn __process_get_ppid(): int;
+extern fn __process_get_platform(): string;
+extern fn __process_get_cpu_count(): int;
+extern fn __process_get_total_memory(): int;
+extern fn __process_get_free_memory(): int;
+extern fn __process_signal_available(signal: int): bool;
+extern fn __process_exit(code: int): void;
+
 /**
  * Process class for system process management and command execution.
  * Provides capabilities to spawn processes and execute system commands.
  */
 export class Process {
+    /**
+     * Opaque handle to the spawned child, owned by the runtime.
+     */
+    _handle: int;
+
     /**
      * The PID of the process (platform-specific).
      */
@@ -55,7 +90,21 @@ export class Process {
      */
     static fn create(command: string, options: ProcessOptions? = null): Process {
         let opts = options !== null ? options : ProcessOptions.default();
-        return __process_create(command, opts.cwd, opts.env, opts.shell);
+        let handle = __process_create(command, opts.cwd !== null ? opts.cwd : "",
+                                     opts.env !== null ? opts.env : Map.new(), opts.shell);
+        if (handle === 0) {
+            let ex = ProcessException.new("Failed to spawn process: " + command);
+            throw ex;
+        }
+        let proc = new Process();
+        proc._handle = handle;
+        proc.pid = __process_handle_pid(handle);
+        proc.command = command;
+        proc.cwd = opts.cwd !== null ? opts.cwd : "";
+        proc.env = opts.env !== null ? opts.env : Map.new();
+        proc.exitCode = null;
+        proc.isRunning = true;
+        return proc;
     }
 
     /**
@@ -64,7 +113,8 @@ export class Process {
      * @return Result containing stdout, stderr, and exit code
      */
     static fn exec(command: string): ProcessResult {
-        return __process_exec(command);
+        let opts = new ExecOptions();
+        return Process.execWith(command, opts);
     }
 
     /**
@@ -74,7 +124,17 @@ export class Process {
      * @return Result containing stdout, stderr, and exit code
      */
     static fn execWith(command: string, options: ExecOptions): ProcessResult {
-        return __process_exec_with(command, options.cwd, options.env, options.shell);
+        let handle = __process_exec_capture(command,
+                                            options.cwd !== null ? options.cwd : "",
+                                            options.shell);
+        if (handle === 0) {
+            return ProcessResult.create("", "Failed to spawn: " + command, -1);
+        }
+        let stdout = __process_capture_stdout(handle);
+        let stderr = __process_capture_stderr(handle);
+        let exitCode = __process_capture_code(handle);
+        __process_capture_free(handle);
+        return ProcessResult.create(stdout, stderr, exitCode);
     }
 
     /**
@@ -120,7 +180,7 @@ export class Process {
      */
     fn wait(): int {
         if (self.isRunning) {
-            let code = __process_wait(self);
+            let code = __process_wait(self._handle);
             self.exitCode = code;
             self.isRunning = false;
             return code;
@@ -133,7 +193,7 @@ export class Process {
      * @return Future resolving to exit code
      */
     async fn waitAsync(): Future<int> {
-        return __process_wait_async(self);
+        return __process_wait_async(self._handle);
     }
 
     /**
@@ -141,7 +201,7 @@ export class Process {
      * @param signal Signal to send (default: SIGTERM)
      */
     fn kill(signal: int = 15): void {
-        __process_kill(self, signal);
+        __process_kill(self._handle, signal);
     }
 
     /**
@@ -149,14 +209,14 @@ export class Process {
      * @param input String to send to stdin
      */
     fn writeInput(input: string): void {
-        __process_write_input(self, input);
+        __process_write_input(self._handle, input);
     }
 
     /**
      * Closes the process's stdin.
      */
     fn closeInput(): void {
-        __process_close_input(self);
+        __process_close_input(self._handle);
     }
 
     /**
@@ -164,7 +224,8 @@ export class Process {
      * @return Output string, or null if no output available
      */
     fn readOutput(): string? {
-        return __process_read_output(self);
+        let chunk = __process_read_output(self._handle);
+        return chunk !== "" ? chunk : null;
     }
 
     /**
@@ -172,7 +233,22 @@ export class Process {
      * @return Error string, or null if no error output available
      */
     fn readError(): string? {
-        return __process_read_error(self);
+        let chunk = __process_read_error(self._handle);
+        return chunk !== "" ? chunk : null;
+    }
+
+    /**
+     * Releases the runtime-side child handle.
+     *
+     * The `Process` value stays usable for its recorded fields, but
+     * `wait`/`kill`/`readOutput` will no longer reach the child.
+     */
+    fn close(): void {
+        if (self._handle !== 0) {
+            __process_handle_free(self._handle);
+            self._handle = 0;
+            self.isRunning = false;
+        }
     }
 
     /**
@@ -372,7 +448,7 @@ export class ProcessResult {
     fn ensureSuccess(): void {
         if (self.success === false) {
             let msg = "Process exited with code " + self.exitCode + ": " + self.stderr;
-            let ex = ProcessException.create(msg);
+            let ex = ProcessException.new(msg);
             throw ex;
         }
     }
@@ -387,11 +463,6 @@ export class ProcessResult {
  */
 export class ProcessException extends Error {
     /**
-     * The error message.
-     */
-    message: string;
-
-    /**
      * The process that caused this exception, if applicable.
      */
     process: Process?;
@@ -401,20 +472,9 @@ export class ProcessException extends Error {
      * @param message Error message
      * @param process Optional associated process
      */
-    static fn create(message: string, process: Process? = null): ProcessException {
-        let ex = ProcessException();
+    fn new(message: string, process: Process? = null) {
         super.new(message);
-        ex.message = message;
-        ex.process = process;
-        return ex;
-    }
-
-    /**
-     * Returns the error message.
-     * @return Error message string
-     */
-    fn getMessage(): string {
-        return self.message;
+        self.process = process;
     }
 }
 
@@ -474,7 +534,21 @@ export fn setEnv(name: string, value: string): void {
  * @return Map of environment variable names to values
  */
 export fn getAllEnv(): Map<string, string> {
-    return __process_get_all_env();
+    let env = Map.new();
+    // The runtime hands back one `KEY=VALUE` line per variable.
+    let raw = __process_get_all_env();
+    let pos = 0;
+    let len = raw.length();
+    while (pos < len) {
+        let nl = raw.indexOf("\n", pos);
+        let line = nl === -1 ? raw.substring(pos) : raw.substring(pos, nl);
+        let eq = line.indexOf("=");
+        if (eq > 0) {
+            env.set(line.substring(0, eq), line.substring(eq + 1));
+        }
+        pos = nl === -1 ? len : nl + 1;
+    }
+    return env;
 }
 
 /**
@@ -523,4 +597,16 @@ export fn getTotalMemory(): int {
  */
 export fn getFreeMemory(): int {
     return __process_get_free_memory();
+}
+
+/**
+ * Terminates the current process immediately with the given exit status.
+ *
+ * Demo and test programs call this to report failures through the exit
+ * status, so runners detect them without parsing program output.
+ *
+ * @param code Exit status reported to the parent process; 0 means success
+ */
+export fn exit(code: int): void {
+    __process_exit(code);
 }

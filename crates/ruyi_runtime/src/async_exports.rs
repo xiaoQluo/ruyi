@@ -71,6 +71,44 @@ pub extern "C" fn ruyi_spawn(future_ptr: *mut u8) -> *mut u8 {
     task_id.0 as *mut u8
 }
 
+/// A fire-and-forget function submitted by the `spawn()` builtin.
+///
+/// The builtin has only the bare call target at hand, not a pointer to a
+/// future object, so the wrapper lives here rather than being synthesized
+/// per call site by codegen.
+struct CFnFuture {
+    entry: *mut u8,
+}
+
+unsafe impl Send for CFnFuture {}
+
+impl RuyiFuture for CFnFuture {
+    type Output = ();
+
+    fn poll(&mut self, _waker: &Waker) -> Poll<Self::Output> {
+        let entry: extern "C" fn() = unsafe { std::mem::transmute(self.entry) };
+        entry();
+        Poll::Ready(())
+    }
+}
+
+/// Spawn a plain function to run once on the global scheduler.
+///
+/// The returned handle is the same opaque `TaskId` cast that
+/// [`ruyi_spawn`] produces. Unlike it, `entry` is the call target itself,
+/// which is what the `spawn()` builtin holds at its call site.
+///
+/// # Safety
+/// `entry` must be a valid `extern "C" fn()`.
+#[no_mangle]
+pub extern "C" fn ruyi_spawn_fn(entry: *mut i8) -> *mut u8 {
+    let scheduler = GLOBAL_SCHEDULER.lock().unwrap();
+    let task_id = scheduler.spawn(CFnFuture {
+        entry: entry as *mut u8,
+    });
+    task_id.0 as *mut u8
+}
+
 /// Wake a previously spawned task.
 ///
 /// # Safety

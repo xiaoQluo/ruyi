@@ -117,7 +117,7 @@ fn test_integration_channel_producer_consumer() {
     assert!(!ch.is_null());
 
     // Producer in thread, consumer in main
-    let handle = __thread_spawn(entry_producer as *mut i8, ch as *mut i8);
+    let handle = __thread_spawn(entry_producer as *mut i8, ch);
     assert!(handle > 0);
 
     let mut sum: i64 = 0;

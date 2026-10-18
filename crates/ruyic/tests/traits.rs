@@ -162,8 +162,9 @@ fn test_trait_bound_check() {
 
 #[test]
 fn test_dyn_type_annotation() {
-    let (ok, _) =
-        parse_and_check("trait Printable { fn format(self): string; }\nlet x: dyn Printable = 42;");
+    let (ok, _) = parse_and_check(
+        "trait Printable { fn format(self): string; }\nimpl Printable for int { fn format(self): string { return \"\"; } }\nlet x: dyn Printable = 42;",
+    );
     assert!(ok);
 }
 
@@ -200,7 +201,7 @@ fn test_dynamic_dispatch_trait_object() {
 #[test]
 fn test_supertrait_registry() {
     let registry = build_registry(
-        "trait Display { fn display(self): string; }\ntrait Debug: Display { fn debug(self): string; }"
+        "trait Display { fn display(self): string; }\ntrait Debug extends Display { fn debug(self): string; }"
     );
     let debug = registry.get_trait("Debug").unwrap();
     assert!(debug.supertraits.contains(&"Display".to_string()));

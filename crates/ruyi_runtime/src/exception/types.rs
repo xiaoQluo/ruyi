@@ -97,7 +97,24 @@ impl ExceptionType {
 ///
 /// This is the payload that follows the Itanium ABI `_Unwind_Exception`
 /// header when an exception is thrown. The GC header is **not** part of
-/// this struct; it is managed by the runtime allocator.
+/// Runtime representation of a thrown exception.
+///
+/// Layout (Ruyi-aligned) matches the user-visible `Error` class so that
+/// `catch (e: Error) { e.message }` reads the runtime payload's message
+/// slot directly without any offset arithmetic on the codegen side:
+///
+/// - offset 0: `type_tag` (u64) — runtime-internal type discriminator
+///   used by `ruyi_throw` to populate the `ExceptionObject` payload.
+///   The compiler treats this slot as the hidden `__typeid` field of
+///   the Ruyi `Error` class instance (`class_struct_types["Error"][0]`),
+///   so codegen can still query it via `instanceof` if needed.
+/// - offset 8: `message` (*mut u8) — maps directly to `Error.message`.
+/// - offset 16: `stack_trace_len` (usize).
+/// - offset 24: `stack_trace` (*mut StackFrame).
+///
+/// The hidden `__typeid` slot overlaps with `type_tag` because the
+/// runtime owns the value (the compiler never writes to offset 0 of
+/// an exception — it only inspects it via `instanceof`).
 #[repr(C)]
 pub struct ExceptionObject {
     /// Exception type tag used for catch filtering.

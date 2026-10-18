@@ -23,10 +23,12 @@ use std::thread;
 
 type FiberFn = extern "C" fn(usize);
 
-/// A spawned fiber: the thread handle (if joined) and a completion signal.
+/// A spawned fiber: the thread handle (taken at join), a completion
+/// signal, and whether join already consumed this fiber.
 struct Fiber {
     handle: Option<thread::JoinHandle<()>>,
     receiver: mpsc::Receiver<()>,
+    joined: bool,
 }
 
 static FIBERS: Mutex<Option<HashMap<i64, Fiber>>> = Mutex::new(None);
@@ -76,6 +78,7 @@ pub unsafe extern "C" fn __fiber_spawn(entry: *mut i8, arg: *mut i8) -> i64 {
                 Fiber {
                     handle: Some(handle),
                     receiver: rx,
+                    joined: false,
                 },
             );
             id
@@ -97,11 +100,25 @@ pub extern "C" fn __fiber_join(handle: i64) -> i64 {
     };
     match fiber {
         Some(f) => {
+            if f.joined {
+                return -1;
+            }
             // Wait for the completion signal, then join the thread.
             let _ = f.receiver.recv();
             if let Some(h) = f.handle {
                 let _ = h.join();
             }
+            // Keep the entry so is_finished keeps reporting true after
+            // join; only the second join is rejected.
+            let mut registry = FIBERS.lock().unwrap();
+            registry.as_mut().unwrap().insert(
+                handle,
+                Fiber {
+                    handle: None,
+                    receiver: f.receiver,
+                    joined: true,
+                },
+            );
             0
         }
         None => -1,
@@ -116,6 +133,7 @@ pub extern "C" fn __fiber_is_finished(handle: i64) -> i64 {
     ensure_registry();
     let registry = FIBERS.lock().unwrap();
     match registry.as_ref().unwrap().get(&handle) {
+        Some(f) if f.joined => 1,
         Some(f) => match f.receiver.try_recv() {
             Ok(_) => 1,
             Err(mpsc::TryRecvError::Disconnected) => 1,
@@ -242,6 +260,22 @@ mod tests {
         }
         assert!(done.load(Ordering::SeqCst));
         assert_eq!(__fiber_join(handle), 0);
+    }
+
+    #[test]
+    fn test_fiber_is_finished_after_join() {
+        // join() consumes the completion signal, but the handle must keep
+        // reporting finished=true afterwards (fiber_demo asserts this).
+        let handle = unsafe { __fiber_spawn(simple_entry as *mut i8, std::ptr::null_mut()) };
+        assert!(handle > 0);
+        assert_eq!(__fiber_join(handle), 0);
+        assert_eq!(
+            __fiber_is_finished(handle),
+            1,
+            "joined fiber must report finished"
+        );
+        // Second join still fails (already consumed).
+        assert_eq!(__fiber_join(handle), -1);
     }
 
     #[test]

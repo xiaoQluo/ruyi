@@ -11,6 +11,8 @@
  * @date 2026-07-25
  */
 
+import { exit } from "process";
+
 import { exists, isFile, isDir, readFile, writeFile, appendFile,
          mkdir, removeDir, readDir, ensureDir, size, mtime,
          tempDir, tempFilePath } from "fs";
@@ -23,11 +25,14 @@ fn printOk(label: string) {
     print("  ✓ " + label + "\n");
 }
 
+let failedChecks = 0;
+
 fn check(label: string, condition: bool) {
     if (condition) {
         print("  ✓ " + label + "\n");
     } else {
         print("  ✗ FAILED: " + label + "\n");
+        failedChecks = failedChecks + 1;
     }
 }
 
@@ -101,7 +106,7 @@ fn demo_files() {
     check("appendFile()", appended.length() > content.length());
 
     // Cleanup
-    removeDir(workDir);
+    removeDir(workDir, true);
     check("removeDir() cleanup", !exists(workDir));
 
     printOk("file operations OK");
@@ -134,7 +139,7 @@ fn demo_directories() {
     }
 
     // Cleanup
-    removeDir(baseDir);
+    removeDir(baseDir, true);
     check("removeDir() recursive", !exists(baseDir));
 
     printOk("directory operations OK");
@@ -173,4 +178,11 @@ fn main() {
     demo_temp();
 
     print("\nAll FS & Path demos completed!\n");
+
+    // Report check failures through the exit status so runners
+    // (examples/run_examples.sh, sweep scripts) can detect them.
+    if (failedChecks > 0) {
+        print("  " + failedChecks + " check(s) FAILED\n");
+        exit(1);
+    }
 }

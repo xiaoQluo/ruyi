@@ -59,6 +59,7 @@ pub struct TryContext<'ctx> {
     pub catch_bb: Option<inkwell::basic_block::BasicBlock<'ctx>>,
     pub finally_bb: Option<inkwell::basic_block::BasicBlock<'ctx>>,
     pub merge_bb: inkwell::basic_block::BasicBlock<'ctx>,
+    pub dispatch_bb: inkwell::basic_block::BasicBlock<'ctx>,
     pub landing_pad_bb: Option<inkwell::basic_block::BasicBlock<'ctx>>,
 }
 
@@ -98,6 +99,12 @@ pub struct CodegenContext<'ctx, 'm, 'env> {
     pub(crate) try_stack: Vec<TryContext<'ctx>>,
     pub try_frame_stack: Vec<TryFrame<'ctx>>,
     pub class_fields: HashMap<String, Vec<(String, Type)>>,
+    /// Instance field initializers: maps class name to `(field name, init expr)`
+    /// in declaration order. `compile_new` replays these after allocating an
+    /// instance and before the constructor runs, so a constructor still wins
+    /// over the declared default. Indices align with `class_fields` (index 0
+    /// there is the hidden `__typeid`).
+    pub(crate) class_field_inits: HashMap<String, Vec<(String, crate::parser::ast::Expr)>>,
     pub class_struct_types: HashMap<String, inkwell::types::StructType<'ctx>>,
     pub enum_struct_types: HashMap<String, inkwell::types::StructType<'ctx>>,
     /// Maps child class name to parent class name (for super.new() support)
@@ -107,8 +114,18 @@ pub struct CodegenContext<'ctx, 'm, 'env> {
     pub anon_counter: u64,
     pub async_arrow_counter: u64,
     pub function_types: HashMap<String, Type>,
+    /// Maps function name to per-parameter default expressions
+    /// (`None` for parameters without a default). Call sites that omit
+    /// trailing arguments compile these expressions to synthesize the
+    /// missing arguments, since LLVM has no default-argument concept.
+    pub default_params: HashMap<String, Vec<Option<crate::parser::ast::Expr>>>,
     /// Maps function name to (rest_param_index, element_type) for rest parameter handling.
     pub rest_params: HashMap<String, (usize, Type)>,
+    /// Import aliases (`import { x as y }` desugars to `const y = x;`)
+    /// mapped to the target function name. Calls through an alias must
+    /// take the direct-call path so rest packaging and default arguments
+    /// apply — the generic function-value path passes args 1:1.
+    pub function_aliases: HashMap<String, String>,
     /// Tracks the return type of the current function for null sentinel handling.
     pub(crate) current_return_type: Option<Type>,
     /// Tracks the expected type for the current expression being compiled (for null literal handling).
@@ -119,6 +136,11 @@ pub struct CodegenContext<'ctx, 'm, 'env> {
     /// Optional type environment from the type checker. When present, variable type lookups
     /// prioritize the type checker's inferred types over annotation-derived types.
     pub(crate) type_environment: Option<&'env crate::typechecker::environment::TypeEnvironment>,
+    /// Optional monomorphization tracker from the type checker. Used at call sites
+    /// to select the concrete specialization of a generic function and to provide
+    /// concrete parameter types when compiling arrow-function arguments.
+    pub(crate) monomorph_tracker:
+        Option<&'env mut crate::typechecker::generics::MonomorphizationTracker>,
     /// Label pending to be attached to the next loop push (set by `Statement::Labeled`,
     /// consumed by the loop compile functions like `compile_for`/`compile_while`).
     pub(crate) pending_loop_label: Option<String>,
@@ -145,6 +167,8 @@ pub struct CodegenContext<'ctx, 'm, 'env> {
     pub class_getters: HashMap<String, std::collections::HashSet<String>>,
     /// Setter registry: maps class_name -> set of setter property names.
     pub class_setters: HashMap<String, std::collections::HashSet<String>>,
+    /// Static method registry: maps class_name -> set of static method names.
+    pub class_static_methods: HashMap<String, std::collections::HashSet<String>>,
     /// Runtime type ID registry for `instanceof` support.
     /// Maps class name to a unique numeric type ID.
     pub type_ids: HashMap<String, u64>,
@@ -169,6 +193,29 @@ pub struct CodegenContext<'ctx, 'm, 'env> {
     /// VTable registry for trait-based dynamic dispatch.
     /// Populated by `generate_vtables()` before declaration compilation.
     pub vtable_registry: Option<VTableRegistry<'ctx>>,
+    /// AST bodies of generic functions, keyed by their (unmangled) generic
+    /// name. Used by `compile_monomorphized_function` to instantiate concrete
+    /// specializations by substituting type-parameter annotations.
+    pub generic_function_bodies: HashMap<String, GenericFunctionBody>,
+    /// Set when the `spawn()` builtin emitted a task. A synchronous `main`
+    /// returns without draining the scheduler, so outstanding tasks would be
+    /// dropped before a worker ever picks them up.
+    pub(crate) used_spawn_builtin: bool,
+    /// Names assigned inside closure literals anywhere in the module
+    /// (see `capture::collect_closure_shared_names`). Their `let`
+    /// bindings are heap-boxed into shared GC cells; `lookup_variable`
+    /// resolves them to the cell so the enclosing scope and every
+    /// closure capturing them read and write one location.
+    pub closure_shared_names: std::collections::HashSet<String>,
+}
+
+/// AST source of a generic function, kept for on-demand monomorphization.
+#[derive(Debug, Clone)]
+pub struct GenericFunctionBody {
+    pub type_params: Vec<String>,
+    pub params: Vec<crate::parser::ast::Param>,
+    pub return_type: Option<crate::parser::ast::TypeAnnotation>,
+    pub body: Vec<crate::parser::ast::Statement>,
 }
 
 impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
@@ -210,6 +257,7 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
             try_stack: Vec::new(),
             try_frame_stack: Vec::new(),
             class_fields: HashMap::new(),
+            class_field_inits: HashMap::new(),
             class_struct_types: HashMap::new(),
             enum_struct_types: HashMap::new(),
             class_extends: HashMap::new(),
@@ -217,11 +265,14 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
             anon_counter: 0,
             async_arrow_counter: 0,
             function_types: HashMap::new(),
+            function_aliases: HashMap::new(),
+            default_params: HashMap::new(),
             rest_params: HashMap::new(),
             current_return_type: None,
             expected_expr_type: None,
             allow_partial_codegen: false,
             type_environment,
+            monomorph_tracker: None,
             pending_loop_label: None,
             gc_mode,
             arc_registry: ArcClassRegistry::new(),
@@ -231,6 +282,7 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
             static_fields: HashMap::new(),
             class_getters: HashMap::new(),
             class_setters: HashMap::new(),
+            class_static_methods: HashMap::new(),
             type_ids: HashMap::new(),
             next_type_id: 1,
             pending_return_value: None,
@@ -239,6 +291,9 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
             pending_continue_target: None,
             current_class_name: None,
             vtable_registry: None,
+            generic_function_bodies: HashMap::new(),
+            used_spawn_builtin: false,
+            closure_shared_names: std::collections::HashSet::new(),
         }
     }
 
@@ -254,13 +309,25 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
 
     /// Emit `ruyi_gc_remove_root` calls for every root in the current scope.
     pub fn emit_gc_root_removals(&self) {
+        // EX-R1: `add_gc_root` is a no-op in Stub mode (it would treat raw
+        // malloc memory as a GC header and corrupt the root mutex), so the
+        // matching `remove_root` calls must also be skipped here. Otherwise
+        // `remove_root` walks a pointer that was never added, and the runtime
+        // dereferences `*(ptr - 8)` looking for a GcObjectHeader — observed
+        // as `EXC_BAD_ACCESS` at address `0x20` from `cryptoRandomInt + 619`
+        // because the heap pointer happened to land at a 32-byte offset
+        // relative to its malloc chunk header.
+        if self.gc_mode == GcMode::Stub {
+            return;
+        }
         if let Some(roots) = self.gc_roots.last() {
             for (ptr, ty) in roots {
                 let llvm_ty = super::types::ruyi_type_to_llvm(self.context, ty);
                 if llvm_ty.is_pointer_type() {
                     let loaded = self
                         .builder()
-                        .build_load(*ptr, "root_val")
+                        .build_load(self.context.ptr_type(Default::default()), *ptr, "root_val")
+                        .unwrap()
                         .into_pointer_value();
                     super::builtins::build_gc_remove_root(self.builder(), self.module, loaded);
                 }
@@ -298,14 +365,42 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
     pub fn add_gc_root(&mut self, ptr: inkwell::values::PointerValue<'ctx>, ty: Type) {
         if let Some(scope) = self.gc_roots.last_mut() {
             scope.push((ptr, ty.clone()));
+            // Stub mode: cc_alloc returns raw malloc memory (no GC header).
+            // Calling ruyi_gc_add_root on such a pointer would treat the
+            // 32 bytes preceding it as a GcObjectHeader, corrupting malloc
+            // bookkeeping and eventually poisoning the root mutex
+            // (observed as deadlock via __psynch_mutexwait).
+            if self.gc_mode == GcMode::Stub {
+                return;
+            }
             let llvm_ty = super::types::ruyi_type_to_llvm(self.context, &ty);
             if llvm_ty.is_pointer_type() {
                 let loaded = self
                     .builder()
-                    .build_load(ptr, "root_val")
+                    .build_load(self.context.ptr_type(Default::default()), ptr, "root_val")
+                    .unwrap()
                     .into_pointer_value();
                 super::builtins::build_gc_add_root(self.builder(), self.module, loaded);
             }
+        }
+    }
+
+    /// Register a closure-shared binding slot (holding a GC-heap cell
+    /// pointer) as a GC root. `Type::String` is only the pointer-typed
+    /// marker so the matching removal in `emit_gc_root_removals` reloads
+    /// the same pointer from the slot.
+    pub fn add_gc_cell_root(&mut self, slot: inkwell::values::PointerValue<'ctx>) {
+        if let Some(scope) = self.gc_roots.last_mut() {
+            scope.push((slot, Type::String));
+            if self.gc_mode == GcMode::Stub {
+                return;
+            }
+            let loaded = self
+                .builder()
+                .build_load(self.context.ptr_type(Default::default()), slot, "cell_root")
+                .unwrap()
+                .into_pointer_value();
+            super::builtins::build_gc_add_root(self.builder(), self.module, loaded);
         }
     }
 
@@ -347,6 +442,21 @@ impl<'ctx, 'm, 'env> CodegenContext<'ctx, 'm, 'env> {
             } else {
                 ty.clone()
             };
+            // Closure-shared binding: the slot holds a GC cell pointer;
+            // resolve to the cell so reads (and assignment stores) hit
+            // the shared location instead of a per-scope copy.
+            if self.closure_shared_names.contains(name) {
+                let cell = self
+                    .builder()
+                    .build_load(
+                        self.context.ptr_type(Default::default()),
+                        *ptr,
+                        "shared_cell",
+                    )
+                    .unwrap()
+                    .into_pointer_value();
+                return Some((cell, final_ty));
+            }
             return Some((*ptr, final_ty));
         }
         if let Some(global) = self.globals.get(name) {
@@ -632,14 +742,15 @@ impl<'ctx> CodeGenerator<'ctx> {
 
     /// Generate LLVM IR from a typed AST program.
     pub fn generate(&self, program: &Program) -> Result<(), String> {
-        self.generate_with_env(program, &MonomorphizationTracker::new(), None)
+        let mut tracker = MonomorphizationTracker::new();
+        self.generate_with_env(program, &mut tracker, None)
     }
 
     /// Generate LLVM IR from a typed AST program with monomorphization tracker.
     pub fn generate_with_tracker(
         &self,
         program: &Program,
-        tracker: &MonomorphizationTracker,
+        tracker: &mut MonomorphizationTracker,
     ) -> Result<(), String> {
         self.generate_with_env(program, tracker, None)
     }
@@ -649,7 +760,7 @@ impl<'ctx> CodeGenerator<'ctx> {
     pub fn generate_with_env(
         &self,
         program: &Program,
-        tracker: &MonomorphizationTracker,
+        tracker: &mut MonomorphizationTracker,
         type_env: Option<&crate::typechecker::environment::TypeEnvironment>,
     ) -> Result<(), String> {
         let mut ctx = CodegenContext::with_gc_mode(
@@ -660,12 +771,60 @@ impl<'ctx> CodeGenerator<'ctx> {
             self.gc_mode,
         );
         ctx.set_allow_partial_codegen(self.allow_partial_codegen);
+        ctx.closure_shared_names = super::capture::collect_closure_shared_names(&program.items);
 
         declare_builtins(self.context, &self.module, self.gc_mode);
+
+        // Collect the main function body and predeclare all other functions
+        // (including generic ones) before monomorphization. Generic function
+        // ASTs are also stored so concrete specializations can be compiled.
+        let mut main_body: Option<&[crate::parser::ast::Statement]> = None;
+        let mut main_params: Option<&[crate::parser::ast::Param]> = None;
+        for item in &program.items {
+            if let Some(decl) = extract_declaration(item) {
+                if let crate::parser::ast::Declaration::Function {
+                    name,
+                    type_params,
+                    params,
+                    return_type,
+                    body,
+                    is_async,
+                    ..
+                } = decl
+                {
+                    if name == "main" && !*is_async {
+                        main_body = Some(body);
+                        main_params = Some(params);
+                    } else if !*is_async {
+                        super::decl::predeclare_function(
+                            &mut ctx,
+                            name,
+                            params,
+                            return_type.as_ref(),
+                        );
+                        if !type_params.is_empty() {
+                            ctx.generic_function_bodies.insert(
+                                name.clone(),
+                                GenericFunctionBody {
+                                    type_params: type_params
+                                        .iter()
+                                        .map(|tp| tp.name.clone())
+                                        .collect(),
+                                    params: params.clone(),
+                                    return_type: return_type.clone(),
+                                    body: body.clone(),
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+        }
 
         // Generate monomorphized generic functions
         let mut mono_ctx = MonomorphizationContext::new();
         mono_ctx.populate_from_tracker(tracker);
+        ctx.monomorph_tracker = Some(tracker);
         let mono_func_names: Vec<String> = mono_ctx.functions().keys().cloned().collect();
         for mangled_name in mono_func_names {
             if !mono_ctx.is_generated(&mangled_name) {
@@ -722,39 +881,8 @@ impl<'ctx> CodeGenerator<'ctx> {
         // Save entry block position before compiling declarations
         let main_entry_bb = entry_bb;
 
-        // Collect the main function body to compile into the entry point
-        let mut main_body: Option<&[crate::parser::ast::Statement]> = None;
-        let mut main_params: Option<&[crate::parser::ast::Param]> = None;
         // Compiled after main_body so the entry block stays terminator-free.
         let mut top_level_stmts: Vec<crate::parser::ast::Statement> = Vec::new();
-
-        for item in &program.items {
-            if let Some(decl) = extract_declaration(item) {
-                if let crate::parser::ast::Declaration::Function {
-                    name,
-                    params,
-                    return_type,
-                    is_async,
-                    ..
-                } = decl
-                {
-                    if name == "main" && !*is_async {
-                        if let crate::parser::ast::Declaration::Function { params, body, .. } = decl
-                        {
-                            main_body = Some(body);
-                            main_params = Some(params);
-                        }
-                    } else if !*is_async {
-                        super::decl::predeclare_function(
-                            &mut ctx,
-                            name,
-                            params,
-                            return_type.as_ref(),
-                        );
-                    }
-                }
-            }
-        }
 
         // First pass: predeclare class struct types and method signatures for forward references
         for item in &program.items {
@@ -762,7 +890,18 @@ impl<'ctx> CodeGenerator<'ctx> {
                 Some(d) => d,
                 None => continue,
             };
-            if let crate::parser::ast::Declaration::Class { name, body, .. } = decl {
+            if let crate::parser::ast::Declaration::Class {
+                name,
+                body,
+                extends,
+                ..
+            } = decl
+            {
+                if let Some(parent_expr) = extends {
+                    if let crate::parser::ast::Expr::Identifier(parent) = parent_expr.as_ref() {
+                        ctx.class_extends.insert(name.clone(), parent.clone());
+                    }
+                }
                 // Register a unique type ID for instanceof support.
                 let type_id = ctx.next_type_id;
                 ctx.next_type_id += 1;
@@ -771,12 +910,13 @@ impl<'ctx> CodeGenerator<'ctx> {
                 // Predeclare struct type (with hidden __typeid field at index 0)
                 let mut fields: Vec<(String, crate::typechecker::types::Type)> = Vec::new();
                 fields.push(("__typeid".to_string(), crate::typechecker::types::Type::Int));
+                let mut field_inits: Vec<(String, crate::parser::ast::Expr)> = Vec::new();
                 for element in body {
                     if let crate::parser::ast::ClassElement::Field {
                         name: prop_name,
                         ty,
+                        init,
                         is_static: false,
-                        ..
                     } = element
                     {
                         if let crate::parser::ast::PropertyName::Ident(n) = prop_name {
@@ -785,16 +925,40 @@ impl<'ctx> CodeGenerator<'ctx> {
                                 .map(crate::typechecker::types::Type::from_annotation)
                                 .unwrap_or(crate::typechecker::types::Type::Dynamic);
                             fields.push((n.clone(), field_ty));
+                            if let Some(init_expr) = init {
+                                field_inits.push((n.clone(), (**init_expr).clone()));
+                            }
                         }
                     }
                 }
-                let field_types: Vec<_> = fields
+                // Layout must match `build_combined_fields`: __typeid at
+                // index 0, then parent fields, then own fields. Base
+                // constructors write through the parent layout, so own
+                // fields must not occupy the parent's slots.
+                let mut combined: Vec<(String, crate::typechecker::types::Type)> =
+                    vec![fields[0].clone()];
+                if let Some(parent_name) = ctx.class_extends.get(name) {
+                    if let Some(parent_fields) = ctx.class_fields.get(parent_name) {
+                        combined.extend(
+                            parent_fields
+                                .iter()
+                                .filter(|(n, _)| n != "__typeid")
+                                .cloned(),
+                        );
+                    }
+                }
+                combined.extend(fields.into_iter().skip(1));
+
+                let field_types: Vec<_> = combined
                     .iter()
                     .map(|(_, ty)| super::types::ruyi_type_to_llvm(ctx.context, ty))
                     .collect();
                 let struct_type = ctx.context.struct_type(&field_types, false);
                 ctx.class_struct_types.insert(name.clone(), struct_type);
-                ctx.class_fields.insert(name.clone(), fields);
+                ctx.class_fields.insert(name.clone(), combined);
+                if !field_inits.is_empty() {
+                    ctx.class_field_inits.insert(name.clone(), field_inits);
+                }
 
                 // Predeclare methods
                 let mut getters = std::collections::HashSet::new();
@@ -894,7 +1058,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         // ARC classes skip GC tracing (destructor and trace_fn are null).
         let mut arc_type_id: u64 = 1000;
         let i64_ty = ctx.context.i64_type();
-        let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
+        let i8_ptr = ctx.context.ptr_type(Default::default());
         let type_info_struct = ctx.context.struct_type(
             &[i64_ty.into(), i8_ptr.into(), i8_ptr.into(), i8_ptr.into()],
             false,
@@ -947,6 +1111,37 @@ impl<'ctx> CodeGenerator<'ctx> {
         // Must run before compile_declaration so that trait object creation
         // in let bindings / assignments can look up vtable info.
         ctx.vtable_registry = Some(super::traits::generate_vtables(&mut ctx, program));
+
+        // Import aliases are desugared by the module resolver into
+        // `const y = x;`. Record them before any body is compiled so that
+        // calls through the alias take the direct-call path (rest
+        // parameter packaging, default arguments) instead of the generic
+        // function-value path, which passes arguments 1:1.
+        for item in &program.items {
+            let decl = match item {
+                crate::parser::ast::ModuleItem::Declaration(d) => Some(d),
+                crate::parser::ast::ModuleItem::Export(
+                    crate::parser::ast::ExportDecl::Declaration(d),
+                ) => Some(d),
+                _ => None,
+            };
+            if let Some(
+                crate::parser::ast::Declaration::Let(bindings)
+                | crate::parser::ast::Declaration::Const(bindings),
+            ) = decl
+            {
+                for b in bindings {
+                    let crate::parser::ast::Pattern::Identifier(name) = &b.pattern else {
+                        continue;
+                    };
+                    if let Some(crate::parser::ast::Expr::Identifier(target)) = b.init.as_deref() {
+                        if ctx.function_types.contains_key(target) {
+                            ctx.function_aliases.insert(name.clone(), target.clone());
+                        }
+                    }
+                }
+            }
+        }
 
         for (i, item) in program.items.iter().enumerate() {
             ctx.set_allow_partial_codegen(self.allow_partial_codegen || i < self.stdlib_item_count);
@@ -1029,7 +1224,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                     .map(Type::from_annotation)
                     .unwrap_or(Type::Dynamic);
                 let llvm_ty = ruyi_type_to_llvm(ctx.context, &param_ty);
-                let ptr = ctx.builder().build_alloca(llvm_ty, &param_name);
+                let ptr = ctx.builder().build_alloca(llvm_ty, &param_name).unwrap();
                 // Main has no external params, so just initialize with zero
                 let zero = match param_ty {
                     Type::Int => {
@@ -1045,13 +1240,10 @@ impl<'ctx> CodeGenerator<'ctx> {
                         BasicValueEnum::IntValue(ctx.context.i8_type().const_int(0, false))
                     }
                     _ => BasicValueEnum::PointerValue(
-                        ctx.context
-                            .i8_type()
-                            .ptr_type(Default::default())
-                            .const_null(),
+                        ctx.context.ptr_type(Default::default()).const_null(),
                     ),
                 };
-                ctx.builder().build_store(ptr, zero);
+                ctx.builder().build_store(ptr, zero).unwrap();
                 if crate::codegen::builtins::is_gc_managed(&param_ty) {
                     ctx.add_gc_root(ptr, param_ty.clone());
                 }
@@ -1077,24 +1269,38 @@ impl<'ctx> CodeGenerator<'ctx> {
                     let future_ptr = ctx
                         .builder
                         .build_call(async_main, &[], "async_main_call")
+                        .unwrap()
                         .try_as_basic_value()
-                        .left()
-                        .unwrap();
+                        .unwrap_basic();
                     let spawn_fn = ctx
                         .module
                         .get_function("ruyi_spawn")
                         .expect("ruyi_spawn not declared");
                     ctx.builder()
-                        .build_call(spawn_fn, &[future_ptr.into()], "spawn_main");
+                        .build_call(spawn_fn, &[future_ptr.into()], "spawn_main")
+                        .unwrap();
                     let scheduler_fn = ctx
                         .module
                         .get_function("ruyi_run_scheduler")
                         .expect("ruyi_run_scheduler not declared");
-                    ctx.builder().build_call(scheduler_fn, &[], "run_scheduler");
+                    ctx.builder()
+                        .build_call(scheduler_fn, &[], "run_scheduler")
+                        .unwrap();
                 }
+            } else if ctx.used_spawn_builtin {
+                // Fire-and-forget tasks submitted by `spawn()` must finish
+                // before the process exits, otherwise they are dropped
+                // before a worker ever polls them.
+                let scheduler_fn = ctx
+                    .module
+                    .get_function("ruyi_run_scheduler")
+                    .expect("ruyi_run_scheduler not declared");
+                ctx.builder()
+                    .build_call(scheduler_fn, &[], "drain_spawned")
+                    .unwrap();
             }
             let zero = BasicValueEnum::IntValue(i32_ty.const_int(0, false));
-            ctx.builder().build_return(Some(&zero));
+            ctx.builder().build_return(Some(&zero)).unwrap();
         }
 
         Ok(())
@@ -1217,7 +1423,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 ///
 /// Per spec Section 10.3, each specialization of a generic function
 /// gets its own LLVM function with the mangled name.
-fn compile_monomorphized_function<'ctx>(
+pub(crate) fn compile_monomorphized_function<'ctx>(
     ctx: &mut CodegenContext<'ctx, '_, '_>,
     mono_func: &MonomorphizedFunction,
 ) -> Result<(), String> {
@@ -1226,7 +1432,69 @@ fn compile_monomorphized_function<'ctx>(
     let function = ctx
         .module
         .add_function(&mono_func.mangled_name, fn_type, None);
+    // Internal linkage: monomorphizations must not export global symbols
+    // (see decl::predeclare_function for the libc-shadowing rationale).
+    function.set_linkage(inkwell::module::Linkage::Internal);
+    ctx.function_types.insert(
+        mono_func.mangled_name.clone(),
+        Type::Function {
+            params: mono_func.param_types.clone(),
+            return_type: Box::new(mono_func.return_type.clone()),
+        },
+    );
 
+    // If we have the generic function AST, specialize it by substituting
+    // concrete type annotations for each type parameter and compile the body.
+    if let Some(generic_body) = ctx
+        .generic_function_bodies
+        .get(&mono_func.generic_name)
+        .cloned()
+    {
+        if generic_body.type_params.len() == mono_func.type_args.len() {
+            let mut ann_map: std::collections::HashMap<String, crate::parser::ast::TypeAnnotation> =
+                std::collections::HashMap::new();
+            let mut all_concrete = true;
+            for (param_name, arg_ty) in generic_body
+                .type_params
+                .iter()
+                .zip(mono_func.type_args.iter())
+            {
+                match super::specialize::type_to_annotation(arg_ty) {
+                    Some(ann) => {
+                        ann_map.insert(param_name.clone(), ann);
+                    }
+                    None => {
+                        all_concrete = false;
+                        break;
+                    }
+                }
+            }
+            if all_concrete {
+                let subst_params = super::specialize::subst_params(&generic_body.params, &ann_map);
+                let subst_ret = generic_body
+                    .return_type
+                    .as_ref()
+                    .map(|t| super::specialize::subst_annotation(t, &ann_map));
+                let subst_body = super::specialize::subst_statements(&generic_body.body, &ann_map);
+
+                let saved_vars = ctx.variables.clone();
+                let result = super::decl::compile_function(
+                    ctx,
+                    &mono_func.mangled_name,
+                    &subst_params,
+                    subst_ret.as_ref(),
+                    Some(&mono_func.param_types),
+                    Some(&mono_func.return_type),
+                    &subst_body,
+                    None,
+                );
+                ctx.variables = saved_vars;
+                return result;
+            }
+        }
+    }
+
+    // No AST available: emit a stub function that returns a zero value.
     let entry_bb = ctx.context.append_basic_block(function, "entry");
     let prev_function = ctx.current_function();
     let prev_return_type = ctx.current_return_type().cloned();
@@ -1235,91 +1503,57 @@ fn compile_monomorphized_function<'ctx>(
     let prev_block = ctx.builder().get_insert_block();
     ctx.builder().position_at_end(entry_bb);
 
-    // Allocate parameters
-    let mut prev_vars = std::collections::HashMap::new();
     // RAII guard: pop_gc_root_scope guaranteed by GcRootScopeGuard Drop
     let _gc_scope_guard = unsafe { ctx.gc_root_scope() };
 
-    for (i, param_ty) in mono_func.param_types.iter().enumerate() {
-        let param_name = format!("arg_{}", i);
-        let llvm_ty = ruyi_type_to_llvm(ctx.context, param_ty);
-        let ptr = ctx.builder().build_alloca(llvm_ty, &param_name);
-
-        if let Some(param_value) = function.get_nth_param(i as u32) {
-            ctx.builder().build_store(ptr, param_value);
+    use inkwell::values::BasicValueEnum;
+    ctx.emit_gc_root_removals();
+    match &mono_func.return_type {
+        Type::Void | Type::Never => {
+            ctx.builder().build_return(None).unwrap();
         }
-
-        if super::builtins::is_gc_managed(param_ty) {
-            ctx.add_gc_root(ptr, param_ty.clone());
+        Type::Int => {
+            let zero = ctx.context.i64_type().const_int(0, true);
+            ctx.builder()
+                .build_return(Some(&BasicValueEnum::IntValue(zero)))
+                .unwrap();
         }
-
-        if let Some(old) = ctx
-            .variables
-            .insert(param_name.clone(), (ptr, param_ty.clone()))
-        {
-            prev_vars.insert(param_name, old);
+        Type::Float => {
+            let zero = ctx.context.f64_type().const_float(0.0);
+            ctx.builder()
+                .build_return(Some(&BasicValueEnum::FloatValue(zero)))
+                .unwrap();
         }
-    }
-
-    // Ensure the function has a terminator
-    let current_bb = ctx.builder().get_insert_block().unwrap();
-    if current_bb.get_terminator().is_none() {
-        use inkwell::values::BasicValueEnum;
-        ctx.emit_gc_root_removals();
-        match &mono_func.return_type {
-            Type::Void | Type::Never => {
-                ctx.builder().build_return(None);
-            }
-            Type::Int => {
-                let zero = ctx.context.i64_type().const_int(0, true);
-                ctx.builder()
-                    .build_return(Some(&BasicValueEnum::IntValue(zero)));
-            }
-            Type::Float => {
-                let zero = ctx.context.f64_type().const_float(0.0);
-                ctx.builder()
-                    .build_return(Some(&BasicValueEnum::FloatValue(zero)));
-            }
-            Type::Bool => {
-                let zero = ctx.context.bool_type().const_int(0, false);
-                ctx.builder()
-                    .build_return(Some(&BasicValueEnum::IntValue(zero)));
-            }
-            Type::Byte => {
-                let zero = ctx.context.i8_type().const_int(0, false);
-                ctx.builder()
-                    .build_return(Some(&BasicValueEnum::IntValue(zero)));
-            }
-            _ => {
-                // Generate a zero value matching the LLVM function's actual
-                // return type (which may differ from the Ruyi type due to
-                // generic type erasure, e.g. Nullable(Dynamic) → i64).
-                let llvm_ret_ty = ctx
-                    .builder()
-                    .get_insert_block()
-                    .and_then(|bb| bb.get_parent())
-                    .and_then(|f| f.get_type().get_return_type());
-                let default_val: BasicValueEnum<'ctx> = match llvm_ret_ty {
-                    Some(t) if t.is_int_type() => {
-                        BasicValueEnum::IntValue(t.into_int_type().const_int(0, false))
-                    }
-                    Some(t) if t.is_struct_type() => {
-                        BasicValueEnum::StructValue(t.into_struct_type().const_zero())
-                    }
-                    Some(t) if t.is_float_type() => {
-                        BasicValueEnum::FloatValue(t.into_float_type().const_float(0.0))
-                    }
-                    _ => {
-                        let null_ptr = ctx
-                            .context
-                            .i8_type()
-                            .ptr_type(Default::default())
-                            .const_null();
-                        BasicValueEnum::PointerValue(null_ptr)
-                    }
-                };
-                ctx.builder().build_return(Some(&default_val));
-            }
+        Type::Bool => {
+            let zero = ctx.context.bool_type().const_int(0, false);
+            ctx.builder()
+                .build_return(Some(&BasicValueEnum::IntValue(zero)))
+                .unwrap();
+        }
+        Type::Byte => {
+            let zero = ctx.context.i8_type().const_int(0, false);
+            ctx.builder()
+                .build_return(Some(&BasicValueEnum::IntValue(zero)))
+                .unwrap();
+        }
+        _ => {
+            let llvm_ret_ty = function.get_type().get_return_type();
+            let default_val: BasicValueEnum<'ctx> = match llvm_ret_ty {
+                Some(t) if t.is_int_type() => {
+                    BasicValueEnum::IntValue(t.into_int_type().const_int(0, false))
+                }
+                Some(t) if t.is_struct_type() => {
+                    BasicValueEnum::StructValue(t.into_struct_type().const_zero())
+                }
+                Some(t) if t.is_float_type() => {
+                    BasicValueEnum::FloatValue(t.into_float_type().const_float(0.0))
+                }
+                _ => {
+                    let null_ptr = ctx.context.ptr_type(Default::default()).const_null();
+                    BasicValueEnum::PointerValue(null_ptr)
+                }
+            };
+            ctx.builder().build_return(Some(&default_val)).unwrap();
         }
     }
 
@@ -1328,9 +1562,6 @@ fn compile_monomorphized_function<'ctx>(
     ctx.set_current_return_type(prev_return_type);
     if let Some(block) = prev_block {
         ctx.builder().position_at_end(block);
-    }
-    for (name, old) in prev_vars {
-        ctx.define_variable(name, old);
     }
 
     Ok(())
@@ -1400,7 +1631,9 @@ fn compile_top_level_let_inits<'ctx>(
                 } else {
                     init_result.value
                 };
-                ctx.builder().build_store(global.as_pointer_value(), value);
+                ctx.builder()
+                    .build_store(global.as_pointer_value(), value)
+                    .unwrap();
                 // Record the declared type; keep Dynamic when annotated as dyn
                 // so later reads know to extract struct fields.
                 let recorded_ty = ty;
@@ -1471,14 +1704,12 @@ pub(crate) fn ruyi_type_to_zero<'ctx>(
         | Type::Object(_)
         | Type::Function { .. }
         | Type::Generic { .. }
-        | Type::TypeVar(_) => BasicValueEnum::PointerValue(
-            context.i8_type().ptr_type(Default::default()).const_null(),
-        ),
+        | Type::TypeVar(_) => {
+            BasicValueEnum::PointerValue(context.ptr_type(Default::default()).const_null())
+        }
         Type::Nullable(_) => {
             // Nullable wraps an inner type; use null pointer.
-            BasicValueEnum::PointerValue(
-                context.i8_type().ptr_type(Default::default()).const_null(),
-            )
+            BasicValueEnum::PointerValue(context.ptr_type(Default::default()).const_null())
         }
         Type::Dynamic => {
             // Dynamic is {i64, i8*} — zero-initialized struct
@@ -1506,8 +1737,8 @@ mod tests {
         let bb = context.append_basic_block(func, "entry");
         ctx.builder().position_at_end(bb);
 
-        let i8_ptr_type = context.i8_type().ptr_type(Default::default());
-        let exception_ptr = ctx.builder().build_alloca(i8_ptr_type, "exc_ptr");
+        let i8_ptr_type = context.ptr_type(Default::default());
+        let exception_ptr = ctx.builder().build_alloca(i8_ptr_type, "exc_ptr").unwrap();
 
         let frame = TryFrame {
             landing_pad_bb: bb,

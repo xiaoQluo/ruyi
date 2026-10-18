@@ -489,6 +489,31 @@ impl MonomorphizationTracker {
         &self.specializations
     }
 
+    /// Creates a concrete specialization on demand when codegen discovers a
+    /// generic call that the typechecker did not pre-specialize (for example,
+    /// a generic helper called from inside another generic body). Returns
+    /// `None` if the name is not a registered generic definition or the type
+    /// arguments do not match its arity.
+    pub fn ensure_specialization(
+        &mut self,
+        generic_name: &str,
+        type_args: Vec<Type>,
+    ) -> Option<Specialization> {
+        let mangled = mangle_name(generic_name, &type_args);
+        if let Some(spec) = self.specializations.get(&mangled) {
+            return Some(spec.clone());
+        }
+        let def = self.generic_defs.get(generic_name)?.clone();
+        if type_args.len() != def.type_params.len() {
+            return None;
+        }
+        let subst = self.build_substitution(&def.type_params, &type_args);
+        let specialized_type = ConstraintSolver::apply_subst(&subst, &def.body_type);
+        let spec = Specialization::new(generic_name, type_args, specialized_type);
+        self.specializations.insert(mangled, spec.clone());
+        Some(spec)
+    }
+
     /// Collects all TypeVar IDs present in a type tree.
     /// Used to avoid ID collisions when creating fresh type variables.
     fn collect_type_var_ids(ty: &Type, ids: &mut std::collections::HashSet<u32>) {
@@ -672,6 +697,16 @@ fn replace_type_param_refs(ty: &Type, name_to_var: &HashMap<&str, Type>) -> Type
                 .map(|a| replace_type_param_refs(a, name_to_var))
                 .collect(),
         },
+        Type::Object(fields) => Type::Object(
+            fields
+                .iter()
+                .map(|f| crate::typechecker::types::ObjectField {
+                    name: f.name.clone(),
+                    ty: replace_type_param_refs(&f.ty, name_to_var),
+                    optional: f.optional,
+                })
+                .collect(),
+        ),
         _ => ty.clone(),
     }
 }

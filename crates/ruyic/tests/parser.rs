@@ -96,12 +96,12 @@ fn test_let_no_init() {
 
 #[test]
 fn test_const_simple() {
-    let decl = single_decl("const PI = 3.14;");
+    let decl = single_decl("const HALF = 2.5;");
     match decl {
         Declaration::Const(bindings) => {
             assert_eq!(bindings.len(), 1);
-            assert_eq!(bindings[0].pattern, Pattern::Identifier("PI".into()));
-            assert_eq!(bindings[0].init, Some(Box::new(Expr::FloatLiteral(3.14))));
+            assert_eq!(bindings[0].pattern, Pattern::Identifier("HALF".into()));
+            assert_eq!(bindings[0].init, Some(Box::new(Expr::FloatLiteral(2.5))));
         }
         _ => panic!("expected const declaration"),
     }
@@ -1005,8 +1005,8 @@ fn test_expr_int_literal() {
 
 #[test]
 fn test_expr_float_literal() {
-    let expr = single_expr("3.14;");
-    assert_eq!(expr, Expr::FloatLiteral(3.14));
+    let expr = single_expr("2.5;");
+    assert_eq!(expr, Expr::FloatLiteral(2.5));
 }
 
 #[test]

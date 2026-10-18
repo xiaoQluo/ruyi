@@ -187,7 +187,7 @@ compile_file() {
 
   local exit_code=0
   run_with_timeout "$COMPILE_TIMEOUT" "$COMPILER" ${compile_args[@]+"${compile_args[@]}"} "$input" -o "$output" \
-    1>"$stdout_file" 2>"$stderr_file" || exit_code=$?
+    </dev/null 1>"$stdout_file" 2>"$stderr_file" || exit_code=$?
 
   return "$exit_code"
 }
@@ -201,7 +201,10 @@ run_binary() {
   local stderr_file="$3"
 
   local exit_code=0
-  run_with_timeout "$RUN_TIMEOUT" "$binary" 1>"$stdout_file" 2>"$stderr_file" || exit_code=$?
+  # Redirect stdin from /dev/null: the loop reads the file list via
+  # process substitution, and a binary reading stdin would otherwise
+  # consume the remaining file list and abort the run.
+  run_with_timeout "$RUN_TIMEOUT" "$binary" </dev/null 1>"$stdout_file" 2>"$stderr_file" || exit_code=$?
 
   return "$exit_code"
 }

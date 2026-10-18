@@ -13,7 +13,7 @@
  * @date 2026-07-25
  */
 
-import { assert_eq, assert_true, assert_false, assert_not_null } from "test";
+import { assert_eq, assert_eq_string, assert_eq_int, assert_true, assert_false, assert_not_null } from "test";
 
 // =============================================================================
 // 1. assert_eq — 严格相等断言
@@ -22,12 +22,12 @@ fn demo_assert_eq() {
   print("=== 1. assert_eq 严格相等 ===\n\n");
 
   // 整数相等
-  assert_eq(2 + 2, 4);
-  print("assert_eq(2+2, 4): PASS\n");
+  assert_eq_int(2 + 2, 4);
+  print("assert_eq_int(2+2, 4): PASS\n");
 
   // 字符串相等
-  assert_eq("hello" + " world", "hello world");
-  print("assert_eq(string concat): PASS\n");
+  assert_eq_string("hello" + " world", "hello world");
+  print("assert_eq_string(string concat): PASS\n");
 
   // 布尔相等
   assert_eq(true, true);
@@ -80,11 +80,11 @@ fn demo_assert_not_null() {
 fn demo_assertion_failure() {
   print("=== 4. 断言失败处理 ===\n\n");
 
-  // assert_eq 失败
+  // assert_eq_int 失败
   try {
-    assert_eq(1, 2);
+    assert_eq_int(1, 2);
   } catch (e) {
-    print("捕获 assert_eq 失败: ");
+    print("捕获 assert_eq_int 失败: ");
     print(e);
     print("\n");
   }
@@ -131,7 +131,7 @@ fn demo_test_runner() {
 
   // 测试用例 1: 加法
   try {
-    assert_eq(1 + 1, 2);
+    assert_eq_int(1 + 1, 2);
     passed = passed + 1;
     print("  [PASS] 1 + 1 === 2\n");
   } catch (e) {
@@ -141,7 +141,7 @@ fn demo_test_runner() {
 
   // 测试用例 2: 字符串长度
   try {
-    assert_eq("Ruyi".length(), 4);
+    assert_eq_int("Ruyi".length(), 4);
     passed = passed + 1;
     print("  [PASS] \"Ruyi\".length() === 4\n");
   } catch (e) {
@@ -152,7 +152,7 @@ fn demo_test_runner() {
   // 测试用例 3: 数组操作
   try {
     let arr = [1, 2, 3];
-    assert_eq(arr.length(), 3);
+    assert_eq_int(arr.length(), 3);
     assert_true(arr[0] === 1);
     passed = passed + 1;
     print("  [PASS] array basics\n");
@@ -163,7 +163,7 @@ fn demo_test_runner() {
 
   // 测试用例 4: 故意失败（演示）
   try {
-    assert_eq(999, 1000);
+    assert_eq_int(999, 1000);
     passed = passed + 1;
     print("  [PASS] 999 === 1000\n");
   } catch (e) {

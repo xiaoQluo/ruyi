@@ -12,6 +12,8 @@
  * @date 2026-07-25
  */
 
+import { exit } from "process";
+
 import { base64Encode, base64Decode, base64EncodeBytes, base64DecodeToBytes,
          base64UrlEncode, base64UrlDecode, base64UrlEncodeBytes, base64UrlDecodeToBytes,
          hexEncode, hexDecode, bytesToHex, hexToBytes,
@@ -27,11 +29,14 @@ fn printOk(label: string) {
     print("  ✓ " + label + "\n");
 }
 
+let failedChecks = 0;
+
 fn check(label: string, condition: bool) {
     if (condition) {
         print("  ✓ " + label + "\n");
     } else {
         print("  ✗ FAILED: " + label + "\n");
+        failedChecks = failedChecks + 1;
     }
 }
 
@@ -176,4 +181,11 @@ fn main() {
     demo_validators();
 
     print("\nAll Encoding demos completed!\n");
+
+    // Report check failures through the exit status so runners
+    // (examples/run_examples.sh, sweep scripts) can detect them.
+    if (failedChecks > 0) {
+        print("  " + failedChecks + " check(s) FAILED\n");
+        exit(1);
+    }
 }

@@ -577,8 +577,14 @@ impl Scanner {
                 }),
             }
         } else {
-            match raw.parse::<i64>() {
-                Ok(i) => Ok(Token::Int(i)),
+            // Parse through u64 so that `i64::MIN` written as a positive
+            // decimal (`9223372036854775808`) accepts via bit-pattern
+            // preservation. The negative sign is a separate unary operator
+            // in the parser, so the literal itself must represent the full
+            // 64-bit range. Two's-complement wrap-around makes
+            // `u64 → i64` round-trip safe for all 64-bit values.
+            match raw.parse::<u64>() {
+                Ok(n) => Ok(Token::Int(n as i64)),
                 Err(_) => Err(LexerError::InvalidNumber {
                     line: start_line,
                     col: start_col,

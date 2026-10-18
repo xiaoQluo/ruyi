@@ -6,7 +6,9 @@ pub struct SyntaxContext(u32);
 impl SyntaxContext {
     pub fn new() -> Self {
         use std::sync::atomic::{AtomicU32, Ordering};
-        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        // Start at 1: id 0 is the global context, and a fresh context
+        // must never collide with it.
+        static COUNTER: AtomicU32 = AtomicU32::new(1);
         Self(COUNTER.fetch_add(1, Ordering::Relaxed))
     }
 

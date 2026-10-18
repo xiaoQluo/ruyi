@@ -10,6 +10,10 @@ pub struct MacroExpander<'a> {
     registry: &'a mut MacroRegistry,
     depth: usize,
     hygiene_ctx: StandardHygieneContext,
+    /// Names of functions declared in the (module-resolved) program.
+    /// A plain call to one of these must not be rewritten by a builtin
+    /// macro of the same name (e.g. a user `stringify`).
+    declared_functions: std::collections::HashSet<String>,
 }
 
 impl<'a> MacroExpander<'a> {
@@ -18,10 +22,27 @@ impl<'a> MacroExpander<'a> {
             registry,
             depth: 0,
             hygiene_ctx: StandardHygieneContext::new(),
+            declared_functions: std::collections::HashSet::new(),
         }
     }
 
     pub fn expand_program(&mut self, program: &Program) -> MacroResult<Program> {
+        // Collect declared function names first: a call written in plain
+        // `name(...)` form must resolve to a real function when one
+        // exists, instead of being rewritten by a same-named builtin
+        // macro (the stdlib `json.stringify` used to be replaced by the
+        // debug-token macro, making `isValid` always true).
+        for item in &program.items {
+            let decl = match item {
+                ModuleItem::Declaration(d) => Some(d),
+                ModuleItem::Export(crate::parser::ast::ExportDecl::Declaration(d)) => Some(d),
+                _ => None,
+            };
+            if let Some(Declaration::Function { name, .. }) = decl {
+                self.declared_functions.insert(name.clone());
+            }
+        }
+
         let mut expanded_items = Vec::new();
 
         for item in &program.items {
@@ -377,9 +398,25 @@ impl<'a> MacroExpander<'a> {
                     })
                     .collect();
 
+                // Plain `name(...)` macro invocation. A declared function
+                // of the same name wins — macro expansion must not
+                // rewrite ordinary calls.
                 if let Expr::Identifier(name) = &callee_expanded {
-                    if self.registry.contains(name.as_str()) {
+                    if self.registry.contains(name.as_str())
+                        && !self.declared_functions.contains(name.as_str())
+                    {
                         return self.expand_macro_call(name.as_str(), &args_expanded?);
+                    }
+                }
+                // Built-in macros are typically written `name!(...)` (the
+                // parser turns `!` into a postfix NullAssert on the
+                // identifier). Strip the synthetic NullAssert so the
+                // macro registry's plain-name lookup can match.
+                if let Expr::NullAssert(inner) = &callee_expanded {
+                    if let Expr::Identifier(name) = inner.as_ref() {
+                        if self.registry.contains(name.as_str()) {
+                            return self.expand_macro_call(name.as_str(), &args_expanded?);
+                        }
                     }
                 }
 

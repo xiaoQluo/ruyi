@@ -79,10 +79,28 @@ export class TCPSocket {
      * @return Buffer containing up to `size` bytes, or empty on EOF/error
      */
     fn readRaw(size: int): Buffer {
+        // Allocate `size` bytes so the underlying Array<byte> has enough
+        // capacity for a worst-case read, but the actual returned Buffer
+        // length reflects only what `__net_tcp_read_raw` managed to read
+        // (it updates the array's `len` field). Callers that need
+        // exactly `size` bytes (e.g. `mqtt::readPacket`) must loop until
+        // they accumulate a full payload. Without this, partial reads
+        // silently returned the full `size`-byte buffer padded with
+        // trailing zeros, breaking MQTT packet parsing for any packet
+        // shorter than the requested read size (notably the 4-byte
+        // CONNACK that was being requested as 5 bytes by `readRaw(5)`
+        // in `readPacket`).
         let buf = Buffer.alloc(size);
         let n = __net_tcp_read_raw(self._fd, buf.data);
         if (n <= 0) { return Buffer.alloc(0); }
-        return buf;
+        if (n == size) { return buf; }
+        // n < size: build a tighter buffer that reports the actual
+        // payload length so callers can detect short reads.
+        let exact = Buffer.alloc(n);
+        for (let i = 0; i < n; i = i + 1) {
+            exact.writeUInt8(i, buf.readUInt8(i));
+        }
+        return exact;
     }
 
     /**

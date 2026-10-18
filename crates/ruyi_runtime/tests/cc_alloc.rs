@@ -37,11 +37,9 @@ fn cc_alloc_non_zero_returns_writable() {
 
 #[test]
 fn cc_alloc_returns_8_byte_aligned() {
-    unsafe {
-        for size in [1, 7, 8, 15, 16, 100, 1024] {
-            let ptr = cc_alloc(size);
-            assert!(!ptr.is_null(), "cc_alloc({}) returned null", size);
-            assert_eq!(ptr as usize % 8, 0, "cc_alloc({}) not 8-byte aligned", size);
-        }
+    for size in [1, 7, 8, 15, 16, 100, 1024] {
+        let ptr = cc_alloc(size);
+        assert!(!ptr.is_null(), "cc_alloc({}) returned null", size);
+        assert_eq!(ptr as usize % 8, 0, "cc_alloc({}) not 8-byte aligned", size);
     }
 }

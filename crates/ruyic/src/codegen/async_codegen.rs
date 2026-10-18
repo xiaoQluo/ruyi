@@ -229,11 +229,9 @@ pub fn compile_async_function<'ctx>(
     let await_count = count_awaits_in_statements(body);
     let _ = await_count;
 
-    let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
+    let i8_ptr = ctx.context.ptr_type(Default::default());
     let i32_ty = ctx.context.i32_type();
-    let fn_ptr_ty = i32_ty
-        .fn_type(&[i8_ptr.into(), i8_ptr.into()], false)
-        .ptr_type(Default::default());
+    let fn_ptr_ty = ctx.context.ptr_type(Default::default());
 
     let mut state_field_types: Vec<BasicTypeEnum<'ctx>> = vec![fn_ptr_ty.into()];
     state_field_types.push(i32_ty.into());
@@ -244,7 +242,7 @@ pub fn compile_async_function<'ctx>(
     state_field_types.push(result_llvm_type);
 
     let state_struct_type = ctx.context.struct_type(&state_field_types, false);
-    let state_ptr_type = state_struct_type.ptr_type(Default::default());
+    let state_ptr_type = ctx.context.ptr_type(Default::default());
 
     let poll_fn_field_idx: u32 = 0;
     let state_field_idx: u32 = 1;
@@ -281,12 +279,16 @@ pub fn compile_async_function<'ctx>(
     let new_fn = ctx
         .module
         .add_function(&format!("{}$new", name), new_fn_type, None);
+    // Internal linkage: generated functions must not export global
+    // symbols (see decl::predeclare_function for the rationale).
+    new_fn.set_linkage(inkwell::module::Linkage::Internal);
 
     // ── 2. Poll function: {name}$poll ──────────────────────────
     let poll_fn_type = i32_ty.fn_type(&[i8_ptr.into(), i8_ptr.into()], false);
     let poll_fn = ctx
         .module
         .add_function(&format!("{}$poll", name), poll_fn_type, None);
+    poll_fn.set_linkage(inkwell::module::Linkage::Internal);
 
     let poll_entry = ctx.context.append_basic_block(poll_fn, "entry");
     let poll_start = ctx.context.append_basic_block(poll_fn, "start");
@@ -298,29 +300,36 @@ pub fn compile_async_function<'ctx>(
     let waker_ptr = poll_fn.get_nth_param(1).unwrap().into_pointer_value();
     let state_ptr_val = ctx
         .builder()
-        .build_bitcast(raw_state_ptr, state_ptr_type, "state")
+        .build_bit_cast(raw_state_ptr, state_ptr_type, "state")
+        .unwrap()
         .into_pointer_value();
 
     let state_field_ptr_poll = unsafe {
-        ctx.builder().build_gep(
-            state_ptr_val,
-            &[
-                i32_ty.const_int(0, false),
-                i32_ty.const_int(state_field_idx as u64, false),
-            ],
-            "state_field",
-        )
+        ctx.builder()
+            .build_gep(
+                state_struct_type,
+                state_ptr_val,
+                &[
+                    i32_ty.const_int(0, false),
+                    i32_ty.const_int(state_field_idx as u64, false),
+                ],
+                "state_field",
+            )
+            .unwrap()
     };
     let current_state = ctx
         .builder()
-        .build_load(state_field_ptr_poll, "current_state")
+        .build_load(i32_ty, state_field_ptr_poll, "current_state")
+        .unwrap()
         .into_int_value();
 
-    ctx.builder().build_switch(
-        current_state,
-        poll_done,
-        &[(i32_ty.const_int(0, false), poll_start)],
-    );
+    ctx.builder()
+        .build_switch(
+            current_state,
+            poll_done,
+            &[(i32_ty.const_int(0, false), poll_start)],
+        )
+        .unwrap();
 
     // Start block: load params from state into locals and compile body
     ctx.builder().position_at_end(poll_start);
@@ -338,22 +347,26 @@ pub fn compile_async_function<'ctx>(
         };
         let param_ty = param_types.get(i).cloned().unwrap_or(Type::Dynamic);
         let llvm_ty = ruyi_type_to_llvm(ctx.context, &param_ty);
-        let local_ptr = ctx.builder().build_alloca(llvm_ty, &param_name);
+        let local_ptr = ctx.builder().build_alloca(llvm_ty, &param_name).unwrap();
 
         let field_ptr = unsafe {
-            ctx.builder().build_gep(
-                state_ptr_val,
-                &[
-                    i32_ty.const_int(0, false),
-                    i32_ty.const_int(param_field_indices[i] as u64, false),
-                ],
-                &format!("param_{}_slot", i),
-            )
+            ctx.builder()
+                .build_gep(
+                    state_struct_type,
+                    state_ptr_val,
+                    &[
+                        i32_ty.const_int(0, false),
+                        i32_ty.const_int(param_field_indices[i] as u64, false),
+                    ],
+                    &format!("param_{}_slot", i),
+                )
+                .unwrap()
         };
         let loaded = ctx
             .builder()
-            .build_load(field_ptr, &format!("param_{}_val", i));
-        ctx.builder().build_store(local_ptr, loaded);
+            .build_load(llvm_ty, field_ptr, &format!("param_{}_val", i))
+            .unwrap();
+        ctx.builder().build_store(local_ptr, loaded).unwrap();
 
         if is_gc_managed(&param_ty) {
             ctx.add_gc_root(local_ptr, param_ty.clone());
@@ -369,14 +382,17 @@ pub fn compile_async_function<'ctx>(
 
     // Pre-compute result field pointer for async return interception
     let result_field_ptr = unsafe {
-        ctx.builder().build_gep(
-            state_ptr_val,
-            &[
-                i32_ty.const_int(0, false),
-                i32_ty.const_int(result_field_idx as u64, false),
-            ],
-            "result_field",
-        )
+        ctx.builder()
+            .build_gep(
+                state_struct_type,
+                state_ptr_val,
+                &[
+                    i32_ty.const_int(0, false),
+                    i32_ty.const_int(result_field_idx as u64, false),
+                ],
+                "result_field",
+            )
+            .unwrap()
     };
 
     ctx.async_state_field_ptr = Some(state_field_ptr_poll);
@@ -388,7 +404,9 @@ pub fn compile_async_function<'ctx>(
 
     let body_end_bb = ctx.builder().get_insert_block().unwrap();
     if body_end_bb.get_terminator().is_none() {
-        ctx.builder().build_unconditional_branch(poll_return);
+        ctx.builder()
+            .build_unconditional_branch(poll_return)
+            .unwrap();
     }
 
     // Restore async context fields before building poll_return
@@ -400,14 +418,17 @@ pub fn compile_async_function<'ctx>(
     // Async return block: set state=done and return Ready(1)
     ctx.builder().position_at_end(poll_return);
     ctx.builder()
-        .build_store(state_field_ptr_poll, i32_ty.const_int(1, false));
+        .build_store(state_field_ptr_poll, i32_ty.const_int(1, false))
+        .unwrap();
     ctx.builder()
-        .build_return(Some(&i32_ty.const_int(1, false)));
+        .build_return(Some(&i32_ty.const_int(1, false)))
+        .unwrap();
 
     // Done block: return Ready(1)
     ctx.builder().position_at_end(poll_done);
     ctx.builder()
-        .build_return(Some(&i32_ty.const_int(1, false)));
+        .build_return(Some(&i32_ty.const_int(1, false)))
+        .unwrap();
 
     ctx.set_current_function(prev_function);
 
@@ -428,7 +449,8 @@ pub fn compile_async_function<'ctx>(
     );
     let state_ptr = ctx
         .builder()
-        .build_bitcast(alloc_ptr, state_ptr_type, "state_ptr")
+        .build_bit_cast(alloc_ptr, state_ptr_type, "state_ptr")
+        .unwrap()
         .into_pointer_value();
 
     let poll_fn = ctx
@@ -437,47 +459,58 @@ pub fn compile_async_function<'ctx>(
         .expect("poll function should exist");
     let poll_fn_ptr_val = poll_fn.as_global_value().as_pointer_value();
     let poll_fn_field_ptr = unsafe {
-        ctx.builder().build_gep(
-            state_ptr,
-            &[
-                i32_ty.const_int(0, false),
-                i32_ty.const_int(poll_fn_field_idx as u64, false),
-            ],
-            "poll_fn_field",
-        )
+        ctx.builder()
+            .build_gep(
+                state_struct_type,
+                state_ptr,
+                &[
+                    i32_ty.const_int(0, false),
+                    i32_ty.const_int(poll_fn_field_idx as u64, false),
+                ],
+                "poll_fn_field",
+            )
+            .unwrap()
     };
     ctx.builder()
-        .build_store(poll_fn_field_ptr, poll_fn_ptr_val);
+        .build_store(poll_fn_field_ptr, poll_fn_ptr_val)
+        .unwrap();
 
     let state_field_ptr_new = unsafe {
-        ctx.builder().build_gep(
-            state_ptr,
-            &[
-                i32_ty.const_int(0, false),
-                i32_ty.const_int(state_field_idx as u64, false),
-            ],
-            "state_field",
-        )
+        ctx.builder()
+            .build_gep(
+                state_struct_type,
+                state_ptr,
+                &[
+                    i32_ty.const_int(0, false),
+                    i32_ty.const_int(state_field_idx as u64, false),
+                ],
+                "state_field",
+            )
+            .unwrap()
     };
     ctx.builder()
-        .build_store(state_field_ptr_new, i32_ty.const_int(0, false));
+        .build_store(state_field_ptr_new, i32_ty.const_int(0, false))
+        .unwrap();
 
     for (i, _param) in params.iter().enumerate() {
         let param_val = new_fn.get_nth_param(i as u32).unwrap();
         let field_ptr = unsafe {
-            ctx.builder().build_gep(
-                state_ptr,
-                &[
-                    i32_ty.const_int(0, false),
-                    i32_ty.const_int(param_field_indices[i] as u64, false),
-                ],
-                &format!("param_{}_field", i),
-            )
+            ctx.builder()
+                .build_gep(
+                    state_struct_type,
+                    state_ptr,
+                    &[
+                        i32_ty.const_int(0, false),
+                        i32_ty.const_int(param_field_indices[i] as u64, false),
+                    ],
+                    &format!("param_{}_field", i),
+                )
+                .unwrap()
         };
-        ctx.builder().build_store(field_ptr, param_val);
+        ctx.builder().build_store(field_ptr, param_val).unwrap();
     }
 
-    ctx.builder().build_return(Some(&alloc_ptr));
+    ctx.builder().build_return(Some(&alloc_ptr)).unwrap();
 
     if let Some(block) = prev_builder_block {
         ctx.builder().position_at_end(block);
@@ -495,6 +528,7 @@ pub fn compile_async_function<'ctx>(
         &Type::Future(Box::new(ret_type.clone())),
     );
     let wrapper_fn = ctx.module.add_function(wrapper_name, wrapper_fn_type, None);
+    wrapper_fn.set_linkage(inkwell::module::Linkage::Internal);
 
     let wrapper_entry = ctx.context.append_basic_block(wrapper_fn, "entry");
     ctx.builder().position_at_end(wrapper_entry);
@@ -504,9 +538,12 @@ pub fn compile_async_function<'ctx>(
         wrapper_args.push(wrapper_fn.get_nth_param(i as u32).unwrap().into());
     }
 
-    let new_call = ctx.builder().build_call(new_fn, &wrapper_args, "new_call");
-    let future_ptr = new_call.try_as_basic_value().left().unwrap();
-    ctx.builder().build_return(Some(&future_ptr));
+    let new_call = ctx
+        .builder()
+        .build_call(new_fn, &wrapper_args, "new_call")
+        .unwrap();
+    let future_ptr = new_call.try_as_basic_value().unwrap_basic();
+    ctx.builder().build_return(Some(&future_ptr)).unwrap();
 
     // ── Restore codegen state ──────────────────────────────────
     ctx.try_frame_stack = saved_try_frame_stack;
@@ -540,7 +577,7 @@ pub fn compile_await<'ctx>(
 ) -> Result<super::expr::ExprResult<'ctx>, String> {
     let inner_result = compile_expr(ctx, expr)?;
 
-    let i8_ptr = ctx.context.i8_type().ptr_type(Default::default());
+    let i8_ptr = ctx.context.ptr_type(Default::default());
     let i32_ty = ctx.context.i32_type();
 
     let waker = ctx.waker_ptr.unwrap_or_else(|| i8_ptr.const_null());
@@ -569,38 +606,46 @@ pub fn compile_await<'ctx>(
             };
             ctx.module.add_function(result_fn_name, fn_type, None)
         });
-        let call_result =
-            ctx.builder()
-                .build_call(result_fn, &[future_ptr.into()], "reactor_result");
+        let call_result = ctx
+            .builder()
+            .build_call(result_fn, &[future_ptr.into()], "reactor_result")
+            .unwrap();
         if result_fn_name.contains("_read_result") {
-            call_result.try_as_basic_value().left().unwrap()
+            call_result.try_as_basic_value().unwrap_basic()
         } else {
-            call_result.try_as_basic_value().left().unwrap()
+            call_result.try_as_basic_value().unwrap_basic()
         }
     } else if matches!(inner_result.ty, Type::Future(_)) {
         // Standard future: read result from fixed offset in state struct.
         let state_as_i8_ptr = ctx
             .builder()
-            .build_bitcast(future_ptr, i8_ptr, "state_as_i8")
+            .build_bit_cast(future_ptr, i8_ptr, "state_as_i8")
+            .unwrap()
             .into_pointer_value();
 
         let result_offset = 8 + 8 + 8;
         let result_ptr = unsafe {
-            ctx.builder().build_gep(
-                state_as_i8_ptr,
-                &[i32_ty.const_int(result_offset as u64, false)],
-                "result_ptr",
-            )
+            ctx.builder()
+                .build_gep(
+                    ctx.context.i8_type(),
+                    state_as_i8_ptr,
+                    &[i32_ty.const_int(result_offset as u64, false)],
+                    "result_ptr",
+                )
+                .unwrap()
         };
         let typed_result_ptr = ctx
             .builder()
-            .build_bitcast(
+            .build_bit_cast(
                 result_ptr,
-                ctx.context.i64_type().ptr_type(Default::default()),
+                ctx.context.ptr_type(Default::default()),
                 "typed_result_ptr",
             )
+            .unwrap()
             .into_pointer_value();
-        ctx.builder().build_load(typed_result_ptr, "await_result")
+        ctx.builder()
+            .build_load(ctx.context.i64_type(), typed_result_ptr, "await_result")
+            .unwrap()
     } else {
         BasicValueEnum::IntValue(poll_result)
     };

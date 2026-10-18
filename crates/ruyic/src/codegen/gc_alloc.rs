@@ -75,9 +75,9 @@ impl GcAllocFn {
             .unwrap_or_else(|| panic!("{} not declared", self.fn_name()));
         builder
             .build_call(fn_val, &[size.into()], "gc_alloc")
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_pointer_value()
     }
 }
@@ -96,7 +96,7 @@ pub fn declare_alloc_fn<'ctx>(
         return;
     }
     let i64_ty = context.i64_type();
-    let i8_ptr = context.i8_type().ptr_type(inkwell::AddressSpace::default());
+    let i8_ptr = context.ptr_type(inkwell::AddressSpace::default());
     let fn_type = i8_ptr.fn_type(&[i64_ty.into()], false);
     module.add_function(alloc.fn_name(), fn_type, None);
 }
@@ -193,8 +193,8 @@ mod tests {
             ir
         );
         assert!(
-            ir.contains("declare i8* @cc_alloc"),
-            "stub emit should declare i8* @cc_alloc; got:\n{}",
+            ir.contains("declare ptr @cc_alloc"),
+            "stub emit should declare ptr @cc_alloc; got:\n{}",
             ir
         );
     }
@@ -223,8 +223,8 @@ mod tests {
             ir
         );
         assert!(
-            ir.contains("declare i8* @ruyi_gc_alloc"),
-            "real emit should declare i8* @ruyi_gc_alloc; got:\n{}",
+            ir.contains("declare ptr @ruyi_gc_alloc"),
+            "real emit should declare ptr @ruyi_gc_alloc; got:\n{}",
             ir
         );
     }

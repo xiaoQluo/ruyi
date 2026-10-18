@@ -15,9 +15,14 @@
  */
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::ffi::{CStr, CString};
+use std::os::raw::c_char;
 
 thread_local! {
     static TLS_STORE: RefCell<HashMap<i64, i64>> = RefCell::new(HashMap::new());
+    /// String values are copied into thread-local heap memory so the
+    /// returned pointer stays valid for the lifetime of the entry.
+    static TLS_STRINGS: RefCell<HashMap<i64, CString>> = RefCell::new(HashMap::new());
 }
 
 /// Store a value for the given key in the current thread's TLS.
@@ -34,10 +39,49 @@ pub extern "C" fn __tls_load(key: i64) -> i64 {
     TLS_STORE.with(|store| store.borrow().get(&key).copied().unwrap_or(0))
 }
 
+/// Store a string value for the given key in the current thread's TLS.
+///
+/// The value is copied, so the caller's buffer may be released; the
+/// pointer returned by `__tls_load_str` stays valid until the entry is
+/// removed or replaced.
+///
+/// # Safety
+/// `value` must be null or a valid null-terminated C string.
+#[no_mangle]
+pub extern "C" fn __tls_store_str(key: i64, value: *const c_char) {
+    let text = if value.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(value) }
+            .to_string_lossy()
+            .into_owned()
+    };
+    let owned = CString::new(text).unwrap_or_else(|_| CString::new("").unwrap());
+    TLS_STRINGS.with(|store| {
+        store.borrow_mut().insert(key, owned);
+    });
+}
+
+/// Load a string value for the given key in the current thread's TLS.
+/// Returns null when the key is not set.
+#[no_mangle]
+pub extern "C" fn __tls_load_str(key: i64) -> *mut c_char {
+    TLS_STRINGS.with(|store| {
+        store
+            .borrow()
+            .get(&key)
+            .map(|s| s.as_ptr() as *mut c_char)
+            .unwrap_or(std::ptr::null_mut())
+    })
+}
+
 /// Remove a key from the current thread's TLS.
 /// Returns the previous value, or 0 if none.
 #[no_mangle]
 pub extern "C" fn __tls_remove(key: i64) -> i64 {
+    TLS_STRINGS.with(|store| {
+        store.borrow_mut().remove(&key);
+    });
     TLS_STORE.with(|store| store.borrow_mut().remove(&key).unwrap_or(0))
 }
 
@@ -45,6 +89,10 @@ pub extern "C" fn __tls_remove(key: i64) -> i64 {
 /// Returns 1 if exists, 0 otherwise.
 #[no_mangle]
 pub extern "C" fn __tls_contains(key: i64) -> i8 {
+    let has_string = TLS_STRINGS.with(|store| store.borrow().contains_key(&key));
+    if has_string {
+        return 1;
+    }
     TLS_STORE.with(|store| {
         if store.borrow().contains_key(&key) {
             1
@@ -57,6 +105,9 @@ pub extern "C" fn __tls_contains(key: i64) -> i8 {
 /// Clear all TLS entries for the current thread.
 #[no_mangle]
 pub extern "C" fn __tls_clear() {
+    TLS_STRINGS.with(|store| {
+        store.borrow_mut().clear();
+    });
     TLS_STORE.with(|store| {
         store.borrow_mut().clear();
     })

@@ -49,45 +49,11 @@ struct ProcessHandle {
     stderr_buf: Mutex<Vec<u8>>,
 }
 
-// ============================================================
-// Command Execution
-// ============================================================
-
-#[no_mangle]
-pub extern "C" fn __process_exec(command: *const c_char) -> *mut c_char {
-    let cmd = unsafe { cstr_to_str(command) };
-    let output = if cfg!(target_os = "windows") {
-        Command::new("cmd").args(["/C", cmd]).output()
-    } else {
-        Command::new("sh").arg("-c").arg(cmd).output()
-    };
-    match output {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-            let exit_code = out.status.code().unwrap_or(-1) as i64;
-            let result = format!("{}\x00{}\x00{}", stdout, stderr, exit_code);
-            unsafe { str_to_heap(&result) }
-        }
-        Err(e) => {
-            let msg = format!("\x00{}\x00-1", e);
-            unsafe { str_to_heap(&msg) }
-        }
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn __process_exec_with(
-    command: *const c_char,
-    cwd: *const c_char,
-    _env: *mut c_char,
-    shell: bool,
-) -> *mut c_char {
-    let cmd_str = unsafe { cstr_to_str(command) };
-    let cwd_str = unsafe { cstr_to_str(cwd) };
-
-    let mut cmd = if shell {
-        let c = if cfg!(target_os = "windows") {
+/// Build a `Command` for `cmd_str`, routed through the system shell when
+/// `shell` is set and split on whitespace otherwise.
+fn build_command(cmd_str: &str, shell: bool) -> Command {
+    if shell {
+        if cfg!(target_os = "windows") {
             let mut c = Command::new("cmd");
             c.args(["/C", cmd_str]);
             c
@@ -95,68 +61,125 @@ pub extern "C" fn __process_exec_with(
             let mut c = Command::new("sh");
             c.arg("-c").arg(cmd_str);
             c
-        };
-        c
+        }
     } else {
         let mut parts = cmd_str.split_whitespace();
-        let prog = parts.next().unwrap_or("");
-        let mut c = Command::new(prog);
+        let mut c = Command::new(parts.next().unwrap_or(""));
         for arg in parts {
             c.arg(arg);
         }
         c
-    };
-
-    if !cwd_str.is_empty() {
-        cmd.current_dir(cwd_str);
-    }
-
-    match cmd.output() {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-            let exit_code = out.status.code().unwrap_or(-1) as i64;
-            let result = format!("{}\x00{}\x00{}", stdout, stderr, exit_code);
-            unsafe { str_to_heap(&result) }
-        }
-        Err(e) => {
-            let msg = format!("\x00{}\x00-1", e);
-            unsafe { str_to_heap(&msg) }
-        }
     }
 }
 
+// ============================================================
+// Synchronous Execution Capture
+// ============================================================
+
+/// Output of one synchronous command run.
+///
+/// stdout, stderr and the exit code each have to reach Ruyi as a value of
+/// its own. They cannot share a single packed C string: Ruyi strings are
+/// NUL-terminated, so a `\0`-delimited triple would read back as its first
+/// field alone, and returning that pointer as if it were a `ProcessResult`
+/// instance made every field load land inside the packed bytes.
+struct ExecCapture {
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    exit_code: i64,
+}
+
+impl ExecCapture {
+    fn from_output(out: std::process::Output) -> Self {
+        ExecCapture {
+            stdout: out.stdout,
+            stderr: out.stderr,
+            exit_code: out.status.code().unwrap_or(-1) as i64,
+        }
+    }
+
+    fn stream(&self, stderr: bool) -> String {
+        let bytes = if stderr { &self.stderr } else { &self.stdout };
+        String::from_utf8_lossy(bytes).into_owned()
+    }
+}
+
+/// Run `command` to completion and capture its output.
+///
+/// `cwd` may be null or empty to inherit the current directory. Returns an
+/// opaque capture handle, or 0 when the command could not be spawned.
+#[no_mangle]
+pub extern "C" fn __process_exec_capture(
+    command: *const c_char,
+    cwd: *const c_char,
+    shell: bool,
+) -> i64 {
+    let cmd_str = unsafe { cstr_to_str(command) };
+    let cwd_str = unsafe { cstr_to_str(cwd) };
+    let mut cmd = build_command(cmd_str, shell);
+    if !cwd_str.is_empty() {
+        cmd.current_dir(cwd_str);
+    }
+    match cmd.output() {
+        Ok(out) => Box::into_raw(Box::new(ExecCapture::from_output(out))) as i64,
+        Err(_) => 0,
+    }
+}
+
+/// Read a captured stream, returning an empty string for a null handle.
+unsafe fn capture_stream(handle: i64, stderr: bool) -> *mut c_char {
+    if handle == 0 {
+        return str_to_heap("");
+    }
+    let capture = &*(handle as *const ExecCapture);
+    str_to_heap(&capture.stream(stderr))
+}
+
+#[no_mangle]
+pub extern "C" fn __process_capture_stdout(handle: i64) -> *mut c_char {
+    unsafe { capture_stream(handle, false) }
+}
+
+#[no_mangle]
+pub extern "C" fn __process_capture_stderr(handle: i64) -> *mut c_char {
+    unsafe { capture_stream(handle, true) }
+}
+
+/// Exit code of a captured run, or -1 for a null handle.
+#[no_mangle]
+pub extern "C" fn __process_capture_code(handle: i64) -> i64 {
+    if handle == 0 {
+        return -1;
+    }
+    unsafe { (*(handle as *const ExecCapture)).exit_code }
+}
+
+/// Release a capture handle. Null handles are ignored.
+#[no_mangle]
+pub extern "C" fn __process_capture_free(handle: i64) {
+    if handle == 0 {
+        return;
+    }
+    unsafe {
+        drop(Box::from_raw(handle as *mut ExecCapture));
+    }
+}
+
+/// Spawn `command` and return an opaque handle, or 0 on failure.
+///
+/// The handle is an integer rather than a pointer because Ruyi types every
+/// `__process_*` handle as `int`, matching `FileReader._h`.
 #[no_mangle]
 pub extern "C" fn __process_create(
     command: *const c_char,
     cwd: *const c_char,
     _env: *mut c_char,
     shell: bool,
-) -> *mut c_char {
+) -> i64 {
     let cmd_str = unsafe { cstr_to_str(command) }.to_string();
     let cwd_str = unsafe { cstr_to_str(cwd) }.to_string();
 
-    let mut cmd = if shell {
-        let c = if cfg!(target_os = "windows") {
-            let mut c = Command::new("cmd");
-            c.args(["/C", &cmd_str]);
-            c
-        } else {
-            let mut c = Command::new("sh");
-            c.arg("-c").arg(&cmd_str);
-            c
-        };
-        c
-    } else {
-        let mut parts = cmd_str.split_whitespace();
-        let prog = parts.next().unwrap_or("");
-        let mut c = Command::new(prog);
-        for arg in parts {
-            c.arg(arg);
-        }
-        c
-    };
-
+    let mut cmd = build_command(&cmd_str, shell);
     if !cwd_str.is_empty() {
         cmd.current_dir(&cwd_str);
     }
@@ -173,9 +196,38 @@ pub extern "C" fn __process_create(
                 stdout_buf: Mutex::new(Vec::new()),
                 stderr_buf: Mutex::new(Vec::new()),
             });
-            Box::into_raw(handle) as *mut c_char
+            Box::into_raw(handle) as i64
         }
-        Err(_) => std::ptr::null_mut(),
+        Err(_) => 0,
+    }
+}
+
+/// OS pid of a spawned child, or -1 for a null handle.
+#[no_mangle]
+pub extern "C" fn __process_handle_pid(proc: i64) -> i64 {
+    if proc == 0 {
+        return -1;
+    }
+    unsafe {
+        let handle = &*(proc as *const ProcessHandle);
+        match handle.child.lock() {
+            Ok(child_opt) => match child_opt.as_ref() {
+                Some(child) => child.id() as i64,
+                None => -1,
+            },
+            Err(_) => -1,
+        }
+    }
+}
+
+/// Release a process handle. Null handles are ignored.
+#[no_mangle]
+pub extern "C" fn __process_handle_free(proc: i64) {
+    if proc == 0 {
+        return;
+    }
+    unsafe {
+        drop(Box::from_raw(proc as *mut ProcessHandle));
     }
 }
 
@@ -184,8 +236,8 @@ pub extern "C" fn __process_create(
 // ============================================================
 
 #[no_mangle]
-pub extern "C" fn __process_wait(proc: *mut c_char) -> i64 {
-    if proc.is_null() {
+pub extern "C" fn __process_wait(proc: i64) -> i64 {
+    if proc == 0 {
         return -1;
     }
     unsafe {
@@ -217,14 +269,13 @@ pub extern "C" fn __process_wait(proc: *mut c_char) -> i64 {
 }
 
 #[no_mangle]
-pub extern "C" fn __process_wait_async(proc: *mut c_char) -> *mut c_char {
-    __process_wait(proc);
-    std::ptr::null_mut()
+pub extern "C" fn __process_wait_async(proc: i64) -> i64 {
+    __process_wait(proc)
 }
 
 #[no_mangle]
-pub extern "C" fn __process_kill(proc: *mut c_char, _signal: i64) {
-    if proc.is_null() {
+pub extern "C" fn __process_kill(proc: i64, _signal: i64) {
+    if proc == 0 {
         return;
     }
     unsafe {
@@ -242,8 +293,8 @@ pub extern "C" fn __process_kill(proc: *mut c_char, _signal: i64) {
 // ============================================================
 
 #[no_mangle]
-pub extern "C" fn __process_write_input(proc: *mut c_char, input: *const c_char) {
-    if proc.is_null() {
+pub extern "C" fn __process_write_input(proc: i64, input: *const c_char) {
+    if proc == 0 {
         return;
     }
     let data = unsafe { cstr_to_str(input) };
@@ -261,8 +312,8 @@ pub extern "C" fn __process_write_input(proc: *mut c_char, input: *const c_char)
 }
 
 #[no_mangle]
-pub extern "C" fn __process_close_input(proc: *mut c_char) {
-    if proc.is_null() {
+pub extern "C" fn __process_close_input(proc: i64) {
+    if proc == 0 {
         return;
     }
     unsafe {
@@ -276,8 +327,8 @@ pub extern "C" fn __process_close_input(proc: *mut c_char) {
 }
 
 #[no_mangle]
-pub extern "C" fn __process_read_output(proc: *mut c_char) -> *mut c_char {
-    if proc.is_null() {
+pub extern "C" fn __process_read_output(proc: i64) -> *mut c_char {
+    if proc == 0 {
         return std::ptr::null_mut();
     }
     unsafe {
@@ -303,8 +354,8 @@ pub extern "C" fn __process_read_output(proc: *mut c_char) -> *mut c_char {
 }
 
 #[no_mangle]
-pub extern "C" fn __process_read_error(proc: *mut c_char) -> *mut c_char {
-    if proc.is_null() {
+pub extern "C" fn __process_read_error(proc: i64) -> *mut c_char {
+    if proc == 0 {
         return std::ptr::null_mut();
     }
     unsafe {
@@ -362,6 +413,16 @@ pub extern "C" fn __process_get_all_env() -> *mut c_char {
 // ============================================================
 // System Information
 // ============================================================
+
+/**
+ * Terminate the current process with the given exit status.
+ *
+ * @param code Status reported to the parent process; 0 means success.
+ */
+#[no_mangle]
+pub extern "C" fn __process_exit(code: i64) {
+    std::process::exit(code as i32);
+}
 
 #[no_mangle]
 pub extern "C" fn __process_get_pid() -> i64 {
@@ -530,36 +591,77 @@ mod tests {
     }
 
     #[test]
-    fn test_exec_echo() {
-        let result = __process_exec(c("echo hello"));
+    fn test_exec_capture_echo() {
+        let h = __process_exec_capture(c("echo hello"), std::ptr::null(), true);
+        assert_ne!(h, 0, "echo must produce a capture handle");
         unsafe {
-            let s = to_str(result);
-            assert!(s.contains("hello"));
+            assert_eq!(to_str(__process_capture_stdout(h)).trim(), "hello");
+            assert_eq!(to_str(__process_capture_stderr(h)), "");
         }
+        assert_eq!(__process_capture_code(h), 0);
+        __process_capture_free(h);
     }
 
     #[test]
-    fn test_exec_failure() {
-        let result = __process_exec(c("nonexistent_command_xyz_123"));
-        assert!(!result.is_null());
+    fn test_exec_capture_failure() {
+        let h = __process_exec_capture(c("exit 7"), std::ptr::null(), true);
+        assert_eq!(__process_capture_code(h), 7);
+        __process_capture_free(h);
+    }
+
+    #[test]
+    fn test_exec_capture_spawn_error_has_no_handle() {
+        let h = __process_exec_capture(c("echo x"), c("/nonexistent_dir_xyz_123"), true);
+        assert_eq!(h, 0, "a bad cwd must not produce a handle");
+    }
+
+    // stdout and stderr must stay separate; a single packed string cannot
+    // carry both because Ruyi strings are NUL-terminated.
+    #[test]
+    fn test_exec_capture_keeps_streams_separate() {
+        let h = __process_exec_capture(c("echo out; echo err 1>&2"), std::ptr::null(), true);
+        unsafe {
+            assert_eq!(to_str(__process_capture_stdout(h)).trim(), "out");
+            assert_eq!(to_str(__process_capture_stderr(h)).trim(), "err");
+        }
+        __process_capture_free(h);
+    }
+
+    #[test]
+    fn test_capture_accessors_reject_null_handle() {
+        unsafe {
+            assert_eq!(to_str(__process_capture_stdout(0)), "");
+            assert_eq!(to_str(__process_capture_stderr(0)), "");
+        }
+        assert_eq!(__process_capture_code(0), -1);
+        __process_capture_free(0);
+    }
+
+    #[test]
+    fn test_free_on_zero_handle_is_safe() {
+        __process_capture_free(0);
+        __process_handle_free(0);
     }
 
     #[test]
     fn test_create_and_wait() {
         let proc = __process_create(c("echo test"), std::ptr::null(), std::ptr::null_mut(), true);
-        assert!(!proc.is_null());
+        assert_ne!(proc, 0);
+        assert!(__process_handle_pid(proc) > 0);
         let code = __process_wait(proc);
         assert_eq!(code, 0);
+        __process_handle_free(proc);
     }
 
     #[test]
     fn test_create_and_kill() {
         let proc = __process_create(c("sleep 10"), std::ptr::null(), std::ptr::null_mut(), true);
-        assert!(!proc.is_null());
+        assert_ne!(proc, 0);
         __process_kill(proc, 9);
         let code = __process_wait(proc);
         // Killed process should have non-zero exit
         assert!(code != 0 || code == -1);
+        __process_handle_free(proc);
     }
 
     #[test]
@@ -639,15 +741,20 @@ mod tests {
     #[test]
     fn test_write_input_and_read_output() {
         let proc = __process_create(c("cat"), std::ptr::null(), std::ptr::null_mut(), true);
-        assert!(!proc.is_null());
+        assert_ne!(proc, 0);
         __process_write_input(proc, c("hello_from_test"));
         __process_close_input(proc);
 
         // Read output after closing input
         std::thread::sleep(std::time::Duration::from_millis(200));
-        let _out = __process_read_output(proc);
+        let out = __process_read_output(proc);
+        assert!(!out.is_null(), "cat should have echoed the input");
+        unsafe {
+            assert_eq!(to_str(out), "hello_from_test");
+        }
         // cat should echo back the input
         let code = __process_wait(proc);
         assert_eq!(code, 0);
+        __process_handle_free(proc);
     }
 }

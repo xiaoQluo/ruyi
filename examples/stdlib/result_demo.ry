@@ -1,0 +1,226 @@
+// =============================================================================
+// Result Demo - Ruyi Result<T, E> 类型演示
+// =============================================================================
+// 覆盖:
+//   - Ok / Err 构造与基础方法 (isOk / isErr / unwrap)
+//   - unwrapOr / unwrapOrElse 提供默认值
+//   - map<U> / mapErr<F> 单边变换
+//   - andThen<U> 链式组合
+//   - ok() / err() 与 Option 的互转
+//   - toOption / toBool 转换
+//   - Result 用作返回值的常见模式(代替 throw)
+//
+// 注:Ok / Err / Result 在 stdlib/option.ry 中与 Option 同模块导出,
+// 通过 `import { Ok, Err, Result } from "option"` 引入。
+// =============================================================================
+
+import { Ok, Err, Result, Some, None, Option } from "option";
+
+// -----------------------------------------------------------------------------
+// Helper
+// -----------------------------------------------------------------------------
+fn printOk(label: string) {
+    print("  ✓ " + label + "\n");
+}
+
+fn check(label: string, condition: bool) {
+    if (condition) {
+        print("  ✓ " + label + "\n");
+    } else {
+        print("  ✗ FAILED: " + label + "\n");
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 1. Ok / Err 构造
+// -----------------------------------------------------------------------------
+fn demo_construction() {
+    print("=== 1. Ok / Err Construction ===\n\n");
+
+    let ok_int = Ok.new(42);
+    print("Ok<int, void>.value: ");
+    print(ok_int.value);
+    print("\n");
+
+    let err_str = Err.new("oops");
+    print("Err<void, string>.error: ");
+    print(err_str.error);
+    print("\n\n");
+}
+
+// -----------------------------------------------------------------------------
+// 2. isOk / isErr / unwrap
+// -----------------------------------------------------------------------------
+fn demo_basic_methods() {
+    print("=== 2. Basic Methods (isOk/isErr/unwrap) ===\n\n");
+
+    let success: Result<int, string> = Ok.new(100);
+    check("Ok(100).isOk()", success.isOk());
+    check("Ok(100).isErr()", !success.isErr());
+    print("Ok(100).unwrap(): ");
+    print(success.unwrap());
+    print("\n");
+
+    let failure: Result<int, string> = Err.new("network down");
+    check("Err.isOk()", !failure.isOk());
+    check("Err.isErr()", failure.isErr());
+    print("Err.error: ");
+    print(failure.error);
+    print("\n");
+
+    // unwrapOr: Err 时返回默认值
+    let v1 = failure.unwrapOr(0);
+    check("Err.unwrapOr(0)", v1 === 0);
+    print("Err.unwrapOr(0) = ");
+    print(v1);
+    print("\n");
+
+    // unwrapOrElse: Err 时从闭包计算默认值
+    let v2 = failure.unwrapOrElse((e: string) => -1);
+    check("Err.unwrapOrElse(e => -1)", v2 === -1);
+    print("Err.unwrapOrElse(e => -1) = ");
+    print(v2);
+    print("\n\n");
+}
+
+// -----------------------------------------------------------------------------
+// 3. map / mapErr
+// -----------------------------------------------------------------------------
+fn demo_map() {
+    print("=== 3. map<U> / mapErr<F> ===\n\n");
+
+    // Ok.map<U>: 用 f 把 T 转 U
+    let ok_val: Result<int, string> = Ok.new(5);
+    let doubled = ok_val.map((x: int) => x * 2);
+    print("Ok(5).map(x => x*2): ");
+    print(doubled.unwrap());
+    print("  (int → int)\n");
+
+    // Err.map<U>: no-op,Err 透传
+    let err_val: Result<int, string> = Err.new("failed");
+    let mapped = err_val.map((x: int) => x * 2);
+    print("Err.map(...).isErr(): ");
+    print(mapped.isErr());
+    print("  (Err 透传)\n\n");
+
+    // Ok.mapErr: no-op,Ok 透传
+    let ok2: Result<int, string> = Ok.new(10);
+    let mapped_err = ok2.mapErr((e: string) => "wrapped: " + e);
+    print("Ok(10).mapErr(...).isOk(): ");
+    print(mapped_err.isOk());
+    print("  (Ok 透传)\n");
+
+    // Err.mapErr<F>: 把错误类型从 string 转 Error
+    let err2: Result<int, string> = Err.new("net");
+    let wrapped = err2.mapErr((e: string) => Error.new(e));
+    print("Err.mapErr(e => Error.new(e)).isErr(): ");
+    print(wrapped.isErr());
+    print("\n\n");
+}
+
+// -----------------------------------------------------------------------------
+// 4. andThen 链式组合
+// -----------------------------------------------------------------------------
+// 模拟一个"安全除法":分母为 0 时返回 Err
+fn safeDivide(a: int, b: int): Result<int, string> {
+    if (b === 0) {
+        return Err.new("division by zero");
+    }
+    return Ok.new(a / b);
+}
+
+// 链式:10/2 → +5 → /1 → *2,期望 20
+fn demo_and_then() {
+    print("=== 4. andThen<U> Chaining ===\n\n");
+
+    let r1 = safeDivide(10, 2)
+        .andThen((x: int) => safeDivide(x + 5, 1))
+        .andThen((x: int) => Ok.new(x * 2));
+    print("safeDivide(10,2).andThen(x => safeDivide(x+5,1)).andThen(x => Ok(x*2)):\n  ");
+    print(r1.unwrap());
+    print("  (期望 20)\n");
+
+    // 短路:第一个 Err 立即终止链
+    let r2 = safeDivide(10, 0)
+        .andThen((x: int) => safeDivide(x + 5, 1));
+    print("safeDivide(10, 0).andThen(...).isErr(): ");
+    print(r2.isErr());
+    print("  (短路在 Err)\n");
+    print("Err.error: ");
+    print(r2.error);
+    print("\n\n");
+}
+
+// -----------------------------------------------------------------------------
+// 5. Result ↔ Option 互转
+// -----------------------------------------------------------------------------
+fn demo_conversion() {
+    print("=== 5. Result ↔ Option ===\n\n");
+
+    let ok_val: Result<int, string> = Ok.new(7);
+    let some_val = ok_val.ok();
+    check("Ok(7).ok() is Some", some_val.isSome());
+    print("Ok(7).ok().unwrap(): ");
+    print(some_val.unwrap());
+    print("\n");
+
+    let err_val: Result<int, string> = Err.new("e1");
+    let none_val = err_val.ok();
+    check("Err.ok() is None", none_val.isNone());
+    print("Err.ok().isNone(): ");
+    print(none_val.isNone());
+    print("\n");
+
+    // toOption 是 ok() 的别名
+    check("Err.toOption() === None", err_val.toOption().isNone());
+
+    // ok() → bool
+    let ok2: Result<int, string> = Ok.new(1);
+    check("Ok(1).toBool()", ok2.toBool());
+    print("Err.toBool(): ");
+    print(err_val.toBool());
+    print("\n");
+
+    // Result.err() → Option<E>
+    let err2: Result<int, string> = Err.new("err_msg");
+    let err_opt = err2.err();
+    check("Err.err() is Some(error)", err_opt.isSome());
+    print("Err.err().unwrap(): ");
+    print(err_opt.unwrap());
+    print("\n\n");
+}
+
+// -----------------------------------------------------------------------------
+// 6. 字符串表示
+// -----------------------------------------------------------------------------
+fn demo_to_string() {
+    print("=== 6. toString ===\n\n");
+
+    let ok_val: Result<int, string> = Ok.new(99);
+    print("Ok(99).toString(): ");
+    print(ok_val.toString());
+    print("\n");
+
+    let err_val: Result<int, string> = Err.new("io error");
+    print("Err.toString(): ");
+    print(err_val.toString());
+    print("\n\n");
+}
+
+// -----------------------------------------------------------------------------
+// Main
+// -----------------------------------------------------------------------------
+fn main() {
+    print("╔══════════════════════════════════╗\n");
+    print("║      Result<T, E> Demo          ║\n");
+    print("╚══════════════════════════════════╝\n\n");
+
+    demo_construction();
+    demo_basic_methods();
+    demo_map();
+    demo_and_then();
+    demo_conversion();
+    demo_to_string();
+
+    print("All Result demos completed!\n");
+}

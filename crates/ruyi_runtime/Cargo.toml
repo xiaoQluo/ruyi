@@ -23,7 +23,8 @@ flate2 = "1.0"
 rustls = "0.23"
 rustls-pemfile = "2"
 webpki-roots = "0.26"
+libc = "0.2"
 
 [features]
 default = ["inkwell"]
-inkwell = ["dep:inkwell", "ruyi_exception/llvm14"]
+inkwell = ["dep:inkwell", "ruyi_exception/llvm20"]

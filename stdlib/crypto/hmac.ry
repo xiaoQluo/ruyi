@@ -11,6 +11,11 @@ import { sha256Raw, sha512Raw, sha1Raw } from "./hash";
 import { bytesToHex } from "../encoding";
 import { stringToBytes, zeroArray, copyArray, bytesToString } from "./util";
 
+// Byte-level HMAC entry points. Each `Array<byte>` arg lowers to the
+// array header, which the runtime unpacks into its element buffer.
+extern fn __crypto_hmac_sha256_raw(key: Array<byte>, data: Array<byte>, out: Array<byte>): int;
+extern fn __crypto_hmac_sha512_raw(key: Array<byte>, data: Array<byte>, out: Array<byte>): int;
+
 // ============================================================
 // HMAC — Keyed-Hash Message Authentication Code (RFC 2104)
 // ============================================================
@@ -88,6 +93,37 @@ export fn hmacSha256Bytes(key: string, message: string): Array<int> {
     }
 
     return sha256Raw(outerPad);
+}
+
+/**
+ * HMAC-SHA-256 over raw byte arrays, via the RustCrypto FFI.
+ *
+ * `hmacSha256Bytes` round-trips both arguments through UTF-8 strings,
+ * which corrupts any byte >= 0x80 — exactly the case PBKDF2 hits when it
+ * feeds a digest back in as the next message. Key derivation must stay in
+ * byte arrays end to end, so it uses this instead.
+ *
+ * @param keyBytes Secret key bytes
+ * @param msgBytes Message bytes
+ * @return 32-byte HMAC-SHA-256
+ */
+fn hmacSha256FromBytes(keyBytes: Array<byte>, msgBytes: Array<byte>): Array<byte> {
+    let out = zeroArray(32);
+    __crypto_hmac_sha256_raw(keyBytes, msgBytes, out);
+    return out;
+}
+
+/**
+ * HMAC-SHA-512 over raw byte arrays, via the RustCrypto FFI.
+ *
+ * @param keyBytes Secret key bytes
+ * @param msgBytes Message bytes
+ * @return 64-byte HMAC-SHA-512
+ */
+fn hmacSha512FromBytes(keyBytes: Array<byte>, msgBytes: Array<byte>): Array<byte> {
+    let out = zeroArray(64);
+    __crypto_hmac_sha512_raw(keyBytes, msgBytes, out);
+    return out;
 }
 
 /**

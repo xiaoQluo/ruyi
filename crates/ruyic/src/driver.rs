@@ -565,7 +565,7 @@ impl Driver {
 
         // Phase 4: Type checking
         let mut checker = TypeChecker::new();
-        let type_result = checker.check(&expanded);
+        let mut type_result = checker.check(&expanded);
 
         if type_result.has_errors {
             return Err(CompileError::TypeCheck(type_result.diagnostics.clone()));
@@ -638,7 +638,7 @@ impl Driver {
 
         generator.stdlib_item_count = self.last_stdlib_item_count;
 
-        generator.generate_with_env(&expanded, &type_result.tracker, Some(&type_result.env))?;
+        generator.generate_with_env(&expanded, &mut type_result.tracker, Some(&type_result.env))?;
 
         // Phase 6: Output
         let output_path = options

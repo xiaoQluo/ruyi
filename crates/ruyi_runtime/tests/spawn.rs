@@ -34,7 +34,7 @@ struct TestFuture {
 }
 
 impl TestFuture {
-    fn new() -> *mut u8 {
+    fn boxed_raw() -> *mut u8 {
         let boxed = Box::new(TestFuture {
             poll_fn: dummy_poll,
         });
@@ -44,7 +44,7 @@ impl TestFuture {
 
 #[test]
 fn ruyi_spawn_returns_non_null_handle() {
-    let future = TestFuture::new();
+    let future = TestFuture::boxed_raw();
     let handle = ruyi_spawn(future);
     assert!(
         !handle.is_null(),
@@ -56,7 +56,7 @@ fn ruyi_spawn_returns_non_null_handle() {
 fn ruyi_spawn_handles_multiple_tasks() {
     let mut handles = Vec::with_capacity(10);
     for i in 0..10 {
-        let future = TestFuture::new();
+        let future = TestFuture::boxed_raw();
         let handle = ruyi_spawn(future);
         assert!(!handle.is_null(), "spawn #{i} returned null handle");
         handles.push(handle);
@@ -68,7 +68,7 @@ fn ruyi_spawn_handles_multiple_tasks() {
 fn ruyi_spawn_accepts_many_tasks_under_load() {
     let mut ok = 0u32;
     for _ in 0..100 {
-        let future = TestFuture::new();
+        let future = TestFuture::boxed_raw();
         let handle = ruyi_spawn(future);
         if !handle.is_null() {
             ok += 1;
@@ -81,7 +81,7 @@ fn ruyi_spawn_accepts_many_tasks_under_load() {
 fn ruyi_spawn_atomic_counter_compiles() {
     let counter = AtomicUsize::new(0);
     for _ in 0..5 {
-        let future = TestFuture::new();
+        let future = TestFuture::boxed_raw();
         let _ = ruyi_spawn(future);
     }
     assert_eq!(counter.load(Ordering::SeqCst), 0);

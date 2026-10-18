@@ -7,8 +7,8 @@ license = "MIT OR Apache-2.0"
 description = "Shared exception-handling helpers for the Ruyi compiler and runtime"
 
 [dependencies]
-inkwell = { workspace = true, features = ["llvm14-0"], optional = true }
+inkwell = { workspace = true, features = ["llvm20-1"], optional = true }
 
 [features]
 default = []
-llvm14 = ["dep:inkwell"]
+llvm20 = ["dep:inkwell"]

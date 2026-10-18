@@ -67,8 +67,8 @@ mod tests {
 
         let h = thread::spawn(move || {
             let ptr = b_raw as *mut Barrier;
-            let is_leader = __barrier_wait(ptr);
-            is_leader
+
+            __barrier_wait(ptr)
         });
 
         let main_leader = __barrier_wait(b);

@@ -774,7 +774,7 @@ fn test_collect_monomorphizations() {
 
 #[test]
 fn test_populate_from_tracker() {
-    use ruyic::codegen::monomorph::{collect_monomorphizations, MonomorphizationContext};
+    use ruyic::codegen::monomorph::MonomorphizationContext;
 
     let mut tracker = MonomorphizationTracker::new();
     let var_id = tracker.fresh_var_id();

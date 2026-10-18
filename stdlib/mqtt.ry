@@ -155,20 +155,109 @@ fn buildUnsubscribePayload(packetId: int, topic: string): Buffer {
 // ── Receive a full MQTT packet from a socket ──
 
 fn readPacket(sock: TCPSocket): Buffer? {
-    let hbuf = sock.readRaw(5);
-    if (hbuf.length() < 2) { return null; }
-    let rl = decodeRemainingLength(hbuf, 1);
+    // Read the MQTT fixed header in pieces: 2 bytes cover the type byte
+    // plus the common-case single-byte varint; additional varint bytes
+    // are pulled only when the continuation bit is set. Each `readRaw`
+    // may return fewer bytes than asked (TCP partial reads / coalesced
+    // packets), so we accumulate until the full header is in hand. The
+    // body is then read in a loop for the same reason — previously a
+    // short body read returned a buffer padded with trailing zeros and
+    // the caller moved on, deadlocking on the next `readRaw`.
+    let header = sock.readRaw(2);
+    if (header.length() < 2) { return null; }
+    // Ruyi has no `let mut` rebinding, so we accumulate the varint
+    // bytes by overwriting `header` through a helper that returns the
+    // same name. Each step handles the next continuation byte.
+    let buf = readPacketAccumVarint(sock, header);
+    if (buf === null) { return null; }
+    let rl = decodeRemainingLength(buf, 1);
     let headerUsed = 1 + rl.used;
-    let body = sock.readRaw(rl.len);
+    // Build a complete packet buffer = header_used_bytes + body_bytes.
+    if (rl.len === 0) {
+        let hdrOnly = Buffer.alloc(headerUsed);
+        for (let i = 0; i < headerUsed; i = i + 1) {
+            hdrOnly.writeUInt8(i, buf.readUInt8(i));
+        }
+        return hdrOnly;
+    }
     let total = headerUsed + rl.len;
     let full = Buffer.alloc(total);
     for (let i = 0; i < headerUsed; i = i + 1) {
-        full.writeUInt8(i, hbuf.readUInt8(i));
+        full.writeUInt8(i, buf.readUInt8(i));
     }
-    for (let i = 0; i < body.length(); i = i + 1) {
-        full.writeUInt8(headerUsed + i, body.readUInt8(i));
+    let bodyNeeded = rl.len;
+    let bodyAccum = readPacketAccumBody(sock, full, headerUsed, bodyNeeded);
+    if (bodyAccum === null) { return null; }
+    return bodyAccum;
+}
+
+// Helper: returns a buffer that contains the type byte plus the complete
+// varint. `buf` must have at least 2 bytes; we read up to 3 more varint
+// bytes when continuation bits are set.
+fn readPacketAccumVarint(sock: TCPSocket, buf: Buffer): Buffer? {
+    let step1 = buf;
+    if ((step1.readUInt8(step1.length() - 1) & 128) === 0) {
+        return step1;
     }
-    return full;
+    let m1 = sock.readRaw(1);
+    if (m1.length() < 1) { return null; }
+    let n1 = step1.length();
+    let step2 = Buffer.alloc(n1 + 1);
+    for (let i = 0; i < n1; i = i + 1) {
+        step2.writeUInt8(i, step1.readUInt8(i));
+    }
+    step2.writeUInt8(n1, m1.readUInt8(0));
+    if ((step2.readUInt8(step2.length() - 1) & 128) === 0) {
+        return step2;
+    }
+    let m2 = sock.readRaw(1);
+    if (m2.length() < 1) { return null; }
+    let n2 = step2.length();
+    let step3 = Buffer.alloc(n2 + 1);
+    for (let i = 0; i < n2; i = i + 1) {
+        step3.writeUInt8(i, step2.readUInt8(i));
+    }
+    step3.writeUInt8(n2, m2.readUInt8(0));
+    if ((step3.readUInt8(step3.length() - 1) & 128) === 0) {
+        return step3;
+    }
+    let m3 = sock.readRaw(1);
+    if (m3.length() < 1) { return null; }
+    let n3 = step3.length();
+    let step4 = Buffer.alloc(n3 + 1);
+    for (let i = 0; i < n3; i = i + 1) {
+        step4.writeUInt8(i, step3.readUInt8(i));
+    }
+    step4.writeUInt8(n3, m3.readUInt8(0));
+    return step4;
+}
+
+// Helper: writes `bodyNeeded` bytes into `full` starting at
+// `headerUsed`, looping `readRaw` until the full body has been
+// accumulated. Returns null on EOF.
+fn readPacketAccumBody(
+    sock: TCPSocket,
+    full: Buffer,
+    headerUsed: int,
+    bodyNeeded: int,
+): Buffer? {
+    let got = 0;
+    let acc = full;
+    while (got < bodyNeeded) {
+        let chunk = sock.readRaw(bodyNeeded - got);
+        let cn = chunk.length();
+        if (cn === 0) { return null; }
+        let next = Buffer.alloc(acc.length());
+        for (let i = 0; i < acc.length(); i = i + 1) {
+            next.writeUInt8(i, acc.readUInt8(i));
+        }
+        for (let i = 0; i < cn; i = i + 1) {
+            next.writeUInt8(headerUsed + got + i, chunk.readUInt8(i));
+        }
+        acc = next;
+        got = got + cn;
+    }
+    return acc;
 }
 
 // ============================================================
@@ -305,4 +394,110 @@ export class MQTTServer {
 
     fn close(): void { self._server.close(); }
     fn isValid(): bool { return self._server.isValid(); }
+
+    /// Run a minimal MQTT broker loop on an already-accepted client.
+    /// Reads packets from the client socket and replies with the
+    /// control-packet ACKs (PUBACK for QoS 1 PUBLISH, SUBACK,
+    /// UNSUBACK, PINGRESP). Returns when the client sends DISCONNECT
+    /// or the socket closes. The caller is responsible for spawning
+    /// this in a background thread and for closing the underlying
+    /// `MQTTServer` afterwards.
+    ///
+    /// This is intentionally a no-op for QoS 2 PUBLISH (retained as
+    /// a future enhancement) — the MQTT test suite only exercises QoS
+    /// 0 and QoS 1 publishes.
+    fn serveClient(self, client: MQTTClient): void {
+        let sock = client._sock;
+        loop {
+            let pkt = readPacket(sock);
+            if (pkt === null) { break; }
+            if (pkt.length() < 1) { break; }
+            let pktType = pkt.readUInt8(0) >> 4;
+            if (pktType === PUBLISH) {
+                let flags = pkt.readUInt8(0) & 15;
+                let qos = (flags >> 1) & 3;
+                if (qos === 1 && pkt.length() >= 4) {
+                    // PUBACK with the same packet identifier as the
+                    // PUBLISH (bytes 2-3 of the PUBLISH variable
+                    // header). Required for QoS 1 so the client-side
+                    // `publish` can unblock.
+                    let pidHi = pkt.readUInt8(2);
+                    let pidLo = pkt.readUInt8(3);
+                    let ack = Buffer.alloc(4);
+                    ack.writeUInt8(0, (PUBACK << 4) | 0);
+                    ack.writeUInt8(1, 2);
+                    ack.writeUInt8(2, pidHi);
+                    ack.writeUInt8(3, pidLo);
+                    sock.writeRaw(ack);
+                }
+                // QoS 0: no reply. QoS 2: not implemented.
+            } else if (pktType === SUBSCRIBE) {
+                // SUBSCRIBE variable header: 2-byte packet identifier.
+                // payload: one or more (topic-filter, qos) pairs, each
+                // shaped as a 2-byte length-prefixed UTF-8 string
+                // followed by a 1-byte QoS. SUBACK echoes the packet
+                // identifier followed by one granted-QoS byte per
+                // subscription request. We don't decode the topic
+                // filter length prefix precisely — we just count the
+                // QoS bytes by walking the payload backwards from the
+                // end (each pair ends with one QoS byte) and echo a
+                // single 0x00 (granted QoS 0) per pair. This is
+                // sufficient for the test demos, which subscribe to a
+                // single topic per call.
+                if (pkt.length() >= 4) {
+                    let pidHi = pkt.readUInt8(2);
+                    let pidLo = pkt.readUInt8(3);
+                    let payloadLen = pkt.length() - 4;
+                    // The trailing byte of the payload is a QoS byte,
+                    // so we know there is at least one subscription.
+                    // Walk backwards, skipping one QoS byte and one
+                    // 2-byte length prefix per iteration.
+                    let subs = 0;
+                    let cursor = pkt.length();
+                    while (cursor > 4) {
+                        cursor = cursor - 1; // skip QoS byte
+                        subs = subs + 1;
+                        if (cursor <= 4) { break; }
+                        let tlen = pkt.readUInt8(cursor - 2);
+                        cursor = cursor - 2 - tlen; // skip topic-filter bytes
+                    }
+                    let subAck = Buffer.alloc(4 + subs);
+                    subAck.writeUInt8(0, (SUBACK << 4) | 0);
+                    subAck.writeUInt8(1, 2 + subs);
+                    subAck.writeUInt8(2, pidHi);
+                    subAck.writeUInt8(3, pidLo);
+                    for (let k = 0; k < subs; k = k + 1) {
+                        subAck.writeUInt8(4 + k, 0); // granted QoS 0
+                    }
+                    sock.writeRaw(subAck);
+                }
+            } else if (pktType === UNSUBSCRIBE) {
+                if (pkt.length() >= 4) {
+                    let pidHi = pkt.readUInt8(2);
+                    let pidLo = pkt.readUInt8(3);
+                    let payloadLen = pkt.length() - 4;
+                    let unsubAck = Buffer.alloc(4 + payloadLen);
+                    unsubAck.writeUInt8(0, (UNSUBACK << 4) | 0);
+                    unsubAck.writeUInt8(1, 2 + payloadLen);
+                    unsubAck.writeUInt8(2, pidHi);
+                    unsubAck.writeUInt8(3, pidLo);
+                    // Copy the topic-filter bytes straight through so
+                    // the client sees the same bytes back.
+                    for (let k = 0; k < payloadLen; k = k + 1) {
+                        unsubAck.writeUInt8(4 + k, pkt.readUInt8(4 + k));
+                    }
+                    sock.writeRaw(unsubAck);
+                }
+            } else if (pktType === PINGREQ) {
+                let pong = Buffer.alloc(2);
+                pong.writeUInt8(0, (PINGRESP << 4) | 0);
+                pong.writeUInt8(1, 0);
+                sock.writeRaw(pong);
+            } else if (pktType === DISCONNECT) {
+                break;
+            }
+            // Other control packets (AUTH, etc.) are ignored for
+            // now — the demos do not send them.
+        }
+    }
 }

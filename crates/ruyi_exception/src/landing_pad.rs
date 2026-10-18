@@ -3,17 +3,17 @@
 //! Provides helpers to emit `landingpad`, `invoke`, and `resume`
 //! instructions using inkwell.
 
-#[cfg(feature = "llvm14")]
+#[cfg(feature = "llvm20")]
 use inkwell::basic_block::BasicBlock;
-#[cfg(feature = "llvm14")]
+#[cfg(feature = "llvm20")]
 use inkwell::builder::Builder;
-#[cfg(feature = "llvm14")]
+#[cfg(feature = "llvm20")]
 use inkwell::context::Context;
-#[cfg(feature = "llvm14")]
+#[cfg(feature = "llvm20")]
 use inkwell::module::Module;
-#[cfg(feature = "llvm14")]
+#[cfg(feature = "llvm20")]
 use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue};
-#[cfg(feature = "llvm14")]
+#[cfg(feature = "llvm20")]
 use inkwell::AddressSpace;
 
 /**
@@ -25,19 +25,27 @@ use inkwell::AddressSpace;
 pub type TryTypeId = u32;
 
 /**
+ * Sentinel value used by codegen to mark a catch-all (`catch ptr null`)
+ * clause on a landing pad. Real exception type ids are small non-negative
+ * integers (see `ALL_BUILTIN_EXCEPTION_TYPE_IDS`); `u32::MAX` is reserved
+ * exclusively for this purpose and never collides with a runtime type id.
+ */
+pub const CATCH_ALL_TYPE_ID: TryTypeId = TryTypeId::MAX;
+
+/**
  * Generator for LLVM landing-pad instructions.
  *
  * @author Ruyi Team
  * @date 2026-07-08
  */
-#[cfg(feature = "llvm14")]
+#[cfg(feature = "llvm20")]
 pub struct LandingPadGenerator<'ctx, 'm, 'b> {
     context: &'ctx Context,
     module: &'m Module<'ctx>,
     builder: &'b Builder<'ctx>,
 }
 
-#[cfg(feature = "llvm14")]
+#[cfg(feature = "llvm20")]
 impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
     /**
      * Create a new landing-pad generator.
@@ -81,7 +89,7 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
         has_cleanup: bool,
         name: &str,
     ) -> BasicValueEnum<'ctx> {
-        let i8_ptr = self.context.i8_type().ptr_type(AddressSpace::default());
+        let i8_ptr = self.context.ptr_type(AddressSpace::default());
         let i32_ty = self.context.i32_type();
         let lpad_ty = self
             .context
@@ -90,13 +98,24 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
         let personality = self.get_personality_function();
 
         let mut clauses: Vec<BasicValueEnum<'ctx>> = Vec::new();
-        for &type_id in catch_type_ids {
-            let type_info = self.get_type_info_global(type_id);
-            clauses.push(type_info.as_basic_value_enum());
+        // EX-C4: Emit a single catch-all clause. The Itanium ABI wildcard
+        // form matches any exception regardless of type_info. The runtime
+        // `ruyi_throw` doesn't populate the type_info slot on the unwind
+        // exception, so emitting one typed `catch @__ruyi_type_info_N`
+        // clause per builtin exception type never matches and propagated
+        // exceptions escaped the try, eventually aborting in `ruyi_throw`.
+        //
+        // We deduplicate: even if the source has both typed catches and a
+        // catch-all, the personality routine only needs one `catch ptr null`
+        // to accept the landing pad. The actual type filtering happens in
+        // `build_catch_dispatch` against the runtime `ExceptionObject.type_tag`.
+        if !catch_type_ids.is_empty() {
+            clauses.push(i8_ptr.const_null().as_basic_value_enum());
         }
 
         self.builder
             .build_landing_pad(lpad_ty, personality, &clauses, has_cleanup, name)
+            .unwrap()
     }
 
     /**
@@ -125,6 +144,7 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
     ) -> inkwell::values::CallSiteValue<'ctx> {
         self.builder
             .build_invoke(fn_val, args, then_bb, catch_bb, name)
+            .unwrap()
     }
 
     /**
@@ -138,7 +158,7 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
      * @date 2026-07-08
      */
     pub fn build_resume(&self, landing_pad_val: BasicValueEnum<'ctx>) {
-        self.builder.build_resume(landing_pad_val);
+        self.builder.build_resume(landing_pad_val).unwrap();
     }
 
     /**
@@ -186,7 +206,7 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
      * @date 2026-07-08
      */
     pub fn build_eh_typeid_for(&self, type_id: TryTypeId) -> IntValue<'ctx> {
-        let i8_ptr = self.context.i8_type().ptr_type(AddressSpace::default());
+        let i8_ptr = self.context.ptr_type(AddressSpace::default());
         let i32_ty = self.context.i32_type();
         let fn_type = i32_ty.fn_type(&[i8_ptr.into()], false);
 
@@ -199,9 +219,9 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
                 &[type_info.as_basic_value_enum().into()],
                 "typeid",
             )
-            .try_as_basic_value()
-            .left()
             .unwrap()
+            .try_as_basic_value()
+            .unwrap_basic()
             .into_int_value()
     }
 
@@ -234,86 +254,108 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
     ) {
         if catch_handlers.is_empty() {
             if let Some(cleanup) = cleanup_bb {
-                self.builder.build_unconditional_branch(cleanup);
+                self.builder.build_unconditional_branch(cleanup).unwrap();
             } else {
-                self.builder.build_unconditional_branch(resume_bb);
+                self.builder.build_unconditional_branch(resume_bb).unwrap();
             }
             return;
         }
 
-        // EX-H1: If all handlers are catch-all (type_id == 0), use unconditional branch
-        if catch_handlers.iter().all(|(id, _)| *id == 0) {
-            let (_, first_handler) = catch_handlers[0];
-            self.builder.build_unconditional_branch(first_handler);
-            return;
-        }
-
-        // EX-H1: Selector-based type dispatch
-        let selector = self.extract_selector(landing_pad_val);
+        // EX-C4 follow-up: A catch-all entry (`type_id == CATCH_ALL_TYPE_ID`) is emitted
+        // as `catch ptr null` on the landing pad. The personality routine
+        // accepts it without consulting type_info, so no selector comparison
+        // is required here either — we can branch straight into the catch-all
+        // handler.
+        //
+        // Since `build_landing_pad` now collapses *every* clause to
+        // `catch ptr null` (because `ruyi_throw` doesn't populate the
+        // `type_info` slot that typed `catch @__ruyi_type_info_N` would
+        // require), the selector value at the landing pad is always the
+        // wildcard sentinel and never matches any specific `llvm.eh.typeid.for`
+        // selector. We perform the type comparison ourselves by reading
+        // the runtime `ExceptionObject.type_tag` field at offset 0 of the
+        // thrown exception object and switching through the typed catches
+        // in source order. A catch-all (`type_id == CATCH_ALL_TYPE_ID`)
+        // acts as the fallthrough handler for any exception that did not
+        // match a typed clause — matching C++ semantics where typed catches
+        // are tried before the catch-all.
         let func = self
             .builder
             .get_insert_block()
             .unwrap()
             .get_parent()
             .unwrap();
-
-        // Pre-compute next-block targets: each handler gets a dispatch block,
-        // the last one falls through to cleanup_bb or resume_bb.
-        let mut next_blocks: Vec<BasicBlock<'ctx>> = Vec::new();
-        for i in 1..catch_handlers.len() {
-            let bb = self
-                .context
-                .append_basic_block(func, &format!("catch.dispatch.next.{}", i));
-            next_blocks.push(bb);
-        }
-
-        for (i, &(type_id, handler_bb)) in catch_handlers.iter().enumerate() {
-            let next_bb = if i + 1 < catch_handlers.len() {
-                next_blocks[i]
-            } else {
-                cleanup_bb.unwrap_or(resume_bb)
-            };
-
-            let eh_typeid = self.build_eh_typeid_for(type_id);
-            let cmp = self.builder.build_int_compare(
-                inkwell::IntPredicate::EQ,
-                selector,
-                eh_typeid,
-                &format!("catch.matches.{}", i),
-            );
+        let exc_ptr = self.extract_exception_ptr(landing_pad_val);
+        // The runtime payload is an `ExceptionObject` (layout: type_tag
+        // @0, message @8, ...). The user-visible `e` pointer that
+        // codegen stores in the catch local is also pointed at the
+        // payload start, so reading offset 0 of `exc_ptr` gives us the
+        // runtime type_tag directly.
+        let i64_ty = self.context.i64_type();
+        let i8_ptr_ty = self.context.ptr_type(AddressSpace::default());
+        let exc_typed = self
+            .builder
+            .build_pointer_cast(exc_ptr, i8_ptr_ty, "exc_typed")
+            .unwrap();
+        let type_tag_ptr = unsafe {
             self.builder
-                .build_conditional_branch(cmp, handler_bb, next_bb);
+                .build_gep(
+                    self.context.i8_type(),
+                    exc_typed,
+                    &[i64_ty.const_int(0, false)],
+                    "type_tag_addr",
+                )
+                .unwrap()
+        };
+        let type_tag_ptr_typed = self
+            .builder
+            .build_pointer_cast(
+                type_tag_ptr,
+                self.context.ptr_type(AddressSpace::default()),
+                "type_tag_typed",
+            )
+            .unwrap();
+        let thrown_type = self
+            .builder
+            .build_load(i64_ty, type_tag_ptr_typed, "thrown_type_tag")
+            .unwrap()
+            .into_int_value();
 
-            // Position builder at the next dispatch block (if any)
-            if i + 1 < catch_handlers.len() {
-                self.builder.position_at_end(next_blocks[i]);
-            }
-        }
-
-        // Last "next" block (no more handlers): route to cleanup or resume
-        if !catch_handlers.is_empty() {
-            let end_block = if next_blocks.is_empty() {
-                // Only one handler — already emitted; nothing to do here
-                None
-            } else {
-                Some(*next_blocks.last().unwrap())
-            };
-            if let Some(bb) = end_block {
-                // The builder was already positioned at end_block above
-                // (the last next_blocks entry). Emit cleanup/resume branch.
-                if self.builder.get_insert_block() == Some(bb) {
-                    if let Some(cleanup) = cleanup_bb {
-                        self.builder.build_unconditional_branch(cleanup);
-                    } else {
-                        self.builder.build_unconditional_branch(resume_bb);
-                    }
+        let mut next_bb: Option<BasicBlock<'ctx>> = None;
+        for (i, &(type_id, handler_bb)) in catch_handlers.iter().enumerate() {
+            if type_id == CATCH_ALL_TYPE_ID {
+                // Catch-all: fall through (or jump directly if this is the
+                // first handler).
+                if let Some(bb) = next_bb {
+                    self.builder.position_at_end(bb);
                 }
-            } else if cleanup_bb.is_some() || catch_handlers.len() == 1 {
-                // Single handler: no fallthrough block was created;
-                // the conditional branch already routes to cleanup/resume.
-                // Nothing extra to emit here.
+                self.builder.build_unconditional_branch(handler_bb).unwrap();
+                return;
             }
+            // Typed catch: emit comparison and branch.
+            let fallthrough = next_bb.unwrap_or_else(|| {
+                self.context
+                    .append_basic_block(func, &format!("catch.dispatch.fallthrough.{}", i))
+            });
+            let cond = self
+                .builder
+                .build_int_compare(
+                    inkwell::IntPredicate::EQ,
+                    thrown_type,
+                    i64_ty.const_int(type_id as u64, false),
+                    &format!("catch.matches.{}", i),
+                )
+                .unwrap();
+            self.builder
+                .build_conditional_branch(cond, handler_bb, fallthrough)
+                .unwrap();
+            self.builder.position_at_end(fallthrough);
+            next_bb = Some(fallthrough);
         }
+        // No catch matched; if we still have a next_bb sitting around,
+        // branch it to the resume block so the personality routine can
+        // propagate the exception out of the try.
+        self.builder.build_unconditional_branch(resume_bb).unwrap();
     }
 
     pub fn get_personality_function(&self) -> FunctionValue<'ctx> {
@@ -327,7 +369,7 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
     /// enables the landing-pad selector comparison in `build_catch_dispatch`.
     fn get_type_info_global(&self, type_id: TryTypeId) -> PointerValue<'ctx> {
         let name = format!("__ruyi_type_info_{}", type_id);
-        let i8_ptr = self.context.i8_type().ptr_type(AddressSpace::default());
+        let i8_ptr = self.context.ptr_type(AddressSpace::default());
 
         if let Some(global) = self.module.get_global(&name) {
             global.as_pointer_value()
@@ -346,17 +388,13 @@ impl<'ctx, 'm, 'b> LandingPadGenerator<'ctx, 'm, 'b> {
             );
             init_global.set_initializer(&init_array);
             let init_ptr = init_global.as_pointer_value();
-            let cast_ptr = self
-                .builder
-                .build_bitcast(init_ptr, i8_ptr, &format!("type_info_cast_{}", type_id))
-                .into_pointer_value();
-            global.set_initializer(&cast_ptr);
+            global.set_initializer(&init_ptr);
             global.as_pointer_value()
         }
     }
 }
 
-#[cfg(feature = "llvm14")]
+#[cfg(feature = "llvm20")]
 fn get_or_insert_function<'ctx>(
     module: &Module<'ctx>,
     name: &str,
@@ -390,7 +428,7 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "llvm14"))]
+#[cfg(all(test, feature = "llvm20"))]
 mod llvm_tests {
     use super::LandingPadGenerator;
     use inkwell::context::Context;
@@ -427,15 +465,21 @@ mod llvm_tests {
         gen.build_resume(lpad);
 
         builder.position_at_end(entry_bb);
-        builder.build_return(None);
+        builder.build_return(None).unwrap();
 
         let ir = module.print_to_string().to_string();
 
-        // 确认 type_info global 有 initializer (定义式,不是外部声明)
-        // EX-H1: globals now use unique string initializers instead of null
+        // 当前实现把所有子句折叠为 catch-all (`catch ptr null`)，不再
+        // 生成 type_info global；本用例的意图是确认模块 IR 既不引用
+        // 外部符号、也不留下未定义的 type_info 声明。
         assert!(
-            ir.contains("global i8*") && !ir.contains("external"),
-            "type_info global must be defined (not external declaration):\n{}",
+            !ir.contains("external"),
+            "module must not reference external type_info declarations:\n{}",
+            ir
+        );
+        assert!(
+            ir.contains("catch ptr null"),
+            "expected a catch-all landing pad:\n{}",
             ir
         );
 
@@ -473,22 +517,26 @@ mod llvm_tests {
         builder.position_at_end(lpad_bb);
         let lpad = gen.build_landing_pad(&[0u32, 0u32], false, "lpad");
 
-        // Catch-all dispatch: should branch to handler0 unconditionally
-        let catch_handlers = [(0u32, handler0_bb), (0u32, handler1_bb)];
+        // Catch-all dispatch: should branch to handler0 unconditionally.
+        // CATCH_ALL_TYPE_ID (not 0) marks a catch-all clause.
+        let catch_handlers = [
+            (super::CATCH_ALL_TYPE_ID, handler0_bb),
+            (super::CATCH_ALL_TYPE_ID, handler1_bb),
+        ];
         gen.build_catch_dispatch(lpad, &catch_handlers, None, resume_bb);
 
         // Handler blocks must be populated with valid IR
         builder.position_at_end(handler0_bb);
-        builder.build_return(None);
+        builder.build_return(None).unwrap();
 
         builder.position_at_end(handler1_bb);
-        builder.build_return(None);
+        builder.build_return(None).unwrap();
 
         builder.position_at_end(resume_bb);
-        builder.build_return(None);
+        builder.build_return(None).unwrap();
 
         builder.position_at_end(entry_bb);
-        builder.build_return(None);
+        builder.build_return(None).unwrap();
 
         let ir = module.print_to_string().to_string();
 

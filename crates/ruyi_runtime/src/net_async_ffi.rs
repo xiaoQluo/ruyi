@@ -369,7 +369,7 @@ pub unsafe extern "C" fn __net_async_accept_free(ptr: *mut u8) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::async_runtime::{Scheduler, TaskId};
+    use crate::async_runtime::TaskId;
     use std::io::Write;
     use std::net::{TcpListener, TcpStream};
     use std::time::Duration;

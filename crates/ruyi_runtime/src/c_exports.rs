@@ -1,30 +1,7 @@
 use crate::exception::builtin_type_ids;
-use crate::exception::types::ExceptionObject;
 use crate::exception::TypeId;
 use std::alloc::{alloc, Layout};
 use std::ffi::CStr;
-use std::sync::atomic::{AtomicPtr, Ordering};
-
-/// Deprecated pending exception pointer.
-///
-/// Since `ruyi_throw` now connects to `_Unwind_RaiseException`, exceptions
-/// no longer flow through this atomic pointer.  Retained for ABI compatibility
-/// — codegen still emits calls to `ruyi_get_pending_exception` /
-/// `ruyi_clear_pending_exception` in legacy `call`-based code paths.
-static PENDING_EXCEPTION: AtomicPtr<i8> = AtomicPtr::new(std::ptr::null_mut());
-
-#[no_mangle]
-pub extern "C" fn ruyi_throw(msg: *const i8) {
-    unsafe {
-        let c_str = CStr::from_ptr(msg);
-        let message = c_str.to_string_lossy().into_owned();
-        let exc = crate::exception::RuyiException::new(
-            crate::exception::builtin_type_ids::ERROR,
-            message,
-        );
-        crate::exception::throw_exception(exc);
-    }
-}
 
 /// EX-H3: Map class name to builtin type ID.
 ///
@@ -53,8 +30,9 @@ pub fn class_name_to_type_id(name: &str) -> TypeId {
 
 /// EX-H3: Throw with explicit type ID.
 ///
-/// Allows codegen to pass the resolved type ID so the runtime exception
-/// carries the correct type tag for catch dispatch filtering.
+/// Stores the exception in the global pending-exception slot and returns.
+/// The generated code checks the pending exception and dispatches to the
+/// matching catch handler.
 ///
 /// @author Ruyi Team
 /// @date 2026-07-26
@@ -68,13 +46,6 @@ pub extern "C" fn ruyi_throw_with_type(type_id: u64, msg: *const i8) {
     }
 }
 
-/// EX-H3: Throw with class name (convenience wrapper).
-///
-/// Maps the class name to a type ID via `class_name_to_type_id`, then
-/// creates a `RuyiException` with the resolved type tag.
-///
-/// @author Ruyi Team
-/// @date 2026-07-26
 #[no_mangle]
 pub extern "C" fn ruyi_throw_typed(class_name: *const i8, msg: *const i8) {
     unsafe {
@@ -88,12 +59,7 @@ pub extern "C" fn ruyi_throw_typed(class_name: *const i8, msg: *const i8) {
 
 /// Rethrow an exception object captured by a landing pad.
 ///
-/// Used by finally blocks to propagate an unhandled exception. The
-/// `exc_ptr` is the raw pointer from the landing-pad result, treated
-/// as an opaque payload (re-thrown as a generic Error).
-///
-/// @author Ruyi Team
-/// @date 2026-07-26
+/// Stores the exception in the global pending-exception slot and returns.
 #[no_mangle]
 pub extern "C" fn ruyi_rethrow(exc_ptr: *const i8) {
     let exc = crate::exception::RuyiException::new(
@@ -101,16 +67,6 @@ pub extern "C" fn ruyi_rethrow(exc_ptr: *const i8) {
         format!("rethrown exception at {:p}", exc_ptr),
     );
     crate::exception::throw_exception(exc);
-}
-
-#[no_mangle]
-pub extern "C" fn ruyi_clear_pending_exception() {
-    PENDING_EXCEPTION.store(std::ptr::null_mut(), Ordering::SeqCst);
-}
-
-#[no_mangle]
-pub extern "C" fn ruyi_get_pending_exception() -> *const i8 {
-    PENDING_EXCEPTION.load(Ordering::SeqCst) as *const i8
 }
 
 #[no_mangle]
@@ -132,16 +88,6 @@ pub extern "C" fn ruyi_str_concat(a: *const i8, b: *const i8) -> *mut i8 {
         *out.add(str_a.len() + str_b.len()) = 0;
         out
     }
-}
-
-#[no_mangle]
-pub extern "C" fn ruyi_begin_catch(exc: *mut u8) -> *mut ExceptionObject {
-    unsafe { crate::exception::runtime::ruyi_begin_catch(exc) }
-}
-
-#[no_mangle]
-pub extern "C" fn ruyi_end_catch() {
-    crate::exception::runtime::ruyi_end_catch();
 }
 
 /// Stub allocator for `--gc=stub` mode.
