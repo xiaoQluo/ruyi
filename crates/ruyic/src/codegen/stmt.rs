@@ -59,7 +59,19 @@ pub fn compile_stmt<'ctx>(
             ..
         } => compile_for_of(ctx, variable, iterable, body),
         Statement::Return(expr) => compile_return(ctx, expr.as_deref()),
-        Statement::Declaration(decl) => super::decl::compile_declaration(ctx, decl),
+        Statement::Declaration(decl) => {
+            super::decl::compile_declaration(ctx, decl)?;
+            // A call in a declaration initializer (`let x = f();`) may have
+            // stored a pending exception; dispatch it before the next
+            // statement observes the (dummy) value.
+            if matches!(
+                decl,
+                crate::parser::ast::Declaration::Let(_) | crate::parser::ast::Declaration::Const(_)
+            ) {
+                build_exception_check(ctx)?;
+            }
+            Ok(())
+        }
         Statement::Throw(expr) => compile_throw(ctx, expr),
         Statement::Try {
             body,
@@ -1007,6 +1019,11 @@ fn compile_return<'ctx>(
             // 将返回值存入 pending slot（懒分配）
             if let Some(e) = expr {
                 let result = compile_expr(ctx, e)?;
+                // A throw inside the return expression must dispatch before
+                // the pending return value/flag are recorded, otherwise the
+                // finally path would return a dummy while an exception is
+                // still pending.
+                build_exception_check(ctx)?;
                 if ctx.pending_return_value.is_none() {
                     let alloca = ctx
                         .builder()
@@ -1041,6 +1058,10 @@ fn compile_return<'ctx>(
     match expr {
         Some(e) => {
             let result = compile_expr(ctx, e)?;
+            // Dispatch a pending exception before materializing the return,
+            // so `return f()` inside a try routes to the sibling catch
+            // instead of leaving the try with the exception still pending.
+            build_exception_check(ctx)?;
             // Cast return value to match the function's declared return type.
             // This is needed when returning function pointers (compiled as
             // concrete function types) where the declared return type is
@@ -1668,15 +1689,24 @@ fn compile_try<'ctx>(
 
     {
         ctx.builder().position_at_end(propagate_bb);
-        // 存在外层 try 时，继续分发到外层 dispatch；否则保持 pending
-        // exception 并退出当前函数。
-        if let Some(outer_try) = ctx.try_stack.iter().rev().nth(1) {
+        // The current try frame was already popped after the body compiled,
+        // so the immediate enclosing try is now the last entry in the stack
+        // (`nth(1)` would silently skip it and return from the function).
+        let outer_try = ctx.try_stack.last().map(|t| t.dispatch_bb);
+        // Pop this try's runtime frame before either dispatching to the
+        // enclosing handler or leaving the function; otherwise the global
+        // frame stack grows on every propagated throw.
+        let try_end_fn = ctx.module.get_function("ruyi_try_end").unwrap_or_else(|| {
+            let fn_type = ctx.context.void_type().fn_type(&[], false);
+            ctx.module.add_function("ruyi_try_end", fn_type, None)
+        });
+        ctx.builder().build_call(try_end_fn, &[], "").unwrap();
+        if let Some(outer_dispatch) = outer_try {
             ctx.builder()
-                .build_unconditional_branch(outer_try.dispatch_bb)
+                .build_unconditional_branch(outer_dispatch)
                 .unwrap();
         } else {
-            ctx.emit_gc_root_removals();
-            ctx.builder().build_return(None).unwrap();
+            emit_propagation_return(ctx);
         }
     }
 
@@ -1866,33 +1896,35 @@ fn emit_throw_branch<'ctx>(
         // No enclosing try block: propagate by returning from the current
         // function with a pending exception. The caller's exception check
         // (if any) will dispatch to its catch handler.
-        ctx.emit_gc_root_removals();
-        // `current_return_type` reports the *declared* return type. A `void`
-        // function must not return a value — emitting `ret i8 0` (the i8
-        // placeholder that `ruyi_type_to_llvm` substitutes for `Void`)
-        // trips LLVM verification (`Found return instr that returns non-void
-        // in Function of void return type`) and silently turns the throw
-        // into a fall-through to garbage on the next statement. Detect the
-        // void case explicitly and emit a void `ret`.
-        let ret_ty = ctx.current_return_type();
-        match ret_ty {
-            Some(
-                crate::typechecker::types::Type::Void | crate::typechecker::types::Type::Never,
-            ) => {
-                ctx.builder().build_return(None).unwrap();
-            }
-            Some(ret_ty) => {
-                let llvm_ret_ty = super::types::ruyi_type_to_llvm(ctx.context, ret_ty);
-                let dummy = llvm_ret_ty.const_zero();
-                ctx.builder().build_return(Some(&dummy)).unwrap();
-            }
-            None => {
-                ctx.builder().build_return(None).unwrap();
-            }
-        }
+        emit_propagation_return(ctx);
     }
 
     Ok(())
+}
+
+/// Terminate the current block with a `ret` that leaves the pending
+/// exception set, so callers can dispatch it. The dummy return value must
+/// match the *declared* return type: emitting `ret void` inside a non-void
+/// function produces IR the verifier rejects and the resulting binary
+/// exits with garbage (this was the rc=255 path for cross-function throws).
+fn emit_propagation_return<'ctx>(ctx: &mut CodegenContext<'ctx, '_, '_>) {
+    ctx.emit_gc_root_removals();
+    // Use the LLVM function's actual return type, not `current_return_type`:
+    // `main` is emitted with an i32 signature but never records a declared
+    // Ruyi return type, so the declarative path degrades to `ret void` and
+    // the verifier rejects the function.
+    let fn_ret_ty = ctx
+        .current_function()
+        .and_then(|f| f.get_type().get_return_type());
+    match fn_ret_ty {
+        Some(ret_ty) => {
+            let dummy = ret_ty.const_zero();
+            ctx.builder().build_return(Some(&dummy)).unwrap();
+        }
+        None => {
+            ctx.builder().build_return(None).unwrap();
+        }
+    }
 }
 
 /// Look up the loop_stack entry whose label matches `target_label` and
@@ -2676,8 +2708,11 @@ pub(super) fn bind_pattern_in_codegen<'ctx>(
 /// EX-H1: Map catch clause type annotation to builtin type ID for LLVM
 /// landing-pad selector comparison.
 ///
-/// Returns `0` (catch-all) when the annotation is not a recognized
-/// built-in exception type.
+/// User-defined exception classes carry no runtime type id: `throw new
+/// MyError(...)` is recorded as `ERROR` by `class_name_to_type_id`, so an
+/// unknown class name in a catch clause maps to the same `ERROR` id to keep
+/// both sides symmetric. A clause with no annotation is the only true
+/// catch-all (`CATCH_ALL_TYPE_ID`).
 ///
 /// @author Ruyi Team
 /// @date 2026-07-26
@@ -2686,7 +2721,7 @@ fn catch_type_to_type_id(ty: &crate::parser::ast::TypeAnnotation) -> ruyi_except
     let name = match ty {
         TypeAnnotation::Identifier(n) => n.as_str(),
         TypeAnnotation::Builtin(n) => n.as_str(),
-        _ => return 0, // unrecognized → catch-all
+        _ => return ruyi_runtime::exception::builtin_type_ids::ERROR as u32,
     };
     match name {
         "Error" => ruyi_runtime::exception::builtin_type_ids::ERROR as u32,
@@ -2704,6 +2739,6 @@ fn catch_type_to_type_id(ty: &crate::parser::ast::TypeAnnotation) -> ruyi_except
             ruyi_runtime::exception::builtin_type_ids::NULL_ASSERTION_ERROR as u32
         }
         "IOError" => ruyi_runtime::exception::builtin_type_ids::IO_ERROR as u32,
-        _ => 0, // unknown type → catch-all
+        _ => ruyi_runtime::exception::builtin_type_ids::ERROR as u32,
     }
 }

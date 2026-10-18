@@ -112,7 +112,10 @@ pub unsafe extern "C" fn ruyi_find_handler(
     let ids = std::slice::from_raw_parts(catch_type_ids, catch_type_count);
 
     for (i, &id) in ids.iter().enumerate() {
-        if id == u64::MAX {
+        // Codegen stores 32-bit `TryTypeId` values widened to i64; accept
+        // both widths so catch-all keeps matching regardless of which
+        // sentinel the caller used.
+        if id == u64::MAX || id == ruyi_exception::landing_pad::CATCH_ALL_TYPE_ID as u64 {
             return i as i64;
         }
         if let Some(catch_ty) = ExceptionType::from_type_id(id) {
@@ -371,6 +374,26 @@ pub mod llvm {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Codegen widens the 32-bit `CATCH_ALL_TYPE_ID` into an i64 slot; the
+    /// selector must recognise that sentinel (regression: it only matched
+    /// `u64::MAX`, so every `catch (e)` clause silently failed to match).
+    #[test]
+    fn test_ruyi_find_handler_accepts_u32_catch_all() {
+        let exc = ExceptionObject {
+            type_tag: ExceptionType::TypeError.type_id(),
+            message: std::ptr::null_mut(),
+            stack_trace_len: 0,
+            stack_trace: std::ptr::null_mut(),
+        };
+        let ids = [ruyi_exception::landing_pad::CATCH_ALL_TYPE_ID as u64];
+        unsafe {
+            assert_eq!(
+                ruyi_find_handler(&exc as *const _ as *mut _, ids.as_ptr(), ids.len()),
+                0
+            );
+        }
+    }
 
     #[test]
     fn test_ruyi_match_exception() {

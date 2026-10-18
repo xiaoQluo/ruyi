@@ -92,6 +92,22 @@ fn compile_to_ir(source: &str, temp_name: &str) -> io::Result<String> {
     Ok(ir)
 }
 
+/// Helper: unique temp path per invocation. Tests run in parallel by
+/// default; a fixed filename makes concurrent runs clobber each other's
+/// source/binary and produces spurious failures.
+fn unique_temp_path(stem: &str, ext: &str) -> PathBuf {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    env::temp_dir().join(format!(
+        "ruyi_{}_{}_{}.{}",
+        std::process::id(),
+        stem,
+        n,
+        ext
+    ))
+}
+
 /// Helper: compile source to binary and run it, returning stdout.
 fn compile_and_run(source: &str) -> io::Result<String> {
     let ruyic_path = get_ruyic_path();
@@ -102,9 +118,8 @@ fn compile_and_run(source: &str) -> io::Result<String> {
         ));
     }
 
-    let temp_dir = env::temp_dir();
-    let source_path = temp_dir.join("ruyi_try_catch_test.ry");
-    let binary_path = temp_dir.join("ruyi_try_catch_test_bin");
+    let source_path = unique_temp_path("try_catch", "ry");
+    let binary_path = unique_temp_path("try_catch_bin", "");
 
     fs::write(&source_path, source)?;
 
@@ -219,7 +234,6 @@ fn main(): int {
  * @date 2026-07-08
  */
 #[test]
-#[ignore = "LLVM 14 ObjectWriter on macOS does not emit .eh_frame personality/LSDA. Fix: upgrade to LLVM 19+ or Linux"]
 // Verifies: REQ-LPAD-003/004
 fn test_try_catch_catches_inner_throw() {
     let source = r#"
@@ -446,7 +460,6 @@ fn main(): int {
  * @date 2026-07-08
  */
 #[test]
-#[ignore = "LLVM 14 macOS: .eh_frame personality not emitted by ObjectWriter. Unblock: LLVM 19+ or Linux"]
 // Verifies: REQ-LPAD-003/004
 fn test_try_catch_multiple_catch_arms() {
     let source = r#"
@@ -495,11 +508,16 @@ fn main(): int {
     );
 
     let ir = compile_to_ir(source, "test_multi_arm").expect("Failed to compile to IR");
-    let landingpad_count = ir.matches("landingpad").count();
+    // The runtime adopts the pending-exception protocol (no landingpad /
+    // invoke): dispatch is a selector lookup over the declared catch ids.
     assert!(
-        landingpad_count >= 1,
-        "Expected at least 1 'landingpad' instruction, got {}.\nIR:\n{}",
-        landingpad_count,
+        ir.contains("call i32 @ruyi_try_begin(") && ir.contains("call i64 @ruyi_find_handler("),
+        "Expected pending-exception dispatch (ruyi_try_begin + ruyi_find_handler).\nIR:\n{}",
+        ir
+    );
+    assert!(
+        !ir.contains("\n  invoke "),
+        "Pending-exception protocol must not emit `invoke`.\nIR:\n{}",
         ir
     );
 }
@@ -514,7 +532,6 @@ fn main(): int {
  * @date 2026-07-08
  */
 #[test]
-#[ignore = "LLVM 14 macOS: .eh_frame personality not emitted by ObjectWriter. Unblock: LLVM 19+ or Linux"]
 // Verifies: REQ-LPAD-003/004
 fn test_try_finally_normal_path() {
     let source = r#"
@@ -556,7 +573,6 @@ fn main(): int {
  * @date 2026-07-08
  */
 #[test]
-#[ignore = "LLVM 14 macOS: .eh_frame personality not emitted by ObjectWriter. Unblock: LLVM 19+ or Linux"]
 // Verifies: REQ-LPAD-003/004
 fn test_try_finally_exception_path() {
     let source = r#"
@@ -605,7 +621,6 @@ fn main(): int {
  * @date 2026-07-08
  */
 #[test]
-#[ignore = "LLVM 14 macOS: .eh_frame personality not emitted by ObjectWriter. Unblock: LLVM 19+ or Linux"]
 // Verifies: REQ-LPAD-003/004
 fn test_try_no_catch_exception_propagates() {
     let source = r#"
@@ -657,7 +672,6 @@ fn main(): int {
  * @date 2026-07-08
  */
 #[test]
-#[ignore = "LLVM 14 macOS: .eh_frame personality not emitted by ObjectWriter. Unblock: LLVM 19+ or Linux"]
 // Verifies: REQ-LPAD-003/004
 fn test_unwind_in_nested_try() {
     let source = r#"
@@ -695,5 +709,83 @@ fn main(): int {
         !output.contains("outer caught"),
         "Expected 'outer caught' NOT in output (inner catch must swallow), got: {}",
         output
+    );
+}
+
+/**
+ * Test: a throw inside a `let` initializer dispatches before the next
+ * statement runs (regression for declaration statements skipping the
+ * pending-exception check).
+ *
+ * Pre-fix the checker ran only after expression statements, so the
+ * statement following `let x = f();` observed the dummy value and its
+ * side effects executed before the catch handler.
+ *
+ * @author Ruyi Team
+ * @date 2026-10-18
+ */
+#[test]
+fn test_throw_in_let_initializer_dispatches_before_next_statement() {
+    let source = r#"
+fn f(): int {
+    throw Error.new("boom");
+    return 5;
+}
+
+fn main(): int {
+    try {
+        let x = f();
+        print("after-let");
+    } catch (e) {
+        print("caught");
+    }
+    return 0;
+}
+"#;
+    let output = compile_and_run(source).expect("Failed to compile and run");
+    assert!(
+        output.contains("caught"),
+        "Expected 'caught' in output, got: {}",
+        output
+    );
+    assert!(
+        !output.contains("after-let"),
+        "Expected 'after-let' NOT to run after the initializer threw, got: {}",
+        output
+    );
+}
+
+/**
+ * Test: an uncaught throw exiting a non-void function still emits a valid
+ * return instruction.
+ *
+ * Regression for `try_propagate` emitting `ret void` inside `define i32
+ * @main` (verifier warning + undefined exit code).
+ *
+ * @author Ruyi Team
+ * @date 2026-10-18
+ */
+#[test]
+fn test_uncaught_throw_keeps_non_void_return_valid() {
+    let source = r#"
+fn main(): int {
+    try {
+        throw Error.new("boom");
+    } catch (e: TypeError) {
+        print("wrong arm");
+    }
+    return 0;
+}
+"#;
+    let ir = compile_to_ir(source, "test_uncaught_return").expect("Failed to compile to IR");
+    let main_start = ir
+        .find("define i32 @main(")
+        .expect("main declaration missing from IR");
+    let main_body = &ir[main_start..];
+    let main_end = main_body.find("\n}").expect("unterminated main");
+    assert!(
+        !main_body[..main_end].contains("ret void"),
+        "main is declared i32 and must not contain `ret void`.\nIR:\n{}",
+        &main_body[..main_end]
     );
 }
