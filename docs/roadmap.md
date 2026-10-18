@@ -179,6 +179,10 @@ T9 closure (v0.5.5-residual-fixes, shipped with v0.5.5):
 
 Net result: 1.8 Throw / 1.9 Match / 1.10 Template are FULL in `crates/ruyic/src/codegen/`. Remaining P1 items live in Typechecker (3.2/3.4/3.5/3.6), Runtime (2.6), and Stdlib (4.5/4.6/4.8/4.9) — tracked separately under `v0.5.7-p1-defects` (deferred).
 
+No `#[ignore]` tests remain in `tests/codegen.rs`; the 2 IR tests in `tests/gc_flag.rs` were re-pointed at `examples/basics/` fixtures and un-ignored during v0.5.12.
+
+**Cross-function exception propagation (fixed 2026-10-18)**: the 6 end-to-end tests in `tests/try_catch_invoke.rs` were un-ignored and now run in the default suite (12/12 passing). Root causes: (1) `ruyi_find_handler` only accepted a `u64::MAX` catch-all sentinel while codegen passes the 32-bit `CATCH_ALL_TYPE_ID`; (2) `try_propagate` emitted `ret void` inside non-void functions (invalid IR → exit 255); (3) the enclosing-try lookup used `nth(1)` after the current frame had already been popped, skipping the immediate outer handler; (4) pending-exception checks only ran after expression statements, so `let x = f()` and `return f()` could run effects before dispatch or miss a sibling catch; (5) user exception classes mapped to `ERROR` when thrown but to 0 when caught, so they never matched.
+
 ### v0.3 — Runtime Integration (Priority: CRITICAL)
 
 > The runtime GC, async scheduler, and exception handling exist but aren't wired to codegen.

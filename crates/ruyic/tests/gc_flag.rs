@@ -3,8 +3,8 @@
  *
  * 测试覆盖：
  * 1. `--gc` flag 注册与合法/非法值
- * 2. 默认 stub 模式编译 `examples/hello.ry`，IR 含 `call @cc_alloc`
- * 3. `--gc=real` 模式编译示例，IR 含 `declare ... @ruyi_gc_alloc`
+ * 2. 默认 stub 模式编译示例，IR 含 `call ptr @cc_alloc`
+ * 3. `--gc=real` 模式编译示例，IR 含 `declare ptr @ruyi_gc_alloc`
  *
  * @author luozegang
  * @date 2026-07-10
@@ -91,27 +91,26 @@ fn ruyic_rejects_gc_bogus_value() {
     );
 }
 
-/// 默认 stub 模式：编译 `examples/hello.ry`，IR 含 `call @cc_alloc`。
+/// 默认 stub 模式：编译 `examples/basics/arrays.ry`，IR 含 `call ptr @cc_alloc`。
 #[test]
-#[ignore = "requires LLVM 14 (run with --ignored)"]
-fn hello_ir_default_mode_emits_cc_alloc() {
+fn arrays_ir_default_mode_emits_cc_alloc() {
     let workspace = workspace_root();
     let mut cmd = Command::new(ruyic_bin());
     cmd.current_dir(&workspace);
-    cmd.arg("examples/hello.ry");
+    cmd.arg("examples/basics/arrays.ry");
     cmd.arg("--emit-llvm");
     let out = cmd
         .output()
-        .expect("failed to spawn ruyic hello.ry --emit-llvm");
+        .expect("failed to spawn ruyic arrays.ry --emit-llvm");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
         out.status.success(),
-        "ruyic hello.ry --emit-llvm should succeed; stderr:\n{}",
+        "ruyic arrays.ry --emit-llvm should succeed; stderr:\n{}",
         stderr
     );
 
-    // ruyic emits IR to examples/target/hello.ll
-    let ll_path = workspace.join("examples/target/hello.ll");
+    // ruyic emits IR to examples/basics/target/arrays.ll
+    let ll_path = workspace.join("examples/basics/target/arrays.ll");
     let ir = std::fs::read_to_string(&ll_path)
         .unwrap_or_else(|e| panic!("cannot read {}: {}", ll_path.display(), e));
 
@@ -121,21 +120,20 @@ fn hello_ir_default_mode_emits_cc_alloc() {
         pick_alloc_lines(&ir)
     );
     assert!(
-        ir.contains("call i8* @cc_alloc("),
-        "default GC mode (stub) should emit `call i8* @cc_alloc(...)`; IR:\n{}",
+        ir.contains("call ptr @cc_alloc("),
+        "default GC mode (stub) should emit `call ptr @cc_alloc(...)`; IR:\n{}",
         pick_alloc_lines(&ir)
     );
 }
 
-/// `--gc=real` 模式：编译 `examples/fibonacci.ry`，IR 含
-/// `declare ... @ruyi_gc_alloc` （即使本程序未必真分配）。
+/// `--gc=real` 模式：编译 `examples/basics/fibonacci.ry`，IR 含
+/// `declare ptr @ruyi_gc_alloc` （即使本程序未必真分配）。
 #[test]
-#[ignore = "requires LLVM 14 (run with --ignored)"]
 fn fibonacci_ir_real_mode_declares_ruyi_gc_alloc() {
     let workspace = workspace_root();
     let mut cmd = Command::new(ruyic_bin());
     cmd.current_dir(&workspace);
-    cmd.arg("examples/fibonacci.ry");
+    cmd.arg("examples/basics/fibonacci.ry");
     cmd.arg("--gc=real");
     cmd.arg("--emit-llvm");
     let out = cmd
@@ -148,12 +146,12 @@ fn fibonacci_ir_real_mode_declares_ruyi_gc_alloc() {
         stderr
     );
 
-    let ll_path = workspace.join("examples/target/fibonacci.ll");
+    let ll_path = workspace.join("examples/basics/target/fibonacci.ll");
     let ir = std::fs::read_to_string(&ll_path)
         .unwrap_or_else(|e| panic!("cannot read {}: {}", ll_path.display(), e));
 
     assert!(
-        ir.contains("declare i8* @ruyi_gc_alloc("),
+        ir.contains("declare ptr @ruyi_gc_alloc("),
         "--gc=real should declare @ruyi_gc_alloc in IR; alloc lines:\n{}",
         pick_alloc_lines(&ir)
     );

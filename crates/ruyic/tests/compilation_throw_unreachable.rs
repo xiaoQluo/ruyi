@@ -4,7 +4,7 @@
  * Tests verify that after `call ruyi_throw`, the LLVM IR contains
  * an `unreachable` instruction, ensuring proper basic block termination.
  *
- * These tests are enabled (previously `#[ignore]`) and require LLVM 14.
+ * These tests are enabled (previously `#[ignore]`) and require LLVM 20.
  * Run with: cargo test -p ruyic --test compilation_throw_unreachable
  *
  * @author Ruyi Team

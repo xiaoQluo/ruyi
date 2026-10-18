@@ -168,7 +168,17 @@ Ruyi 是一门通过 LLVM 编译为原生机器码的编程语言。本路线图
 - **T6** (`fc01bcb`) 新增 `ruyi_obj_get` / `ruyi_obj_keys` FFI（1.2）。
 - **T8**（本次变更）新增 5 个示例 + 8 个集成测试夹具，覆盖各项能力。
 
-剩余缺口在自动加载的 `stdlib/collections.ry` 无法完成类型检查：T9 (`809e6c9`) 将 `RangeError` / `ArrayIterator` 识别为 Named 类型，但未让它们可作为构造器调用，因此 `throw RangeError("...")` 仍会在用户代码运行前中止编译。`tests/codegen.rs` 中 27 个 `#[ignore]` 代码生成测试（含 T8 新增的 8 个夹具）均带有引用此 stdlib 缺口的 `// TODO:` 阻塞说明，将在后续变更使 `RangeError` / `ArrayIterator` 可构造后通过。
+T9 缺口收尾（v0.5.5-residual-fixes，随 v0.5.5 发布）：
+- **T-1.3.1** (`21028de`) 使 `RangeError` / `ArrayIterator` 可通过 `.new(...)` 构造。
+- **T-1.3.2** (`3245ae2`) 启用 21 个此前被 T9 阻塞的代码生成集成测试。
+- **T-1.3.3** (`9e1d30a`) 修复模板字面量非字符串插值的 `value_to_i8_ptr`，启用 `codegen_template_literal`（关闭 1.10）。
+- **T-1.1** (`c625b9f`) 启用 2 个 throw-unreachable 测试（关闭 1.8 codegen 路径）。
+- **T-1.2** (`0a35a71`) 启用 12 个 try_catch_invoke 测试（关闭 1.8 下游）。
+- **T-1.4** (`10ca3c7`) 强制 trait bound 检查（解锁 3.2 supertrait 后续项）。
+
+净结果：1.8 Throw / 1.9 Match / 1.10 Template 在 `crates/ruyic/src/codegen/` 已完整。`tests/codegen.rs` 中不再有 `#[ignore]` 测试；`tests/gc_flag.rs` 的 2 个 IR 测试已于 v0.5.12 期间随示例目录分级重构改指 `examples/basics/` 下的夹具并解除忽略。
+
+**跨函数异常传播（2026-10-18 修复）**：`tests/try_catch_invoke.rs` 的 6 个端到端异常测试此前因「跨函数 throw 传播到调用方 catch 时 rc=255」被忽略，现已全部解除忽略并纳入默认套件（12/12 通过）。根因与修复：① `ruyi_find_handler` 只认 `u64::MAX` 哨兵，而 codegen 传入的是 32 位 `CATCH_ALL_TYPE_ID`（0xFFFFFFFF），catch-all 永不匹配；② `try_propagate` 在非 void 函数中发 `ret void`，非法 IR 导致退出码 255；③ 外层 try 查找用 `nth(1)`，弹出当前帧后偏移一位，嵌套传播直接退出函数；④ 仅表达式语句做 pending 检查，`let x = f()`、`return f()` 的抛出会晚一拍或被同函数 catch 漏掉；⑤ 用户异常类在抛出侧映射 `ERROR`、捕获侧映射 0，永不匹配。
 
 ### v0.3 — 运行时对接（优先级：关键）
 
