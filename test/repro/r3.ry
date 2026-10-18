@@ -1,0 +1,5 @@
+fn main() {
+    let arr: Array<dyn> = ["Ruyi"];
+    print(arr[0]);
+    print("\n");
+}

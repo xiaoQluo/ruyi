@@ -1,0 +1,25 @@
+import { Some, None, Option, Ok, Err, Result } from "option";
+
+fn pair<T, U>(first: T, second: U): { first: T, second: U } {
+    return { first: first, second: second };
+}
+
+fn main(): void {
+    let p1 = pair("age", 25);
+    print("p1.first: ");
+    print(p1.first);
+    print("\n");
+    print("p1.second: ");
+    print(p1.second);
+    print("\n");
+    
+    let some_int = Some.new(42);
+    print("Some<int>.value: ");
+    print(some_int.value);
+    print("\n");
+    
+    let ok_int = Ok.new(100);
+    print("Ok<int,void>.value: ");
+    print(ok_int.value);
+    print("\n");
+}

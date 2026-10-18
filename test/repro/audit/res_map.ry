@@ -1,0 +1,12 @@
+import { Ok, Err, Result } from "option";
+
+fn main() {
+  let v: Result<int, string> = Ok.new(5);
+  print("built\n");
+  let m = v.map((x: int) => x * 2);
+  print("mapped\n");
+  let r = m.unwrap();
+  print("unwrapped\n");
+  print(r);
+  print("\n");
+}

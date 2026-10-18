@@ -1,0 +1,8 @@
+fn take(...args: dyn): string {
+    return args[0];
+}
+fn main() {
+    let s = take("Ruyi");
+    print(s);
+    print("\n");
+}

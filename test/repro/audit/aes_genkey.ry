@@ -1,0 +1,13 @@
+import { Aes256Gcm } from "crypto/aes";
+
+fn main() {
+  print("start\n");
+  let key = Aes256Gcm.generateKey();
+  print("key ok\n");
+  let nonce = Aes256Gcm.generateNonce();
+  print("nonce ok\n");
+  let cipher = Aes256Gcm.encrypt(key, nonce, "68656c6c6f");
+  print("encrypt ok\n");
+  print(cipher);
+  print("\n");
+}

@@ -1,0 +1,7 @@
+import { Ok, Err, Result } from "option";
+
+fn main() {
+    let success: Result<int, string> = Ok.new(100);
+    print(success.isOk());
+    print("\n");
+}
