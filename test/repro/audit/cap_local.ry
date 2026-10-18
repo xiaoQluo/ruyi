@@ -1,0 +1,6 @@
+fn main() {
+  let n = 10;
+  let f = (x: int) => x + n;
+  print(f(5));
+  print("\n");
+}
