@@ -1,0 +1,9 @@
+fn makeAdder(n: int): fn(int) -> int {
+  return (x: int) => x + n;
+}
+
+fn main() {
+  let f = makeAdder(10);
+  print(f(5));
+  print("\n");
+}

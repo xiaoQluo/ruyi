@@ -1,0 +1,7 @@
+import { format } from "fmt";
+
+fn main() {
+    let s1 = format("Hello, {}!", "Ruyi");
+    print(s1);
+    print("\n");
+}

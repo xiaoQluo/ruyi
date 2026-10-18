@@ -1,0 +1,8 @@
+import { Ok, Err, Result } from "option";
+
+fn main() {
+  let v = Ok.new(5);
+  print("built\n");
+  print(v.unwrap());
+  print("\n");
+}
